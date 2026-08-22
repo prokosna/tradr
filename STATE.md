@@ -22,7 +22,7 @@ Before starting M0, resolve the open decisions below.
 
 ## Next three actions
 
-1. **Write the Work Order for WI-M0-001d**, TypeScript project references. It is cheapest now, while the four packages hold one line each
+1. **Write the Work Order for WI-M0-001d**, TypeScript project references, once `WI-M0-002` lands. It is cheapest now, while the four packages hold one line each
 2. **Close decision 13, the identity curve, before WI-M0-007.** The blocking unknown is whether the chosen Noise crate can perform P-256 DH through an external `agree`, as [ADR-0011](docs/adr/0011-keystore-exposes-operations.md) requires. Establish that first; the decision follows from it
 3. **Keep measuring decision 6.** One Work Item is not a sample; see the record under that decision below
 
@@ -49,9 +49,11 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: []
+work_items: [WI-M0-002]
 blocked: []
 ```
+
+`WI-M0-002` is with an Implementer and awaiting review.
 
 **The original WI-M0-001 was re-cut into three**, since one skeleton covering both workspaces plus code generation exceeded the 8-file guide in [docs/10](docs/10-implementation-process.md#the-unit-of-work-the-work-item) by roughly threefold. `WI-M0-001c` depends on both of the other two.
 
@@ -192,7 +194,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-001b | pnpm workspace and the four TypeScript packages | **done** — PASS after one REVISE | |
 | WI-M0-001c | Code generation from `proto`: `protox` and `prost` for Rust into the new `tradr-proto`, npm `buf` and `ts-proto` for TypeScript | **done** — PASS after two REVISE | |
 | WI-M0-001d | **TypeScript project references.** Each package compiles as its own program with its own `lib`, so a Node-hosted package cannot typecheck against browser globals. Cut in response to WI-M0-001c; see the note below | todo | |
-| WI-M0-002 | Required CI jobs: lint, test, comment-lang, comment-length, excuse-grep, layer-deps | todo | |
+| WI-M0-002 | Required CI jobs: `lint`, `test`, and the four checks under `ci/`. `layer-deps` also runs the mechanical Change Drills D5 and D9 | **in review** | |
 | WI-M0-003 | The Tauri 2 app launches on Linux | todo | |
 | WI-M0-004 | The Tauri 2 app launches on Android — evidence for ADR-0001 | todo | |
 | WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client — see the note below | todo | |
@@ -225,6 +227,7 @@ Design changes arising during implementation. Every DCR must have a matching `do
 | DCR | Content | Reflected in | Date |
 |---|---|---|---|
 | DCR-001 | Account identity becomes the `(iss, sub)` pair, and provider-specific knowledge is confined to a Provider Profile. Every derived value — `account_tag`, the bootstrap EID secret, link records — takes `account_id = iss \|\| 0x00 \|\| sub` | [ADR-0010](docs/adr/0010-identity-is-the-issuer-subject-pair.md), [docs/05](docs/05-security.md), [CONTEXT.md](CONTEXT.md), docs/02, 03, 06, 07, `proto/` | 2026-08-22 |
+| DCR-006 | The three comment jobs warned instead of failing, on the theory that a warning obliges inspection. A job that cannot fail is not a gate — WI-M0-001b caught that exact shape in `pnpm lint`. All jobs now fail, and false positives are retired in `ci/allowlist.txt` with a mandatory reason | [docs/10](docs/10-implementation-process.md#every-job-fails-false-positives-go-in-the-allowlist) | 2026-08-22 |
 | DCR-005 | `docs/02` named no crate as the protobuf codec's home, while Change Drill D5 requires it be confined to the Adapter layer. Added `crates/tradr-proto`, the only crate permitted to name `prost`, checkable with `grep -rl prost crates/`. The TypeScript side already had `@tradr/protocol`; the Rust side was the asymmetry | [docs/02](docs/02-architecture.md#where-the-protobuf-codec-lives) | 2026-08-22 |
 | DCR-004 | Change Drill D9 demanded `crates/` be untouched when moving off Tauri, which no layout can satisfy — the composition root must name a shell. D9 now budgets one binding crate, checkable with `grep -ril tauri crates/` | [CLAUDE.md](CLAUDE.md) §4-C | 2026-08-22 |
 | DCR-003 | The crate dependency diagram in docs/02 pointed outward from `tradr-core`, contradicting B3 and I4. Split into a call-flow diagram and a crate-dependency diagram; every crate edge now points at `tradr-core` | [docs/02](docs/02-architecture.md#direction-of-dependency) | 2026-08-22 |
