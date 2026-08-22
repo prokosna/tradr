@@ -69,7 +69,7 @@ When device B receives an Attestation from device A:
      a linked pair        -> TRUST_TIER_LINKED
      neither              -> NEARBY_EPHEMERAL only in ephemeral receive mode,
                              otherwise REJECTED
-7. Verify the signature over Hello.nonce
+7. Verify the signature over "tradr-hello-v1" || Hello.nonce
      <- proves A holds the private key right now, defeating replay
 ```
 
@@ -256,6 +256,44 @@ Wire fields are therefore named for their role — `identity_pub` and `agreement
 **Both are 65-byte uncompressed SEC-1 points.** `snow` puts the agreement key on the wire in that form and offers no choice, and using the compressed 33-byte encoding for the identity key alone would put two encodings of the same curve in one message — 32 bytes saved against a standing invitation to pass one where the other belongs.
 
 Pinning the encoding is not cosmetic. The Attestation nonce is `BLAKE3(identity_pub || agreement_pub)`, so two implementations that disagree about how a point is encoded compute different nonces and **fail every verification against each other**, with nothing in the error to say why.
+
+## Every signature carries a domain tag
+
+The identity key signs in five places, and until this was written down only one of them said what it was signing for.
+
+| What is signed | Where |
+|---|---|
+| `"tradr-keybind-v1" \|\| agreement_pub` | `KeyBinding.signature` |
+| The peer's `Hello.nonce` | `HelloAck.nonce_signature` |
+| The Brokr's challenge nonce | `BrokrRegister.challenge_signature` |
+| A revocation record | [docs/07](07-brokr.md#data-model) |
+| The self-signed certificate's TBS structure | The QUIC handshake |
+
+**Two of those are "sign these opaque bytes somebody handed me", and a Brokr chooses one of them.** That is a cross-protocol signature reuse attack, and it needs no cryptographic weakness:
+
+```
+1. A malicious Brokr opens a Tradr handshake with peer P, claiming to be device D
+2. P sends its Hello.nonce
+3. D registers with that Brokr, which is the Brokr's normal job
+4. The Brokr sends P's Hello.nonce back to D as the registration challenge
+5. D signs it, because a challenge is opaque bytes and this one looks like any other
+6. The Brokr replays that signature to P and completes the handshake as D
+```
+
+[ADR-0005](adr/0005-brokr-is-optional.md) states that a compromised Brokr cannot impersonate anyone. Without domain separation that is false, and the Brokr does not even have to be compromised to try it.
+
+**So every signature the identity key produces is over `tag || message`, where `tag` comes from a closed set:**
+
+```
+tradr-keybind-v1     binding the agreement key to the identity key
+tradr-hello-v1       proving key possession during a handshake
+tradr-brokr-v1       answering a Brokr's registration challenge
+tradr-revoke-v1      declaring a device revoked
+```
+
+The set is closed rather than a free string so that adding a context is a visible edit in one place, not something any call site can invent.
+
+**The certificate is the exception, and it is safe by structure rather than by tag.** X.509 fixes what gets signed, so no prefix can be added. It does not need one: a `TBSCertificate` is DER and begins with `0x30`, while every tagged message begins with `tradr-`, so no byte string is a valid instance of both. That reasoning is worth keeping written down, because it is the only thing standing between the certificate key and the same attack.
 
 ## Why there are two encryption layers
 

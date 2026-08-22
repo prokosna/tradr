@@ -16,7 +16,9 @@ message Hello {
 message HelloAck {
   uint32 negotiated_version = 1;
   uint32 max_frame_size     = 2;  // Bytes
-  bytes  nonce_signature    = 3;  // P-256 signature over peer's Hello.nonce
+  // P-256 signature over "tradr-hello-v1" || peer's Hello.nonce. The tag is
+  // required: see docs/05, "Every signature carries a domain tag".
+  bytes  nonce_signature    = 3;
   TrustTier assigned_tier   = 4;  // The tier we granted the peer
   repeated ShareDescriptor visible_shares = 5;  // Only the Shares this peer may see
 }

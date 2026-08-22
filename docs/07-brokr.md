@@ -93,7 +93,7 @@ Client                                     Brokr
   |<--- RelayReady { session_id, urls, ttl } ---|
 ```
 
-`challenge_signature` is a P-256 signature over the nonce, verified with `identity_pub`. All it establishes is that the holder of the same key returned. Who that is stays unknown to the Brokr, which is correct.
+`challenge_signature` is a P-256 signature over `"tradr-brokr-v1" || nonce`, verified with `identity_pub`. **The domain tag is what stops a Brokr handing a device a peer's `Hello.nonce` as a challenge and replaying the answer** — see [docs/05](05-security.md#every-signature-carries-a-domain-tag). All it establishes is that the holder of the same key returned. Who that is stays unknown to the Brokr, which is correct.
 
 ### HTTP
 
