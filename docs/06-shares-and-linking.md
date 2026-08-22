@@ -48,6 +48,8 @@ output: an absolute path safe to touch, or a rejection
 7. Check against the deny list
 ```
 
+**Step 2 is split across two layers; steps 1 and 3 through 7 are not.** The checks in step 2 are statements about the shape of a name, so they live in `tradr-core` as the `RelPath` type, beside `ItemId` — nothing there touches a filesystem. The normalization inside step 2 cannot live there: the standard library has no Unicode normalization and `tradr-core` may take no dependency ([invariant I4](../CLAUDE.md#8-invariants-that-must-not-break)). So `tradr-vfs` normalizes and then **rebuilds a `RelPath` from the normalized string**, which is how "re-run the checks above" happens without a second copy of the rules existing to drift out of step with the first.
+
 ### TOCTOU
 
 Between validating a path in steps 4 and 5 and opening it in step 6, an attacker who can insert a symlink defeats the check. So **validation and opening are never separated**.

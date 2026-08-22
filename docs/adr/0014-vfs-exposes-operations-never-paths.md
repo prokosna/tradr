@@ -66,6 +66,7 @@ trait Vfs: Send + Sync {
 ## Consequences
 
 - **Layer 1 cannot log an absolute path**, because it never has one. Diagnostics name a root and a relative path. This is a small loss in debugging and a direct contribution to F4, since a Share Root reveals a directory layout.
-- **`tradr-core` gains no filesystem knowledge from the trait.** `RelPath` validation — rejecting `..`, absolute forms, NUL and control characters, and normalizing to NFC — is a Layer 0 concern about the *shape of a name* and belongs with `ItemId`. Everything about the real filesystem stays in `tradr-vfs`.
+- **`tradr-core` gains no filesystem knowledge from the trait.** `RelPath` validation — rejecting `..`, absolute forms, NUL and control characters — is a Layer 0 concern about the *shape of a name* and belongs with `ItemId`. Everything about the real filesystem stays in `tradr-vfs`.
+- **NFC normalization cannot happen in Layer 0**, and this splits step 2 of docs/06's procedure across two layers. The standard library ships no Unicode normalization, so it needs a crate, and `tradr-core` may have none. `tradr-vfs` normalizes and then **rebuilds a `RelPath` from the result**, which re-runs every Layer 0 check on the normalized form. That is what docs/06 asks for by "re-run the checks above", and routing the re-check through the same type is what keeps two copies of the rules from drifting apart.
 - **The trait cannot express "give me the file's real location" and that is deliberate.** Desktop drag-out, already deferred as DF-1, is the one feature that would want it. When it arrives it gets an explicit operation with its own review, not a general-purpose path escape hatch.
 - **Test implementations are in-memory maps**, satisfying B5 without a temporary directory.
