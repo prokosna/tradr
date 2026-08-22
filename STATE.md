@@ -9,8 +9,8 @@ last_updated: 2026-08-22
 phase: implementing
 current_milestone: M0
 implementation_started: true
-work_items_landed: 11
-last_commit: f20baaa
+work_items_landed: 12
+last_commit: a1a22aa
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -18,21 +18,21 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-**M0 is under way and nothing is blocked.** Eleven Work Items have landed, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building on Linux and Android.
+**M0 is under way and nothing is blocked.** Twelve Work Items have landed, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
 
 `crates/` holds `tradr-core` with no dependency at all, and six other crates whose edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
 
 **The build environment is complete.** WebKitGTK, the Android SDK, NDK r27, the four Android Rust targets, JDK 21 and a booting emulator are all in place — see Build environment below, which also lists three traps that produce misleading errors.
 
-**Two of ADR-0001's three withdrawal conditions remain open**, and both are now testable rather than blocked: an AVD boots headless, so `WI-M0-004b` and `WI-M0-005` can run against a real Android.
+**The app runs on Android.** WI-M0-004b installed the APK on the emulator and the React frontend rendered inside the WebView. Two of [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md)'s three withdrawal conditions remain open, and neither is blocked.
 
 Ten DCRs have been raised since design "finished". Four of them fixed defects that would have been expensive after implementation: an `aud` compared as a scalar, a dependency diagram that inverted the architecture, sender-chosen strings used as path components, and identity-key signatures with no domain separation — the last of which let a Brokr impersonate a device.
 
 ## Next three actions
 
-1. **Write the Work Order for WI-M0-004b**, installing the APK on the running emulator and confirming the app starts. It is the cheapest remaining ADR-0001 evidence and the AVD is already booted
-2. **Then WI-M0-005**, bidirectional Kotlin and Rust calls — the third and last withdrawal condition
-3. **WI-M0-006d**, the `Transport` and `Vfs` traits, whenever the Android lane is waiting on something
+1. **Land the DCR-011 documentation commit**, which is half-written in the tree: `docs/adr/0013` exists, `docs/adr/0014` and the `docs/02` correction do not yet. It must land **before** WI-M0-006d, per §7
+2. **Then WI-M0-006d**, the `Vfs` trait, and **WI-M0-006e**, the `Transport` trait — split, because they carry two separate decisions
+3. **WI-M0-005**, bidirectional Kotlin and Rust calls — the second withdrawal condition, and the only remaining one that can be tested locally
 
 Decisions 13 and the environment are closed. **Decision 15 must be settled before any chunk work**, since chunk resumption is a Critical Module. Creating the GitHub repository and pushing waits until local-only work ends.
 
@@ -40,6 +40,7 @@ Decisions 13 and the environment are closed. **Decision 15 must be settled befor
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M0-004b | PASS | 0 | **The app runs on Android.** The Implementer reported the screen as "a mostly blank white screen" with one line of text and explicitly declined to judge whether that counted as success, saying the call needed someone who knew what the frontend should produce. That was the right call and the answer is that it is a complete render: `apps/tradr/index.html` contains only an empty `<div id="root">`, and the `<h1>Tradr</h1>` on screen exists nowhere but inside the React bundle. **Its presence proves the whole chain** — asset protocol, HTML, module script, React mount, DOM — which a WebView fallback page or a failed script load could not produce. `primaryCpuAbi=x86_64` confirms the ABI claim from WI-M0-004 was not merely present in the archive but selected and used. The negative control was run properly: after `am force-stop`, the same `pidof` and `dumpsys` commands report the process gone and the launcher resumed instead |
 | WI-M0-001 | PASS | 1 | The Work Order, not the Implementer. It said to copy a crate's doc line verbatim from the `docs/02` layout table; that table's row for `tauri-plugin-tradr` begins "Exposes the above", which points at nothing once lifted out of the table |
 | WI-M0-004 | PASS | 0 | Evidence for ADR-0001, and the richest so far. **The build failed first on the environment**, not on the code: Gradle 8.14.3 cannot read Java 25 class files and says only `Unsupported class file major version 69`, naming neither Java nor a version that works. Raising Gradle is not the fix, since the Android Gradle Plugin does not support Java 25 either. The Implementer stopped and reported rather than switching JDKs or bumping Gradle on its own, which kept an environment problem from being buried as an implementation one. **I verified the artifact rather than the report**: all four ABIs are present including `x86_64`, so the emulator can take it, and `apksigner` reports SHA-1 `9c95332f9bd8e7f47f2d5b763a4d688c33623a1b`, which matches the debug keystore fingerprint already registered on the Google OAuth client. The 40 files staged under `gen/` are Gradle sources with no build output among them. **The debug APK is 464 MB**, roughly 120 MB per ABI of unstripped native library |
 | WI-M0-003 | PASS | 0 | Evidence for [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md). `cargo tauri build` succeeded and the binary was verified to launch: **exit 124 under `xvfb-run`, meaning still running, against exit 101 with no display, meaning it died** — I reproduced both rather than reading them, since a launch check that cannot tell a live window from a crash proves nothing. Two pieces of friction were reported unprompted and both were worth having: `cargo tauri build` **rewrites `src-tauri/Cargo.toml`** to add feature lists, so a build dirties a version-controlled file; and the AppImage bundler **downloads five unpinned executables** at build time, now recorded as risk R11 and folded into decision 7 |
@@ -153,6 +154,8 @@ ANDROID_HOME=/home/prokosna/android-sdk
 NDK_HOME=/home/prokosna/android-sdk/ndk/27.3.13750724
 ```
 
+**Rust's stdout and stderr reach logcat under the tag `RustStdoutStderr`.** WI-M0-004b captured Chromium's own `variations_seed_loader.cc` and GL lines under that tag, which proves the redirection is live even though the app prints nothing of its own yet. **There is no `tauri`- or `wry`-tagged output at all**, so `println!` from Rust is the observation channel on Android. WI-M0-005 needs that, since a Kotlin-to-Rust call has no other visible effect.
+
 **The NDK version is a decision: r27.** r28 and r29 are available and 30 is at release candidate, but r27 is the series Tauri 2's Android tooling has been exercised against. Newest-available buys nothing here; if r27 proves too old, moving up is one `sdkmanager` invocation.
 
 **A lesson about checking an environment.** The first check used `dpkg -s` and `pkg-config` and reported the WebKitGTK stack missing, which was true at the time. But `pkg-config` was itself absent in that same check, so every `pkg-config --exists` line in it was meaningless rather than negative — a tool reporting on its own absence. **Probe for the artifact, not for a package manager's opinion of it**: `pkg-config --modversion`, or the `.pc` file on disk, answers the question that matters and cannot answer it wrongly for that reason.
@@ -243,7 +246,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 **Decision point at the end of M0** — evaluate [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md)'s withdrawal conditions. Failing any of these means switching to Electron with Kotlin.
 
-- [ ] The Tauri 2 Android build passes reliably in CI — **builds here** (WI-M0-004: all four ABIs, correctly signed). Unchecked because no CI has run it yet, and CI is where "reliably" gets tested
+- [ ] The Tauri 2 Android build passes reliably in CI — **builds and runs here** (WI-M0-004: all four ABIs, correctly signed; WI-M0-004b: installs, launches, and renders the frontend). Unchecked because no CI has run it yet, and CI is where "reliably" gets tested
 - [ ] Bidirectional calls work: Kotlin plugin into Rust, Rust back into Kotlin — WI-M0-005
 - [ ] Android `ACTION_SEND` arrives through the Tauri plugin — not yet cut
 
@@ -262,13 +265,14 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-002 | Required CI jobs: `lint`, `test`, and the four checks under `ci/`. `layer-deps` also runs the mechanical Change Drills D5 and D9 | **done** — PASS after one REVISE | |
 | WI-M0-003 | The Tauri 2 app launches on Linux | **done** — PASS, no REVISE | |
 | WI-M0-004 | The Tauri 2 Android build produces an installable APK — evidence for ADR-0001 | **done** — PASS, no REVISE. Re-cut to build-only; launching moved to WI-M0-004b | |
-| WI-M0-004b | Install the APK on the emulator and confirm the app starts — the launch half of WI-M0-004, possible now that an AVD boots | todo | |
+| WI-M0-004b | Install the APK on the emulator and confirm the app starts — the launch half of WI-M0-004 | **done** — PASS, no REVISE | |
 | WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client — see the note below | todo | |
 | WI-M0-005 | Bidirectional Kotlin and Rust calls — evidence for ADR-0001 | todo | |
 | WI-M0-006a | Layer 0 domain types: `DeviceId`, `TransferId`, `ChunkIndex`, `TrustTier` | **done** — PASS after one REVISE | |
 | WI-M0-006b | **`ItemId`**, validated as an opaque token. Critical Module: the Supervisor wrote the tests first | **done** — PASS, no REVISE | Yes |
 | WI-M0-006c | Layer 1 traits: `KeyStore`, `Clock`, `Rng`. **`KeyStore` is operation-shaped per [ADR-0011](docs/adr/0011-keystore-exposes-operations.md); no method returns key material** | **done** — PASS after one REVISE | |
-| WI-M0-006d | Layer 1 traits: `Transport` and `Vfs` | todo | |
+| WI-M0-006d | Layer 1 trait: `Vfs`. **Blocked on the DCR-011 docs commit**, which carries [ADR-0014](docs/adr/0014-vfs-exposes-operations.md) | todo | |
+| WI-M0-006e | Layer 1 trait: `Transport`. Split from WI-M0-006d because the two carry separate decisions and `Transport`'s stream model is the less settled of them | todo | |
 | WI-M0-007 | Key generation and OS key store storage — Linux Secret Service, Android Keystore. P-256 per [ADR-0012](docs/adr/0012-p256-for-device-keys.md); decision 13 is closed and this is unblocked | todo | Yes |
 | WI-M0-008 | Google OAuth on desktop: loopback with PKCE | todo | |
 | WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth | todo | |
@@ -346,6 +350,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 | DF-4 | Android 14+ `ChooserAction` custom actions. Sharing Shortcuts suffice for v1 | Undecided | [docs/08](docs/08-platform-integration.md) |
 | DF-7 | **`SharedSecret` is not zeroized on drop.** It cannot be, in `tradr-core`: `zeroize` is a dependency the crate may not have, and a hand-written `Drop` needs `write_volatile`, which needs `unsafe`, which `#![forbid(unsafe_code)]` rules out. An ECDH secret therefore lingers in freed memory until overwritten. Resolving it means either letting a Layer 3 type own the zeroizing and having `KeyStore::agree` return something it implements, or accepting the exposure and saying so | Before M1's Noise work | WI-M0-006c |
 | DF-6 | `useExactTypes=false` in `buf.gen.yaml`. ts-proto's `Exact<DeepPartial<T>, I>` signature does not resolve under TypeScript 7.0.2, so `fromPartial` and `create` lose excess-property checking. Revisit when ts-proto supports TypeScript 7 | Undecided | WI-M0-001c |
+| DF-8 | **The Android WebView renders under the status bar.** The `<h1>` in WI-M0-004b's screenshot sits on top of the system clock: no `viewport-fit=cover`, no `env(safe-area-inset-*)`, no edge-to-edge handling anywhere. Harmless at one heading and wrong for every screen after it | Before M2's Android integration | WI-M0-004b |
 | ~~DF-5~~ | ~~TypeScript packages have no build step~~ — **resolved by WI-M0-001d.** Packages emit declarations and JavaScript into `dist/`, and `main` and `types` point there | Done 2026-08-22 | WI-M0-001b |
 
 ---
