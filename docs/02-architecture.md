@@ -122,6 +122,7 @@ tradr/
 |
 \-- crates/                     # Rust workspace, Cargo
     +-- tradr-core/             #   Transfer/Item/Chunk, resumption, integrity
+    +-- tradr-proto/            #   The protobuf codec, and the only crate naming prost
     +-- tradr-identity/         #   Attestation issue and verify, Noise, key storage
     +-- tradr-transport/        #   The Transport trait, five implementations, path selection
     +-- tradr-discovery/        #   mDNS, BLE advertise and scan, static pins, Brokr presence
@@ -150,15 +151,26 @@ Crate dependencies, what appears in each `Cargo.toml`:
 ```
                           tradr-core          <- depends on nothing internal
                                ^                  declares the traits
-       +-----------+-----------+-----------+
-       |           |           |           |
-  tradr-transport  |     tradr-identity    |
-              tradr-vfs             tradr-discovery
+       +-----------+-----------+-----------+-----------+
+       |           |           |           |           |
+  tradr-transport  |     tradr-identity    |      tradr-proto
+              tradr-vfs             tradr-discovery      ^
+                                                         |
+       tradr-transport, tradr-identity and tradr-discovery
+       also depend on tradr-proto for the wire encoding
 
-       tauri-plugin-tradr -> all five        <- the composition root, and the
+       tauri-plugin-tradr -> all six         <- the composition root, and the
                                                 only place implementations are
                                                 bound to the traits
 ```
+
+### Where the protobuf codec lives
+
+`tradr-proto` is Layer 2. It converts between the domain types `tradr-core` owns and the wire messages in `proto/tradr/v1/`, and **it is the only crate that may name `prost` or any other protobuf library**. That is what makes Change Drill D5 — replacing protobuf with another format — an Adapter-layer change rather than a sweep.
+
+The check is mechanical, the same shape as D9's: `grep -rl prost crates/` must return `crates/tradr-proto/` and nothing else.
+
+`tradr-core` does not depend on it. Domain types have no encoding, which is rule B2 holding: the core must not know that protobuf exists.
 
 **Every arrow points at `tradr-core`, and none leaves it.** An implementation crate depends on the core to implement its traits; the core never names an implementation. `tradr-transport` does not depend on `tradr-identity` either — what it needs from keys arrives through `KeyStore`, which is what keeps Change Drill D3 confined to `transport/quic/`.
 
