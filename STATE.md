@@ -105,22 +105,22 @@ Consequences already applied: every document is in English, `Coordinator` is now
 
 The one outstanding input is the desktop client secret's value, which WI-M0-008 needs.
 
-#### Environment prerequisites that block M0, and need the user
+#### Build environment, Ubuntu 24.04.4 LTS
 
-Checked 2026-08-22 on Ubuntu 24.04.4 LTS. **Neither of these can be installed from inside a session; both need the user at a shell.**
+**Linux desktop: ready.** The user installed the WebKitGTK stack on 2026-08-22 at 22:34. `pkg-config` reports `webkit2gtk-4.1` 2.52.3, `javascriptcoregtk-4.1` 2.52.3, `libsoup-3.0` 3.4.4 and `gtk+-3.0` 3.24.41, and `patchelf` is on the path. `WI-M0-003` is unblocked.
 
-**WI-M0-003, the Tauri app on Linux**, needs the WebKitGTK stack. None of it is present:
+**Android: ready.** The SDK lives at `/home/prokosna/android-sdk` with `build-tools;35.0.0`, `platform-tools` 37.0.1, `platforms;android-35`, `cmdline-tools/latest`, and `ndk/27.3.13750724`. The four Android Rust targets were added on 2026-08-22: `aarch64-linux-android`, `armv7-linux-androideabi`, `i686-linux-android`, `x86_64-linux-android`. OpenJDK 25.0.3 is present.
+
+**`ANDROID_HOME` and `NDK_HOME` are not exported into a non-interactive shell.** A Work Order that needs them must set them explicitly, or the build fails with a message that does not name the cause:
 
 ```
-sudo apt install libwebkit2gtk-4.1-dev libxdo-dev libssl-dev                  libayatana-appindicator3-dev librsvg2-dev                  pkg-config patchelf
+ANDROID_HOME=/home/prokosna/android-sdk
+NDK_HOME=/home/prokosna/android-sdk/ndk/27.3.13750724
 ```
 
-`build-essential`, `curl`, `wget` and `file` are already present.
+**The NDK version is a decision: r27.** r28 and r29 are available and 30 is at release candidate, but r27 is the series Tauri 2's Android tooling has been exercised against. Newest-available buys nothing here; if r27 proves too old, moving up is one `sdkmanager` invocation.
 
-**WI-M0-004, the Tauri app on Android**, needs the Android SDK and NDK. `ANDROID_HOME` is unset and `sdkmanager` is absent. OpenJDK 25.0.3 is present and sufficient. The debug keystore at `~/.android/debug.keystore` was created by hand and its SHA-1 is registered, so only the SDK is outstanding.
-
-**M0's completion criteria depend on both**, since the decision point at the end of M0 evaluates [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md)'s withdrawal conditions and two of the three are Android build evidence. Work that does not need them — the `WI-M0-006` series, the Layer 0 and 1 types and traits — proceeds meanwhile.
-
+**A lesson about checking an environment.** The first check used `dpkg -s` and `pkg-config` and reported the WebKitGTK stack missing, which was true at the time. But `pkg-config` was itself absent in that same check, so every `pkg-config --exists` line in it was meaningless rather than negative — a tool reporting on its own absence. **Probe for the artifact, not for a package manager's opinion of it**: `pkg-config --modversion`, or the `.pc` file on disk, answers the question that matters and cannot answer it wrongly for that reason.
 #### Toolchain present on the development machine
 
 Checked 2026-08-22: `cargo` and `rustc` 1.98.0, `pnpm` 10.20.0, `node` v24.11.0. **Neither `protoc` nor `buf` is installed as a system binary.**
