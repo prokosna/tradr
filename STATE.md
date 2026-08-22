@@ -9,8 +9,8 @@ last_updated: 2026-08-22
 phase: implementing
 current_milestone: M0
 implementation_started: true
-work_items_landed: 12
-last_commit: a1a22aa
+work_items_landed: 13
+last_commit: 0e4a2f1
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -18,7 +18,7 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-**M0 is under way and nothing is blocked.** Twelve Work Items have landed, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
+**M0 is under way and nothing is blocked.** Thirteen Work Items have landed, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
 
 `crates/` holds `tradr-core` with no dependency at all, and six other crates whose edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
 
@@ -30,8 +30,8 @@ Thirteen DCRs have been raised since design "finished". Six of them fixed defect
 
 ## Next three actions
 
-1. **WI-M0-006d**, `RelPath`. It is a **Critical Module**, so the tests are written here before the Work Order goes out — the `ItemId` procedure, which produced the one M0 Work Item that passed with no findings at all
-2. **WI-M0-006f**, the `Vfs` trait, then **WI-M0-006e**, the `Transport` trait. The `Vfs` write half is fixed by docs/04's partial-file rules: write at an offset, `fsync`, atomic rename into place, and sweep. `Transport`'s stream model is the least settled thing in M0; scope it to what [docs/03](docs/03-discovery-and-transport.md) pins down and say in the Work Order what is being left to M1
+1. **WI-M0-006f**, the `Vfs` trait, per [ADR-0014](docs/adr/0014-vfs-exposes-operations-never-paths.md). `RelPath` now exists for it to take. The write half is fixed by docs/04's partial-file rules: write at an offset, `fsync`, atomic rename into place, and sweep
+2. **WI-M0-006e**, the `Transport` trait. Its stream model is the least settled thing in M0; scope it to what [docs/03](docs/03-discovery-and-transport.md) pins down and say in the Work Order what is being left to M1
 3. **WI-M0-005**, bidirectional Kotlin and Rust calls — the second withdrawal condition, and the only remaining one testable locally. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
 
 Decisions 13 and the environment are closed. **Decision 15 must be settled before any chunk work**, since chunk resumption is a Critical Module. Creating the GitHub repository and pushing waits until local-only work ends.
@@ -40,6 +40,7 @@ Decisions 13 and the environment are closed. **Decision 15 must be settled befor
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M0-006d | PASS | 1 | The second Critical Module, tests written first as for `ItemId`. **The REVISE was mine**: `char::is_control()` returns false for every bidirectional control, so the documented rule let `report\u{202E}fdp.exe` through, which renders to the user as `reportexe.pdf`. The implementation matched docs/04 exactly; docs/04 was wrong (DCR-013). The Implementer also found that **my own test file failed two of my own CI checks**, and declined to add the `ci/allowlist.txt` entry that would have turned the suite green, on the grounds that suppressing a check against the Supervisor's spec file is a process call. It is, and the fix was to rewrite my prose rather than touch either check. **I mutation-tested the result: nine mutations, eight caught.** The ninth, removing the absolute-path check, survived — and is an equivalent mutant rather than a gap, since a leading `/` always produces an empty first component which `EmptyComponent` rejects. Established by differential testing over 28,561 generated strings, not by argument. Four of the nine mutations tested **over-rejection**, which is the failure mode that matters here: rejecting `con`, trimming trailing dots, widening the bidi range over `U+200E`, and applying the drive check per component were all caught |
 | WI-M0-004b | PASS | 0 | **The app runs on Android.** The Implementer reported the screen as "a mostly blank white screen" with one line of text and explicitly declined to judge whether that counted as success, saying the call needed someone who knew what the frontend should produce. That was the right call and the answer is that it is a complete render: `apps/tradr/index.html` contains only an empty `<div id="root">`, and the `<h1>Tradr</h1>` on screen exists nowhere but inside the React bundle. **Its presence proves the whole chain** — asset protocol, HTML, module script, React mount, DOM — which a WebView fallback page or a failed script load could not produce. `primaryCpuAbi=x86_64` confirms the ABI claim from WI-M0-004 was not merely present in the archive but selected and used. The negative control was run properly: after `am force-stop`, the same `pidof` and `dumpsys` commands report the process gone and the launcher resumed instead |
 | WI-M0-001 | PASS | 1 | The Work Order, not the Implementer. It said to copy a crate's doc line verbatim from the `docs/02` layout table; that table's row for `tauri-plugin-tradr` begins "Exposes the above", which points at nothing once lifted out of the table |
 | WI-M0-004 | PASS | 0 | Evidence for ADR-0001, and the richest so far. **The build failed first on the environment**, not on the code: Gradle 8.14.3 cannot read Java 25 class files and says only `Unsupported class file major version 69`, naming neither Java nor a version that works. Raising Gradle is not the fix, since the Android Gradle Plugin does not support Java 25 either. The Implementer stopped and reported rather than switching JDKs or bumping Gradle on its own, which kept an environment problem from being buried as an implementation one. **I verified the artifact rather than the report**: all four ABIs are present including `x86_64`, so the emulator can take it, and `apksigner` reports SHA-1 `9c95332f9bd8e7f47f2d5b763a4d688c33623a1b`, which matches the debug keystore fingerprint already registered on the Google OAuth client. The 40 files staged under `gen/` are Gradle sources with no build output among them. **The debug APK is 464 MB**, roughly 120 MB per ABI of unstripped native library |
@@ -56,6 +57,8 @@ Decisions 13 and the environment are closed. **Decision 15 must be settled befor
 **Two Work Orders in three have carried an error of mine, and in both cases the cost was one REVISE cycle, not a wrong implementation.** The pattern that keeps it cheap: the Work Order names the constraint it is protecting, and says to stop and report rather than work around a blocker. An Implementer told *why* a rule exists stops at the right place; one given only the rule improvises.
 
 **Breaking a check proves the test notices the check is gone. It does not prove the check is complete.** WI-M0-006a is the example: the Implementer had a negative test for a non-hex character, verified it correctly by removing the check and watching it fail, and it still missed `+` — because the test used a character someone chose. The fix was to demand a **property** instead of a list: for any string `FromStr` accepts, `Display` of the result must equal the input lowercased. A property rules out the class; a list rules out what was thought of.
+
+**A surviving mutation is a question, not a verdict.** WI-M0-006d's absolute-path check can be deleted with every test still green, which looks exactly like a hole in the suite and is not one: any leading `/` produces an empty first component, so `EmptyComponent` rejects the same set. Confirmed by running both versions over 28,561 generated strings and comparing acceptance, which is the only way to tell an equivalent mutant from a gap. Deciding it by reading the code would have been a guess either way.
 
 **Every tooling gate gets broken on purpose before it is trusted.** WI-M0-001b is the reason this is written down: both the Implementer and a reading of the command output said the lint gate worked, and it did not. E1's discipline applies to tooling, not only to tests.
 
@@ -272,7 +275,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-006a | Layer 0 domain types: `DeviceId`, `TransferId`, `ChunkIndex`, `TrustTier` | **done** — PASS after one REVISE | |
 | WI-M0-006b | **`ItemId`**, validated as an opaque token. Critical Module: the Supervisor wrote the tests first | **done** — PASS, no REVISE | Yes |
 | WI-M0-006c | Layer 1 traits: `KeyStore`, `Clock`, `Rng`. **`KeyStore` is operation-shaped per [ADR-0011](docs/adr/0011-keystore-exposes-operations.md); no method returns key material** | **done** — PASS after one REVISE | |
-| WI-M0-006d | **`RelPath`**, the Layer 0 half of docs/06's step 2. Critical Module: the Supervisor writes the tests first, as for `ItemId`. NFC normalization is explicitly **not** here, per DCR-012 | todo | Yes |
+| WI-M0-006d | **`RelPath`**, the Layer 0 half of docs/06's step 2. Critical Module: the Supervisor wrote the tests first, as for `ItemId`. NFC normalization is explicitly **not** here, per DCR-012 | **done** — PASS after one REVISE | Yes |
 | WI-M0-006f | Layer 1 trait: `Vfs`, per [ADR-0014](docs/adr/0014-vfs-exposes-operations-never-paths.md). Depends on WI-M0-006d for `RelPath` | todo | |
 | WI-M0-006e | Layer 1 trait: `Transport`. Split from WI-M0-006d because the two carry separate decisions and `Transport`'s stream model is the less settled of them | todo | |
 | WI-M0-007 | Key generation and OS key store storage — Linux Secret Service, Android Keystore. P-256 per [ADR-0012](docs/adr/0012-p256-for-device-keys.md); decision 13 is closed and this is unblocked | todo | Yes |

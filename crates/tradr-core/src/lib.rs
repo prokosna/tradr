@@ -11,6 +11,7 @@ mod clock;
 mod device_id;
 mod item_id;
 mod key_store;
+mod rel_path;
 mod rng;
 mod transfer_id;
 mod trust_tier;
@@ -23,6 +24,7 @@ pub use key_store::{
     Backing, DomainTag, KeyStore, KeyStoreError, PUBLIC_KEY_POINT_LEN, PublicIdentity,
     PublicKeyPoint, PublicKeyPointError, SharedSecret, Signature, SoftwareReason,
 };
+pub use rel_path::{REL_PATH_COMPONENT_MAX_LEN, RelPath, RelPathError};
 pub use rng::{Rng, RngError};
 pub use transfer_id::{TransferId, TransferIdError};
 pub use trust_tier::{TrustTier, TrustTierError};
