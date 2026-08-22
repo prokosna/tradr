@@ -33,6 +33,7 @@ Implementation has begun. Decision 13 has until WI-M0-007. Creating the GitHub r
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
 | WI-M0-001 | PASS | 1 | The Work Order, not the Implementer. It said to copy a crate's doc line verbatim from the `docs/02` layout table; that table's row for `tauri-plugin-tradr` begins "Exposes the above", which points at nothing once lifted out of the table |
+| WI-M0-006a | PASS | 1 | **`u8::from_str_radix("+f", 16)` returns `Ok(15)`.** Both `DeviceId::from_str` and `TransferId::from_str` therefore accepted a leading sign, so `"+f0102..."` and `"0f0102..."` parsed to the same value and the string form stopped being injective. `TransferId` is a path component under `.tradr-partial/`, so laxity ran the wrong way. Fixed by requiring ASCII hex digits before parsing |
 | WI-M0-002a | PASS | 0 | Field numbers held, `grep -rn "ed25519\|x25519" proto/ crates/ packages/` returns nothing, and the six `tradr-proto` tests run with 65-byte fixtures. The Implementer also deleted a stale `Curve is open decision 13` comment I had left on the field, flagged it as a judgment call rather than making it silently, and was right: ADR-0012 closed that decision and the comment would have contradicted the change implementing it |
 | WI-M0-001d | PASS | 0 | The boundary was verified rather than assumed: `document.title` fails in `brokr-client`, in `client-state`, and in `ui`, and `globalThis.atob` fails everywhere except `packages/protocol`, which alone carries `DOM`. I added the `ui` probe; the other three were asked for. **The report claimed `cargo test --workspace` found no tests in any crate, which is false** — `tradr-proto` has six and they pass. Harmless here, and a reminder that a green exit code and an accurate account of what ran are different claims |
 | WI-M0-002 | PASS | 1 | **My error, caught by the Implementer before it could do harm.** The Work Order's `layer-deps` rule 4 said an implementation crate may depend on `tradr-core` alone, which contradicts `docs/02` — that document says `tradr-transport`, `tradr-identity` and `tradr-discovery` also depend on `tradr-proto` for wire encoding. The check would have failed on sanctioned work within a few Work Items, and the first person to hit it would have weakened it. Corrected to: an implementation crate may depend on `tradr-core` and `tradr-proto` and nothing else internal. What stays forbidden is one implementation crate depending on another, which is the case that breaks D3 |
@@ -40,6 +41,8 @@ Implementation has begun. Decision 13 has until WI-M0-007. Creating the GitHub r
 | WI-M0-001b | PASS | 1 | **A gate that could not fail.** `pnpm lint` exited 0 with a lint violation present, because Biome reports rule hits as warnings. WI-M0-002 was about to wire that script into CI as a required job. Fixed with `--error-on-warnings`, and confirmed by breaking it: dirty tree exits 1, clean tree exits 0. A second, minor finding converted the four package headers from `//` to JSDoc, matching the Rust crates' `//!` and moving them from checklist A3 to A5 |
 
 **Two Work Orders in three have carried an error of mine, and in both cases the cost was one REVISE cycle, not a wrong implementation.** The pattern that keeps it cheap: the Work Order names the constraint it is protecting, and says to stop and report rather than work around a blocker. An Implementer told *why* a rule exists stops at the right place; one given only the rule improvises.
+
+**Breaking a check proves the test notices the check is gone. It does not prove the check is complete.** WI-M0-006a is the example: the Implementer had a negative test for a non-hex character, verified it correctly by removing the check and watching it fail, and it still missed `+` — because the test used a character someone chose. The fix was to demand a **property** instead of a list: for any string `FromStr` accepts, `Display` of the result must equal the input lowercased. A property rules out the class; a list rules out what was thought of.
 
 **Every tooling gate gets broken on purpose before it is trusted.** WI-M0-001b is the reason this is written down: both the Implementer and a reading of the command output said the lint gate worked, and it did not. E1's discipline applies to tooling, not only to tests.
 
@@ -218,7 +221,10 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-004 | The Tauri 2 app launches on Android — evidence for ADR-0001 | todo | |
 | WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client — see the note below | todo | |
 | WI-M0-005 | Bidirectional Kotlin and Rust calls — evidence for ADR-0001 | todo | |
-| WI-M0-006 | Layer 0 and 1 types and traits: `Transport`, `Vfs`, `KeyStore`, `Clock`, `Rng`. **`KeyStore` is operation-shaped per [ADR-0011](docs/adr/0011-keystore-exposes-operations.md); no method returns key material** | todo | |
+| WI-M0-006a | Layer 0 domain types: `DeviceId`, `TransferId`, `ChunkIndex`, `TrustTier` | **done** — PASS after one REVISE | |
+| WI-M0-006b | **`ItemId`, and the invariants that make it safe as a path component.** Critical Module: the Supervisor writes the tests first | todo | Yes |
+| WI-M0-006c | Layer 1 traits: `KeyStore`, `Clock`, `Rng`. **`KeyStore` is operation-shaped per [ADR-0011](docs/adr/0011-keystore-exposes-operations.md); no method returns key material** | todo | |
+| WI-M0-006d | Layer 1 traits: `Transport` and `Vfs` | todo | |
 | WI-M0-007 | Key generation and OS key store storage — Linux Secret Service, Android Keystore. **Blocked on decision 13** | todo | Yes |
 | WI-M0-008 | Google OAuth on desktop: loopback with PKCE | todo | |
 | WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth | todo | |
