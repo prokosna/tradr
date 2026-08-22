@@ -269,13 +269,27 @@ People and models both forget, so the machine checks. These are required and blo
 | `comment-lang` | Flags non-ASCII characters inside comments, mechanizing A1 | M0 |
 | `comment-length` | Lists block comments over five lines | M0 |
 | `excuse-grep` | Greps the A4 patterns and lists every hit | M0 |
-| `layer-deps` | Checks Layers 0 and 1 import no forbidden crate, via `cargo-deny` bans or a script | M0 |
+| `layer-deps` | Checks Layers 0 and 1 import no forbidden crate, and runs the mechanical Change Drills: D5's `prost` confinement and D9's `tauri` confinement | M0 |
 | `test` | The whole suite | M0 |
 | **`no-brokr`** | **Tier 0 and Tier 1 integration tests pass with no Brokr running** | **M1** |
 | `hostile-paths` | The `tradr-vfs` adversarial path suite | M3 |
 | `transport-switch` | Forces path switches and confirms transfers resume | M1 |
 
-`comment-lang`, `comment-length`, and `excuse-grep` warn rather than fail, since they produce false positives. **But a warning obliges the Supervisor to inspect every hit.** They are never made ignorable.
+### Every job fails. False positives go in the allowlist
+
+`comment-lang`, `comment-length`, and `excuse-grep` do produce false positives, and an earlier version of this document had them warn rather than fail for that reason, on the understanding that a warning obliges the Supervisor to inspect every hit.
+
+**That does not survive contact with practice.** A job that cannot fail is not a gate; it is a log line, and it accumulates unread hits until the count is large enough that nobody reads any of them. WI-M0-001b caught exactly this shape in `pnpm lint`, which exited 0 with a real violation present because Biome reports rule hits as warnings.
+
+So every job fails on a hit, and a false positive is retired by naming it in `ci/allowlist.txt` **with a reason**:
+
+```
+excuse-grep | crates/tradr-vfs/src/openat.rs | The kernel constant is literally named RESOLVE_NO_MAGICLINKS
+```
+
+The difference is that an allowlist entry is a deliberate act, visible in a diff, attributable to whoever added it, and countable. A warning nobody reads is none of those things.
+
+**An allowlist entry with an empty reason fails the job**, so the escape hatch cannot be taken silently.
 
 `no-brokr` is the only thing holding up [ADR-0005](adr/0005-brokr-is-optional.md). Without it that ADR becomes a fiction within months.
 
