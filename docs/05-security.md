@@ -253,6 +253,10 @@ Two things had to hold before this could be decided, and both were measured rath
 
 Wire fields are therefore named for their role — `identity_pub` and `agreement_pub` — never for the algorithm behind them.
 
+**Both are 65-byte uncompressed SEC-1 points.** `snow` puts the agreement key on the wire in that form and offers no choice, and using the compressed 33-byte encoding for the identity key alone would put two encodings of the same curve in one message — 32 bytes saved against a standing invitation to pass one where the other belongs.
+
+Pinning the encoding is not cosmetic. The Attestation nonce is `BLAKE3(identity_pub || agreement_pub)`, so two implementations that disagree about how a point is encoded compute different nonces and **fail every verification against each other**, with nothing in the error to say why.
+
 ## Why there are two encryption layers
 
 | Transport | Secure channel |
