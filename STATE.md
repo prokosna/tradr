@@ -22,18 +22,19 @@ Before starting M0, resolve the open decisions below.
 
 ## Next three actions
 
-1. **Write the Work Order for WI-M0-001d**, TypeScript project references, once `WI-M0-002` lands. It is cheapest now, while the four packages hold one line each
-2. **Land WI-M0-002a**, the `identity_pub` and `agreement_pub` rename, once WI-M0-001d is in. Decision 13 is closed and `proto/` is the last place still carrying the old names
-3. **Keep measuring decision 6.** One Work Item is not a sample; see the record under that decision below
+1. **Write the Work Order for WI-M0-006c**, the `KeyStore`, `Clock` and `Rng` traits. `KeyStore` is where [ADR-0011](docs/adr/0011-keystore-exposes-operations.md) and [ADR-0012](docs/adr/0012-p256-for-device-keys.md) first become code, and nothing blocks it
+2. **Get the environment prerequisites installed**, recorded under Decisions below. `WI-M0-003` through `WI-M0-005` are blocked on them, and two of ADR-0001's three withdrawal conditions are Android build evidence
+3. **Settle decision 15** before any chunk work, since chunk resumption is a Critical Module
 
-Implementation has begun. Decision 13 has until WI-M0-007. Creating the GitHub repository and pushing waits until local-only work ends.
+Decision 13 is closed. Creating the GitHub repository and pushing waits until local-only work ends.
 
 ### Review record
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
 | WI-M0-001 | PASS | 1 | The Work Order, not the Implementer. It said to copy a crate's doc line verbatim from the `docs/02` layout table; that table's row for `tauri-plugin-tradr` begins "Exposes the above", which points at nothing once lifted out of the table |
-| WI-M0-006a | PASS | 1 | **`u8::from_str_radix("+f", 16)` returns `Ok(15)`.** Both `DeviceId::from_str` and `TransferId::from_str` therefore accepted a leading sign, so `"+f0102..."` and `"0f0102..."` parsed to the same value and the string form stopped being injective. `TransferId` is a path component under `.tradr-partial/`, so laxity ran the wrong way. Fixed by requiring ASCII hex digits before parsing |
+| WI-M0-006b | PASS | 0 | The first Critical Module. Tests were written first, in `crates/tradr-core/tests/item_id.rs`, and handed over not compiling. **I then mutation-tested my own tests against the implementation**: removing the length check, the alphabet check or the reserved-name check each broke tests; allowing uppercase broke tests; and making the reserved-name check a prefix match, which over-rejects `com0` and `com10`, also broke tests. The suite catches both directions. **`cargo fmt --check` failed on my test file, not on the Implementer's code**, and the Implementer reported it rather than editing an off-limits file or hiding the failure behind a green summary |
+| WI-M0-006a | PASS | 1 | **`u8::from_str_radix("+f", 16)` returns `Ok(15)`.** Both `DeviceId::from_str` and `TransferId::from_str` therefore accepted a leading sign, so `"+f0102..."` and `"0f0102..."` parsed to the same value and the string form stopped being injective. At the time `TransferId` still named a directory under `.tradr-partial/`, so laxity ran the wrong way; DCR-008 has since removed sender-chosen values from those paths, but the aliasing was real regardless. Fixed by requiring ASCII hex digits before parsing |
 | WI-M0-002a | PASS | 0 | Field numbers held, `grep -rn "ed25519\|x25519" proto/ crates/ packages/` returns nothing, and the six `tradr-proto` tests run with 65-byte fixtures. The Implementer also deleted a stale `Curve is open decision 13` comment I had left on the field, flagged it as a judgment call rather than making it silently, and was right: ADR-0012 closed that decision and the comment would have contradicted the change implementing it |
 | WI-M0-001d | PASS | 0 | The boundary was verified rather than assumed: `document.title` fails in `brokr-client`, in `client-state`, and in `ui`, and `globalThis.atob` fails everywhere except `packages/protocol`, which alone carries `DOM`. I added the `ui` probe; the other three were asked for. **The report claimed `cargo test --workspace` found no tests in any crate, which is false** — `tradr-proto` has six and they pass. Harmless here, and a reminder that a green exit code and an accurate account of what ran are different claims |
 | WI-M0-002 | PASS | 1 | **My error, caught by the Implementer before it could do harm.** The Work Order's `layer-deps` rule 4 said an implementation crate may depend on `tradr-core` alone, which contradicts `docs/02` — that document says `tradr-transport`, `tradr-identity` and `tradr-discovery` also depend on `tradr-proto` for wire encoding. The check would have failed on sanctioned work within a few Work Items, and the first person to hit it would have weakened it. Corrected to: an implementation crate may depend on `tradr-core` and `tradr-proto` and nothing else internal. What stays forbidden is one implementation crate depending on another, which is the case that breaks D3 |
@@ -112,7 +113,7 @@ sudo apt install libwebkit2gtk-4.1-dev libxdo-dev libssl-dev                  li
 
 **WI-M0-004, the Tauri app on Android**, needs the Android SDK and NDK. `ANDROID_HOME` is unset and `sdkmanager` is absent. OpenJDK 25.0.3 is present and sufficient. The debug keystore at `~/.android/debug.keystore` was created by hand and its SHA-1 is registered, so only the SDK is outstanding.
 
-**M0's completion criteria depend on both**, since the decision point at the end of M0 evaluates [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md)'s withdrawal conditions and two of the three are Android build evidence. Work that does not need them — `WI-M0-006`, the Layer 0 and 1 types and traits — can proceed meanwhile.
+**M0's completion criteria depend on both**, since the decision point at the end of M0 evaluates [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md)'s withdrawal conditions and two of the three are Android build evidence. Work that does not need them — the `WI-M0-006` series, the Layer 0 and 1 types and traits — proceeds meanwhile.
 
 #### Toolchain present on the development machine
 
@@ -222,7 +223,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client — see the note below | todo | |
 | WI-M0-005 | Bidirectional Kotlin and Rust calls — evidence for ADR-0001 | todo | |
 | WI-M0-006a | Layer 0 domain types: `DeviceId`, `TransferId`, `ChunkIndex`, `TrustTier` | **done** — PASS after one REVISE | |
-| WI-M0-006b | **`ItemId`, and the invariants that make it safe as a path component.** Critical Module: the Supervisor writes the tests first | todo | Yes |
+| WI-M0-006b | **`ItemId`**, validated as an opaque token. Critical Module: the Supervisor wrote the tests first | **done** — PASS, no REVISE | Yes |
 | WI-M0-006c | Layer 1 traits: `KeyStore`, `Clock`, `Rng`. **`KeyStore` is operation-shaped per [ADR-0011](docs/adr/0011-keystore-exposes-operations.md); no method returns key material** | todo | |
 | WI-M0-006d | Layer 1 traits: `Transport` and `Vfs` | todo | |
 | WI-M0-007 | Key generation and OS key store storage — Linux Secret Service, Android Keystore. **Blocked on decision 13** | todo | Yes |
@@ -275,6 +276,8 @@ Design changes arising during implementation. Every DCR must have a matching `do
 ### A trap this Supervisor fell into
 
 **`git add -A` while an Implementer is working sweeps unreviewed code into your commit.** It happened on 2026-08-22: a `docs/`-only DCR commit picked up WI-M0-001d's entire working tree, breaking two rules in [CLAUDE.md](CLAUDE.md) §5 at once — committing before `PASS`, and a design change that was supposed to be a docs-only commit. It was caught by reading `git show --stat` afterwards, and undone with `git reset --soft HEAD~1` before anything was pushed.
+
+A second lesson arrived the same day from the opposite direction. A scripted `STATE.md` edit failed partway, so a Work Item commit landed **without** its `STATE.md` update, which §5 also forbids — and it happened twice in a row, because the fix was scripted just as blindly as the mistake. **Read `git show --stat` after every commit and confirm both halves are there**, the code and the record. And when a scripted edit asserts, read the file before writing the next script.
 
 **Stage paths explicitly when a Work Item is in flight.** `git add docs/ STATE.md`, never `git add -A`. And read `git show --stat` after every commit; the mistake is invisible in `git status` once it is made.
 
