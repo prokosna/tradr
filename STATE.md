@@ -114,13 +114,15 @@ The one outstanding input is the desktop client secret's value, which WI-M0-008 
 
 **The Android build needs JDK 21, not the system's JDK 25.** Gradle 8.14.3, which Tauri scaffolds, cannot read Java 25 class files and fails with `Unsupported class file major version 69` — a message that names neither Java nor the version that would work. The Android Gradle Plugin does not support Java 25 either, so raising Gradle is not the fix; a supported JDK is.
 
-Temurin 21.0.12.1 was installed to `~/.jdks/jdk-21.0.12.1+1` on 2026-08-22, deliberately **without `sudo` and without displacing the system JDK**, which OpenJDK 25 remains. Every Android command sets it explicitly:
+The user installed OpenJDK 21 on 2026-08-22, and it lives beside the 25 that remains the default:
 
 ```
-JAVA_HOME=/home/prokosna/.jdks/jdk-21.0.12.1+1
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
 ```
 
-Confirmed working: `./gradlew --version` reports Gradle 8.14.3 on Launcher JVM 21.0.12.1. **CI must pin the same major version**; a runner defaulting to a newer JDK reproduces this failure.
+**The default `java` on the path is still 25**, so `JAVA_HOME` has to be set explicitly on every Android command rather than relied upon. Confirmed working: `./gradlew --version` reports Gradle 8.14.3 on Launcher JVM 21.0.11.
+
+**CI must pin the same major version.** A runner defaulting to a newer JDK reproduces this failure exactly, and the message it produces names neither Java nor a version that would work.
 
 **An emulator is available.** Installed 2026-08-22: the `emulator` package and `system-images;android-35;google_apis;x86_64`. AVD `tradr-test` boots headless and reaches `sys.boot_completed`, reporting Android 15, API 35, ABI `x86_64`. KVM is present and the user is in the `kvm` group.
 
