@@ -13,3 +13,5 @@ Decisions and the reasoning behind them. To change a decision, write a new ADR a
 | [0007](0007-receiver-driven-chunk-pull.md) | The receiver pulls chunks | Accepted |
 | [0008](0008-rust-for-the-native-layer.md) | Network, disk, and keys live in Rust | Accepted |
 | [0009](0009-supervised-implementation-loop.md) | A cheap model implements, an expensive one reviews | Accepted |
+| [0010](0010-identity-is-the-issuer-subject-pair.md) | Account identity is the (issuer, subject) pair | Accepted |
+| [0011](0011-keystore-exposes-operations.md) | The KeyStore exposes operations, never key bytes | Accepted |

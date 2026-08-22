@@ -131,8 +131,8 @@ Layer 3  Driver    quinn, btleplug, mdns-sd, rustls, SAF, React, Fastify
 
 | Hypothetical external change | Files allowed to change |
 |---|---|
-| D1. Google moves its JWKS URL | 1 |
-| D2. Add a second OIDC provider | 2 — one verifier, one registration |
+| D1. Google moves its JWKS URL | 1 — the Provider Profile |
+| D2. Add a second OIDC provider | 2 — one profile, one registration. No other file may name a provider |
 | D3. Swap QUIC from `quinn` to another crate | `transport/quic/` only |
 | D4. Reduce BLE to scan-only (the ADR-0002 retreat) | one discovery implementation plus a capability flag |
 | D5. Replace protobuf with another format | Adapter layer only |

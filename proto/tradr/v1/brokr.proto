@@ -17,9 +17,9 @@ message BrokrRegister {
   bytes  challenge_signature = 4;
   string display_name    = 5;
   Platform platform      = 6;
-  // Grouping tag used to find peers. BLAKE3(google_sub || salt); the sub itself is
-  // never sent. Devices of one account share a value, so the Brokr can group them
-  // without ever learning who they are.
+  // Grouping tag used to find peers. BLAKE3(account_id || salt), account_id being
+  // iss || 0x00 || sub. Neither part is ever sent. Devices of one account share a
+  // value, so the Brokr can group them without ever learning who they are.
   bytes  account_tag     = 7;
   // Tags for finding linked peers. BLAKE3(link_secret) for each link.
   repeated bytes link_tags = 8;

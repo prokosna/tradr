@@ -6,7 +6,7 @@ This file is the single source of truth for the vocabulary used in code and docu
 
 | Term | Definition |
 |---|---|
-| **Account** | One Google account. Identity is the OIDC `sub`, never the email — emails change. |
+| **Account** | One account at an identity provider. Identity is the pair `(iss, sub)`, never the email — emails change, and a `sub` is unique only within its issuer. Google is the only provider shipped. |
 | **Device** | One installation of Tradr. One device means one key pair and one Attestation. |
 | **Peer** | The device on the other side of a transfer. Covers both your own devices and those of a linked account. |
 | **Brokr** | The **optional** self-hosted backend. Adds cross-network discovery, NAT traversal assistance, and relay. Tradr works without it. |
@@ -19,7 +19,9 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 |---|---|
 | **Device Key** | A device's long-lived key material: Ed25519 for signing and identity, X25519 for key agreement. It never leaves the device. |
 | **Device ID** | The first 16 bytes of `BLAKE3(ed25519_public_key)`. A device's permanent identifier. |
-| **Attestation** | A Google-signed ID token whose `nonce` claim is `BLAKE3(device_public_keys)`. On its own it proves that the holder of a given `sub` controls a given Device Key, verifiable against Google's public keys alone. Tradr's root of trust. |
+| **Attestation** | A provider-signed ID token whose `nonce` claim is `BLAKE3(device_public_keys)`. On its own it proves that the holder of a given `(iss, sub)` controls a given Device Key, verifiable against the provider's public keys alone. Tradr's root of trust. |
+| **Provider Profile** | Everything verification needs to know about one identity provider: issuer, JWKS URI, client ID set, nonce binding, renewal terms. The only place a provider is named. |
+| **Account ID** | `iss || 0x00 || sub`. The input to every value derived from account identity — never the bare `sub`. |
 | **Fingerprint** | A Device Key encoded as human-readable words, equivalent to a Signal safety number. Used for out-of-band verification. |
 | **Trust Tier** | How much a peer is trusted: `same-account`, `linked`, or `nearby-ephemeral`. |
 | **Link** | A mutually consented relationship between two Accounts. A one-sided invitation never establishes one. |

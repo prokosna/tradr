@@ -42,7 +42,7 @@ Options: SHA-256 with a chunk hash list, a SHA-256 Merkle tree, or BLAKE3.
 | Attestation nonce | `ed25519_pub \|\| x25519_pub` |
 | Fingerprint | `"tradr-fp-v1" \|\| ed25519_pub \|\| x25519_pub` |
 | Content Hash | File contents |
-| `account_tag` | `google_sub \|\| salt` |
+| `account_tag` | `account_id \|\| salt`, where `account_id` is `iss \|\| 0x00 \|\| sub` |
 | `link_tag` | `link_secret` |
 
 For domain separation, key-derivation-shaped uses always prepend a fixed string. EID derivation is the exception, using HKDF-SHA256 — BLAKE3's KDF mode would serve, but HKDF is the better-worn specification.

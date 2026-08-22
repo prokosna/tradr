@@ -184,7 +184,7 @@ That FCM only helps at Tier 2 is an honest difference in experience. An Android 
 
 Working at Tier 0 means **trust lives in each device's local database**.
 
-1. When devices A and B first meet, each verifies the other's Attestation. Matching Google signature, matching `sub`, and a `nonce` corresponding to the peer's public keys together establish that this is a device of the same account.
+1. When devices A and B first meet, each verifies the other's Attestation. A matching provider signature, a matching `(iss, sub)` pair, and a `nonce` corresponding to the peer's public keys together establish that this is a device of the same account.
 2. Each then pins the other's Device Key locally.
 3. Later connections check against the pinned key. The Attestation is re-verified periodically to catch revocation, but everyday connections need no call to Google.
 

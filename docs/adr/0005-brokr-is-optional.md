@@ -41,7 +41,7 @@ Making this work forces a chain of further decisions.
 - **No central roster exists.** There is no global truth about which devices an account owns; each device holds the set it has met and verified
 - **A device never met cannot be discovered at Tier 0.** The first meeting must be on a LAN or in proximity
 - **Immediate revocation is unavailable.** Tier 0 offers manual revocation and gossip
-- **A Brokr learns no `sub`, no email, and no Share definition.** Identifiers stop at `account_tag = BLAKE3(sub || salt)`
+- **A Brokr learns no issuer, no `sub`, no email, and no Share definition.** Identifiers stop at `account_tag = BLAKE3(account_id || salt)`
 - **Losing a Brokr's database is not fatal.** The truth lives on devices
 
 ## Costs

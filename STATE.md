@@ -16,17 +16,17 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-**Design is complete; implementation has not started.** Design documents `docs/01`-`10`, nine ADRs, and five protobuf files are in place. Everything is in English and carries the final names.
+**Design is complete; implementation has not started.** Design documents `docs/01`-`10`, eleven ADRs, and five protobuf files are in place. Everything is in English and carries the final names.
 
 Before starting M0, resolve the open decisions below.
 
 ## Next three actions
 
 1. **Write the Work Order for WI-M0-001**, the monorepo skeleton: pnpm and Cargo workspaces plus code generation from `proto`. Nothing blocks it
-2. **Measure decision 6 on that first Work Item.** `.claude/agents/implementer.md` says `sonnet`; count the `REVISE` cycles before settling the tier
-3. **Create the GitHub repository and push** when local work stops being the preference
+2. **Close decision 13, the identity curve, before WI-M0-007.** The blocking unknown is whether the chosen Noise crate can perform P-256 DH through an external `agree`, as [ADR-0011](docs/adr/0011-keystore-exposes-operations.md) requires. Establish that first; the decision follows from it
+3. **Measure decision 6 on the first Work Item.** `.claude/agents/implementer.md` says `sonnet`; count the `REVISE` cycles before settling the tier
 
-Design is complete and no decision blocks M0. Implementation has not begun.
+Implementation has not begun. Nothing blocks WI-M0-001, and decision 13 has until WI-M0-007. Creating the GitHub repository and pushing waits until local-only work ends.
 
 ## In flight
 
@@ -62,8 +62,11 @@ Consequences already applied: every document is in English, `Coordinator` is now
 | 9 | Whether same-account transfers auto-accept by default | M1 | Decide from how it feels |
 | 10 | Whether one device may hold several Google accounts | M6 | User |
 | 11 | Transfer history retention, and the default write limit for a writable Share | M3 | Open |
+| 13 | **The identity curve.** Ed25519 + X25519 as designed, or P-256 throughout. P-256 is the only curve the macOS Secure Enclave, a Windows TPM, and Android StrongBox all protect, so the present choice forfeits hardware backing on three platforms. Blocked on whether the Noise crate supports P-256 DH through an external `agree`. See [docs/05](docs/05-security.md#hardware-backing-and-the-curve) | **WI-M0-007** | Supervisor, after the Noise check |
 
-Nothing on this list blocks M0. The one outstanding input is the desktop client secret's value, which WI-M0-008 needs.
+**Decision 13 is the one with a deadline inside M0.** A Device ID is `BLAKE3(public key)[0..16]`, so deciding after keys exist invalidates every Device ID, pinned Fingerprint, and stored ABK at once. Its blast radius includes `DeviceInfo.ed25519_pub` in `proto/tradr/v1/common.proto`, which is why that field has not been renamed pre-emptively.
+
+The other outstanding input is the desktop client secret's value, which WI-M0-008 needs.
 
 #### OAuth client IDs
 
@@ -158,11 +161,11 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-004 | The Tauri 2 app launches on Android — evidence for ADR-0001 | todo | |
 | WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client — see the note below | todo | |
 | WI-M0-005 | Bidirectional Kotlin and Rust calls — evidence for ADR-0001 | todo | |
-| WI-M0-006 | Layer 0 and 1 types and traits: `Transport`, `Vfs`, `KeyStore`, `Clock`, `Rng` | todo | |
-| WI-M0-007 | Key generation and OS key store storage — Linux Secret Service, Android Keystore | todo | Yes |
+| WI-M0-006 | Layer 0 and 1 types and traits: `Transport`, `Vfs`, `KeyStore`, `Clock`, `Rng`. **`KeyStore` is operation-shaped per [ADR-0011](docs/adr/0011-keystore-exposes-operations.md); no method returns key material** | todo | |
+| WI-M0-007 | Key generation and OS key store storage — Linux Secret Service, Android Keystore. **Blocked on decision 13** | todo | Yes |
 | WI-M0-008 | Google OAuth on desktop: loopback with PKCE | todo | |
 | WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth | todo | |
-| WI-M0-010 | **Attestation verification tests, written first** — the Supervisor writes these | todo | Yes |
+| WI-M0-010 | **Attestation verification tests, written first** — the Supervisor writes these. Must cover profile selection by exact `iss`, rejection of an unknown `iss`, and `(iss, sub)` pair comparison | todo | Yes |
 | WI-M0-011 | Attestation issue, with the public keys in the nonce, and verification | todo | Yes |
 
 WI-M0-010 completes **before** WI-M0-011. That is the Critical Module discipline, [CLAUDE.md](CLAUDE.md) §6.
@@ -179,7 +182,8 @@ Design changes arising during implementation. Every DCR must have a matching `do
 
 | DCR | Content | Reflected in | Date |
 |---|---|---|---|
-| — | None yet | | |
+| DCR-001 | Account identity becomes the `(iss, sub)` pair, and provider-specific knowledge is confined to a Provider Profile. Every derived value — `account_tag`, the bootstrap EID secret, link records — takes `account_id = iss \|\| 0x00 \|\| sub` | [ADR-0010](docs/adr/0010-identity-is-the-issuer-subject-pair.md), [docs/05](docs/05-security.md), [CONTEXT.md](CONTEXT.md), docs/02, 03, 06, 07, `proto/` | 2026-08-22 |
+| DCR-002 | `KeyStore` exposes operations and never key material, since a key in StrongBox, a TPM, or the Secure Enclave cannot be read out. The curve question this exposes becomes open decision 13 | [ADR-0011](docs/adr/0011-keystore-exposes-operations.md), [docs/05](docs/05-security.md), docs/08 | 2026-08-22 |
 
 ### Major changes during the design phase, for reference
 

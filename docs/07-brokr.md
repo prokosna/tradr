@@ -22,7 +22,7 @@ A Brokr is designed on the premise that **Tradr works without one**. CI holds th
 - Authentication. Attestation verification always happens on a device against Google's JWKS. **A Brokr never talks to Google**
 - Any view of file contents. Only Noise ciphertext traverses a relay
 - Management of Share definitions, which exist only on devices
-- A concept of user accounts. A Brokr knows a Device ID and an `account_tag`, being `BLAKE3(sub || salt)`. It learns neither the Google `sub` nor an email address
+- A concept of user accounts. A Brokr knows a Device ID and an `account_tag`, being `BLAKE3(account_id || salt)`. It learns neither the issuer, nor the `sub`, nor an email address
 
 **Keeping a Brokr outside the circle of trust is the central point of this design.** Self-hosted or not, it is the only component exposed to the internet and therefore the most likely to be compromised. What that compromise yields is minimized in advance.
 
@@ -118,7 +118,7 @@ Relay URLs carry a short-lived signed token, so guessing a `session_id` gains no
 CREATE TABLE devices (
   device_id       BLOB PRIMARY KEY,      -- 16 bytes
   ed25519_pub     BLOB NOT NULL,         -- 32 bytes
-  account_tag     BLOB NOT NULL,         -- BLAKE3(sub || salt); the sub is never stored
+  account_tag     BLOB NOT NULL,         -- BLAKE3(account_id || salt); the pair is never stored
   display_name    TEXT,
   platform        TEXT,
   fcm_token       TEXT,
@@ -175,7 +175,7 @@ CREATE TABLE revocations (
 );
 ```
 
-Note what is absent: the Google `sub`, email addresses, Share definitions, filenames, Link Secrets themselves, and file plaintext.
+Note what is absent: the issuer, the `sub`, email addresses, Share definitions, filenames, Link Secrets themselves, and file plaintext.
 
 `link_invites.payload_a` and `payload_b` are opaque bytes the devices produced, forwarded verbatim. Attestations travel inside them, and the Brokr neither verifies them nor needs the ability to.
 

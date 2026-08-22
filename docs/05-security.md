@@ -8,11 +8,13 @@ The usual answer is an authentication server. A device signs in with Google, han
 
 Tradr answers with the **OIDC `nonce` claim** instead.
 
-## Attestation — making Google the root of trust
+## Attestation — making the identity provider the root of trust
 
 ### The mechanism
 
-An OIDC authorization request may carry a `nonce`. Google **copies that value into the ID token and signs it**. That is the whole trick.
+An OIDC authorization request may carry a `nonce`. The provider **copies that value into the ID token and signs it**. That is the whole trick.
+
+Nothing below is specific to Google. Any provider that reflects the nonce and publishes a JWKS can serve as a root of trust; Google is simply the only **Provider Profile** shipped. See [ADR-0010](adr/0010-identity-is-the-issuer-subject-pair.md) and [profiles](#provider-profiles) below.
 
 ```
 1. The device generates key pairs
@@ -22,29 +24,29 @@ An OIDC authorization request may carry a `nonce`. Google **copies that value in
 2. It computes a nonce
      nonce = base64url(BLAKE3(ed25519_pub || x25519_pub))
 
-3. It runs Google's authorization flow carrying that nonce
+3. It runs the provider's authorization flow carrying that nonce
      https://accounts.google.com/o/oauth2/v2/auth
        ?client_id=...&scope=openid%20email%20profile
        &nonce=<the value above>&code_challenge=...&access_type=offline
 
-4. Google returns an ID token containing
+4. The provider returns an ID token containing
      {
-       "iss": "https://accounts.google.com",
+       "iss": "https://accounts.google.com", <- which provider
        "aud": "<the OAuth client ID that ran the flow>",
-       "sub": "104839...",              <- account identity
+       "sub": "104839...",              <- subject, unique within that iss
        "nonce": "<BLAKE3(public keys)>", <- the binding to the keys
        "iat": ..., "exp": ...
      }
-     signed with Google's private key.
+     signed with the provider's private key.
 ```
 
-That token is a Google-signed assertion that:
+That token is a provider-signed assertion that:
 
-> the holder of Google account `sub=104839...` just presented the value `BLAKE3(public keys)`
+> the holder of account `(iss, sub)` just presented the value `BLAKE3(public keys)`
 
 Since the nonce is a hash of the device's public keys, it functions as:
 
-> the holder of `sub=104839...` controls this key pair
+> the holder of `(iss, sub)` controls this key pair
 
 That is an **Attestation**.
 
@@ -53,31 +55,35 @@ That is an **Attestation**.
 When device B receives an Attestation from device A:
 
 ```
-1. Fetch Google's JWKS from https://www.googleapis.com/oauth2/v3/certs
+1. Read iss from the token and select the Provider Profile matching it
+     exactly. No profile -> REJECTED. Nothing else is read first
+2. Fetch that profile's JWKS and verify the id_token signature
      Cacheable. Verification works offline against an existing cache
-2. Verify the id_token signature against the JWKS
-3. Check iss == "https://accounts.google.com"
-4. Check aud is one of Tradr's known OAuth client IDs
-5. Check nonce == base64url(BLAKE3(A's ed25519_pub || A's x25519_pub))
-6. Check iat falls within the staleness limit, 30 days by default
-7. Compare sub against
-     our own sub          -> TRUST_TIER_SAME_ACCOUNT
-     a linked sub         -> TRUST_TIER_LINKED
+3. Check aud is one of that profile's client IDs
+4. Check the nonce binds A's keys, per the profile's nonce_binding
+     verbatim: nonce == base64url(BLAKE3(ed25519_pub || x25519_pub))
+     hashed:   nonce == SHA-256 of that value
+5. Check iat falls within the staleness limit, 30 days by default
+6. Compare the pair (iss, sub) against
+     our own pair         -> TRUST_TIER_SAME_ACCOUNT
+     a linked pair        -> TRUST_TIER_LINKED
      neither              -> NEARBY_EPHEMERAL only in ephemeral receive mode,
                              otherwise REJECTED
-8. Verify the Ed25519 signature over Hello.nonce
+7. Verify the signature over Hello.nonce
      <- proves A holds the private key right now, defeating replay
 ```
 
-**No Tradr backend appears anywhere in that sequence.** All it requires is Google's public keys, which anyone can fetch.
+**No Tradr backend appears anywhere in that sequence.** All it requires is the provider's public keys, which anyone can fetch.
 
-#### Why step 4 compares against a set
+**Step 1 comes first for a reason.** Every later step depends on which profile is in force — which JWKS, which `aud` set, which nonce encoding. Selecting the profile from anything other than an exact `iss` match, the JWKS host for instance, would let a token nominate its own verification rules.
+
+#### Why step 3 compares against a set
 
 Google issues one OAuth client ID per platform: one for desktop, one for Android, and one more if iOS is added. **The `aud` in an Attestation is the client ID of whichever platform ran the flow**, so a desktop device verifying an Android peer sees the Android client ID.
 
 Comparing against a single value would therefore fail every cross-platform verification while same-platform pairs kept working — a failure mode that presents as "only Android will not connect" and hides its cause well.
 
-Every device carries the full set of Tradr client IDs, compiled in, and step 4 accepts membership in that set. The values are public and belong in the repository.
+Every device carries the full set of Tradr client IDs, compiled in, and step 3 accepts membership in the set belonging to the selected profile. The values are public and belong in the repository.
 
 Adding a platform means adding its client ID to that set, which older builds will not have. Since an unknown `aud` is rejected, **a new platform cannot be verified by devices that predate it**. Client IDs are therefore added to the set one release ahead of the platform that uses them.
 
@@ -99,6 +105,25 @@ An override extends the accepted `aud` set with the supplied client ID rather th
 Read positively, this means an organization can point every device at its own Google project and obtain a self-contained trust domain, unable to authenticate against anyone else's deployment.
 
 Should the published client be abused — a third party using it to present a consent screen bearing Tradr's name — the response is to rotate it in Google Cloud Console and ship the new value. Devices that fail to renew their Attestation against a retired client fall back on the 30-day staleness window, which leaves ample room for the release to reach them.
+
+### Provider profiles
+
+Everything a provider brings to verification lives in one value. Nothing else in the codebase names a provider.
+
+| Field | Why it cannot be assumed |
+|---|---|
+| `issuer` | Compared exactly against `iss`. Selecting the profile is step 1 |
+| `jwks_uri` | Moves independently of the issuer string. D1 of the Change Drill is this field |
+| `authorization_uri`, `token_uri` | Discovered once from `/.well-known/openid-configuration`, then pinned |
+| `client_ids` | One per platform, per provider. See [above](#why-step-3-compares-against-a-set) |
+| `nonce_binding` | Verbatim or hashed. A provider that stores a digest of the nonce fails step 4 outright under the wrong assumption |
+| `renewal` | Whether a fresh ID token can be minted without user interaction, and on what terms |
+
+The last two are why **adding a provider is not a URL swap**, and why they are fields rather than an assumption discovered during a rewrite. `renewal` in particular carries the design's weight: the 24-hour silent renewal below assumes a refresh token and a `prompt=none` path. A provider offering neither shifts that account's whole revocation story, and the profile is where that becomes visible.
+
+**Profiles are compiled in and are not user-configurable.** A shipped profile is a root of trust for every user of that build, so adding one is a trust decision taken in an ADR, not a setting.
+
+Google is the only profile shipped. **The pair `(iss, sub)` is nevertheless what identity means everywhere**, not a bare `sub` — see the next section but one, and [ADR-0010](adr/0010-identity-is-the-issuer-subject-pair.md).
 
 ### Handling expiry
 
@@ -128,9 +153,27 @@ Revoking Tradr's access in Google account settings means:
 
 The staleness limit is configurable down to one day. Shorter means faster revocation but breaks long-offline devices. 30 days is the compromise.
 
-### Why `sub` and not email
+### Why `(iss, sub)` and not email, and not `sub` alone
 
-Google's `email` claim can change through an account email change or a Workspace domain migration. `sub` is permanent and unique. Display email freely, but **always decide identity on `sub`**.
+The `email` claim can change through an account email change or a Workspace domain migration. Display email freely, but **never decide identity on it**.
+
+`sub` is permanent, but it is **unique only within its issuer**. Two providers may issue the same string to different people, and nothing prevents it — OIDC defines the identifier as the pair. So the account identifier is
+
+```
+account_id = iss || 0x00 || sub
+```
+
+and every value derived from account identity takes `account_id`, never the bare subject:
+
+| Derived value | Definition |
+|---|---|
+| `account_tag` | `BLAKE3(account_id \|\| salt)`, the only identifier a Brokr receives |
+| Bootstrap EID secret | `HKDF(account_id, "tradr-bootstrap-v1")`, broadcast over BLE |
+| A link record's peer identity | The peer's `(iss, sub)` pair |
+
+**These are persisted and visible on the wire, which is why the pair has to be settled before any of them exists.** Changing the input afterwards changes every device's `account_tag` and bootstrap broadcast at once, and devices on either side of the change stop finding each other until all of them have updated. There is no migration; the old value cannot be recomputed from a token minted under the new rule.
+
+Requiring the pair to match also makes cross-issuer confusion impossible by construction: an account at another provider that happens to share a subject string cannot reach `TRUST_TIER_SAME_ACCOUNT`.
 
 ### What this defends, and what it does not
 
@@ -173,14 +216,37 @@ Private keys never leave the device after generation. There is no export functio
 
 | OS | Storage | Hardware backing |
 |---|---|---|
-| Android | Android Keystore, attempting `setIsStrongBoxBacked(true)`, falling back to the TEE | Yes — StrongBox or TEE |
-| macOS | Keychain, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` | Partial — the Secure Enclave handles P-256 only, so the key itself lives in the Keychain |
-| Windows | CNG with DPAPI; the Platform Crypto Provider where a TPM exists | Yes, with a TPM |
+| Android | Android Keystore, attempting `setIsStrongBoxBacked(true)`, falling back to the TEE | Yes for P-256. Ed25519 needs a recent Keymint and is not dependable in StrongBox |
+| macOS | Keychain, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` | **P-256 only.** The Secure Enclave supports no other curve, so an Ed25519 or X25519 key stays in the Keychain as software |
+| Windows | CNG with DPAPI; the Platform Crypto Provider where a TPM exists | Yes for P-256, with a TPM. Ed25519 is not generally available through the Platform Crypto Provider |
 | Linux | Secret Service via `libsecret`, then the kernel keyring, then a `0600` file | No — the last resort is software only |
 
 **Falling short of hardware backing on Linux is stated plainly.** Settings displays the storage method in use and says so explicitly when it has fallen back to a file. Headless environments without a running Secret Service get a warning.
 
-Ed25519 signing keys cannot use the Secure Enclave because Apple restricts it to P-256 ECDSA and ECDH. Switching to P-256 is possible, but Ed25519 wins on Noise compatibility and implementation simplicity, so it stands for now.
+### The KeyStore boundary
+
+A key inside StrongBox, a TPM, or the Secure Enclave **cannot be read out** — that is the entire point of those elements. So the shape of the `KeyStore` trait, not the choice of curve, is what first decides whether hardware backing is reachable at all. A trait that hands Layer 1 a private key can only ever be implemented in software, on every platform, and it fails silently because the code still works.
+
+`KeyStore` therefore exposes `sign`, `agree`, and `backing`, and no method returns key material. [ADR-0011](adr/0011-keystore-exposes-operations.md) has the trait and the consequences, of which two bind other choices: the Noise implementation must accept an external DH, and the TLS stack must accept an external signer.
+
+`backing()` returns whether the key is in hardware or software and why, and **Settings renders it**. Falling short of hardware backing on Linux is stated plainly rather than assumed; the same display covers a missing TPM, an old Keymint, and a headless box with no Secret Service.
+
+### Hardware backing and the curve
+
+Given that boundary, the curve decides *how much* of the promise each platform can keep. The current choice of Ed25519 for signing and X25519 for agreement is the weaker one on every platform that has a secure element:
+
+| | Ed25519 + X25519 | P-256 (ECDSA + ECDH) |
+|---|---|---|
+| macOS Secure Enclave | No | Yes |
+| Windows TPM via CNG | Not generally | Yes |
+| Android StrongBox | Recent Keymint only | Yes |
+| Linux | Software either way | Software either way |
+
+**Both keys are affected, not just the signing key.** The Secure Enclave performs ECDH on P-256; an X25519 static key for Noise is as unprotected there as an Ed25519 one, which the earlier text did not say.
+
+Moving to P-256 uniformly is the option that would let three platforms keep the promise. It is not free: it requires a Noise implementation with P-256 DH, and ECDSA is the more failure-prone signature scheme to use correctly. **Per-device curve agility is rejected outright** — Noise's pattern name fixes the DH for both parties, so mixed curves would force a negotiation round trip onto the BLE path and open a downgrade.
+
+**This is open decision 13 in [STATE.md](../STATE.md), and it blocks WI-M0-007, key generation and OS key store storage.** A Device ID is `BLAKE3(public key)[0..16]`, so changing the curve later invalidates every Device ID, every pinned Fingerprint, and every stored ABK simultaneously — the same flag-day shape as the `(iss, sub)` correction above. The blocking unknown is whether the chosen Noise crate supports P-256 DH through an external `agree`; that is checked before the decision, not after.
 
 ## Why there are two encryption layers
 
@@ -248,14 +314,14 @@ BLE and `relay` are raw byte streams where TLS does not fit — its handshake ov
 **T4 — malicious Brokr** — the case this design paid the most attention to
 - Only Noise ciphertext traverses a relay. A Brokr never sees plaintext
 - **A Brokr is designed to be unable to verify Attestations.** Verification always happens on a device against Google's JWKS. Compromising a Brokr therefore grants no impersonation. It can insert fake devices into presence listings, but those devices hold no Attestation and get rejected at connection time
-- The identifier a Brokr receives is `account_tag = BLAKE3(google_sub || salt)`. The `sub` itself is never sent
+- The identifier a Brokr receives is `account_tag = BLAKE3(account_id || salt)`. Neither the issuer nor the `sub` is ever sent
 - **A Brokr can**: collect metadata about who communicated with whom and when, observe presence, deny service, and retain relayed ciphertext it cannot decrypt
 - **A Brokr cannot**: read content, impersonate anyone, or reach another party's Shares
 - Self-hosting means the Brokr's operator is usually the user. The separation still holds because a Brokr is the only component exposed to the internet, making it the most likely thing to be compromised
 
 **T5 — BLE receivers**
 - Broadcast EIDs rotate every 15 minutes and are untrackable without the matching secret
-- The bootstrap secret, `HKDF(google_sub)`, falls to anyone who learns the `sub`. Routes to obtaining one are limited but not nonexistent. Exchanging an ABK closes the window by ending bootstrap advertising
+- The bootstrap secret, `HKDF(account_id)`, falls to anyone who learns the pair. Routes to obtaining one are limited but not nonexistent. Exchanging an ABK closes the window by ending bootstrap advertising
 - BLE addresses themselves use resolvable private addresses. This depends partly on OS settings; on Linux, BlueZ `Privacy` must be enabled
 
 **T6 — malicious linked peer**
@@ -281,7 +347,7 @@ BLE and `relay` are raw byte streams where TLS does not fit — its handshake ov
 
 | Purpose | Algorithm | Notes |
 |---|---|---|
-| Device identity and signing | Ed25519 | |
+| Device identity and signing | Ed25519 — under review, see [the curve](#hardware-backing-and-the-curve) | |
 | Key agreement | X25519 | |
 | Noise pattern | `Noise_IK_25519_ChaChaPoly_BLAKE2s` | via `snow` |
 | QUIC encryption | TLS 1.3, `TLS_AES_128_GCM_SHA256` | via `rustls` |

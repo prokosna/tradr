@@ -1,6 +1,6 @@
 # ADR-0003: An OIDC-nonce Attestation is the root of trust
 
-- **Status**: Accepted
+- **Status**: Accepted. Refined by [ADR-0010](0010-identity-is-the-issuer-subject-pair.md), which generalizes the mechanism to any OIDC provider and makes identity the `(iss, sub)` pair
 - **Date**: 2026-08-22
 
 ## Context
@@ -24,7 +24,7 @@ Options considered:
 
 The token thereby becomes a Google-signed assertion that:
 
-> the holder of `sub=X` controls this public key pair
+> the holder of `(iss, sub)` controls this public key pair
 
 Devices hold this as an **Attestation** and present it on connection. The peer verifies it against Google's JWKS alone. No Tradr backend appears anywhere in the sequence.
 

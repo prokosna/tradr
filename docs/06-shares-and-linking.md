@@ -176,7 +176,8 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
 ```jsonc
 {
   "link_id": "01J8YM...",
-  "peer_sub": "9273...",            // the peer's Google sub
+  "peer_iss": "https://accounts.google.com",  // the peer's issuer
+  "peer_sub": "9273...",            // subject, unique only within that issuer
   "peer_email": "bob@example.com",  // display only, never for identity
   "peer_label": "Bob",
   "link_secret": "<in the OS key store>",
@@ -197,14 +198,14 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
 
 - Either side removing it ends it. The other's consent is irrelevant
 - Removal discards the Link Secret, so the peer's EIDs no longer resolve and they fall off BLE discovery
-- The peer is notified when online, but **removal takes effect locally at once regardless**. Their connections are then rejected because the Attestation's `sub` matches no known link
+- The peer is notified when online, but **removal takes effect locally at once regardless**. Their connections are then rejected because the Attestation's `(iss, sub)` matches no known link
 - Files already handed over cannot be recalled. The UI says so
 
 ### When the peer adds a device
 
 Bob buying a new phone leaves Alice's device unaware of it. Even so:
 
-1. Bob's new device holds an Attestation for Bob's `sub`
+1. Bob's new device holds an Attestation for Bob's `(iss, sub)`
 2. Alice's device matches it against `link.peer_sub` and grants `TRUST_TIER_LINKED`
 3. The Link Secret is shared across Bob's devices — handed over when Bob's devices meet — so BLE discovery works too
 
@@ -216,9 +217,9 @@ The shared secret letting same-account devices recognize each other over BLE.
 
 ```
 1. The first device generates 32 random bytes
-2. A second device advertises with the bootstrap secret, HKDF(google_sub),
+2. A second device advertises with the bootstrap secret, HKDF(account_id),
    and is discovered by the first, or they meet over mDNS on a shared LAN
-3. Attestations are verified, confirming the same sub
+3. Attestations are verified, confirming the same (iss, sub)
 4. The first device passes the ABK over the Noise channel
 5. Both now advertise EIDs derived from the ABK and stop bootstrap advertising
 ```

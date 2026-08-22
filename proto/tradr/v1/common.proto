@@ -4,7 +4,7 @@ package tradr.v1;
 // Public information about a device. Used in Hello and in discovery results.
 message DeviceInfo {
   bytes  device_id       = 1;  // BLAKE3(ed25519_pub)[0..16]
-  bytes  ed25519_pub     = 2;  // 32 bytes. Signing and identity
+  bytes  ed25519_pub     = 2;  // 32 bytes. Signing and identity. Curve is open decision 13
   bytes  x25519_pub      = 3;  // 32 bytes. Noise static key
   string display_name    = 4;  // User-chosen name, max 64 bytes
   Platform platform      = 5;
@@ -20,12 +20,14 @@ enum Platform {
   PLATFORM_IOS         = 5;  // Future
 }
 
-// A Google-signed ID token whose nonce is BLAKE3(ed25519_pub || x25519_pub).
-// On its own it proves that the holder of this Google account controls this key
-// pair, verifiable against Google's JWKS alone. See docs/05.
+// A provider-signed ID token whose nonce binds ed25519_pub and x25519_pub.
+// On its own it proves that the holder of an account controls this key pair,
+// verifiable against that provider's JWKS alone. See docs/05.
 message Attestation {
   string id_token   = 1;  // JWT (header.payload.signature)
-  string issuer     = 2;  // Always "https://accounts.google.com". Reserved for future IdPs
+  // Selects the Provider Profile. Compared exactly; a hint only, since the
+  // authoritative value is iss inside id_token. Google is the only profile shipped.
+  string issuer     = 2;
   int64  issued_at  = 3;  // Convenience copy; the authoritative value is iat inside id_token
 }
 

@@ -72,7 +72,7 @@ EID = HKDF-Expand(secret, "tradr-eid-v1" || floor(unix_time / 900), 8)
 |---|---|
 | ABK (Account Broadcast Key) | Devices of the same account |
 | Link Secret | Devices of a linked account |
-| `HKDF(google_sub, "tradr-bootstrap-v1")` | First discovery, before any ABK exists |
+| `HKDF(account_id, "tradr-bootstrap-v1")` | First discovery, before any ABK exists |
 
 Rotation period is 15 minutes. To absorb clock skew, scanners try the `t-1`, `t`, and `t+1` windows.
 
@@ -80,7 +80,7 @@ Holding N secrets costs 3N HKDF comparisons per advertisement. N stays in the lo
 
 **Why no permanent identifier goes on the air**: anyone can receive BLE advertisements. Broadcasting a fixed value would let shop receivers and passing phones track a device's movements. An EID looks like a random string that changes every 15 minutes to anyone without the matching secret.
 
-**On the weakness of the bootstrap secret**: `google_sub` is not a secret, merely an opaque Google identifier. Anyone who obtains one can detect when that person's device is nearby. This is accepted — `sub` does not normally leave the app, and **detection grants no ability to connect**, which still requires mutual Attestation. Once two same-account devices meet they exchange an ABK and stop advertising the bootstrap EID.
+**On the weakness of the bootstrap secret**: `account_id` is `iss || 0x00 || sub` and is not a secret, merely an opaque provider identifier with the issuer prepended. Anyone who obtains one can detect when that person's device is nearby. This is accepted — a `sub` does not normally leave the app, and **detection grants no ability to connect**, which still requires mutual Attestation. Once two same-account devices meet they exchange an ABK and stop advertising the bootstrap EID.
 
 **Per-platform implementation**: no Rust crate covers the BLE peripheral role across platforms, so this part is written four times. It is the least predictable work in the design — see [09](09-roadmap-and-risks.md).
 
