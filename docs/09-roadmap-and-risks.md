@@ -143,7 +143,14 @@ Written down, not yet decided.
 5. **What write limits a writable Share should carry.**
    A limit is needed against disk filling, but legitimate large transfers look identical. A daily byte cap is workable; there is no basis yet for a default value.
 
-6. **When to move to post-quantum cryptography.**
+6. **What `ChunkData.chunk_index` counts when a transport subdivides.**
+   [docs/04](04-protocol.md#chunk-sizes) fixes 1 MiB as the reference boundary and has `relay` and `ble-gatt` subdivide it, into 256 KiB and 4 KiB. `ChunkData` carries `chunk_index`, `payload_len` and `last`, but **no offset within the reference chunk**, so a 1 MiB chunk arriving as four relay pieces has nothing on the wire distinguishing the second piece from the third.
+
+   Stream order can carry it: the data plane is one unidirectional stream per Item, so the pieces arrive in order and the receiver tracks the offset itself, with `last` closing the reference chunk. That works, and it is unstated, which is the problem — it makes correct resumption depend on an assumption nobody wrote down.
+
+   **Decide before the chunk-resumption Work Item**, which [CLAUDE.md](../CLAUDE.md) §6 names a Critical Module. Either state the stream-order rule in `docs/04` and test it, or add an explicit offset to `ChunkData`. The second costs eight bytes a chunk and removes the assumption entirely.
+
+7. **When to move to post-quantum cryptography.**
    Write an ADR once both `rustls` X25519MLKEM768 and `snow`'s hybrid Noise patterns are stable. Priority is low, since transferred files rarely need secrecy over that horizon.
 
 ## The most fragile parts of this design

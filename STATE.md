@@ -91,6 +91,7 @@ Consequences already applied: every document is in English, `Coordinator` is now
 | 9 | Whether same-account transfers auto-accept by default | M1 | Decide from how it feels |
 | 10 | Whether one device may hold several Google accounts | M6 | User |
 | 11 | Transfer history retention, and the default write limit for a writable Share | M3 | Open |
+| 15 | **What `ChunkData.chunk_index` counts when `relay` or `ble-gatt` subdivides the 1 MiB reference chunk.** There is no offset field, so nothing on the wire separates the second 256 KiB piece from the third. Stream order can carry it, but that is an unwritten assumption underneath a Critical Module. See [docs/09](docs/09-roadmap-and-risks.md#open-design-questions) question 6 | **Before the chunk-resumption Work Item**, M1 | Supervisor |
 
 The one outstanding input is the desktop client secret's value, which WI-M0-008 needs.
 
