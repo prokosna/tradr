@@ -46,6 +46,7 @@ blocked: []
 | 3 | Documentation language | **English throughout.** Code comments were already English-only | 2026-08-22 |
 | 4 | Repository host and CI | **GitHub with GitHub Actions.** Needed for the Windows and macOS runners at M4 | 2026-08-22 |
 | 5 | Google OAuth clients | **Created.** Values below. The consent screen stays in Testing until release | 2026-08-22 |
+| 12 | The desktop client secret in a public repository | **Committed, with a runtime override.** See [docs/05](docs/05-security.md#oauth-client-configuration) | 2026-08-22 |
 
 Consequences already applied: every document is in English, `Coordinator` is now `Brokr` everywhere, `proto/tradr/v1/` replaces `proto/watari/v1/`, crates are named `tradr-*`, the mDNS service type is `_tradr._udp`, the URL scheme is `tradr://`, Brokr environment variables are `BROKR_*`, and domain-separation strings are `tradr-*-v1`.
 
@@ -53,7 +54,6 @@ Consequences already applied: every document is in English, `Coordinator` is now
 
 | # | Decision | Needed by | Who decides |
 |---|---|---|---|
-| 12 | **How the desktop client secret is carried in a public repository** — embedded, or injected at build time. See the note below | WI-M0-008 | User |
 | 6 | Implementer model tier. `.claude/agents/implementer.md` currently says `sonnet`; Haiku 4.5 is cheaper but likely costs more in `REVISE` cycles on Rust work | M0's first Work Item | User, or measured |
 | 7 | Distribution channels: Play Store, F-Droid, direct APK. Affects how permissions must be justified | M2 | User |
 | 8 | Code-signing certificates: Apple Developer Program and Authenticode. Procurement takes weeks | M2 start | User |
@@ -61,7 +61,7 @@ Consequences already applied: every document is in English, `Coordinator` is now
 | 10 | Whether one device may hold several Google accounts | M6 | User |
 | 11 | Transfer history retention, and the default write limit for a writable Share | M3 | Open |
 
-Decision 12 is the only one blocking M0.
+Nothing on this list blocks M0. The one outstanding input is the desktop client secret's value, which WI-M0-008 needs.
 
 #### OAuth client IDs
 
@@ -72,7 +72,9 @@ Desktop : 475695468283-shsoa7f59bdbta9jlubfs49jonv1m7ng.apps.googleusercontent.c
 
 Both are public values and belong in the repository. Attestation verification accepts `aud` from this set, so **every device carries both** — see [docs/05](docs/05-security.md#why-step-4-compares-against-a-set).
 
-The desktop client also has a client secret, which Google's token endpoint requires for Desktop-type clients even under PKCE. Google states plainly that an installed application's secret is not treated as confidential; PKCE provides the real protection. It is still a value that has to be handled deliberately in a public repository, which is decision 12.
+The desktop client also has a client secret, which Google's token endpoint requires for Desktop-type clients even under PKCE. It is committed alongside the IDs and overridable at runtime — see [docs/05](docs/05-security.md#oauth-client-configuration) for the handling and for why an override has to be applied to every device of an account at once.
+
+**Its value is still needed.** Copy it from the desktop client's detail page in Google Cloud Console.
 
 Android-type clients have no secret at all.
 

@@ -81,6 +81,25 @@ Every device carries the full set of Tradr client IDs, compiled in, and step 4 a
 
 Adding a platform means adding its client ID to that set, which older builds will not have. Since an unknown `aud` is rejected, **a new platform cannot be verified by devices that predate it**. Client IDs are therefore added to the set one release ahead of the platform that uses them.
 
+### OAuth client configuration
+
+The client IDs are public values and live in the repository. The desktop client also carries a secret, which Google's token endpoint requires for Desktop-type clients even under PKCE. Google states that an installed application's secret is not treated as confidential, and it is extractable from any shipped binary regardless of how it is delivered. **PKCE is what actually protects the flow.** Android-type clients have no secret at all.
+
+That secret is therefore committed alongside the client IDs, so that anyone who clones and builds gets a working application. Both values can be overridden at runtime:
+
+```
+TRADR_OAUTH_CLIENT_ID
+TRADR_OAUTH_CLIENT_SECRET
+```
+
+An override extends the accepted `aud` set with the supplied client ID rather than replacing it, so an overridden device still verifies peers on the default client.
+
+**But the reverse does not hold, and that is the consequence worth stating.** A device using an overridden client produces Attestations whose `aud` is that client, which a device on defaults does not recognize and rejects. **Overriding therefore has to be done across every device of an account, never on some of them** — a partial override splits the account into two sets that cannot see each other. The settings UI says so at the point of override.
+
+Read positively, this means an organization can point every device at its own Google project and obtain a self-contained trust domain, unable to authenticate against anyone else's deployment.
+
+Should the published client be abused — a third party using it to present a consent screen bearing Tradr's name — the response is to rotate it in Google Cloud Console and ship the new value. Devices that fail to renew their Attestation against a retired client fall back on the 30-day staleness window, which leaves ample room for the release to reach them.
+
 ### Handling expiry
 
 An ID token's `exp` is typically one hour out. But what an Attestation asserts is not "signed in right now" — it is **a binding** between a key and an account.
