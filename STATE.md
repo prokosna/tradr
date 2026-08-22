@@ -22,7 +22,7 @@ Before starting M0, resolve the open decisions below.
 
 ## Next three actions
 
-1. **Write the Work Order for WI-M0-001c**, code generation from `proto`. Both workspaces it needs are now in place
+1. **Write the Work Order for WI-M0-001d**, TypeScript project references. It is cheapest now, while the four packages hold one line each
 2. **Close decision 13, the identity curve, before WI-M0-007.** The blocking unknown is whether the chosen Noise crate can perform P-256 DH through an external `agree`, as [ADR-0011](docs/adr/0011-keystore-exposes-operations.md) requires. Establish that first; the decision follows from it
 3. **Keep measuring decision 6.** One Work Item is not a sample; see the record under that decision below
 
@@ -33,7 +33,10 @@ Implementation has begun. Decision 13 has until WI-M0-007. Creating the GitHub r
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
 | WI-M0-001 | PASS | 1 | The Work Order, not the Implementer. It said to copy a crate's doc line verbatim from the `docs/02` layout table; that table's row for `tauri-plugin-tradr` begins "Exposes the above", which points at nothing once lifted out of the table |
+| WI-M0-001c | PASS | 2 | The second cycle was **my error, not the Implementer's**. I rejected `DOM` in `tsconfig.base.json` and directed `@types/node` instead; `@types/node` only re-exports `atob`/`btoa` from `globalThis` and cannot supply them. The Implementer stopped as instructed, quoted `buffer.d.ts:1793`, and did not improvise a third option — which is why one round settled it. `DOM` was restored deliberately and WI-M0-001d cut against it |
 | WI-M0-001b | PASS | 1 | **A gate that could not fail.** `pnpm lint` exited 0 with a lint violation present, because Biome reports rule hits as warnings. WI-M0-002 was about to wire that script into CI as a required job. Fixed with `--error-on-warnings`, and confirmed by breaking it: dirty tree exits 1, clean tree exits 0. A second, minor finding converted the four package headers from `//` to JSDoc, matching the Rust crates' `//!` and moving them from checklist A3 to A5 |
+
+**Two Work Orders in three have carried an error of mine, and in both cases the cost was one REVISE cycle, not a wrong implementation.** The pattern that keeps it cheap: the Work Order names the constraint it is protecting, and says to stop and report rather than work around a blocker. An Implementer told *why* a rule exists stops at the right place; one given only the rule improvises.
 
 **Every tooling gate gets broken on purpose before it is trusted.** WI-M0-001b is the reason this is written down: both the Implementer and a reading of the command output said the lint gate worked, and it did not. E1's discipline applies to tooling, not only to tests.
 
@@ -46,11 +49,9 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: [WI-M0-001c]
+work_items: []
 blocked: []
 ```
-
-`WI-M0-001c` is with an Implementer and awaiting review.
 
 **The original WI-M0-001 was re-cut into three**, since one skeleton covering both workspaces plus code generation exceeded the 8-file guide in [docs/10](docs/10-implementation-process.md#the-unit-of-work-the-work-item) by roughly threefold. `WI-M0-001c` depends on both of the other two.
 
@@ -189,7 +190,8 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-000 | Repository init: `git init`, `LICENSE`, `.gitignore`, GitHub remote, initial commit | in-progress — local done, remote pending | |
 | WI-M0-001 | Cargo workspace and the six crates (a seventh, `tradr-proto`, arrives with WI-M0-001c per DCR-005), with the dependency edges of [docs/02](docs/02-architecture.md#direction-of-dependency) and no external crates | **done** — PASS after one REVISE | |
 | WI-M0-001b | pnpm workspace and the four TypeScript packages | **done** — PASS after one REVISE | |
-| WI-M0-001c | Code generation from `proto`: `protox` and `prost` for Rust into the new `tradr-proto`, npm `buf` and `ts-proto` for TypeScript | **in review** | |
+| WI-M0-001c | Code generation from `proto`: `protox` and `prost` for Rust into the new `tradr-proto`, npm `buf` and `ts-proto` for TypeScript | **done** — PASS after two REVISE | |
+| WI-M0-001d | **TypeScript project references.** Each package compiles as its own program with its own `lib`, so a Node-hosted package cannot typecheck against browser globals. Cut in response to WI-M0-001c; see the note below | todo | |
 | WI-M0-002 | Required CI jobs: lint, test, comment-lang, comment-length, excuse-grep, layer-deps | todo | |
 | WI-M0-003 | The Tauri 2 app launches on Linux | todo | |
 | WI-M0-004 | The Tauri 2 app launches on Android — evidence for ADR-0001 | todo | |
@@ -205,6 +207,12 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 WI-M0-010 completes **before** WI-M0-011. That is the Critical Module discipline, [CLAUDE.md](CLAUDE.md) §6.
 
 WI-M0-006 sits early because without the Layer 1 traits in place, later implementations bind to concrete types. Violations of B1 through B7 are expensive to unwind afterwards.
+
+**Why WI-M0-001d exists, and why it is not deferred.** `packages/protocol`'s generated code calls `globalThis.atob` and `globalThis.btoa`, which only `lib.dom.d.ts` declares — `@types/node` merely re-exports them from `globalThis` and cannot supply them on its own, which was checked in `buffer.d.ts` rather than assumed. `tsconfig.base.json` therefore carries `DOM`, and every package inherits it, including the Node-hosted `apps/brokr` when it arrives at M8. A `document.querySelector` inside the Brokr would typecheck and then fail at run time.
+
+No small change fixes this: `pnpm typecheck` runs one `tsc` across `packages/*/src/**/*.ts`, so the per-package `tsconfig.json` files are inert and no per-package `lib` can take effect. Project references are what make them live.
+
+**It runs while the packages are still empty.** Migrating four packages holding real code costs many times more than migrating four packages holding one `export {}` each, which is the whole reason this is not parked until `apps/brokr` needs it.
 
 WI-M0-002 puts every required CI job in at M0. Introducing `layer-deps` and `excuse-grep` later means facing a pile of existing violations, which neutralizes them.
 
@@ -242,6 +250,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 | DF-2 | Shell integration: Windows context menu, macOS share menu, Linux `.desktop` | Phase 3 | [docs/08](docs/08-platform-integration.md) |
 | DF-3 | Post-quantum migration. Write an ADR once `rustls` X25519MLKEM768 and hybrid Noise are both stable | Undecided | [docs/05](docs/05-security.md) |
 | DF-4 | Android 14+ `ChooserAction` custom actions. Sharing Shortcuts suffice for v1 | Undecided | [docs/08](docs/08-platform-integration.md) |
+| DF-6 | `useExactTypes=false` in `buf.gen.yaml`. ts-proto's `Exact<DeepPartial<T>, I>` signature does not resolve under TypeScript 7.0.2, so `fromPartial` and `create` lose excess-property checking. Revisit when ts-proto supports TypeScript 7 | Undecided | WI-M0-001c |
 | DF-5 | TypeScript packages have no build step; `main` and `types` point straight at `src/index.ts`. Vite compiles them from source for the Tauri app, but `apps/brokr` runs on Node and will need either a build or a TypeScript loader | When `apps/brokr` is created, M8 | WI-M0-001b |
 
 ---
