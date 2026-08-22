@@ -1,0 +1,15 @@
+{
+	"name": "tradr",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"lint": "biome lint --error-on-warnings .",
+		"format": "biome format --write .",
+		"typecheck": "tsc -p tsconfig.json",
+		"test": "echo 'no test runner configured yet' && exit 0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.10",
+		"typescript": "7.0.2"
+	}
+}

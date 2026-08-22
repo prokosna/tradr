@@ -22,7 +22,7 @@ Before starting M0, resolve the open decisions below.
 
 ## Next three actions
 
-1. **Write the Work Order for WI-M0-001b**, the pnpm workspace and the four TypeScript packages. Nothing blocks it
+1. **Write the Work Order for WI-M0-001c**, code generation from `proto`. Both workspaces it needs are now in place
 2. **Close decision 13, the identity curve, before WI-M0-007.** The blocking unknown is whether the chosen Noise crate can perform P-256 DH through an external `agree`, as [ADR-0011](docs/adr/0011-keystore-exposes-operations.md) requires. Establish that first; the decision follows from it
 3. **Keep measuring decision 6.** One Work Item is not a sample; see the record under that decision below
 
@@ -33,6 +33,11 @@ Implementation has begun. Decision 13 has until WI-M0-007. Creating the GitHub r
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
 | WI-M0-001 | PASS | 1 | The Work Order, not the Implementer. It said to copy a crate's doc line verbatim from the `docs/02` layout table; that table's row for `tauri-plugin-tradr` begins "Exposes the above", which points at nothing once lifted out of the table |
+| WI-M0-001b | PASS | 1 | **A gate that could not fail.** `pnpm lint` exited 0 with a lint violation present, because Biome reports rule hits as warnings. WI-M0-002 was about to wire that script into CI as a required job. Fixed with `--error-on-warnings`, and confirmed by breaking it: dirty tree exits 1, clean tree exits 0. A second, minor finding converted the four package headers from `//` to JSDoc, matching the Rust crates' `//!` and moving them from checklist A3 to A5 |
+
+**Every tooling gate gets broken on purpose before it is trusted.** WI-M0-001b is the reason this is written down: both the Implementer and a reading of the command output said the lint gate worked, and it did not. E1's discipline applies to tooling, not only to tests.
+
+The root `tsconfig.json` in WI-M0-001b is the one thing added that the Definition of Done did not name. It is accepted: `pnpm typecheck` was a Definition of Done item and needs a project file to run against.
 
 Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001 creates no executable code and is not a Critical Module. Its Definition of Done carried no test item.
 
@@ -62,6 +67,7 @@ blocked: []
 | 3 | Documentation language | **English throughout.** Code comments were already English-only | 2026-08-22 |
 | 4 | Repository host and CI | **GitHub with GitHub Actions.** Needed for the Windows and macOS runners at M4 | 2026-08-22 |
 | 5 | Google OAuth clients | **Created.** Values below. The consent screen stays in Testing until release | 2026-08-22 |
+| 14 | TypeScript lint and format tooling | **Biome.** One tool covering both, no plugin matrix to keep aligned. Reason to withdraw: if a React rule ESLint has and Biome lacks catches a real bug in review, revisit at M2 | 2026-08-22 |
 | 12 | The desktop client secret in a public repository | **Committed, with a runtime override.** See [docs/05](docs/05-security.md#oauth-client-configuration) | 2026-08-22 |
 
 Consequences already applied: every document is in English, `Coordinator` is now `Brokr` everywhere, `proto/tradr/v1/` replaces `proto/watari/v1/`, crates are named `tradr-*`, the mDNS service type is `_tradr._udp`, the URL scheme is `tradr://`, Brokr environment variables are `BROKR_*`, and domain-separation strings are `tradr-*-v1`.
@@ -85,6 +91,8 @@ The other outstanding input is the desktop client secret's value, which WI-M0-00
 #### Toolchain present on the development machine
 
 Checked 2026-08-22: `cargo` and `rustc` 1.98.0, `pnpm` 10.20.0, `node` v24.11.0. **Neither `protoc` nor `buf` is installed as a system binary.**
+
+The registry currently serves **TypeScript 7.0.2** and **Biome 2.5.10** as latest, and both are pinned in `package.json`. TypeScript 7 is a major version ahead of the 5.x era most published guidance describes, so **treat advice about `tsconfig` and compiler behaviour as possibly stale**. It was verified working rather than assumed: `tsc` was fed an unchecked index access and produced `TS2322`, so `noUncheckedIndexedAccess` and the rest of the strict set are genuinely in force.
 
 WI-M0-001c therefore drives code generation without one: `protox`, a pure-Rust protobuf compiler, feeds `prost` on the Rust side, and the npm-distributed `buf` runs `ts-proto` on the TypeScript side. Both arrive through `cargo` and `pnpm`. **No CI step installs a system protobuf compiler**, which is the point — a toolchain the lockfiles do not pin is a reproducibility hole.
 
@@ -178,7 +186,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 |---|---|---|---|
 | WI-M0-000 | Repository init: `git init`, `LICENSE`, `.gitignore`, GitHub remote, initial commit | in-progress — local done, remote pending | |
 | WI-M0-001 | Cargo workspace and the six crates, with the dependency edges of [docs/02](docs/02-architecture.md#direction-of-dependency) and no external crates | **done** — PASS after one REVISE | |
-| WI-M0-001b | pnpm workspace and the four TypeScript packages | todo | |
+| WI-M0-001b | pnpm workspace and the four TypeScript packages | **done** — PASS after one REVISE | |
 | WI-M0-001c | Code generation from `proto`: prost for Rust, ts-proto for TypeScript | todo | |
 | WI-M0-002 | Required CI jobs: lint, test, comment-lang, comment-length, excuse-grep, layer-deps | todo | |
 | WI-M0-003 | The Tauri 2 app launches on Linux | todo | |
@@ -231,6 +239,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 | DF-2 | Shell integration: Windows context menu, macOS share menu, Linux `.desktop` | Phase 3 | [docs/08](docs/08-platform-integration.md) |
 | DF-3 | Post-quantum migration. Write an ADR once `rustls` X25519MLKEM768 and hybrid Noise are both stable | Undecided | [docs/05](docs/05-security.md) |
 | DF-4 | Android 14+ `ChooserAction` custom actions. Sharing Shortcuts suffice for v1 | Undecided | [docs/08](docs/08-platform-integration.md) |
+| DF-5 | TypeScript packages have no build step; `main` and `types` point straight at `src/index.ts`. Vite compiles them from source for the Tauri app, but `apps/brokr` runs on Node and will need either a build or a TypeScript loader | When `apps/brokr` is created, M8 | WI-M0-001b |
 
 ---
 
