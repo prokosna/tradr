@@ -124,7 +124,7 @@ tradr/
     +-- tradr-core/             #   Transfer/Item/Chunk, resumption, integrity
     +-- tradr-proto/            #   The protobuf codec, and the only crate naming prost
     +-- tradr-identity/         #   Attestation issue and verify, Noise, key storage
-    +-- tradr-transport/        #   The Transport trait, five implementations, path selection
+    +-- tradr-transport/        #   Five Transport implementations and path selection
     +-- tradr-discovery/        #   mDNS, BLE advertise and scan, static pins, Brokr presence
     +-- tradr-vfs/              #   Share Root boundary enforcement, posix and saf backends
     \-- tauri-plugin-tradr/     #   Exposes the above as Tauri commands; holds the Kotlin side
@@ -175,6 +175,8 @@ The check is mechanical, the same shape as D9's: `grep -rl prost crates/` must r
 **Every arrow points at `tradr-core`, and none leaves it.** An implementation crate depends on the core to implement its traits; the core never names an implementation. `tradr-transport` does not depend on `tradr-identity` either — what it needs from keys arrives through `KeyStore`, which is what keeps Change Drill D3 confined to `transport/quic/`.
 
 The wiring happens once, in `tauri-plugin-tradr`. That crate is the only one that knows which implementations exist, which is why swapping the app shell (D9) reaches no further than it.
+
+**Every Layer 1 trait is declared in `tradr-core` and nowhere else.** `Transport`, `Vfs`, `KeyStore`, `Clock` and `Rng` all live there; `tradr-transport` and `tradr-vfs` hold implementations of them and declare none of their own. Reading a trait's name in an implementation crate's directory listing is not a statement about where it is declared, and putting a declaration beside its implementations would collapse rule B3 quietly, since everything would still compile.
 
 `tradr-core` never calls I/O directly; it declares the `Transport` and `Vfs` traits and depends on nothing else. That makes the core logic — offer and accept, chunking, deciding where to resume, verification — testable with neither a real network nor a real filesystem. This is the most breakable and most test-hungry part of the design, so it is kept pure on purpose.
 

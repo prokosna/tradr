@@ -194,6 +194,14 @@ The mechanism behind picking the right path automatically. **It does not pick â€
 +-----------------------------------------------------------+
 ```
 
+### What the core knows about a transport
+
+**Nothing that changes when a transport is added.** Change Drill D10 budgets one implementation, one registration and one weight-table entry for a new transport, and no drill may reach `tradr-core`. Two things follow, and both are constraints on the `Transport` trait rather than observations about it.
+
+- **A transport's identity is an opaque token, not a closed set.** The core carries a `TransportId` it can compare, order and display, and cannot enumerate. An `enum { DirectQuic, WifiDirect, ... }` in the core would make every new transport a core change, which is the one outcome the drill forbids
+- **A candidate address is opaque too.** `192.168.1.42:51820`, `relay://brokr.example/x` and `handle:0x0042` share no structure, and the core has no reason to parse any of them. It collects candidates from discovery and hands each to the transport that produced it
+- **The class weights above belong to path selection, not to the transports.** A weight is a comparison between transports, so it is a policy of the component doing the comparing. `tradr-transport` holds the table; a transport does not report its own rank
+
 ### Phase 5 is the point
 
 **Refusing to make path selection a one-time decision is the most important thing in this design.**
