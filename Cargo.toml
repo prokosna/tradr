@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/tradr-core",
+    "crates/tradr-identity",
+    "crates/tradr-transport",
+    "crates/tradr-discovery",
+    "crates/tradr-vfs",
+    "crates/tauri-plugin-tradr",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false

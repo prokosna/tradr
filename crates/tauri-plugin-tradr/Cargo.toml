@@ -1,0 +1,13 @@
+[package]
+name = "tauri-plugin-tradr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tradr-core = { path = "../tradr-core" }
+tradr-identity = { path = "../tradr-identity" }
+tradr-transport = { path = "../tradr-transport" }
+tradr-discovery = { path = "../tradr-discovery" }
+tradr-vfs = { path = "../tradr-vfs" }

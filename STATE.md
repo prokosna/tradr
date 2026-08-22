@@ -22,11 +22,21 @@ Before starting M0, resolve the open decisions below.
 
 ## Next three actions
 
-1. **Write the Work Order for WI-M0-001**, the monorepo skeleton: pnpm and Cargo workspaces plus code generation from `proto`. Nothing blocks it
+1. **Write the Work Order for WI-M0-001b**, the pnpm workspace and the four TypeScript packages. Nothing blocks it
 2. **Close decision 13, the identity curve, before WI-M0-007.** The blocking unknown is whether the chosen Noise crate can perform P-256 DH through an external `agree`, as [ADR-0011](docs/adr/0011-keystore-exposes-operations.md) requires. Establish that first; the decision follows from it
-3. **Measure decision 6 on the first Work Item.** `.claude/agents/implementer.md` says `sonnet`; count the `REVISE` cycles before settling the tier
+3. **Keep measuring decision 6.** One Work Item is not a sample; see the record under that decision below
 
-Implementation has not begun. Nothing blocks WI-M0-001, and decision 13 has until WI-M0-007. Creating the GitHub repository and pushing waits until local-only work ends.
+Implementation has begun. Decision 13 has until WI-M0-007. Creating the GitHub repository and pushing waits until local-only work ends.
+
+### Review record
+
+| WI | Verdict | REVISE cycles | Cause |
+|---|---|---|---|
+| WI-M0-001 | PASS | 1 | The Work Order, not the Implementer. It said to copy a crate's doc line verbatim from the `docs/02` layout table; that table's row for `tauri-plugin-tradr` begins "Exposes the above", which points at nothing once lifted out of the table |
+
+Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001 creates no executable code and is not a Critical Module. Its Definition of Done carried no test item.
+
+**Lesson recorded for future Work Orders: never instruct verbatim copying out of a document into code.** Prose written for a table depends on the table.
 
 ## In flight
 
@@ -34,6 +44,10 @@ Implementation has not begun. Nothing blocks WI-M0-001, and decision 13 has unti
 work_items: []
 blocked: []
 ```
+
+**The original WI-M0-001 was re-cut into three**, since one skeleton covering both workspaces plus code generation exceeded the 8-file guide in [docs/10](docs/10-implementation-process.md#the-unit-of-work-the-work-item) by roughly threefold. `WI-M0-001c` depends on both of the other two.
+
+`WI-M0-001` itself creates 14 files, above the guide, and that is accepted rather than split further: the six crates' dependency edges **are** the architecture, and declaring them in one reviewable unit is what makes `layer-deps` meaningful from its first run. Total content is under 150 lines.
 
 ---
 
@@ -56,7 +70,7 @@ Consequences already applied: every document is in English, `Coordinator` is now
 
 | # | Decision | Needed by | Who decides |
 |---|---|---|---|
-| 6 | Implementer model tier. `.claude/agents/implementer.md` currently says `sonnet`; Haiku 4.5 is cheaper but likely costs more in `REVISE` cycles on Rust work | M0's first Work Item | User, or measured |
+| 6 | Implementer model tier. `.claude/agents/implementer.md` currently says `sonnet`; Haiku 4.5 is cheaper but likely costs more in `REVISE` cycles on Rust work. **After WI-M0-001: one REVISE, attributable to the Work Order rather than the model. No evidence against `sonnet` yet, and none for dropping to Haiku either — a skeleton exercises nothing.** Revisit after WI-M0-006 | M0's end | User, or measured |
 | 7 | Distribution channels: Play Store, F-Droid, direct APK. Affects how permissions must be justified | M2 | User |
 | 8 | Code-signing certificates: Apple Developer Program and Authenticode. Procurement takes weeks | M2 start | User |
 | 9 | Whether same-account transfers auto-accept by default | M1 | Decide from how it feels |
@@ -67,6 +81,14 @@ Consequences already applied: every document is in English, `Coordinator` is now
 **Decision 13 is the one with a deadline inside M0.** A Device ID is `BLAKE3(public key)[0..16]`, so deciding after keys exist invalidates every Device ID, pinned Fingerprint, and stored ABK at once. Its blast radius includes `DeviceInfo.ed25519_pub` in `proto/tradr/v1/common.proto`, which is why that field has not been renamed pre-emptively.
 
 The other outstanding input is the desktop client secret's value, which WI-M0-008 needs.
+
+#### Toolchain present on the development machine
+
+Checked 2026-08-22: `cargo` and `rustc` 1.98.0, `pnpm` 10.20.0, `node` v24.11.0. **Neither `protoc` nor `buf` is installed as a system binary.**
+
+WI-M0-001c therefore drives code generation without one: `protox`, a pure-Rust protobuf compiler, feeds `prost` on the Rust side, and the npm-distributed `buf` runs `ts-proto` on the TypeScript side. Both arrive through `cargo` and `pnpm`. **No CI step installs a system protobuf compiler**, which is the point — a toolchain the lockfiles do not pin is a reproducibility hole.
+
+`docs/02` names `prost` and `ts-proto` as the generators, and both remain in use. Only how they are invoked is settled here.
 
 #### OAuth client IDs
 
@@ -155,7 +177,9 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | ID | Content | Status | Critical |
 |---|---|---|---|
 | WI-M0-000 | Repository init: `git init`, `LICENSE`, `.gitignore`, GitHub remote, initial commit | in-progress — local done, remote pending | |
-| WI-M0-001 | Monorepo skeleton: pnpm and Cargo workspaces, code generation from `proto` | todo | |
+| WI-M0-001 | Cargo workspace and the six crates, with the dependency edges of [docs/02](docs/02-architecture.md#direction-of-dependency) and no external crates | **done** — PASS after one REVISE | |
+| WI-M0-001b | pnpm workspace and the four TypeScript packages | todo | |
+| WI-M0-001c | Code generation from `proto`: prost for Rust, ts-proto for TypeScript | todo | |
 | WI-M0-002 | Required CI jobs: lint, test, comment-lang, comment-length, excuse-grep, layer-deps | todo | |
 | WI-M0-003 | The Tauri 2 app launches on Linux | todo | |
 | WI-M0-004 | The Tauri 2 app launches on Android — evidence for ADR-0001 | todo | |
@@ -183,6 +207,7 @@ Design changes arising during implementation. Every DCR must have a matching `do
 | DCR | Content | Reflected in | Date |
 |---|---|---|---|
 | DCR-001 | Account identity becomes the `(iss, sub)` pair, and provider-specific knowledge is confined to a Provider Profile. Every derived value — `account_tag`, the bootstrap EID secret, link records — takes `account_id = iss \|\| 0x00 \|\| sub` | [ADR-0010](docs/adr/0010-identity-is-the-issuer-subject-pair.md), [docs/05](docs/05-security.md), [CONTEXT.md](CONTEXT.md), docs/02, 03, 06, 07, `proto/` | 2026-08-22 |
+| DCR-004 | Change Drill D9 demanded `crates/` be untouched when moving off Tauri, which no layout can satisfy — the composition root must name a shell. D9 now budgets one binding crate, checkable with `grep -ril tauri crates/` | [CLAUDE.md](CLAUDE.md) §4-C | 2026-08-22 |
 | DCR-003 | The crate dependency diagram in docs/02 pointed outward from `tradr-core`, contradicting B3 and I4. Split into a call-flow diagram and a crate-dependency diagram; every crate edge now points at `tradr-core` | [docs/02](docs/02-architecture.md#direction-of-dependency) | 2026-08-22 |
 | DCR-002 | `KeyStore` exposes operations and never key material, since a key in StrongBox, a TPM, or the Secure Enclave cannot be read out. The curve question this exposes becomes open decision 13 | [ADR-0011](docs/adr/0011-keystore-exposes-operations.md), [docs/05](docs/05-security.md), docs/08 | 2026-08-22 |
 
