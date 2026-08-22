@@ -110,8 +110,8 @@ tradr/
 +-- apps/
 |   +-- tradr/                  # Tauri 2 app, desktop and Android from one project
 |   |   +-- src/                #   UI entry point, React
-|   |   +-- src-tauri/          #   Rust entry point, command definitions, capabilities
-|   |   \-- gen/android/        #   Android project, Kotlin glue
+|   |   \-- src-tauri/          #   Rust entry point, command definitions, capabilities
+|   |       \-- gen/android/    #   Android project, Kotlin glue. Tauri generates it here
 |   \-- brokr/                  # The optional backend, TypeScript and Fastify
 |
 +-- packages/                   # TypeScript workspace, pnpm

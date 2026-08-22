@@ -112,6 +112,16 @@ The one outstanding input is the desktop client secret's value, which WI-M0-008 
 
 **Android: ready.** The SDK lives at `/home/prokosna/android-sdk` with `build-tools;35.0.0`, `platform-tools` 37.0.1, `platforms;android-35`, `cmdline-tools/latest`, and `ndk/27.3.13750724`. The four Android Rust targets were added on 2026-08-22: `aarch64-linux-android`, `armv7-linux-androideabi`, `i686-linux-android`, `x86_64-linux-android`. OpenJDK 25.0.3 is present.
 
+**The Android build needs JDK 21, not the system's JDK 25.** Gradle 8.14.3, which Tauri scaffolds, cannot read Java 25 class files and fails with `Unsupported class file major version 69` — a message that names neither Java nor the version that would work. The Android Gradle Plugin does not support Java 25 either, so raising Gradle is not the fix; a supported JDK is.
+
+Temurin 21.0.12.1 was installed to `~/.jdks/jdk-21.0.12.1+1` on 2026-08-22, deliberately **without `sudo` and without displacing the system JDK**, which OpenJDK 25 remains. Every Android command sets it explicitly:
+
+```
+JAVA_HOME=/home/prokosna/.jdks/jdk-21.0.12.1+1
+```
+
+Confirmed working: `./gradlew --version` reports Gradle 8.14.3 on Launcher JVM 21.0.12.1. **CI must pin the same major version**; a runner defaulting to a newer JDK reproduces this failure.
+
 **An emulator is available.** Installed 2026-08-22: the `emulator` package and `system-images;android-35;google_apis;x86_64`. AVD `tradr-test` boots headless and reaches `sys.boot_completed`, reporting Android 15, API 35, ABI `x86_64`. KVM is present and the user is in the `kvm` group.
 
 ```
@@ -281,6 +291,7 @@ Design changes arising during implementation. Every DCR must have a matching `do
 | DCR | Content | Reflected in | Date |
 |---|---|---|---|
 | DCR-001 | Account identity becomes the `(iss, sub)` pair, and provider-specific knowledge is confined to a Provider Profile. Every derived value — `account_tag`, the bootstrap EID secret, link records — takes `account_id = iss \|\| 0x00 \|\| sub` | [ADR-0010](docs/adr/0010-identity-is-the-issuer-subject-pair.md), [docs/05](docs/05-security.md), [CONTEXT.md](CONTEXT.md), docs/02, 03, 06, 07, `proto/` | 2026-08-22 |
+| DCR-010 | `gen/android/` is generated at `apps/tradr/src-tauri/gen/android/`, not at `apps/tradr/gen/android/` as the layout claimed. Corrected in `docs/02`, and the two dead `.gitignore` entries repointed | [docs/02](docs/02-architecture.md#monorepo-layout), `.gitignore` | 2026-08-22 |
 | DCR-009 | **Every identity-key signature carries a domain tag from a closed set.** Only `KeyBinding` had one. `HelloAck.nonce_signature` and `BrokrRegister.challenge_signature` were both raw signatures over bytes the other side chose, so a Brokr could hand a device a peer's `Hello.nonce` as a registration challenge and replay the answer to impersonate it — which contradicts [ADR-0005](docs/adr/0005-brokr-is-optional.md)'s claim that a compromised Brokr cannot impersonate anyone | [docs/05](docs/05-security.md#every-signature-carries-a-domain-tag), docs/07, `proto/` | 2026-08-22 |
 | DCR-008 | Partial files are named by a **receiver-assigned ordinal**, not by the sender's `item_id`. An `item_id` is attacker-controlled, and using it as a path component made zip-slip-class defences load-bearing forever. `item_id` is still validated as an opaque token, since it is a map key and reaches logs | [docs/04](docs/04-protocol.md#partial-files) | 2026-08-22 |
 | DCR-007 | Device Keys become P-256 and wire fields are renamed to `identity_pub` and `agreement_pub`. Settles open decision 13 | [ADR-0012](docs/adr/0012-p256-for-device-keys.md), [docs/05](docs/05-security.md#hardware-backing-and-the-curve), [CONTEXT.md](CONTEXT.md), docs/03, 06, 07, 08, 10, ADR-0003, ADR-0006. **`proto/` and `roundtrip.rs` follow in WI-M0-002a** | 2026-08-22 |
