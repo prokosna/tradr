@@ -139,10 +139,12 @@ Layer 3  Driver    quinn, btleplug, mdns-sd, rustls, SAF, React, Fastify
 | D6. Rewrite Brokr in another language | 0 on the client |
 | D7. Add iOS | one implementation each of Vfs, KeyStore, BleAdvertiser |
 | D8. Android SAF is superseded by a new API | `vfs/saf/` only |
-| **D9. Move from Tauri to Electron** | **UI and Adapter only. `crates/` untouched** |
+| **D9. Move from Tauri to Electron** | **UI, Adapter, and `tauri-plugin-tradr` swapped for an equivalent binding crate. The other five crates untouched** |
 | D10. Add a new Transport | one implementation, one registration, one weight-table entry |
 
 **`tradr-core` must never appear in any count.** D9 is a requirement rather than a hypothetical: [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md) records conditions under which Tauri gets dropped, so staying droppable is part of the contract.
+
+**D9 reaches one crate, the binding crate, and that is the whole budget.** A composition root has to name some shell, so demanding that `crates/` be untouched entirely was never achievable; confining the shell's name to one crate is what the drill actually buys. The check is mechanical: `grep -ril tauri crates/` must return `crates/tauri-plugin-tradr/` and nothing else.
 
 ### D. Tests
 
