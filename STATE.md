@@ -112,6 +112,25 @@ The one outstanding input is the desktop client secret's value, which WI-M0-008 
 
 **Android: ready.** The SDK lives at `/home/prokosna/android-sdk` with `build-tools;35.0.0`, `platform-tools` 37.0.1, `platforms;android-35`, `cmdline-tools/latest`, and `ndk/27.3.13750724`. The four Android Rust targets were added on 2026-08-22: `aarch64-linux-android`, `armv7-linux-androideabi`, `i686-linux-android`, `x86_64-linux-android`. OpenJDK 25.0.3 is present.
 
+**An emulator is available.** Installed 2026-08-22: the `emulator` package and `system-images;android-35;google_apis;x86_64`. AVD `tradr-test` boots headless and reaches `sys.boot_completed`, reporting Android 15, API 35, ABI `x86_64`. KVM is present and the user is in the `kvm` group.
+
+```
+$ANDROID_HOME/emulator/emulator -avd tradr-test -no-window -no-audio -no-boot-anim \
+    -gpu swiftshader_indirect -no-snapshot
+```
+
+**An APK for this emulator needs the `x86_64` ABI, not only `arm64-v8a`.** A build restricted to arm64 produces something that cannot be installed here at all.
+
+**A phantom `adb` device is permanently present, and it breaks any bare `adb` command.** Something unrelated to Android listens on `0.0.0.0:5555`, which is the port `adb` probes, so it always lists an `emulator-5554 offline` alongside the real device:
+
+```
+emulator-5554   offline     <- not Android; adb probing 0.0.0.0:5555
+emulator-5556   device      <- the real AVD
+```
+
+Any `adb` invocation without `-s` fails with `more than one device/emulator`, which does not hint at the cause. **Every Work Order touching a device must set `ANDROID_SERIAL` or pass `-s`.**
+
+
 **`ANDROID_HOME` and `NDK_HOME` are not exported into a non-interactive shell.** A Work Order that needs them must set them explicitly, or the build fails with a message that does not name the cause:
 
 ```
