@@ -34,6 +34,7 @@ output: an absolute path safe to touch, or a rejection
      absolute, leading "/" or "C:\"        -> reject
      contains ".."                         -> reject
      contains NUL or control characters    -> reject
+     contains a bidi override or separator -> reject
      apply Unicode NFC normalization       -> re-run the checks above
 3. Take the realpath of the root, resolving symlinks   -> real_root
 4. Join root and the relative path, take the realpath  -> real_target

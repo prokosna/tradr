@@ -137,6 +137,7 @@ The receiver **never trusts an incoming `relative_path`**. It enforces:
 | Absolute path, starting `/` or `C:\` | Reject |
 | Contains `..` | Reject |
 | Contains NUL or other control characters | Reject |
+| Contains a bidirectional override, embedding or isolate, or a line or paragraph separator | Reject |
 | Windows reserved names: `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9` | Append `_` |
 | Trailing dots or spaces, which break on Windows | Strip |
 | Path length beyond the OS limit | Reject |
@@ -144,6 +145,22 @@ The receiver **never trusts an incoming `relative_path`**. It enforces:
 | Item is a symlink | Reject in v1, since the target may point outside the Share Root |
 
 This is the same attack surface as zip slip. The path is normalized before joining, and the joined result is re-checked to confirm it is prefixed by the destination's realpath.
+
+### Why a filename may not reorder itself
+
+The receiver shows an incoming filename to the user, who accepts or declines on the strength of it. A name carrying `U+202E RIGHT-TO-LEFT OVERRIDE` renders in the opposite order from the bytes it contains:
+
+```
+bytes on the wire   report\u{202E}fdp.exe
+what the user sees  reportexe.pdf
+what gets written   an executable
+```
+
+Rejected: `U+202A` to `U+202E`, the overrides and embeddings; `U+2066` to `U+2069`, the isolates; and `U+2028` and `U+2029`, the line and paragraph separators, which also break any single-line rendering of a name and any log line carrying one. None has a use in a filename.
+
+**`U+200E` and `U+200F`, the directional marks, stay permitted.** They influence the direction of neutral characters and cannot reverse a run, so they do not produce the substitution above, and Arabic and Hebrew filenames legitimately carry them. Rejecting them would cost every RTL user something real to defend against nothing.
+
+These are not control characters — `char::is_control` is false for every one of them — so the row above does not cover them and a check written against it alone would let them through.
 
 ## The Browse plane
 
