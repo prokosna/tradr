@@ -131,17 +131,40 @@ tradr/
 
 ### Direction of dependency
 
+**Two directions are easy to confuse here, so both are drawn.** Calls travel one way; crate dependencies travel the other, which is what dependency inversion means and what CI enforces.
+
+Call flow, what invokes what at run time:
+
 ```
 apps/tradr(UI) -> packages/ui -> packages/client-state -> packages/protocol
                                               |
                                        Tauri bridge
                                               v
-       tauri-plugin-tradr -> tradr-core -> tradr-transport -> tradr-identity
-                                  |               |
-                                  +-> tradr-vfs   +-> tradr-discovery
+       tauri-plugin-tradr -> tradr-core -> the Transport / Vfs / KeyStore traits
+                                                          |
+                          the implementations satisfying them at run time
 ```
 
-`tradr-core` never calls I/O directly; it depends on the `Transport` and `Vfs` traits. That makes the core logic — offer and accept, chunking, deciding where to resume, verification — testable with neither a real network nor a real filesystem. This is the most breakable and most test-hungry part of the design, so it is kept pure on purpose.
+Crate dependencies, what appears in each `Cargo.toml`:
+
+```
+                          tradr-core          <- depends on nothing internal
+                               ^                  declares the traits
+       +-----------+-----------+-----------+
+       |           |           |           |
+  tradr-transport  |     tradr-identity    |
+              tradr-vfs             tradr-discovery
+
+       tauri-plugin-tradr -> all five        <- the composition root, and the
+                                                only place implementations are
+                                                bound to the traits
+```
+
+**Every arrow points at `tradr-core`, and none leaves it.** An implementation crate depends on the core to implement its traits; the core never names an implementation. `tradr-transport` does not depend on `tradr-identity` either — what it needs from keys arrives through `KeyStore`, which is what keeps Change Drill D3 confined to `transport/quic/`.
+
+The wiring happens once, in `tauri-plugin-tradr`. That crate is the only one that knows which implementations exist, which is why swapping the app shell (D9) reaches no further than it.
+
+`tradr-core` never calls I/O directly; it declares the `Transport` and `Vfs` traits and depends on nothing else. That makes the core logic — offer and accept, chunking, deciding where to resume, verification — testable with neither a real network nor a real filesystem. This is the most breakable and most test-hungry part of the design, so it is kept pure on purpose.
 
 `tradr-discovery` **does not know a Brokr exists**. It holds four implementations of a `DiscoverySource` trait, one of which happens to be `BrokrSource`. Unconfigured, that implementation simply is not registered. Likewise `tradr-transport` sees `relay` as one of five `Transport` implementations. Keeping the tier distinction confined to which implementations are registered stops it from leaking upward.
 
