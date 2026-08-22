@@ -1,0 +1,123 @@
+syntax = "proto3";
+package tradr.v1;
+
+import "tradr/v1/common.proto";
+
+// Session opener. Both sides send it simultaneously; neither is "the client".
+message Hello {
+  uint32      min_version  = 1;
+  uint32      max_version  = 2;
+  DeviceInfo  device       = 3;
+  Attestation attestation  = 4;
+  KeyBinding  key_binding  = 5;
+  bytes       nonce        = 6;  // 16 bytes. The peer signs it back, defeating replay
+}
+
+message HelloAck {
+  uint32 negotiated_version = 1;
+  uint32 max_frame_size     = 2;  // Bytes
+  bytes  nonce_signature    = 3;  // Ed25519(peer's Hello.nonce)
+  TrustTier assigned_tier   = 4;  // The tier we granted the peer
+  repeated ShareDescriptor visible_shares = 5;  // Only the Shares this peer may see
+}
+
+enum TrustTier {
+  TRUST_TIER_UNSPECIFIED       = 0;
+  TRUST_TIER_REJECTED          = 1;  // Failed authentication; every later request is denied
+  TRUST_TIER_NEARBY_EPHEMERAL  = 2;  // Unknown peer, only while ephemeral receive mode is on
+  TRUST_TIER_LINKED            = 3;  // Device of a linked account
+  TRUST_TIER_SAME_ACCOUNT      = 4;  // Device of the same account
+}
+
+message ShareDescriptor {
+  string share_id = 1;
+  string label    = 2;
+  ShareMode mode  = 3;
+}
+
+enum ShareMode {
+  SHARE_MODE_UNSPECIFIED = 0;
+  SHARE_MODE_RO          = 1;
+  SHARE_MODE_RW          = 2;
+}
+
+// ---- Transfer offer ----
+
+message TransferOffer {
+  string transfer_id     = 1;  // UUIDv7, assigned by the sender
+  repeated OfferItem items = 2;
+  uint64 total_bytes     = 3;
+  string sender_label    = 4;  // Shown in the receiver's notification
+  OfferOrigin origin     = 5;
+}
+
+message OfferItem {
+  string item_id       = 1;  // Unique within the transfer
+  string relative_path = 2;  // Sanitized by the receiver, see docs/04
+  uint64 size          = 3;
+  bytes  content_hash  = 4;  // BLAKE3 root
+  int64  mtime         = 5;
+  string mime          = 6;
+  uint32 chunk_size    = 7;  // Chunk size for this item; 1 MiB by default
+}
+
+enum OfferOrigin {
+  OFFER_ORIGIN_UNSPECIFIED  = 0;
+  OFFER_ORIGIN_DRAG_DROP    = 1;
+  OFFER_ORIGIN_SHARE_SHEET  = 2;  // Android ACTION_SEND
+  OFFER_ORIGIN_SHARE_BROWSE = 3;  // Pulled from a peer's Share
+  OFFER_ORIGIN_CLIPBOARD    = 4;
+}
+
+message TransferAccept {
+  string transfer_id = 1;
+  repeated ItemAcceptance items = 2;
+  string destination_label = 3;  // For display, e.g. "Downloads"
+}
+
+message ItemAcceptance {
+  string item_id      = 1;
+  bool   accepted     = 2;
+  uint64 resume_chunk = 3;  // Start requesting here; 0 means from the beginning
+  // Chunks the receiver already holds, for sparse resume. When empty, the
+  // receiver requests contiguously from resume_chunk.
+  repeated uint64 have_chunks = 4;
+}
+
+message TransferReject {
+  string transfer_id = 1;
+  RejectReason reason = 2;
+  string note = 3;
+}
+
+enum RejectReason {
+  REJECT_REASON_UNSPECIFIED    = 0;
+  REJECT_REASON_USER_DECLINED  = 1;
+  REJECT_REASON_NO_SPACE       = 2;
+  REJECT_REASON_TOO_LARGE      = 3;  // Over the transport limit, e.g. BLE
+  REJECT_REASON_NOT_TRUSTED    = 4;
+  REJECT_REASON_BUSY           = 5;
+}
+
+message TransferComplete {
+  string transfer_id = 1;
+  uint64 bytes_transferred = 2;
+  uint64 bytes_deduplicated = 3;  // Skipped because the receiver already held them
+}
+
+message TransferAbort {
+  string transfer_id = 1;
+  Error  error       = 2;
+  bool   resumable   = 3;  // When true, keep the partial file and resume later
+}
+
+// Announces a path switch so the peer can adjust chunk and frame sizes.
+message PathChanged {
+  string transport_id  = 1;  // "direct-quic" and so on
+  uint32 chunk_size    = 2;
+  uint32 max_frame_size = 3;
+}
+
+message KeepAlive {
+  int64 timestamp = 1;
+}

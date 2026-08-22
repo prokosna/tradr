@@ -1,0 +1,91 @@
+syntax = "proto3";
+package tradr.v1;
+
+import "tradr/v1/common.proto";
+
+// Every request carries a share_id. Before acting, the receiver checks the
+// requester's Trust Tier against that Share's audience. See docs/06.
+
+message ListDir {
+  string share_id = 1;
+  string path     = 2;  // Relative to the Share Root; "" is the root
+  string cursor   = 3;  // next_cursor from the previous page; empty starts over
+  uint32 limit    = 4;  // 500 by default, 2000 maximum
+  bool   with_hash = 5; // Also compute content_hash. Slow
+}
+
+message DirListing {
+  repeated FileEntry entries = 1;
+  string next_cursor = 2;  // Empty at the end
+  uint64 total_estimate = 3;
+}
+
+message Stat {
+  string share_id = 1;
+  string path     = 2;
+}
+
+message StatResult {
+  FileEntry entry = 1;
+}
+
+message ReadFile {
+  string share_id = 1;
+  string path     = 2;
+  uint64 offset   = 3;
+  uint64 length   = 4;  // 0 reads to the end
+}
+
+message ReadFileBegin {
+  uint64 total_size   = 1;
+  bytes  content_hash = 2;
+  uint32 chunk_size   = 3;
+}
+
+message WriteFile {
+  string share_id     = 1;
+  string path         = 2;
+  uint64 size         = 3;
+  bytes  content_hash = 4;
+  WriteMode mode      = 5;
+}
+
+enum WriteMode {
+  WRITE_MODE_UNSPECIFIED = 0;
+  WRITE_MODE_CREATE_NEW  = 1;  // Fails when the path exists
+  WRITE_MODE_OVERWRITE   = 2;
+  WRITE_MODE_RENAME_IF_EXISTS = 3;  // Becomes "name (2).ext"
+}
+
+message Mkdir  { string share_id = 1; string path = 2; bool parents = 3; }
+message Delete { string share_id = 1; string path = 2; bool recursive = 3; }
+message Rename { string share_id = 1; string from = 2; string to = 3; }
+message Ack    { string request_id = 1; }
+
+message Watch {
+  string share_id = 1;
+  string path     = 2;
+  bool   recursive = 3;
+  bool   cancel   = 4;
+}
+
+message FsEvent {
+  string share_id = 1;
+  repeated FsChange changes = 2;  // Coalesced with a 250 ms debounce
+}
+
+message FsChange {
+  FsChangeKind kind = 1;
+  string path       = 2;
+  string old_path   = 3;  // RENAMED only
+}
+
+enum FsChangeKind {
+  FS_CHANGE_KIND_UNSPECIFIED = 0;
+  FS_CHANGE_KIND_CREATED     = 1;
+  FS_CHANGE_KIND_MODIFIED    = 2;
+  FS_CHANGE_KIND_DELETED     = 3;
+  FS_CHANGE_KIND_RENAMED     = 4;
+  // The watcher fell behind and dropped events; the client should re-list.
+  FS_CHANGE_KIND_OVERFLOW    = 5;
+}

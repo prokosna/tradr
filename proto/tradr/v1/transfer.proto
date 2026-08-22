@@ -1,0 +1,56 @@
+syntax = "proto3";
+package tradr.v1;
+
+import "tradr/v1/common.proto";
+
+// The receiver asks the sender for chunks. See docs/04 for why the flow is pull-based.
+message ChunkRequest {
+  string transfer_id = 1;
+  string item_id     = 2;
+  uint64 from_chunk  = 3;
+  uint32 count       = 4;  // How many to request at once; 64 by default
+}
+
+// Re-request of specific chunks after a verification failure.
+message ChunkRerequest {
+  string transfer_id = 1;
+  string item_id     = 2;
+  repeated uint64 chunks = 3;
+}
+
+// Travels on a data stream. Only the header is protobuf; raw bytes follow.
+// [frame: ChunkData][raw bytes: payload_len]
+message ChunkData {
+  string transfer_id  = 1;
+  string item_id      = 2;
+  uint64 chunk_index  = 3;
+  uint32 payload_len  = 4;
+  // BLAKE3 tree path (bao outboard) that lets this chunk be verified against
+  // item.content_hash alone, with no separate chunk hash list.
+  bytes  verify_path  = 5;
+  bool   last         = 6;
+}
+
+message ItemComplete {
+  string transfer_id = 1;
+  string item_id     = 2;
+  bool   verified    = 3;  // False on hash mismatch; the sender offers a retry
+  string final_path  = 4;  // Where the receiver actually placed it, after collision renaming
+}
+
+message TransferProgress {
+  string transfer_id       = 1;
+  uint64 bytes_received    = 2;
+  uint64 bytes_total       = 3;
+  uint32 items_completed   = 4;
+  uint32 items_total       = 5;
+  double throughput_bps    = 6;  // Moving average over the last 5 seconds
+  string active_transport  = 7;
+}
+
+// Receiver-side backpressure for a slow disk, low battery, and similar.
+message FlowControl {
+  string transfer_id     = 1;
+  uint32 max_inflight_chunks = 2;  // 0 pauses the transfer
+  string reason          = 3;
+}

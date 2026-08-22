@@ -1,0 +1,98 @@
+syntax = "proto3";
+package tradr.v1;
+
+import "tradr/v1/common.proto";
+
+// Messages on the WebSocket to a Brokr. Tier 2 only.
+// A Brokr never verifies Attestations; docs/05 explains why it must not be able to.
+// Authentication here is a device-key signature, which proves only that the holder
+// of the same key came back. That is deliberately all it proves.
+
+message BrokrRegister {
+  bytes  device_id       = 1;
+  bytes  ed25519_pub     = 2;
+  // Join token minted when the Brokr was deployed, so not just anyone can register.
+  string join_token      = 3;
+  // Signature over the challenge the Brokr issued
+  bytes  challenge_signature = 4;
+  string display_name    = 5;
+  Platform platform      = 6;
+  // Grouping tag used to find peers. BLAKE3(google_sub || salt); the sub itself is
+  // never sent. Devices of one account share a value, so the Brokr can group them
+  // without ever learning who they are.
+  bytes  account_tag     = 7;
+  // Tags for finding linked peers. BLAKE3(link_secret) for each link.
+  repeated bytes link_tags = 8;
+  string fcm_token       = 9;  // Android only
+}
+
+message BrokrChallenge {
+  bytes nonce = 1;
+}
+
+message PresenceUpdate {
+  bytes  device_id     = 1;
+  bool   online        = 2;
+  // Source address as observed by the Brokr, serving the role of STUN
+  string reflexive_addr = 3;
+  // Local addresses the device reports, to help peers on the same LAN
+  repeated string local_addrs = 4;
+  int64  last_seen     = 5;
+}
+
+message QueryPeers {
+  bytes account_tag = 1;
+  repeated bytes link_tags = 2;
+}
+
+message PeerList {
+  repeated PresenceUpdate peers = 1;
+}
+
+// Candidate exchange for NAT hole punching. No file bytes pass through.
+message RendezvousOffer {
+  bytes  to_device_id  = 1;
+  string session_id    = 2;
+  repeated string candidates = 3;  // "ip:port"
+  bytes  payload       = 4;  // Opaque bytes the sender wants only the peer to read
+}
+
+message RendezvousAnswer {
+  bytes  from_device_id = 1;
+  string session_id     = 2;
+  repeated string candidates = 3;
+  bytes  payload        = 4;
+}
+
+// Ask the Brokr to wake an offline peer through FCM or APNs.
+message WakePeer {
+  bytes  to_device_id = 1;
+  string session_id   = 2;
+}
+
+// Open a relay path. The Brokr forwards ciphertext and nothing else.
+message RelayOpen {
+  bytes  to_device_id = 1;
+  string session_id   = 2;
+  uint64 expected_bytes = 3;  // Lets the Brokr check quota up front
+}
+
+message RelayReady {
+  string session_id  = 1;
+  string upload_url  = 2;
+  string download_url = 3;
+  int64  expires_at  = 4;
+  uint64 max_bytes   = 5;
+}
+
+message BrokrEvent {
+  oneof event {
+    BrokrChallenge   challenge = 1;
+    PeerList         peers     = 2;
+    PresenceUpdate   presence  = 3;
+    RendezvousOffer  offer     = 4;
+    RendezvousAnswer answer    = 5;
+    RelayReady       relay     = 6;
+    Error            error     = 7;
+  }
+}
