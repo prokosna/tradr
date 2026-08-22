@@ -8,6 +8,7 @@ members = [
     "crates/tradr-discovery",
     "crates/tradr-vfs",
     "crates/tauri-plugin-tradr",
+    "apps/tradr/src-tauri",
 ]
 
 [workspace.package]

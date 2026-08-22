@@ -121,6 +121,7 @@ M5 is cheap and resolves UC-6, so **it comes before M6 and M7**.
 | R8 | **Brokr-free operation breaks as features are added** | The central premise of the design collapses | High | Make the no-Brokr Tier 0/1 integration test a required CI job. Introduce it at M1, not M8 |
 | R9 | **macOS and Windows code signing** | Distribution stops | Medium | Start certificate procurement before M4. Apple Developer Program and an Authenticode certificate can each take weeks |
 | R10 | **Dragging out cannot be implemented** | A gap in the experience | Medium | Substitute a download button in v1. Functionally equivalent and not fatal |
+| R11 | **The AppImage bundler downloads unpinned executables at build time** | The Linux release path is neither reproducible nor auditable, and a compromise upstream reaches users through a signed-looking bundle | Medium | Observed at M0: `cargo tauri build` fetched `AppRun`, `linuxdeploy` and its GTK and GStreamer plugins from `github.com/tauri-apps/binary-releases` and `raw.githubusercontent.com`, with no hash in the invocation. **`deb` and `rpm` need no such download.** Either drop AppImage, or vendor and hash-pin those five artifacts before M2. Folded into open decision 7, distribution channels |
 
 R1, R2, and R8 are the heavy ones. R2 gets an explicit decision point at the end of M0.
 
