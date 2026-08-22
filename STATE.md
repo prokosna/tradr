@@ -93,6 +93,22 @@ Consequences already applied: every document is in English, `Coordinator` is now
 
 The one outstanding input is the desktop client secret's value, which WI-M0-008 needs.
 
+#### Environment prerequisites that block M0, and need the user
+
+Checked 2026-08-22 on Ubuntu 24.04.4 LTS. **Neither of these can be installed from inside a session; both need the user at a shell.**
+
+**WI-M0-003, the Tauri app on Linux**, needs the WebKitGTK stack. None of it is present:
+
+```
+sudo apt install libwebkit2gtk-4.1-dev libxdo-dev libssl-dev                  libayatana-appindicator3-dev librsvg2-dev                  pkg-config patchelf
+```
+
+`build-essential`, `curl`, `wget` and `file` are already present.
+
+**WI-M0-004, the Tauri app on Android**, needs the Android SDK and NDK. `ANDROID_HOME` is unset and `sdkmanager` is absent. OpenJDK 25.0.3 is present and sufficient. The debug keystore at `~/.android/debug.keystore` was created by hand and its SHA-1 is registered, so only the SDK is outstanding.
+
+**M0's completion criteria depend on both**, since the decision point at the end of M0 evaluates [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md)'s withdrawal conditions and two of the three are Android build evidence. Work that does not need them — `WI-M0-006`, the Layer 0 and 1 types and traits — can proceed meanwhile.
+
 #### Toolchain present on the development machine
 
 Checked 2026-08-22: `cargo` and `rustc` 1.98.0, `pnpm` 10.20.0, `node` v24.11.0. **Neither `protoc` nor `buf` is installed as a system binary.**
