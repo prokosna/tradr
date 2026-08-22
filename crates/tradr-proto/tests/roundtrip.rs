@@ -8,8 +8,8 @@ use tradr_proto::v1::{BrokrRegister, ChunkRequest, DeviceInfo, Hello, ListDir, P
 fn device_info_round_trips() {
     let original = DeviceInfo {
         device_id: vec![1, 2, 3, 4],
-        ed25519_pub: vec![7; 32],
-        x25519_pub: vec![8; 32],
+        identity_pub: vec![7; 65],
+        agreement_pub: vec![8; 65],
         display_name: "kitchen-laptop".to_string(),
         platform: Platform::Linux as i32,
         capabilities: 0b0101,
@@ -44,8 +44,8 @@ fn hello_round_trips() {
         max_version: 3,
         device: Some(DeviceInfo {
             device_id: vec![9, 9],
-            ed25519_pub: vec![1; 32],
-            x25519_pub: vec![2; 32],
+            identity_pub: vec![1; 65],
+            agreement_pub: vec![2; 65],
             display_name: "phone".to_string(),
             platform: Platform::Android as i32,
             capabilities: 1,
@@ -80,7 +80,7 @@ fn chunk_request_round_trips() {
 fn brokr_register_round_trips() {
     let original = BrokrRegister {
         device_id: vec![1, 2, 3],
-        ed25519_pub: vec![4; 32],
+        identity_pub: vec![4; 65],
         join_token: "join-token-value".to_string(),
         challenge_signature: vec![5; 64],
         display_name: "desktop".to_string(),
@@ -102,8 +102,8 @@ fn brokr_register_round_trips() {
 fn corrupted_buffer_fails_to_decode() {
     let original = DeviceInfo {
         device_id: vec![1, 2, 3, 4],
-        ed25519_pub: vec![7; 32],
-        x25519_pub: vec![8; 32],
+        identity_pub: vec![7; 65],
+        agreement_pub: vec![8; 65],
         display_name: "truncate-me-please".to_string(),
         platform: Platform::Windows as i32,
         capabilities: 3,

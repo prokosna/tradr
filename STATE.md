@@ -33,6 +33,7 @@ Implementation has begun. Decision 13 has until WI-M0-007. Creating the GitHub r
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
 | WI-M0-001 | PASS | 1 | The Work Order, not the Implementer. It said to copy a crate's doc line verbatim from the `docs/02` layout table; that table's row for `tauri-plugin-tradr` begins "Exposes the above", which points at nothing once lifted out of the table |
+| WI-M0-002a | PASS | 0 | Field numbers held, `grep -rn "ed25519\|x25519" proto/ crates/ packages/` returns nothing, and the six `tradr-proto` tests run with 65-byte fixtures. The Implementer also deleted a stale `Curve is open decision 13` comment I had left on the field, flagged it as a judgment call rather than making it silently, and was right: ADR-0012 closed that decision and the comment would have contradicted the change implementing it |
 | WI-M0-001d | PASS | 0 | The boundary was verified rather than assumed: `document.title` fails in `brokr-client`, in `client-state`, and in `ui`, and `globalThis.atob` fails everywhere except `packages/protocol`, which alone carries `DOM`. I added the `ui` probe; the other three were asked for. **The report claimed `cargo test --workspace` found no tests in any crate, which is false** — `tradr-proto` has six and they pass. Harmless here, and a reminder that a green exit code and an accurate account of what ran are different claims |
 | WI-M0-002 | PASS | 1 | **My error, caught by the Implementer before it could do harm.** The Work Order's `layer-deps` rule 4 said an implementation crate may depend on `tradr-core` alone, which contradicts `docs/02` — that document says `tradr-transport`, `tradr-identity` and `tradr-discovery` also depend on `tradr-proto` for wire encoding. The check would have failed on sanctioned work within a few Work Items, and the first person to hit it would have weakened it. Corrected to: an implementation crate may depend on `tradr-core` and `tradr-proto` and nothing else internal. What stays forbidden is one implementation crate depending on another, which is the case that breaks D3 |
 | WI-M0-001c | PASS | 2 | The second cycle was **my error, not the Implementer's**. I rejected `DOM` in `tsconfig.base.json` and directed `@types/node` instead; `@types/node` only re-exports `atob`/`btoa` from `globalThis` and cannot supply them. The Implementer stopped as instructed, quoted `buffer.d.ts:1793`, and did not improvise a third option — which is why one round settled it. `DOM` was restored deliberately and WI-M0-001d cut against it |
@@ -51,11 +52,11 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: [WI-M0-002a]
-blocked: []
+work_items: []
+blocked: [WI-M0-003, WI-M0-004, WI-M0-005]
 ```
 
-`WI-M0-002a` is with an Implementer and awaiting review.
+`WI-M0-003` through `WI-M0-005` are blocked on the environment prerequisites recorded under Decisions. Nothing else is.
 
 **The original WI-M0-001 was re-cut into three**, since one skeleton covering both workspaces plus code generation exceeded the 8-file guide in [docs/10](docs/10-implementation-process.md#the-unit-of-work-the-work-item) by roughly threefold. `WI-M0-001c` depends on both of the other two.
 
@@ -209,7 +210,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-001 | Cargo workspace and the six crates (a seventh, `tradr-proto`, arrives with WI-M0-001c per DCR-005), with the dependency edges of [docs/02](docs/02-architecture.md#direction-of-dependency) and no external crates | **done** — PASS after one REVISE | |
 | WI-M0-001b | pnpm workspace and the four TypeScript packages | **done** — PASS after one REVISE | |
 | WI-M0-001c | Code generation from `proto`: `protox` and `prost` for Rust into the new `tradr-proto`, npm `buf` and `ts-proto` for TypeScript | **done** — PASS after two REVISE | |
-| WI-M0-002a | **Rename the wire fields to `identity_pub` and `agreement_pub`** in `proto/tradr/v1/`, and update `crates/tradr-proto/tests/roundtrip.rs` to match. Follows DCR-007. **The only Work Item so far permitted to edit `proto/`** | **in review** | |
+| WI-M0-002a | **Rename the wire fields to `identity_pub` and `agreement_pub`** in `proto/tradr/v1/`, and update `crates/tradr-proto/tests/roundtrip.rs` to match. Follows DCR-007. **The only Work Item so far permitted to edit `proto/`** | **done** — PASS, no REVISE | |
 | WI-M0-001d | **TypeScript project references.** Each package compiles as its own program with its own `lib`, so a Node-hosted package cannot typecheck against browser globals | **done** — PASS, no REVISE | |
 | WI-M0-002 | Required CI jobs: `lint`, `test`, and the four checks under `ci/`. `layer-deps` also runs the mechanical Change Drills D5 and D9 | **done** — PASS after one REVISE | |
 | WI-M0-003 | The Tauri 2 app launches on Linux | todo | |
