@@ -33,6 +33,7 @@ Implementation has begun. Decision 13 has until WI-M0-007. Creating the GitHub r
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
 | WI-M0-001 | PASS | 1 | The Work Order, not the Implementer. It said to copy a crate's doc line verbatim from the `docs/02` layout table; that table's row for `tauri-plugin-tradr` begins "Exposes the above", which points at nothing once lifted out of the table |
+| WI-M0-002 | PASS | 1 | **My error, caught by the Implementer before it could do harm.** The Work Order's `layer-deps` rule 4 said an implementation crate may depend on `tradr-core` alone, which contradicts `docs/02` — that document says `tradr-transport`, `tradr-identity` and `tradr-discovery` also depend on `tradr-proto` for wire encoding. The check would have failed on sanctioned work within a few Work Items, and the first person to hit it would have weakened it. Corrected to: an implementation crate may depend on `tradr-core` and `tradr-proto` and nothing else internal. What stays forbidden is one implementation crate depending on another, which is the case that breaks D3 |
 | WI-M0-001c | PASS | 2 | The second cycle was **my error, not the Implementer's**. I rejected `DOM` in `tsconfig.base.json` and directed `@types/node` instead; `@types/node` only re-exports `atob`/`btoa` from `globalThis` and cannot supply them. The Implementer stopped as instructed, quoted `buffer.d.ts:1793`, and did not improvise a third option — which is why one round settled it. `DOM` was restored deliberately and WI-M0-001d cut against it |
 | WI-M0-001b | PASS | 1 | **A gate that could not fail.** `pnpm lint` exited 0 with a lint violation present, because Biome reports rule hits as warnings. WI-M0-002 was about to wire that script into CI as a required job. Fixed with `--error-on-warnings`, and confirmed by breaking it: dirty tree exits 1, clean tree exits 0. A second, minor finding converted the four package headers from `//` to JSDoc, matching the Rust crates' `//!` and moving them from checklist A3 to A5 |
 
@@ -49,11 +50,9 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: [WI-M0-002]
+work_items: []
 blocked: []
 ```
-
-`WI-M0-002` is with an Implementer and awaiting review.
 
 **The original WI-M0-001 was re-cut into three**, since one skeleton covering both workspaces plus code generation exceeded the 8-file guide in [docs/10](docs/10-implementation-process.md#the-unit-of-work-the-work-item) by roughly threefold. `WI-M0-001c` depends on both of the other two.
 
@@ -194,7 +193,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-001b | pnpm workspace and the four TypeScript packages | **done** — PASS after one REVISE | |
 | WI-M0-001c | Code generation from `proto`: `protox` and `prost` for Rust into the new `tradr-proto`, npm `buf` and `ts-proto` for TypeScript | **done** — PASS after two REVISE | |
 | WI-M0-001d | **TypeScript project references.** Each package compiles as its own program with its own `lib`, so a Node-hosted package cannot typecheck against browser globals. Cut in response to WI-M0-001c; see the note below | todo | |
-| WI-M0-002 | Required CI jobs: `lint`, `test`, and the four checks under `ci/`. `layer-deps` also runs the mechanical Change Drills D5 and D9 | **in review** | |
+| WI-M0-002 | Required CI jobs: `lint`, `test`, and the four checks under `ci/`. `layer-deps` also runs the mechanical Change Drills D5 and D9 | **done** — PASS after one REVISE | |
 | WI-M0-003 | The Tauri 2 app launches on Linux | todo | |
 | WI-M0-004 | The Tauri 2 app launches on Android — evidence for ADR-0001 | todo | |
 | WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client — see the note below | todo | |
@@ -240,6 +239,14 @@ Design changes arising during implementation. Every DCR must have a matching `do
 | The backend went from required to optional; authentication was rebuilt around Attestations and the three tiers introduced | [ADR-0003](docs/adr/0003-google-attestation-as-trust-root.md), [ADR-0005](docs/adr/0005-brokr-is-optional.md), every design document |
 | BLE was removed from bulk transfer and limited to discovery, authentication, and payloads under 512 KiB | [ADR-0002](docs/adr/0002-ble-for-discovery-and-small-payloads.md), [docs/03](docs/03-discovery-and-transport.md) |
 | Named Tradr and Brokr; all documentation translated to English | Every file |
+
+---
+
+### Notes on the CI checks
+
+**`ci/` is deliberately outside the scan scope.** The three comment checks cover `crates/**/*.rs` and `packages/**/*.ts` only. `ci/excuse-grep.sh` necessarily contains the entire A4 phrase list, so a self-scan would either fail permanently or need an allowlist entry that reads as a blanket exemption. The scripts were checked by hand instead: ASCII only, headers within the five-line block limit.
+
+**`.github/workflows/ci.yml` pins pnpm to 10.20.0 with nothing local to compare against.** `rust-toolchain.toml` is the single source of truth for the Rust channel and the workflow defers to it, but pnpm's version exists only in the workflow. Add a `packageManager` field to the root `package.json` and have the workflow read it, **at the same time the GitHub repository is created** — that is the first moment CI can actually run, and the first moment the drift could bite.
 
 ---
 

@@ -1,0 +1,18 @@
+# ci/allowlist.txt
+#
+# Suppresses a known false positive from one of the ci/ checks.
+#
+# One entry per line, three fields separated by "|":
+#   check  | path                                    | reason
+#
+#   check  - the script's name without ".sh"
+#            (comment-lang, comment-length, excuse-grep, layer-deps)
+#   path   - the file the hit occurs in, relative to the repository root
+#   reason - why the hit is not a real violation
+#
+# Blank lines and lines starting with "#" are ignored.
+# An entry whose reason is empty or whitespace-only makes every check fail:
+# the escape hatch cannot be taken silently.
+#
+# Example:
+# excuse-grep | crates/tradr-vfs/src/openat.rs | The kernel constant is literally named RESOLVE_NO_MAGICLINKS
