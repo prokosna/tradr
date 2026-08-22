@@ -116,7 +116,13 @@ An `Item` carries `content_hash`, the 32-byte BLAKE3 root, and each `ChunkData` 
 
 ## Partial files
 
-Incoming files are written to `<destination>/.tradr-partial/<transfer_id>/<item_id>`.
+Incoming files are written to `<destination>/.tradr-partial/<transfer_id>/<ordinal>`, where **`ordinal` is a number the receiver assigns**, not anything the sender chose.
+
+`item_id` is a string the sender picks. Using it as a path component would put an attacker-controlled value on the filesystem, and every defence against that — rejecting `..`, rejecting separators and control characters, handling Windows reserved names, catching two ids that differ only in case colliding on a case-insensitive filesystem — is a check that has to be right forever. **A receiver-assigned ordinal removes the class instead of defending against it.**
+
+The mapping from ordinal back to `item_id` lives in SQLite alongside the rest of the transfer's progress, which is where the receiver already looks when resuming.
+
+`item_id` is still validated on arrival, because it is a map key and it reaches logs and the UI. It is constrained to an opaque token: **1 to 64 characters of lowercase ASCII letters, digits, `-` and `_`**. That is deliberately narrower than a filename needs to be, since it never has to be one.
 
 - On completion and successful verification, `rename` into place — atomic within one filesystem
 - Progress lives in SQLite. To keep the database and the partial file from diverging, the database is updated after the chunk write is `fsync`ed
