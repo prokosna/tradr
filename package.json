@@ -6,7 +6,7 @@
 		"codegen": "buf generate",
 		"lint": "pnpm codegen && biome lint --error-on-warnings .",
 		"format": "biome format --write .",
-		"typecheck": "pnpm codegen && tsc -p tsconfig.json",
+		"typecheck": "pnpm codegen && tsc --build tsconfig.json",
 		"test": "echo 'no test runner configured yet' && exit 0"
 	},
 	"devDependencies": {

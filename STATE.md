@@ -33,6 +33,7 @@ Implementation has begun. Decision 13 has until WI-M0-007. Creating the GitHub r
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
 | WI-M0-001 | PASS | 1 | The Work Order, not the Implementer. It said to copy a crate's doc line verbatim from the `docs/02` layout table; that table's row for `tauri-plugin-tradr` begins "Exposes the above", which points at nothing once lifted out of the table |
+| WI-M0-001d | PASS | 0 | The boundary was verified rather than assumed: `document.title` fails in `brokr-client`, in `client-state`, and in `ui`, and `globalThis.atob` fails everywhere except `packages/protocol`, which alone carries `DOM`. I added the `ui` probe; the other three were asked for. **The report claimed `cargo test --workspace` found no tests in any crate, which is false** — `tradr-proto` has six and they pass. Harmless here, and a reminder that a green exit code and an accurate account of what ran are different claims |
 | WI-M0-002 | PASS | 1 | **My error, caught by the Implementer before it could do harm.** The Work Order's `layer-deps` rule 4 said an implementation crate may depend on `tradr-core` alone, which contradicts `docs/02` — that document says `tradr-transport`, `tradr-identity` and `tradr-discovery` also depend on `tradr-proto` for wire encoding. The check would have failed on sanctioned work within a few Work Items, and the first person to hit it would have weakened it. Corrected to: an implementation crate may depend on `tradr-core` and `tradr-proto` and nothing else internal. What stays forbidden is one implementation crate depending on another, which is the case that breaks D3 |
 | WI-M0-001c | PASS | 2 | The second cycle was **my error, not the Implementer's**. I rejected `DOM` in `tsconfig.base.json` and directed `@types/node` instead; `@types/node` only re-exports `atob`/`btoa` from `globalThis` and cannot supply them. The Implementer stopped as instructed, quoted `buffer.d.ts:1793`, and did not improvise a third option — which is why one round settled it. `DOM` was restored deliberately and WI-M0-001d cut against it |
 | WI-M0-001b | PASS | 1 | **A gate that could not fail.** `pnpm lint` exited 0 with a lint violation present, because Biome reports rule hits as warnings. WI-M0-002 was about to wire that script into CI as a required job. Fixed with `--error-on-warnings`, and confirmed by breaking it: dirty tree exits 1, clean tree exits 0. A second, minor finding converted the four package headers from `//` to JSDoc, matching the Rust crates' `//!` and moving them from checklist A3 to A5 |
@@ -191,7 +192,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-001b | pnpm workspace and the four TypeScript packages | **done** — PASS after one REVISE | |
 | WI-M0-001c | Code generation from `proto`: `protox` and `prost` for Rust into the new `tradr-proto`, npm `buf` and `ts-proto` for TypeScript | **done** — PASS after two REVISE | |
 | WI-M0-002a | **Rename the wire fields to `identity_pub` and `agreement_pub`** in `proto/tradr/v1/`, and update `crates/tradr-proto/tests/roundtrip.rs` to match. Follows DCR-007; held until WI-M0-001d lands so the tree is never left with a failing `cargo test` | todo | |
-| WI-M0-001d | **TypeScript project references.** Each package compiles as its own program with its own `lib`, so a Node-hosted package cannot typecheck against browser globals. Cut in response to WI-M0-001c; see the note below | todo | |
+| WI-M0-001d | **TypeScript project references.** Each package compiles as its own program with its own `lib`, so a Node-hosted package cannot typecheck against browser globals | **done** — PASS, no REVISE | |
 | WI-M0-002 | Required CI jobs: `lint`, `test`, and the four checks under `ci/`. `layer-deps` also runs the mechanical Change Drills D5 and D9 | **done** — PASS after one REVISE | |
 | WI-M0-003 | The Tauri 2 app launches on Linux | todo | |
 | WI-M0-004 | The Tauri 2 app launches on Android — evidence for ADR-0001 | todo | |
@@ -208,7 +209,9 @@ WI-M0-010 completes **before** WI-M0-011. That is the Critical Module discipline
 
 WI-M0-006 sits early because without the Layer 1 traits in place, later implementations bind to concrete types. Violations of B1 through B7 are expensive to unwind afterwards.
 
-**Why WI-M0-001d exists, and why it is not deferred.** `packages/protocol`'s generated code calls `globalThis.atob` and `globalThis.btoa`, which only `lib.dom.d.ts` declares — `@types/node` merely re-exports them from `globalThis` and cannot supply them on its own, which was checked in `buffer.d.ts` rather than assumed. `tsconfig.base.json` therefore carries `DOM`, and every package inherits it, including the Node-hosted `apps/brokr` when it arrives at M8. A `document.querySelector` inside the Brokr would typecheck and then fail at run time.
+**WI-M0-001d landed 2026-08-22.** `tsconfig.base.json` is back to `lib: ["ES2022"]` and `packages/protocol` alone carries `DOM`. The record of why it existed follows, because the reasoning applies to any future package that wants a compiler setting of its own.
+
+**Why WI-M0-001d existed, and why it was not deferred.** `packages/protocol`'s generated code calls `globalThis.atob` and `globalThis.btoa`, which only `lib.dom.d.ts` declares — `@types/node` merely re-exports them from `globalThis` and cannot supply them on its own, which was checked in `buffer.d.ts` rather than assumed. `tsconfig.base.json` therefore carries `DOM`, and every package inherits it, including the Node-hosted `apps/brokr` when it arrives at M8. A `document.querySelector` inside the Brokr would typecheck and then fail at run time.
 
 No small change fixes this: `pnpm typecheck` runs one `tsc` across `packages/*/src/**/*.ts`, so the per-package `tsconfig.json` files are inert and no per-package `lib` can take effect. Project references are what make them live.
 
@@ -242,6 +245,12 @@ Design changes arising during implementation. Every DCR must have a matching `do
 
 ---
 
+### A trap this Supervisor fell into
+
+**`git add -A` while an Implementer is working sweeps unreviewed code into your commit.** It happened on 2026-08-22: a `docs/`-only DCR commit picked up WI-M0-001d's entire working tree, breaking two rules in [CLAUDE.md](CLAUDE.md) §5 at once — committing before `PASS`, and a design change that was supposed to be a docs-only commit. It was caught by reading `git show --stat` afterwards, and undone with `git reset --soft HEAD~1` before anything was pushed.
+
+**Stage paths explicitly when a Work Item is in flight.** `git add docs/ STATE.md`, never `git add -A`. And read `git show --stat` after every commit; the mistake is invisible in `git status` once it is made.
+
 ### Notes on the CI checks
 
 **`ci/` is deliberately outside the scan scope.** The three comment checks cover `crates/**/*.rs` and `packages/**/*.ts` only. `ci/excuse-grep.sh` necessarily contains the entire A4 phrase list, so a self-scan would either fail permanently or need an allowlist entry that reads as a blanket exemption. The scripts were checked by hand instead: ASCII only, headers within the five-line block limit.
@@ -261,7 +270,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 | DF-3 | Post-quantum migration. Write an ADR once `rustls` X25519MLKEM768 and hybrid Noise are both stable | Undecided | [docs/05](docs/05-security.md) |
 | DF-4 | Android 14+ `ChooserAction` custom actions. Sharing Shortcuts suffice for v1 | Undecided | [docs/08](docs/08-platform-integration.md) |
 | DF-6 | `useExactTypes=false` in `buf.gen.yaml`. ts-proto's `Exact<DeepPartial<T>, I>` signature does not resolve under TypeScript 7.0.2, so `fromPartial` and `create` lose excess-property checking. Revisit when ts-proto supports TypeScript 7 | Undecided | WI-M0-001c |
-| DF-5 | TypeScript packages have no build step; `main` and `types` point straight at `src/index.ts`. Vite compiles them from source for the Tauri app, but `apps/brokr` runs on Node and will need either a build or a TypeScript loader | When `apps/brokr` is created, M8 | WI-M0-001b |
+| ~~DF-5~~ | ~~TypeScript packages have no build step~~ — **resolved by WI-M0-001d.** Packages emit declarations and JavaScript into `dist/`, and `main` and `types` point there | Done 2026-08-22 | WI-M0-001b |
 
 ---
 

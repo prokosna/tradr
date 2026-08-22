@@ -7,7 +7,12 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["**", "!.claude", "!packages/protocol/src/gen"]
+		"includes": [
+			"**",
+			"!.claude",
+			"!packages/protocol/src/gen",
+			"!packages/*/dist"
+		]
 	},
 	"formatter": {
 		"enabled": true,
