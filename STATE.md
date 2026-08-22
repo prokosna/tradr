@@ -45,6 +45,7 @@ blocked: []
 | 2 | Repository visibility and licence | **Public, Apache-2.0** | 2026-08-22 |
 | 3 | Documentation language | **English throughout.** Code comments were already English-only | 2026-08-22 |
 | 4 | Repository host and CI | **GitHub with GitHub Actions.** Needed for the Windows and macOS runners at M4 | 2026-08-22 |
+| 5 | Google OAuth clients | **Created.** Values below. The consent screen stays in Testing until release | 2026-08-22 |
 
 Consequences already applied: every document is in English, `Coordinator` is now `Brokr` everywhere, `proto/tradr/v1/` replaces `proto/watari/v1/`, crates are named `tradr-*`, the mDNS service type is `_tradr._udp`, the URL scheme is `tradr://`, Brokr environment variables are `BROKR_*`, and domain-separation strings are `tradr-*-v1`.
 
@@ -52,7 +53,7 @@ Consequences already applied: every document is in English, `Coordinator` is now
 
 | # | Decision | Needed by | Who decides |
 |---|---|---|---|
-| 5 | **Google Cloud project and OAuth client IDs**, desktop and Android | **M0 completion** | User |
+| 12 | **How the desktop client secret is carried in a public repository** — embedded, or injected at build time. See the note below | WI-M0-008 | User |
 | 6 | Implementer model tier. `.claude/agents/implementer.md` currently says `sonnet`; Haiku 4.5 is cheaper but likely costs more in `REVISE` cycles on Rust work | M0's first Work Item | User, or measured |
 | 7 | Distribution channels: Play Store, F-Droid, direct APK. Affects how permissions must be justified | M2 | User |
 | 8 | Code-signing certificates: Apple Developer Program and Authenticode. Procurement takes weeks | M2 start | User |
@@ -60,7 +61,39 @@ Consequences already applied: every document is in English, `Coordinator` is now
 | 10 | Whether one device may hold several Google accounts | M6 | User |
 | 11 | Transfer history retention, and the default write limit for a writable Share | M3 | Open |
 
-Decision 5 is the only one blocking M0.
+Decision 12 is the only one blocking M0.
+
+#### OAuth client IDs
+
+```
+Android : 475695468283-v4q25lmqo6kjova3crhiutnl59jnrckk.apps.googleusercontent.com
+Desktop : 475695468283-shsoa7f59bdbta9jlubfs49jonv1m7ng.apps.googleusercontent.com
+```
+
+Both are public values and belong in the repository. Attestation verification accepts `aud` from this set, so **every device carries both** — see [docs/05](docs/05-security.md#why-step-4-compares-against-a-set).
+
+The desktop client also has a client secret, which Google's token endpoint requires for Desktop-type clients even under PKCE. Google states plainly that an installed application's secret is not treated as confidential; PKCE provides the real protection. It is still a value that has to be handled deliberately in a public repository, which is decision 12.
+
+Android-type clients have no secret at all.
+
+#### The consent screen stays in Testing
+
+Publishing to Production requires an authorized domain the developer owns and has verified in Search Console, plus a privacy policy hosted on it. No domain exists yet, and one is not needed before release.
+
+Testing status expires refresh tokens after 7 days, which the 30-day staleness window largely absorbs:
+
+```
+day 0     sign in, refresh token issued
+day 1-7   Attestation renewed every 24 hours, succeeding
+day 7     refresh token expires; renewal stops
+          the last Attestation carries iat = day 7
+day 37    the 30-day staleness limit is reached, and only now
+          does re-authentication become necessary
+```
+
+Roughly one re-authentication every five weeks, which is fine for the whole development period. Publish to Production before public release, when a distribution site has to exist anyway.
+
+Test users must be added while in Testing; only they can sign in.
 
 #### Note on Android signing fingerprints
 
