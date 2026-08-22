@@ -51,9 +51,11 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: []
+work_items: [WI-M0-002a]
 blocked: []
 ```
+
+`WI-M0-002a` is with an Implementer and awaiting review.
 
 **The original WI-M0-001 was re-cut into three**, since one skeleton covering both workspaces plus code generation exceeded the 8-file guide in [docs/10](docs/10-implementation-process.md#the-unit-of-work-the-work-item) by roughly threefold. `WI-M0-001c` depends on both of the other two.
 
@@ -191,7 +193,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-001 | Cargo workspace and the six crates (a seventh, `tradr-proto`, arrives with WI-M0-001c per DCR-005), with the dependency edges of [docs/02](docs/02-architecture.md#direction-of-dependency) and no external crates | **done** — PASS after one REVISE | |
 | WI-M0-001b | pnpm workspace and the four TypeScript packages | **done** — PASS after one REVISE | |
 | WI-M0-001c | Code generation from `proto`: `protox` and `prost` for Rust into the new `tradr-proto`, npm `buf` and `ts-proto` for TypeScript | **done** — PASS after two REVISE | |
-| WI-M0-002a | **Rename the wire fields to `identity_pub` and `agreement_pub`** in `proto/tradr/v1/`, and update `crates/tradr-proto/tests/roundtrip.rs` to match. Follows DCR-007; held until WI-M0-001d lands so the tree is never left with a failing `cargo test` | todo | |
+| WI-M0-002a | **Rename the wire fields to `identity_pub` and `agreement_pub`** in `proto/tradr/v1/`, and update `crates/tradr-proto/tests/roundtrip.rs` to match. Follows DCR-007. **The only Work Item so far permitted to edit `proto/`** | **in review** | |
 | WI-M0-001d | **TypeScript project references.** Each package compiles as its own program with its own `lib`, so a Node-hosted package cannot typecheck against browser globals | **done** — PASS, no REVISE | |
 | WI-M0-002 | Required CI jobs: `lint`, `test`, and the four checks under `ci/`. `layer-deps` also runs the mechanical Change Drills D5 and D9 | **done** — PASS after one REVISE | |
 | WI-M0-003 | The Tauri 2 app launches on Linux | todo | |
