@@ -6,9 +6,10 @@
 
 ```yaml
 last_updated: 2026-08-22
-phase: design-complete
+phase: implementing
 current_milestone: M0
-implementation_started: false
+implementation_started: true
+work_items_landed: 8
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -16,13 +17,17 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-**Design is complete; implementation has not started.** Design documents `docs/01`-`10`, eleven ADRs, and five protobuf files are in place. Everything is in English and carries the final names.
+**M0 is under way.** Both workspaces, code generation, the CI checks, the Layer 0 domain types and the Layer 1 traits have landed — eight Work Items, every one reviewed against the §4 checklist before its commit.
 
-Before starting M0, resolve the open decisions below.
+`crates/` holds `tradr-core` with no dependency at all, and six other crates whose edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
+
+**What is left in M0 is blocked on the environment**, not on design: `WI-M0-003` through `WI-M0-005` need the WebKitGTK stack and the Android SDK, listed under Decisions below. `WI-M0-006d`, the `Transport` and `Vfs` traits, is the remaining unblocked Work Item.
+
+Nine DCRs have been raised since design "finished", four of them fixing defects that would have been expensive after implementation: an `aud` compared as a scalar, a dependency diagram that inverted the architecture, sender-chosen strings used as path components, and identity-key signatures with no domain separation.
 
 ## Next three actions
 
-1. **Write the Work Order for WI-M0-006c**, the `KeyStore`, `Clock` and `Rng` traits. `KeyStore` is where [ADR-0011](docs/adr/0011-keystore-exposes-operations.md) and [ADR-0012](docs/adr/0012-p256-for-device-keys.md) first become code, and nothing blocks it
+1. **Write the Work Order for WI-M0-006d**, the `Transport` and `Vfs` traits. The last unblocked Work Item in M0
 2. **Get the environment prerequisites installed**, recorded under Decisions below. `WI-M0-003` through `WI-M0-005` are blocked on them, and two of ADR-0001's three withdrawal conditions are Android build evidence
 3. **Settle decision 15** before any chunk work, since chunk resumption is a Critical Module
 
