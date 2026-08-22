@@ -30,7 +30,7 @@ An OIDC authorization request may carry a `nonce`. Google **copies that value in
 4. Google returns an ID token containing
      {
        "iss": "https://accounts.google.com",
-       "aud": "<Tradr's OAuth client ID>",
+       "aud": "<the OAuth client ID that ran the flow>",
        "sub": "104839...",              <- account identity
        "nonce": "<BLAKE3(public keys)>", <- the binding to the keys
        "iat": ..., "exp": ...
@@ -57,7 +57,7 @@ When device B receives an Attestation from device A:
      Cacheable. Verification works offline against an existing cache
 2. Verify the id_token signature against the JWKS
 3. Check iss == "https://accounts.google.com"
-4. Check aud == Tradr's OAuth client ID
+4. Check aud is one of Tradr's known OAuth client IDs
 5. Check nonce == base64url(BLAKE3(A's ed25519_pub || A's x25519_pub))
 6. Check iat falls within the staleness limit, 30 days by default
 7. Compare sub against
@@ -70,6 +70,16 @@ When device B receives an Attestation from device A:
 ```
 
 **No Tradr backend appears anywhere in that sequence.** All it requires is Google's public keys, which anyone can fetch.
+
+#### Why step 4 compares against a set
+
+Google issues one OAuth client ID per platform: one for desktop, one for Android, and one more if iOS is added. **The `aud` in an Attestation is the client ID of whichever platform ran the flow**, so a desktop device verifying an Android peer sees the Android client ID.
+
+Comparing against a single value would therefore fail every cross-platform verification while same-platform pairs kept working — a failure mode that presents as "only Android will not connect" and hides its cause well.
+
+Every device carries the full set of Tradr client IDs, compiled in, and step 4 accepts membership in that set. The values are public and belong in the repository.
+
+Adding a platform means adding its client ID to that set, which older builds will not have. Since an unknown `aud` is rejected, **a new platform cannot be verified by devices that predate it**. Client IDs are therefore added to the set one release ahead of the platform that uses them.
 
 ### Handling expiry
 
@@ -108,6 +118,7 @@ Google's `email` claim can change through an account email change or a Workspace
 | Attack | Defended? |
 |---|---|
 | Forging an Attestation | Yes — Google's signature is required |
+| Minting a token against our public client ID | Yes — a client ID is not a secret, but the resulting token carries the attacker's own `sub`, which fails step 7 |
 | Replaying someone else's stolen Attestation | Yes — the nonce will not match the attacker's keys |
 | Presenting the attacker's own Attestation | Yes — the `sub` will not match |
 | Replaying an old Attestation | Yes — the signature over `Hello.nonce` proves current key possession |
