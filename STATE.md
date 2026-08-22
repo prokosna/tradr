@@ -62,6 +62,18 @@ Consequences already applied: every document is in English, `Coordinator` is now
 
 Decision 5 is the only one blocking M0.
 
+#### Note on Android signing fingerprints
+
+A debug keystore is machine-local, so the SHA-1 a GitHub Actions runner produces differs from the one on a developer machine and OAuth will refuse it. **This will surface during WI-M0-004.**
+
+The local development fingerprint, from `~/.android/debug.keystore`, is:
+
+```
+9C:95:33:2F:9B:D8:E7:F4:7F:2D:5B:76:3A:4D:68:8C:33:62:3A:1B
+```
+
+Register additional SHA-1 values on the same Android OAuth client rather than committing a shared debug keystore. Google Cloud Console permits several fingerprints per client, and keeping keystores out of a public repository removes a route to confusing a debug keystore with a release one. The release keystore's fingerprint joins the same list at M4.
+
 ---
 
 ## Milestones
@@ -104,6 +116,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-002 | Required CI jobs: lint, test, comment-lang, comment-length, excuse-grep, layer-deps | todo | |
 | WI-M0-003 | The Tauri 2 app launches on Linux | todo | |
 | WI-M0-004 | The Tauri 2 app launches on Android — evidence for ADR-0001 | todo | |
+| WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client — see the note below | todo | |
 | WI-M0-005 | Bidirectional Kotlin and Rust calls — evidence for ADR-0001 | todo | |
 | WI-M0-006 | Layer 0 and 1 types and traits: `Transport`, `Vfs`, `KeyStore`, `Clock`, `Rng` | todo | |
 | WI-M0-007 | Key generation and OS key store storage — Linux Secret Service, Android Keystore | todo | Yes |
