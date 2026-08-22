@@ -18,11 +18,11 @@ Nothing below is specific to Google. Any provider that reflects the nonce and pu
 
 ```
 1. The device generates key pairs
-     ed25519_priv/pub   for signing and identity
-     x25519_priv/pub    for Noise key agreement
+     identity key pair    P-256, for signing and identity
+     agreement key pair   P-256, for Noise key agreement
 
 2. It computes a nonce
-     nonce = base64url(BLAKE3(ed25519_pub || x25519_pub))
+     nonce = base64url(BLAKE3(identity_pub || agreement_pub))
 
 3. It runs the provider's authorization flow carrying that nonce
      https://accounts.google.com/o/oauth2/v2/auth
@@ -61,7 +61,7 @@ When device B receives an Attestation from device A:
      Cacheable. Verification works offline against an existing cache
 3. Check aud is one of that profile's client IDs
 4. Check the nonce binds A's keys, per the profile's nonce_binding
-     verbatim: nonce == base64url(BLAKE3(ed25519_pub || x25519_pub))
+     verbatim: nonce == base64url(BLAKE3(identity_pub || agreement_pub))
      hashed:   nonce == SHA-256 of that value
 5. Check iat falls within the staleness limit, 30 days by default
 6. Compare the pair (iss, sub) against
@@ -194,7 +194,7 @@ The last two follow necessarily from choosing Google as the root of trust. **Fin
 A Device Key rendered human-readable, equivalent to a Signal safety number.
 
 ```
-Take the first 15 bytes of BLAKE3("tradr-fp-v1" || ed25519_pub || x25519_pub),
+Take the first 15 bytes of BLAKE3("tradr-fp-v1" || identity_pub || agreement_pub),
 split into three groups of 5, and encode each as 4 words from a
 BIP-39-style list of 2048.
 
@@ -216,9 +216,9 @@ Private keys never leave the device after generation. There is no export functio
 
 | OS | Storage | Hardware backing |
 |---|---|---|
-| Android | Android Keystore, attempting `setIsStrongBoxBacked(true)`, falling back to the TEE | Yes for P-256. Ed25519 needs a recent Keymint and is not dependable in StrongBox |
-| macOS | Keychain, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` | **P-256 only.** The Secure Enclave supports no other curve, so an Ed25519 or X25519 key stays in the Keychain as software |
-| Windows | CNG with DPAPI; the Platform Crypto Provider where a TPM exists | Yes for P-256, with a TPM. Ed25519 is not generally available through the Platform Crypto Provider |
+| Android | Android Keystore, attempting `setIsStrongBoxBacked(true)`, falling back to the TEE | Yes — StrongBox or TEE |
+| macOS | Keychain, with Secure Enclave key generation where available | Yes — the Enclave handles P-256, which is what Device Keys use |
+| Windows | CNG with DPAPI; the Platform Crypto Provider where a TPM exists | Yes, with a TPM |
 | Linux | Secret Service via `libsecret`, then the kernel keyring, then a `0600` file | No — the last resort is software only |
 
 **Falling short of hardware backing on Linux is stated plainly.** Settings displays the storage method in use and says so explicitly when it has fallen back to a file. Headless environments without a running Secret Service get a warning.
@@ -233,20 +233,25 @@ A key inside StrongBox, a TPM, or the Secure Enclave **cannot be read out** — 
 
 ### Hardware backing and the curve
 
-Given that boundary, the curve decides *how much* of the promise each platform can keep. The current choice of Ed25519 for signing and X25519 for agreement is the weaker one on every platform that has a secure element:
+Given that boundary, the curve decides how much of the promise each platform can keep — and only one curve keeps it. **Device Keys are P-256**, ECDSA for signing and ECDH for agreement, decided in [ADR-0012](adr/0012-p256-for-device-keys.md).
 
-| | Ed25519 + X25519 | P-256 (ECDSA + ECDH) |
+| | Ed25519 + X25519 | P-256 |
 |---|---|---|
 | macOS Secure Enclave | No | Yes |
 | Windows TPM via CNG | Not generally | Yes |
 | Android StrongBox | Recent Keymint only | Yes |
 | Linux | Software either way | Software either way |
 
-**Both keys are affected, not just the signing key.** The Secure Enclave performs ECDH on P-256; an X25519 static key for Noise is as unprotected there as an Ed25519 one, which the earlier text did not say.
+The design previously specified Ed25519 and X25519, which forfeited hardware backing on three platforms out of four. **Both keys were affected, not only the signing key** — the Secure Enclave performs ECDH on P-256, so an X25519 static key for Noise was as unprotected there as an Ed25519 one.
 
-Moving to P-256 uniformly is the option that would let three platforms keep the promise. It is not free: it requires a Noise implementation with P-256 DH, and ECDSA is the more failure-prone signature scheme to use correctly. **Per-device curve agility is rejected outright** — Noise's pattern name fixes the DH for both parties, so mixed curves would force a negotiation round trip onto the BLE path and open a downgrade.
+Two things had to hold before this could be decided, and both were measured rather than assumed:
 
-**This is open decision 13 in [STATE.md](../STATE.md), and it blocks WI-M0-007, key generation and OS key store storage.** A Device ID is `BLAKE3(public key)[0..16]`, so changing the curve later invalidates every Device ID, every pinned Fingerprint, and every stored ABK simultaneously — the same flag-day shape as the `(iss, sub)` correction above. The blocking unknown is whether the chosen Noise crate supports P-256 DH through an external `agree`; that is checked before the decision, not after.
+- `snow` supports P-256, through its `p256` feature and `DHChoice::P256`. A probe completed a full `Noise_IK_P256_ChaChaPoly_BLAKE2s` handshake
+- **A key `snow` never sees can still drive the handshake.** `Dh::privkey()`, the one method a hardware key cannot answer, is reached only from `Builder::generate_keypair`, which Tradr does not call. The static and ephemeral keys resolve to separate `Dh` instances, so the static key delegates to `KeyStore::agree` while the ephemeral key stays in software, where it belongs
+
+**Per-device curve agility is rejected.** Noise's pattern name fixes the DH for both parties, so mixed curves would force a negotiation round trip onto the BLE path and open a downgrade. One curve is in force per protocol version, which `Hello.min_version` and `Hello.max_version` already carry.
+
+Wire fields are therefore named for their role — `identity_pub` and `agreement_pub` — never for the algorithm behind them.
 
 ## Why there are two encryption layers
 
@@ -257,7 +262,7 @@ Moving to P-256 uniformly is the option that would let three platforms keep the 
 
 QUIC already contains TLS 1.3, so stacking another encryption layer on top would be pure duplication. On QUIC paths TLS is used directly, with **a self-signed certificate whose public key is the Device Key, matched against the pinned value**. No certificate chain and no CA.
 
-- The certificate's `SubjectPublicKeyInfo` is the device's Ed25519 public key
+- The certificate's `SubjectPublicKeyInfo` is the device's P-256 identity public key
 - Certificates are requested in both directions, giving mutual TLS
 - Verification asks not whether a chain validates but whether this public key equals the expected Device ID
 
@@ -347,9 +352,9 @@ BLE and `relay` are raw byte streams where TLS does not fit — its handshake ov
 
 | Purpose | Algorithm | Notes |
 |---|---|---|
-| Device identity and signing | Ed25519 — under review, see [the curve](#hardware-backing-and-the-curve) | |
-| Key agreement | X25519 | |
-| Noise pattern | `Noise_IK_25519_ChaChaPoly_BLAKE2s` | via `snow` |
+| Device identity and signing | ECDSA P-256 | [ADR-0012](adr/0012-p256-for-device-keys.md) |
+| Key agreement | ECDH P-256 | |
+| Noise pattern | `Noise_IK_P256_ChaChaPoly_BLAKE2s` | via `snow`, `use-p256` |
 | QUIC encryption | TLS 1.3, `TLS_AES_128_GCM_SHA256` | via `rustls` |
 | Hashing for integrity and identifiers | BLAKE3 | |
 | KDF | HKDF-SHA256 | EID derivation and similar |

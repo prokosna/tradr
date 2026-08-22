@@ -119,8 +119,8 @@ Enabling communication with another Google account. **Both sides must approve ex
      {                                        |
        v: 1,                                  |
        sub: "1048...",     <- Alice's sub     |
-       ed25519_pub: ...,   <- Alice's key     |
-       x25519_pub: ...,                       |
+       identity_pub: ...,  <- Alice's key     |
+       agreement_pub: ...,                    |
        attestation: ...,   <- Google-signed   |
        half_secret: ...,   <- 16 random bytes |
        expires: ...        <- 5 minutes       |
@@ -132,7 +132,7 @@ Enabling communication with another Google account. **Both sides must approve ex
         |<---- reply over BLE or LAN ---------|
         |        {                            |
         |          sub: "9273...",            |
-        |          ed25519_pub: ...,          |
+        |          identity_pub: ...,         |
         |          attestation: ...,          |
         |          half_secret: ...           |
         |        }                            |

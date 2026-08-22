@@ -34,7 +34,7 @@ crates/tradr-transport/src/quic/
 
 ### Definition of done
 - [ ] `QuicTransport` implements the `Transport` trait
-- [ ] The self-signed certificate's SPKI carries the Ed25519 public key
+- [ ] The self-signed certificate's SPKI carries the P-256 identity public key
 - [ ] A peer certificate whose SPKI does not match the expected Device ID is refused
 - [ ] Certificates are requested in both directions, giving mutual TLS
 - [ ] No CA chain validation, using a rustls custom verifier

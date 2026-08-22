@@ -190,7 +190,7 @@ Not being built, but worth confirming that **the current design does not exclude
 | No Wi-Fi Direct equivalent; AWDL is private, leaving Multipeer Connectivity | `wifi-direct` is unavailable | `wifi-direct` was defined as Android-only from the start |
 | No arbitrary background execution | Continuous listening is impossible | The same FCM/APNs wake-up model as Android |
 | The filesystem is confined to the app sandbox | Arbitrary directories cannot be Share Roots | The `Vfs` trait abstracts this; a `FilesAppVfs` using security-scoped bookmarks slots in |
-| The Secure Enclave supports P-256 only | Ed25519 and X25519 keys stop at the Keychain | Same as macOS. See [05](05-security.md#hardware-backing-and-the-curve); open decision 13 covers both platforms at once |
+| The Secure Enclave supports P-256 only | None — Device Keys are P-256 | [ADR-0012](adr/0012-p256-for-device-keys.md) chose the curve so macOS and iOS both keep hardware backing |
 
 A `ShareViewController` provides the equivalent of `ACTION_SEND`, so UC-2 holds on iOS too.
 

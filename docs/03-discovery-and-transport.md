@@ -36,7 +36,7 @@ Four `DiscoverySource` implementations run concurrently, merging into one peer l
   |---|---|
   | `v` | Protocol major version |
   | `id` | Device ID, 16 bytes, base64url |
-  | `pk` | X25519 static public key fingerprint, first 8 bytes |
+  | `pk` | Agreement public key fingerprint, first 8 bytes |
   | `n` | Display name, UTF-8, 32 bytes maximum |
   | `p` | Platform: `linux`, `win`, `mac`, `android` |
   | `c` | Capability flags, a bitmask |

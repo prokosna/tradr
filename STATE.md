@@ -23,7 +23,7 @@ Before starting M0, resolve the open decisions below.
 ## Next three actions
 
 1. **Write the Work Order for WI-M0-001d**, TypeScript project references, once `WI-M0-002` lands. It is cheapest now, while the four packages hold one line each
-2. **Close decision 13, the identity curve, before WI-M0-007.** The blocking unknown is whether the chosen Noise crate can perform P-256 DH through an external `agree`, as [ADR-0011](docs/adr/0011-keystore-exposes-operations.md) requires. Establish that first; the decision follows from it
+2. **Land WI-M0-002a**, the `identity_pub` and `agreement_pub` rename, once WI-M0-001d is in. Decision 13 is closed and `proto/` is the last place still carrying the old names
 3. **Keep measuring decision 6.** One Work Item is not a sample; see the record under that decision below
 
 Implementation has begun. Decision 13 has until WI-M0-007. Creating the GitHub repository and pushing waits until local-only work ends.
@@ -72,6 +72,7 @@ blocked: []
 | 4 | Repository host and CI | **GitHub with GitHub Actions.** Needed for the Windows and macOS runners at M4 | 2026-08-22 |
 | 5 | Google OAuth clients | **Created.** Values below. The consent screen stays in Testing until release | 2026-08-22 |
 | 14 | TypeScript lint and format tooling | **Biome.** One tool covering both, no plugin matrix to keep aligned. Reason to withdraw: if a React rule ESLint has and Biome lacks catches a real bug in review, revisit at M2 | 2026-08-22 |
+| 13 | The identity curve | **P-256 throughout**, ECDSA for signing and ECDH for agreement. Wire fields are named for their role, `identity_pub` and `agreement_pub`. See [ADR-0012](docs/adr/0012-p256-for-device-keys.md) | 2026-08-22 |
 | 12 | The desktop client secret in a public repository | **Committed, with a runtime override.** See [docs/05](docs/05-security.md#oauth-client-configuration) | 2026-08-22 |
 
 Consequences already applied: every document is in English, `Coordinator` is now `Brokr` everywhere, `proto/tradr/v1/` replaces `proto/watari/v1/`, crates are named `tradr-*`, the mDNS service type is `_tradr._udp`, the URL scheme is `tradr://`, Brokr environment variables are `BROKR_*`, and domain-separation strings are `tradr-*-v1`.
@@ -86,11 +87,8 @@ Consequences already applied: every document is in English, `Coordinator` is now
 | 9 | Whether same-account transfers auto-accept by default | M1 | Decide from how it feels |
 | 10 | Whether one device may hold several Google accounts | M6 | User |
 | 11 | Transfer history retention, and the default write limit for a writable Share | M3 | Open |
-| 13 | **The identity curve.** Ed25519 + X25519 as designed, or P-256 throughout. P-256 is the only curve the macOS Secure Enclave, a Windows TPM, and Android StrongBox all protect, so the present choice forfeits hardware backing on three platforms. Blocked on whether the Noise crate supports P-256 DH through an external `agree`. See [docs/05](docs/05-security.md#hardware-backing-and-the-curve) | **WI-M0-007** | Supervisor, after the Noise check |
 
-**Decision 13 is the one with a deadline inside M0.** A Device ID is `BLAKE3(public key)[0..16]`, so deciding after keys exist invalidates every Device ID, pinned Fingerprint, and stored ABK at once. Its blast radius includes `DeviceInfo.ed25519_pub` in `proto/tradr/v1/common.proto`, which is why that field has not been renamed pre-emptively.
-
-The other outstanding input is the desktop client secret's value, which WI-M0-008 needs.
+The one outstanding input is the desktop client secret's value, which WI-M0-008 needs.
 
 #### Toolchain present on the development machine
 
@@ -192,6 +190,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-001 | Cargo workspace and the six crates (a seventh, `tradr-proto`, arrives with WI-M0-001c per DCR-005), with the dependency edges of [docs/02](docs/02-architecture.md#direction-of-dependency) and no external crates | **done** — PASS after one REVISE | |
 | WI-M0-001b | pnpm workspace and the four TypeScript packages | **done** — PASS after one REVISE | |
 | WI-M0-001c | Code generation from `proto`: `protox` and `prost` for Rust into the new `tradr-proto`, npm `buf` and `ts-proto` for TypeScript | **done** — PASS after two REVISE | |
+| WI-M0-002a | **Rename the wire fields to `identity_pub` and `agreement_pub`** in `proto/tradr/v1/`, and update `crates/tradr-proto/tests/roundtrip.rs` to match. Follows DCR-007; held until WI-M0-001d lands so the tree is never left with a failing `cargo test` | todo | |
 | WI-M0-001d | **TypeScript project references.** Each package compiles as its own program with its own `lib`, so a Node-hosted package cannot typecheck against browser globals. Cut in response to WI-M0-001c; see the note below | todo | |
 | WI-M0-002 | Required CI jobs: `lint`, `test`, and the four checks under `ci/`. `layer-deps` also runs the mechanical Change Drills D5 and D9 | **done** — PASS after one REVISE | |
 | WI-M0-003 | The Tauri 2 app launches on Linux | todo | |
@@ -226,6 +225,7 @@ Design changes arising during implementation. Every DCR must have a matching `do
 | DCR | Content | Reflected in | Date |
 |---|---|---|---|
 | DCR-001 | Account identity becomes the `(iss, sub)` pair, and provider-specific knowledge is confined to a Provider Profile. Every derived value — `account_tag`, the bootstrap EID secret, link records — takes `account_id = iss \|\| 0x00 \|\| sub` | [ADR-0010](docs/adr/0010-identity-is-the-issuer-subject-pair.md), [docs/05](docs/05-security.md), [CONTEXT.md](CONTEXT.md), docs/02, 03, 06, 07, `proto/` | 2026-08-22 |
+| DCR-007 | Device Keys become P-256 and wire fields are renamed to `identity_pub` and `agreement_pub`. Settles open decision 13 | [ADR-0012](docs/adr/0012-p256-for-device-keys.md), [docs/05](docs/05-security.md#hardware-backing-and-the-curve), [CONTEXT.md](CONTEXT.md), docs/03, 06, 07, 08, 10, ADR-0003, ADR-0006. **`proto/` and `roundtrip.rs` follow in WI-M0-002a** | 2026-08-22 |
 | DCR-006 | The three comment jobs warned instead of failing, on the theory that a warning obliges inspection. A job that cannot fail is not a gate — WI-M0-001b caught that exact shape in `pnpm lint`. All jobs now fail, and false positives are retired in `ci/allowlist.txt` with a mandatory reason | [docs/10](docs/10-implementation-process.md#every-job-fails-false-positives-go-in-the-allowlist) | 2026-08-22 |
 | DCR-005 | `docs/02` named no crate as the protobuf codec's home, while Change Drill D5 requires it be confined to the Adapter layer. Added `crates/tradr-proto`, the only crate permitted to name `prost`, checkable with `grep -rl prost crates/`. The TypeScript side already had `@tradr/protocol`; the Rust side was the asymmetry | [docs/02](docs/02-architecture.md#where-the-protobuf-codec-lives) | 2026-08-22 |
 | DCR-004 | Change Drill D9 demanded `crates/` be untouched when moving off Tauri, which no layout can satisfy — the composition root must name a shell. D9 now budgets one binding crate, checkable with `grep -ril tauri crates/` | [CLAUDE.md](CLAUDE.md) §4-C | 2026-08-22 |

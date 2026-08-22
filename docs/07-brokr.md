@@ -77,7 +77,7 @@ Client                                     Brokr
   |---- WS connect ---------------------------->|
   |<--- BrokrChallenge { nonce } ---------------|
   |---- BrokrRegister {                         |
-  |        device_id, ed25519_pub, join_token,  |
+  |        device_id, identity_pub, join_token, |
   |        challenge_signature, account_tag,    |
   |        link_tags[], fcm_token }  ---------->|
   |<--- PeerList { peers[] } -------------------|
@@ -93,7 +93,7 @@ Client                                     Brokr
   |<--- RelayReady { session_id, urls, ttl } ---|
 ```
 
-`challenge_signature` is `Ed25519(nonce)`, verified with `ed25519_pub`. All it establishes is that the holder of the same key returned. Who that is stays unknown to the Brokr, which is correct.
+`challenge_signature` is a P-256 signature over the nonce, verified with `identity_pub`. All it establishes is that the holder of the same key returned. Who that is stays unknown to the Brokr, which is correct.
 
 ### HTTP
 
@@ -117,7 +117,7 @@ Relay URLs carry a short-lived signed token, so guessing a `session_id` gains no
 ```sql
 CREATE TABLE devices (
   device_id       BLOB PRIMARY KEY,      -- 16 bytes
-  ed25519_pub     BLOB NOT NULL,         -- 32 bytes
+  identity_pub    BLOB NOT NULL,         -- SEC1 uncompressed P-256 point
   account_tag     BLOB NOT NULL,         -- BLAKE3(account_id || salt); the pair is never stored
   display_name    TEXT,
   platform        TEXT,
