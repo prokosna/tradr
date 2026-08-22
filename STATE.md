@@ -22,9 +22,11 @@ Before starting M0, resolve the open decisions below.
 
 ## Next three actions
 
-1. **Create the GitHub repository and push.** The local repository, `LICENSE`, `.gitignore`, and the initial design commit are in place; only the remote is missing
-2. **Create the Google Cloud project and two OAuth client IDs** — one desktop, one Android. This blocks M0's completion criteria (decision 5 below)
-3. **Write the Work Order for WI-M0-001**, the monorepo skeleton: pnpm and Cargo workspaces plus code generation from `proto`
+1. **Write the Work Order for WI-M0-001**, the monorepo skeleton: pnpm and Cargo workspaces plus code generation from `proto`. Nothing blocks it
+2. **Measure decision 6 on that first Work Item.** `.claude/agents/implementer.md` says `sonnet`; count the `REVISE` cycles before settling the tier
+3. **Create the GitHub repository and push** when local work stops being the preference
+
+Design is complete and no decision blocks M0. Implementation has not begun.
 
 ## In flight
 
@@ -74,7 +76,10 @@ Both are public values and belong in the repository. Attestation verification ac
 
 The desktop client also has a client secret, which Google's token endpoint requires for Desktop-type clients even under PKCE. It is committed alongside the IDs and overridable at runtime — see [docs/05](docs/05-security.md#oauth-client-configuration) for the handling and for why an override has to be applied to every device of an account at once.
 
-**Its value is still needed.** Copy it from the desktop client's detail page in Google Cloud Console.
+Both raw downloads from Google Cloud Console sit in the repository root as
+`client_secret_*.apps.googleusercontent.com.json`. They are gitignored, since the values they carry belong in committed config rather than in Google's file wherever it happened to land.
+
+**Extract them during WI-M0-008** into the OAuth configuration, then delete the downloads. Until that config location exists, the files are the only copy on this machine.
 
 Android-type clients have no secret at all.
 

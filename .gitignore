@@ -33,6 +33,9 @@ dist/
 *.key
 google-services.json
 fcm.json
+# Raw OAuth client downloads. The values they carry belong in committed
+# config, not in Google's file dropped wherever it landed.
+client_secret_*.json
 join-token
 .env
 .env.*
