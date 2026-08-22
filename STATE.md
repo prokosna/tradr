@@ -9,7 +9,8 @@ last_updated: 2026-08-22
 phase: implementing
 current_milestone: M0
 implementation_started: true
-work_items_landed: 8
+work_items_landed: 11
+last_commit: f20baaa
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -17,21 +18,23 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-**M0 is under way.** Both workspaces, code generation, the CI checks, the Layer 0 domain types and the Layer 1 traits have landed — eight Work Items, every one reviewed against the §4 checklist before its commit.
+**M0 is under way and nothing is blocked.** Eleven Work Items have landed, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building on Linux and Android.
 
 `crates/` holds `tradr-core` with no dependency at all, and six other crates whose edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
 
-**What is left in M0 is blocked on the environment**, not on design: `WI-M0-003` through `WI-M0-005` need the WebKitGTK stack and the Android SDK, listed under Decisions below. `WI-M0-006d`, the `Transport` and `Vfs` traits, is the remaining unblocked Work Item.
+**The build environment is complete.** WebKitGTK, the Android SDK, NDK r27, the four Android Rust targets, JDK 21 and a booting emulator are all in place — see Build environment below, which also lists three traps that produce misleading errors.
 
-Nine DCRs have been raised since design "finished", four of them fixing defects that would have been expensive after implementation: an `aud` compared as a scalar, a dependency diagram that inverted the architecture, sender-chosen strings used as path components, and identity-key signatures with no domain separation.
+**Two of ADR-0001's three withdrawal conditions remain open**, and both are now testable rather than blocked: an AVD boots headless, so `WI-M0-004b` and `WI-M0-005` can run against a real Android.
+
+Ten DCRs have been raised since design "finished". Four of them fixed defects that would have been expensive after implementation: an `aud` compared as a scalar, a dependency diagram that inverted the architecture, sender-chosen strings used as path components, and identity-key signatures with no domain separation — the last of which let a Brokr impersonate a device.
 
 ## Next three actions
 
-1. **Write the Work Order for WI-M0-006d**, the `Transport` and `Vfs` traits. The last unblocked Work Item in M0
-2. **Get the environment prerequisites installed**, recorded under Decisions below. `WI-M0-003` through `WI-M0-005` are blocked on them, and two of ADR-0001's three withdrawal conditions are Android build evidence
-3. **Settle decision 15** before any chunk work, since chunk resumption is a Critical Module
+1. **Write the Work Order for WI-M0-004b**, installing the APK on the running emulator and confirming the app starts. It is the cheapest remaining ADR-0001 evidence and the AVD is already booted
+2. **Then WI-M0-005**, bidirectional Kotlin and Rust calls — the third and last withdrawal condition
+3. **WI-M0-006d**, the `Transport` and `Vfs` traits, whenever the Android lane is waiting on something
 
-Decision 13 is closed. Creating the GitHub repository and pushing waits until local-only work ends.
+Decisions 13 and the environment are closed. **Decision 15 must be settled before any chunk work**, since chunk resumption is a Critical Module. Creating the GitHub repository and pushing waits until local-only work ends.
 
 ### Review record
 
@@ -65,10 +68,10 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 
 ```yaml
 work_items: []
-blocked: [WI-M0-003, WI-M0-004, WI-M0-005]
+blocked: []
 ```
 
-`WI-M0-003` through `WI-M0-005` are blocked on the environment prerequisites recorded under Decisions. Nothing else is.
+**Nothing is in flight and nothing is blocked.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
 **The original WI-M0-001 was re-cut into three**, since one skeleton covering both workspaces plus code generation exceeded the 8-file guide in [docs/10](docs/10-implementation-process.md#the-unit-of-work-the-work-item) by roughly threefold. `WI-M0-001c` depends on both of the other two.
 
@@ -97,7 +100,7 @@ Consequences already applied: every document is in English, `Coordinator` is now
 
 | # | Decision | Needed by | Who decides |
 |---|---|---|---|
-| 6 | Implementer model tier. `.claude/agents/implementer.md` currently says `sonnet`; Haiku 4.5 is cheaper but likely costs more in `REVISE` cycles on Rust work. **After WI-M0-001: one REVISE, attributable to the Work Order rather than the model. No evidence against `sonnet` yet, and none for dropping to Haiku either — a skeleton exercises nothing.** Revisit after WI-M0-006 | M0's end | User, or measured |
+| 6 | Implementer model tier. `.claude/agents/implementer.md` currently says `sonnet`; Haiku 4.5 is cheaper but likely costs more in `REVISE` cycles on Rust work. **After eleven Work Items: seven REVISE cycles, three of them caused by my Work Order rather than by the model.** `sonnet` stopped at the right place every time it was blocked, flagged every addition beyond a Definition of Done, and never worked around a constraint. No evidence against it; no evidence for dropping to Haiku either, since nothing so far has been hard. Revisit at M0's end | M0's end | User, or measured |
 | 7 | Distribution channels: Play Store, F-Droid, direct APK, and **whether Linux ships AppImage at all**. AppImage bundling downloads unpinned executables at build time; `deb` and `rpm` do not. See [docs/09](docs/09-roadmap-and-risks.md#risks) R11. Also affects how Android permissions must be justified | M2 | User |
 | 8 | Code-signing certificates: Apple Developer Program and Authenticode. Procurement takes weeks | M2 start | User |
 | 9 | Whether same-account transfers auto-accept by default | M1 | Decide from how it feels |
@@ -143,7 +146,6 @@ emulator-5556   device      <- the real AVD
 
 Any `adb` invocation without `-s` fails with `more than one device/emulator`, which does not hint at the cause. **Every Work Order touching a device must set `ANDROID_SERIAL` or pass `-s`.**
 
-
 **`ANDROID_HOME` and `NDK_HOME` are not exported into a non-interactive shell.** A Work Order that needs them must set them explicitly, or the build fails with a message that does not name the cause:
 
 ```
@@ -154,6 +156,7 @@ NDK_HOME=/home/prokosna/android-sdk/ndk/27.3.13750724
 **The NDK version is a decision: r27.** r28 and r29 are available and 30 is at release candidate, but r27 is the series Tauri 2's Android tooling has been exercised against. Newest-available buys nothing here; if r27 proves too old, moving up is one `sdkmanager` invocation.
 
 **A lesson about checking an environment.** The first check used `dpkg -s` and `pkg-config` and reported the WebKitGTK stack missing, which was true at the time. But `pkg-config` was itself absent in that same check, so every `pkg-config --exists` line in it was meaningless rather than negative — a tool reporting on its own absence. **Probe for the artifact, not for a package manager's opinion of it**: `pkg-config --modversion`, or the `.pc` file on disk, answers the question that matters and cannot answer it wrongly for that reason.
+
 #### Toolchain present on the development machine
 
 Checked 2026-08-22: `cargo` and `rustc` 1.98.0, `pnpm` 10.20.0, `node` v24.11.0. **Neither `protoc` nor `buf` is installed as a system binary.**
@@ -203,7 +206,7 @@ Test users must be added while in Testing; only they can sign in.
 
 #### Note on Android signing fingerprints
 
-A debug keystore is machine-local, so the SHA-1 a GitHub Actions runner produces differs from the one on a developer machine and OAuth will refuse it. **This will surface during WI-M0-004.**
+A debug keystore is machine-local, so the SHA-1 a GitHub Actions runner produces differs from the one on a developer machine and OAuth will refuse it. **It did not surface during WI-M0-004**, because that build ran here and `apksigner` confirmed the APK carries the fingerprint below. **It surfaces the first time CI builds an APK**, which is why `WI-M0-004a` exists.
 
 The local development fingerprint, from `~/.android/debug.keystore`, is:
 
@@ -221,7 +224,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | # | Content | Estimate | Status |
 |---|---|---|---|
-| **M0** | **Skeleton** — monorepo, Tauri launching on Linux and Android, Google sign-in, key generation, Attestation issue and verify | 2 weeks | **next** |
+| **M0** | **Skeleton** — monorepo, Tauri launching on Linux and Android, Google sign-in, key generation, Attestation issue and verify | 2 weeks | **in progress, 11 Work Items landed** |
 | M1 | **LAN transfer**, the most important — mDNS, QUIC, transfer, resumption, drag-and-drop send | 4 weeks | todo |
 | M2 | Android integration — share sheet, Sharing Shortcuts, SAF, permissions | 3 weeks | todo |
 | M3 | Share browsing — VFS, boundary enforcement, the Browse plane | 3 weeks | todo |
@@ -240,9 +243,9 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 **Decision point at the end of M0** — evaluate [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md)'s withdrawal conditions. Failing any of these means switching to Electron with Kotlin.
 
-- [ ] The Tauri 2 Android build passes reliably in CI
-- [ ] Bidirectional calls work: Kotlin plugin into Rust, Rust back into Kotlin
-- [ ] Android `ACTION_SEND` arrives through the Tauri plugin
+- [ ] The Tauri 2 Android build passes reliably in CI — **builds here** (WI-M0-004: all four ABIs, correctly signed). Unchecked because no CI has run it yet, and CI is where "reliably" gets tested
+- [ ] Bidirectional calls work: Kotlin plugin into Rust, Rust back into Kotlin — WI-M0-005
+- [ ] Android `ACTION_SEND` arrives through the Tauri plugin — not yet cut
 
 Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the end of M0.
 
@@ -266,7 +269,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-006b | **`ItemId`**, validated as an opaque token. Critical Module: the Supervisor wrote the tests first | **done** — PASS, no REVISE | Yes |
 | WI-M0-006c | Layer 1 traits: `KeyStore`, `Clock`, `Rng`. **`KeyStore` is operation-shaped per [ADR-0011](docs/adr/0011-keystore-exposes-operations.md); no method returns key material** | **done** — PASS after one REVISE | |
 | WI-M0-006d | Layer 1 traits: `Transport` and `Vfs` | todo | |
-| WI-M0-007 | Key generation and OS key store storage — Linux Secret Service, Android Keystore. **Blocked on decision 13** | todo | Yes |
+| WI-M0-007 | Key generation and OS key store storage — Linux Secret Service, Android Keystore. P-256 per [ADR-0012](docs/adr/0012-p256-for-device-keys.md); decision 13 is closed and this is unblocked | todo | Yes |
 | WI-M0-008 | Google OAuth on desktop: loopback with PKCE | todo | |
 | WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth | todo | |
 | WI-M0-010 | **Attestation verification tests, written first** — the Supervisor writes these. Must cover profile selection by exact `iss`, rejection of an unknown `iss`, and `(iss, sub)` pair comparison | todo | Yes |
@@ -354,8 +357,9 @@ From [docs/09](docs/09-roadmap-and-risks.md). Update as implementation proceeds.
 | # | Risk | Likelihood | Status |
 |---|---|---|---|
 | R1 | BLE peripheral role means four separate implementations | High | Not started. M7's first week goes to connectivity checks |
-| R2 | Tauri 2's Android maturity | Medium | **Decided at M0**, via WI-M0-004 and WI-M0-005 |
+| R2 | Tauri 2's Android maturity | Medium | **One of three conditions met.** WI-M0-004 built a correctly signed APK carrying all four ABIs. The two conditions needing a running Android are testable now that an AVD boots |
 | R8 | Brokr-free operation breaks as features are added | High | Make CI's `no-brokr` job required from M1 |
 | R9 | macOS and Windows signing procurement takes weeks | Medium | Needs starting before M4. Re-check at the start of M2 |
+| R11 | The AppImage bundler downloads unpinned executables at build time | Medium | **Observed at M0.** Five artifacts fetched with no hash pinning; `deb` and `rpm` need none. Folded into open decision 7 — either drop AppImage or vendor and pin, before M2 |
 
 R9 has a procurement lead time, so it cannot wait for M4. Revisit when M2 begins.
