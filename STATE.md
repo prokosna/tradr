@@ -151,18 +151,13 @@ $ANDROID_HOME/emulator/emulator -avd tradr-test -no-window -no-audio -no-boot-an
 
 **An APK for this emulator needs the `x86_64` ABI, not only `arm64-v8a`.** A build restricted to arm64 produces something that cannot be installed here at all.
 
-**A phantom `adb` device is present, and it breaks any bare `adb` command.** The cause is identified as of 2026-08-23: a **Docker container** publishes `0.0.0.0:5555->5560/tcp`, and `adb` probes 5555 looking for an emulator's adb port. Finding a listener that never completes the handshake, it infers a console port of 5554 and lists `emulator-5554 offline` beside the real device:
+**The phantom `adb` device is gone as of 2026-08-23, and the note stays because it can return.** A Docker container published `0.0.0.0:5555->5560/tcp`, and `adb` probes 5555 looking for an emulator's adb port; finding a listener that never completed the handshake, it inferred a console port of 5554 and listed `emulator-5554 offline` beside the real device. Any bare `adb` command then failed with `more than one device/emulator`, which does not hint at the cause. The user stopped the container.
 
-```
-emulator-5554   offline     <- not Android; adb probing 0.0.0.0:5555
-emulator-5556   device      <- the real AVD
-```
+**Keep passing `-s emulator-5556` or setting `ANDROID_SERIAL` in every Work Order anyway.** It costs a flag, and republishing that container reproduces the whole thing.
 
-Any `adb` invocation without `-s` fails with `more than one device/emulator`, which does not hint at the cause. **Every Work Order touching a device must set `ANDROID_SERIAL` or pass `-s`.**
+Recognising it if it comes back: a real emulator binds `127.0.0.1` only, never `0.0.0.0`, and holds a **pair** of ports, an even console port and the odd one above it -- the AVD here holds `127.0.0.1:5556` and `127.0.0.1:5557`. `ss -ltnp` run as the developer shows a Docker-published port with **no owning process**, since `docker-proxy` runs as root, which is what made it read as an unidentified listener for a day.
 
-`ss -ltnp` run as the developer shows the port with **no owning process**, because `docker-proxy` runs as root — which is why it read as an unidentified listener for a day. Two things distinguish it from a real emulator: an emulator binds `127.0.0.1` only, never `0.0.0.0`, and it listens on a **pair** of ports, an even console port and the odd one above it. The real AVD holds `127.0.0.1:5556` and `127.0.0.1:5557`.
-
-**`docker stop` on that container removes it, and the trap returns whenever the container does.** Do not delete this note on the strength of one `adb` command succeeding: a running `adb` daemon drops the stale entry for a while and picks it up again, so a settled daemon can answer correctly while a fresh one fails. `adb kill-server` before checking, and check `adb get-state` rather than only `adb devices`.
+**Check it with `adb kill-server` first, then `adb get-state`.** A running daemon drops the stale entry for a while and picks it up again, so a settled daemon answers correctly while a fresh one fails; `adb devices` alone was enough to mistake it for fixed once already.
 
 **`ANDROID_HOME` and `NDK_HOME` are not exported into a non-interactive shell.** A Work Order that needs them must set them explicitly, or the build fails with a message that does not name the cause:
 
