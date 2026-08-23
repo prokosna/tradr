@@ -18,9 +18,10 @@ const DESKTOP_CLIENT_ID: &str =
 const ANDROID_CLIENT_ID: &str =
     "475695468283-v4q25lmqo6kjova3crhiutnl59jnrckk.apps.googleusercontent.com";
 
-/// Not a credential. WI-M0-008c replaces this with the desktop client's real
-/// secret; until then, no token exchange started with it can succeed.
-const DESKTOP_CLIENT_SECRET_PLACEHOLDER_NOT_A_REAL_SECRET: &str = "placeholder-pending-wi-m0-008c";
+/// Not a credential. Google does not treat an installed application's secret
+/// as confidential -- it is extractable from any shipped binary -- and PKCE
+/// is what protects the flow (docs/05, "OAuth client configuration").
+const DESKTOP_CLIENT_SECRET: &str = "REDACTED-SEE-DCR-028-THE-CLIENT-IS-CONFIGURATION";
 
 /// Which build this device is. Selects which of Google's two OAuth clients
 /// it authenticates as (docs/05, "Why step 3 compares against a set").
@@ -89,7 +90,7 @@ pub fn google(platform: Platform, over: Option<OAuthOverride>) -> ProviderProfil
     let (mut client_id, mut client_secret) = match platform {
         Platform::Desktop => (
             DESKTOP_CLIENT_ID.to_string(),
-            Some(DESKTOP_CLIENT_SECRET_PLACEHOLDER_NOT_A_REAL_SECRET.to_string()),
+            Some(DESKTOP_CLIENT_SECRET.to_string()),
         ),
         Platform::Android => (ANDROID_CLIENT_ID.to_string(), None),
     };

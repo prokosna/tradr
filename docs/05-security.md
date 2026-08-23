@@ -103,6 +103,16 @@ The first two differ in *how far the request got*: with the secret, Google authe
 
 **The third row is what shows the value is not protecting anything.** The Android client authenticates with no secret at all, and reaches exactly the same point. Google requires the Desktop client to send the parameter; it does not require it to be unknown to anyone. That is why committing it costs nothing, why `client_secret` is an `Option` rather than a `String`, and why rotating it is a release rather than an incident.
 
+**The redirect uri is the loopback IP literal, and that too was measured.** Three authorization requests on 2026-08-24, differing only in `redirect_uri`:
+
+| `redirect_uri` | Response |
+|---|---|
+| `http://127.0.0.1:8731/callback` | accepted |
+| `http://localhost:8731/callback` | accepted |
+| `http://evil.example/callback` | `redirect_uri_mismatch` |
+
+The third row is what makes the first two mean anything: the check is real, and loopback is what it exempts. An installed client's registered `redirect_uris` are not an exhaustive list -- RFC 8252 section 7.3's loopback rule is, and any port is accepted. **The literal is chosen over the name because a name resolves through the host's own resolver**, and what it resolves to is not this process's decision.
+
 That secret is therefore committed alongside the client IDs, so that anyone who clones and builds gets a working application. Both values can be overridden at runtime:
 
 ```

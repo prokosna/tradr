@@ -11,11 +11,19 @@
 //! sees the authorization code, and only a code verifier that never left
 //! this process can turn that code into a token.
 
+//! WI-M0-008c completes that flow: `parse_callback` and
+//! `parse_token_response` are the two pure decisions in it, `serve_one_callback`
+//! is the loopback listener that supplies the first, and `exchange_code` is
+//! the token endpoint call that supplies the second.
+
+use std::collections::HashSet;
 use std::fmt;
+use std::io::{BufRead, Read, Write};
 use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tradr_core::Rng;
 
@@ -53,6 +61,25 @@ pub enum OidcError {
     /// Not a shape problem like `MalformedVerifier`: the source itself
     /// could not produce bytes, rendered to a string.
     Entropy(String),
+    /// The callback's `state` did not equal the one this process expects,
+    /// in full. Includes an absent `state` and an empty `expected_state`,
+    /// since the latter means this process never started a flow at all.
+    StateMismatch,
+    /// The callback's query string could not be turned into a code or a
+    /// provider error: a repeated parameter name, or neither `code` nor
+    /// `error` present with a non-empty value.
+    MalformedCallback(String),
+    /// The provider's callback carried an `error` parameter, reported only
+    /// once `state` was confirmed to belong to this request -- otherwise a
+    /// foreign process's failure could end this flow with its own message.
+    AuthorizationDenied(String),
+    /// The token endpoint's response was not a JSON object carrying a
+    /// non-empty string `id_token`. An OAuth response without one is valid
+    /// OAuth and useless OIDC, so its absence is an error, not an absence.
+    MalformedTokenResponse(String),
+    /// The token endpoint reported failure through an `error` member in an
+    /// otherwise 200-shaped JSON body, carrying the reason it gave.
+    TokenExchangeRefused(String),
 }
 
 impl fmt::Display for OidcError {
@@ -70,6 +97,17 @@ impl fmt::Display for OidcError {
             Self::Transport(reason) => write!(f, "transport error: {reason}"),
             Self::MalformedVerifier(reason) => write!(f, "malformed pkce verifier: {reason}"),
             Self::Entropy(reason) => write!(f, "entropy source failed: {reason}"),
+            Self::StateMismatch => write!(f, "callback state does not match the expected state"),
+            Self::MalformedCallback(reason) => write!(f, "malformed callback: {reason}"),
+            Self::AuthorizationDenied(reason) => {
+                write!(f, "authorization denied by the provider: {reason}")
+            }
+            Self::MalformedTokenResponse(reason) => {
+                write!(f, "malformed token response: {reason}")
+            }
+            Self::TokenExchangeRefused(reason) => {
+                write!(f, "token exchange refused: {reason}")
+            }
         }
     }
 }
@@ -325,4 +363,197 @@ pub fn authorization_url(
         .append_pair("code_challenge_method", CHALLENGE_METHOD);
 
     Ok(url.to_string())
+}
+
+/// A host that no query string parsed here is ever sent to -- it exists
+/// only so `reqwest::Url` has an authority to hang a query string off of.
+const CALLBACK_QUERY_BASE: &str = "http://callback.invalid/callback?";
+
+/// Reads `query` (tolerating a leading `?`) as the loopback redirect's
+/// query string and returns its authorization `code`. In order: a name
+/// repeated anywhere is refused outright; `state` must equal
+/// `expected_state` in full, empty matching nothing; only then does an
+/// `error` parameter become `AuthorizationDenied`. See docs/05.
+pub fn parse_callback(query: &str, expected_state: &str) -> Result<String, OidcError> {
+    let trimmed = query.strip_prefix('?').unwrap_or(query);
+    let url = reqwest::Url::parse(&format!("{CALLBACK_QUERY_BASE}{trimmed}")).map_err(|e| {
+        OidcError::MalformedCallback(format!("query string could not be parsed: {e}"))
+    })?;
+
+    let mut seen = HashSet::new();
+    let mut state: Option<String> = None;
+    let mut code: Option<String> = None;
+    let mut error: Option<String> = None;
+
+    for (key, value) in url.query_pairs() {
+        if !seen.insert(key.to_string()) {
+            return Err(OidcError::MalformedCallback(format!(
+                "parameter {key} is repeated"
+            )));
+        }
+        match key.as_ref() {
+            "state" => state = Some(value.into_owned()),
+            "code" => code = Some(value.into_owned()),
+            "error" => error = Some(value.into_owned()),
+            _ => {}
+        }
+    }
+
+    let state_matches = !expected_state.is_empty() && state.as_deref() == Some(expected_state);
+    if !state_matches {
+        return Err(OidcError::StateMismatch);
+    }
+
+    if let Some(error) = error {
+        return Err(OidcError::AuthorizationDenied(error));
+    }
+
+    match code {
+        Some(code) if !code.is_empty() => Ok(code),
+        _ => Err(OidcError::MalformedCallback(
+            "no non-empty code and no error parameter".to_string(),
+        )),
+    }
+}
+
+/// Parses a token endpoint's response body and returns its `id_token`. An
+/// `error` member is reported as `TokenExchangeRefused` with the reason
+/// given; otherwise a non-empty string `id_token` is required, since an
+/// OAuth response without one is a valid OAuth response and a useless OIDC
+/// one -- see the module doc.
+pub fn parse_token_response(body: &[u8]) -> Result<String, OidcError> {
+    let root: Value = serde_json::from_slice(body)
+        .map_err(|e| OidcError::MalformedTokenResponse(format!("body is not valid json: {e}")))?;
+    let object = root.as_object().ok_or_else(|| {
+        OidcError::MalformedTokenResponse("response is not a json object".to_string())
+    })?;
+
+    if let Some(error) = object.get("error").and_then(Value::as_str) {
+        return Err(OidcError::TokenExchangeRefused(error.to_string()));
+    }
+
+    match object.get("id_token").and_then(Value::as_str) {
+        Some(token) if !token.is_empty() => Ok(token.to_string()),
+        _ => Err(OidcError::MalformedTokenResponse(
+            "response has no non-empty string id_token".to_string(),
+        )),
+    }
+}
+
+/// Builds the desktop flow's redirect uri for a loopback listener bound to
+/// `port`, using the loopback IP literal rather than a resolvable name.
+/// RFC 8252 section 7.3 requires this: what such a name resolves to is
+/// the host's own resolver configuration, not a decision this process
+/// gets to make.
+pub fn callback_redirect_uri(port: u16) -> String {
+    format!("http://127.0.0.1:{port}/callback")
+}
+
+/// How much of an incoming request this reads before giving up -- one
+/// request line, never the full request a browser sends, and never
+/// unbounded, so a client that keeps sending cannot exhaust memory.
+const MAX_REQUEST_LINE_BYTES: u64 = 8 * 1024;
+
+/// How long a connection is given to finish sending its request line. The
+/// desktop flow is interactive, so nothing here waits on a client that
+/// never finishes.
+const CALLBACK_READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The page shown once the callback has been read, regardless of what
+/// `parse_callback` decided -- the browser has nothing further to do with
+/// either a code or an error, so it carries neither.
+const CALLBACK_RESPONSE_BODY: &str =
+    "<!doctype html><html><body>You can return to the app now.</body></html>";
+
+/// Accepts one connection on `listener`, reads its request line, and runs
+/// its query string through `parse_callback` against `expected_state`,
+/// writing a short HTML response before returning the result. Binds
+/// nothing: the caller binds first, so it knows the port before building
+/// the authorization url, and passes the bound listener in here.
+pub fn serve_one_callback(
+    listener: &std::net::TcpListener,
+    expected_state: &str,
+) -> Result<String, OidcError> {
+    let (stream, _) = listener
+        .accept()
+        .map_err(|e| OidcError::Transport(e.to_string()))?;
+    stream
+        .set_read_timeout(Some(CALLBACK_READ_TIMEOUT))
+        .map_err(|e| OidcError::Transport(e.to_string()))?;
+
+    let mut request_line = String::new();
+    std::io::BufReader::new((&stream).take(MAX_REQUEST_LINE_BYTES))
+        .read_line(&mut request_line)
+        .map_err(|e| OidcError::Transport(e.to_string()))?;
+
+    let query = request_line
+        .split(' ')
+        .nth(1)
+        .and_then(|target| target.split_once('?'))
+        .map(|(_, query)| query)
+        .unwrap_or("");
+
+    let result = parse_callback(query, expected_state);
+
+    let response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{CALLBACK_RESPONSE_BODY}",
+        CALLBACK_RESPONSE_BODY.len()
+    );
+    (&stream)
+        .write_all(response.as_bytes())
+        .map_err(|e| OidcError::Transport(e.to_string()))?;
+
+    result
+}
+
+/// Exchanges `code` for a token: POSTs the RFC 6749 and RFC 7636 grant
+/// parameters, form-encoded, to `token_uri`, and returns
+/// `parse_token_response`'s reading of the body. Uses the same hardened
+/// client shape as `fetch_jwks` and `require_https`s `token_uri` first.
+/// Does not gate on status: a refused exchange's body may arrive non-200.
+pub async fn exchange_code(
+    token_uri: &str,
+    client_id: &str,
+    client_secret: Option<&str>,
+    redirect_uri: &str,
+    code: &str,
+    verifier: &str,
+) -> Result<String, OidcError> {
+    require_https(token_uri)?;
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| OidcError::Transport(e.to_string()))?;
+
+    let mut form: Vec<(&str, &str)> = vec![
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", redirect_uri),
+        ("client_id", client_id),
+        ("code_verifier", verifier),
+    ];
+    if let Some(secret) = client_secret {
+        form.push(("client_secret", secret));
+    }
+
+    let mut response = client
+        .post(token_uri)
+        .form(&form)
+        .send()
+        .await
+        .map_err(|e| OidcError::Transport(e.to_string()))?;
+
+    let mut body = BodyAccumulator::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| OidcError::Transport(e.to_string()))?
+    {
+        body.push(&chunk)?;
+    }
+
+    parse_token_response(&body.finish())
 }
