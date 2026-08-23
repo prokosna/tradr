@@ -253,6 +253,7 @@ For these modules **the Supervisor writes the tests first and the Implementer th
 | Boundary enforcement in `tradr-vfs` | Arbitrary file read |
 | Attestation verification in `tradr-identity` | Impersonation |
 | **Device Key generation in `tradr-identity`** | **Impersonation, by a second route: a predictable key is a derivable key. And a `backing()` that overstates itself makes [docs/05](docs/05-security.md#key-storage)'s hardware promise false without failing anywhere** |
+| **JWKS retrieval in `tradr-oidc`** | **Impersonation of every account at once.** An attacker whose keys a device fetches mints a token carrying any `iss`, `sub` and `aud`, binding their own device keys, and it passes all seven of [docs/05](docs/05-security.md)'s steps. **TLS to the provider's own host is the only thing that makes a JWKS Google's** -- a followed redirect, a `http://` scheme, or a body accepted past a size or status check all remove it. Attestation verification is the module that would notice and it cannot: every signature it checks afterwards is perfectly valid |
 | Chunk resumption in `tradr-core` | The entire path-selection design collapses |
 | Filename sanitization: `RelPath` and `ItemId` in `tradr-core`, the transforms in `tradr-vfs` | Zip slip |
 
