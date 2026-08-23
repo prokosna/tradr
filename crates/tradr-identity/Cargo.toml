@@ -9,3 +9,5 @@ publish.workspace = true
 tradr-core = { path = "../tradr-core" }
 p256 = { version = "0.13", features = ["ecdsa", "ecdh"] }
 blake3 = "1"
+sha2 = "0.10"
+base64 = "0.22"

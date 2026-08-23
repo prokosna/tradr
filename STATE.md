@@ -9,8 +9,8 @@ last_updated: 2026-08-23
 phase: implementing
 current_milestone: M0
 implementation_started: true
-work_items_landed: 20
-last_commit: 4f8e1c3
+work_items_landed: 22
+last_commit: 8c3a7d1
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -18,7 +18,7 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-**M0 is under way and nothing is blocked.** Twenty Work Items have landed, and **every Layer 1 trait now exists**: `Clock`, `Rng`, `KeyStore`, `Vfs`, `SecureChannel`, `Transport` and the streams, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
+**M0 is under way and nothing is blocked.** Twenty-two Work Items have landed, and **every Layer 1 trait now exists**: `Clock`, `Rng`, `KeyStore`, `Vfs`, `SecureChannel`, `Transport` and the streams, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
 
 `crates/` holds `tradr-core` with no dependency at all, and six other crates whose edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
 
@@ -30,7 +30,7 @@ Nineteen DCRs have been raised since design "finished". Six of them fixed defect
 
 ## Next three actions
 
-1. **WI-M0-010**, the Attestation verification tests. Critical Module, so the Supervisor writes them before WI-M0-011 implements against them, and `SoftwareKeyStore` now exists to sign the fixtures they need
+1. **WI-M0-011b**, the JWKS signature check. It is the one step of docs/05's seven that nothing yet performs, and `VerifiedClaims` only names the contract rather than enforcing it -- see the note below
 2. **WI-M0-007b**, persisting keys through the OS key store: Linux Secret Service, Android Keystore. This is where `backing()` stops being a constant
 3. **WI-M0-012**, adding `--locked` to CI's Rust jobs -- its Work Order is written, at `scratchpad/wo-locked.txt`, and was the intended first trial of the Flash Implementer. Then **WI-M0-005b**, `ACTION_SEND` through the plugin — ADR-0001's last open condition, and the cheapest remaining piece of that evidence now that the plugin exists — the second withdrawal condition, and the only remaining one testable locally. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
 
@@ -40,6 +40,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M0-010, WI-M0-011 | PASS | 0 | Attestation policy, the fourth Critical Module and the root of trust: with no Tradr backend behind it, this code **is** the security boundary. **Scoped to docs/05 steps 1 and 3 through 6**; step 2, the JWKS signature check, is WI-M0-011b, since a JWKS fetcher, a key cache and RS256 make one Work Item that is really three. **I validated the tests by running them**, against a throwaway reference implementation in the scratchpad built as `[lib] name = "tradr_identity"` so the test file needed no edit. That caught a self-inconsistency reading had not: the fixture's default claims named a stranger, so four tests asserting `is_ok()` could not have passed against any correct implementation. Eight mutations of the reference all failed a test before the Work Order went out. **Two more gaps appeared against the real implementation** and both were mine: step 6's precedence was untested, so checking linked before own-account, and letting `ephemeral_receive` outrank the tier checks, both survived. Turning on ephemeral receive must not downgrade a peer that already qualifies. Two tests added, twenty-two now, and all eight mutations caught |
 | WI-M0-012 | PASS | 0 | `--locked` on CI's two cargo lines, closing the hole that let WI-M0-005 commit a manifest change without its lockfile. The Implementer demonstrated the fail-then-pass cycle on `cargo test` and **said plainly that it had not demonstrated the `clippy` line**, having only confirmed it passes clean. I ran that one: exit 101 with the same `cannot update the lock file`, exit 0 after reverting. `Cargo.lock` stayed byte-identical throughout, which is the part that would have gone wrong -- adding a dependency and reverting the manifest can leave the lockfile moved |
 | WI-M0-007a | PASS | 1 | The third Critical Module, and the first where **writing the tests found the design flaw**: rule B7 says randomness arrives through the `Rng` trait, and obeying it for an ECDSA nonce leaks the private key (DCR-019). Found before any implementation existed. **I validated four test claims by measurement rather than reasoning**, and one was wrong: RustCrypto does not normalize `s` for P-256, so 99 of 200 raw signatures are high-s and my test would have failed about 97% of the time against a conforming implementation. The REVISE was a gap in my tests, not in the code: `random_secret_key` retried forever, and an `Rng` **succeeding while returning a constant** P-256 rejects, which is what a stuck hardware source looks like, hung `generate` with no diagnostic. Demonstrated at exit 124 against exit 0 for a working source. The Implementer declined to add a `KeyStoreError` variant on its own, correctly, since that type is Layer 1 and the change would need a DCR. Seven mutations caught, including raising the new bound to 100000 |
 | WI-M0-005 | PASS | 0 | **ADR-0001's second withdrawal condition is met.** Rust into Kotlin uses `PluginHandle::run_mobile_plugin`, the documented path. Kotlin into Rust uses `tauri::ipc::Channel`, which serializes into the command payload as a `__CHANNEL__:<id>` handle and gives Kotlin a live object it can push through later; the Kotlin side calls `invoke.resolve()` first and pushes from a `Handler.postDelayed` 1500 ms afterwards, off that call's stack. **The negative control was run, not argued**: changing Kotlin's formula moved Rust's printed value from 83 to 125, proving Rust does not compute it, and disabling the push made the second line vanish entirely with the process still alive. I checked the unfakeable half myself -- `adb shell getprop ro.product.model` returns `sdk_gphone64_x86_64`, the value Rust printed and cannot otherwise know -- and measured the gap between the two lines at 1.504 s. `grep -ril tauri crates/` returns seven files, all under `crates/tauri-plugin-tradr/`, so Change Drill D9's budget is intact |
@@ -67,6 +68,8 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 **Stage `Cargo.lock` with any manifest change.** WI-M0-005 was committed with `crates/tauri-plugin-tradr/Cargo.toml` gaining four dependencies and the lockfile left unstaged, because my explicit-path staging listed the directories the Work Item touched and `Cargo.lock` sits at the root. `git show --stat` caught it, and `cargo build --locked` on the committed tree fails with `cannot update the lock file`. **The habit that prevents the `git add -A` trap creates this one**, and the answer to both is the same: read `git show --stat` after every commit and ask what is missing as well as what is extra.
 
+**A mutation whose edit did not apply is indistinguishable from one that survived.** WI-M0-011's harness reported "identity compared on `sub` alone" as surviving; the `sed` had targeted a variable named `pair` where the implementation calls it `account`, so nothing changed and the tests passed for the obvious reason. **A mutation harness must compare the file before and after and refuse to report a result when they match.** That is the fourth Supervisor instrument to have been wrong, and the first whose failure would have sent me looking for a defect that was not there.
+
 **A scripted edit that aborts must not be followed by a commit that runs anyway.** WI-M0-007a was committed with no `STATE.md` update because a Python edit asserted partway and the `git commit` on the next line ran regardless. **This is the third time**, and the previous two are recorded above; the habit that keeps failing is separating the two commands by a newline instead of `&&`. Undone with `git reset --soft HEAD~1`, which is the same remedy as the `git add -A` incident and is available only because nothing is pushed.
 
 **Calibrate a review instrument before trusting its output.** WI-M0-007a's mutation run reported all six mutations as "did not compile", which was false: they compiled, the tests caught them, and `cargo test` prints `error: test failed` on a failure, which the harness matched as a compile error. **A mutation harness is checked by running it against a mutation known to be caught, one known to survive, and one that genuinely does not compile**, and only then on the real set. Three Supervisor instruments have now been wrong -- a `Send + Sync` check that supplied its own bounds, a trait check that never called `listen`, and this classifier.
@@ -92,11 +95,11 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: [WI-M0-005b, WI-M0-010]
+work_items: [WI-M0-005b]
 blocked: []
 ```
 
-**Three Work Items are in flight on disjoint file sets.** WI-M0-012 touches `.github/`, WI-M0-005b touches `crates/tauri-plugin-tradr/` and `apps/tradr/`, and WI-M0-010 is the Supervisor's own test-writing in `crates/tradr-identity/tests/`. **Each Work Order's gates are scoped to its own area**, because a workspace-wide `cargo clippy` or `sh ci/run-all.sh` cannot pass while another Work Item has uncommitted code in the tree -- that was WI-M0-002b's finding. The workspace-wide run happens at each commit, once the tree holds one Work Item's changes again.
+**WI-M0-005b alone is in flight**, holding `crates/tauri-plugin-tradr/`, `apps/tradr/src-tauri/src/lib.rs` and the generated `apps/tradr/src-tauri/gen/android/app/src/main/AndroidManifest.xml`. **Each Work Order's gates are scoped to its own area**, because a workspace-wide `cargo clippy` or `sh ci/run-all.sh` cannot pass while another Work Item has uncommitted code in the tree -- that was WI-M0-002b's finding. The workspace-wide run happens at each commit, once the tree holds one Work Item's changes again.
 
 **Stage explicit paths for each, `Cargo.lock` included when a manifest moves, and read `git show --stat` afterwards.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
@@ -323,8 +326,10 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-007b | Persisting keys through the OS key store: Linux Secret Service, Android Keystore. Split from WI-M0-007a because it needs real platform integration and cannot be unit tested here, and because `backing()` only becomes interesting once a secure element is in play | todo | Yes |
 | WI-M0-008 | Google OAuth on desktop: loopback with PKCE | todo | |
 | WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth | todo | |
-| WI-M0-010 | **Attestation verification tests, written first** — the Supervisor writes these. Must cover profile selection by exact `iss`, rejection of an unknown `iss`, and `(iss, sub)` pair comparison | todo | Yes |
-| WI-M0-011 | Attestation issue, with the public keys in the nonce, and verification | todo | Yes |
+| WI-M0-010 | **Attestation policy tests, written first.** 22 tests over docs/05 steps 1 and 3 to 6 | **done** — landed with WI-M0-011 | Yes |
+| WI-M0-011 | Attestation policy: profile selection, audience set, nonce binding, staleness, `(iss, sub)` tier | **done** — PASS, no REVISE | Yes |
+| WI-M0-011b | **Step 2 only**: fetch the profile's JWKS, verify the `id_token` signature, cache the keys, work offline against the cache. Produces the `VerifiedClaims` `classify` consumes | todo | Yes |
+| WI-M0-011c | Attestation **issue**: mint the nonce from the two public keys and carry the token. WI-M0-011 covers verification alone | todo | Yes |
 
 WI-M0-010 completes **before** WI-M0-011. That is the Critical Module discipline, [CLAUDE.md](CLAUDE.md) §6.
 
@@ -404,6 +409,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 | DF-2 | Shell integration: Windows context menu, macOS share menu, Linux `.desktop` | Phase 3 | [docs/08](docs/08-platform-integration.md) |
 | DF-3 | Post-quantum migration. Write an ADR once `rustls` X25519MLKEM768 and hybrid Noise are both stable | Undecided | [docs/05](docs/05-security.md) |
 | DF-4 | Android 14+ `ChooserAction` custom actions. Sharing Shortcuts suffice for v1 | Undecided | [docs/08](docs/08-platform-integration.md) |
+| DF-13 | **`VerifiedClaims` names its contract but does not enforce it.** WI-M0-011's Work Order claimed "a caller cannot build one without having gone through step 2", and **that is false as built**: the fields are public, so anything can construct one. The Implementer said as much. Enforcing it means private fields with a `pub(crate)` constructor, which the 22 tests cannot use from `tests/`; the fix is to move them to unit tests inside the module when WI-M0-011b puts the real constructor in the same crate | With WI-M0-011b | WI-M0-011 |
 | DF-12 | **A candidate address may carry a bidirectional override; a `RelPath` may not.** DCR-013 rejects `U+202A`-`U+202E` and the isolates in a filename, because a name is shown at an accept-or-decline prompt and `report\u{202E}fdp.exe` renders as `reportexe.pdf`. DCR-017 gives a candidate address only the `item_id` rules, empty and control characters, so `\u{202E}evil.example:443` is accepted — confirmed by probe. The asymmetry is deliberate today: path selection is automatic and no user approves a candidate, so there is no prompt to spoof. **It stops being deliberate the moment the UI shows a peer's address**, which device details plausibly will | When the UI displays a peer address, M4 at the latest | WI-M0-006g |
 | DF-11 | **Two `Vfs` contracts are stated but not tested.** `open_write` creates if absent and **never truncates** — a truncating implementation silently destroys everything a resumed transfer already received. `remove` takes a file or an already-empty directory and **never recurses** — a `RelPath` is peer-influenced, and recursion on the far end of one is more power than any caller needs. Both are contracts on implementations that do not exist yet, so M3's `tradr-vfs` Work Order carries the tests. **Both are Critical Module adjacent**, so the Supervisor writes those tests first | M3, with `tradr-vfs` | WI-M0-006f |
 | DF-10 | **A colon in a component opens an NTFS alternate data stream.** `RelPath` rejects `C:` only in the drive position, because rejecting `:` outright would make ordinary Linux filenames such as `2026-08-22T10:00:00.log` unbrowsable — a cost on every platform to defend one. The Windows `Vfs` must handle it the way docs/04 handles reserved names, by transforming rather than rejecting | Before M4's Windows build | WI-M0-006d |

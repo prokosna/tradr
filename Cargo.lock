@@ -4167,8 +4167,10 @@ dependencies = [
 name = "tradr-identity"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "blake3",
  "p256",
+ "sha2",
  "tradr-core",
 ]
 
