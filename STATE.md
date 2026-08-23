@@ -34,7 +34,7 @@ Fifteen DCRs have been raised since design "finished". Six of them fixed defects
 2. **WI-M0-006e**, the `Transport` trait. Its stream model is the least settled thing in M0; scope it to what [docs/03](docs/03-discovery-and-transport.md) pins down and say in the Work Order what is being left to M1
 3. **WI-M0-005**, bidirectional Kotlin and Rust calls — the second withdrawal condition, and the only remaining one testable locally. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
 
-Decisions 13 and the environment are closed. **Decision 15 must be settled before any chunk work**, since chunk resumption is a Critical Module. Creating the GitHub repository and pushing waits until local-only work ends.
+Decisions 13, 15 and the environment are closed. **Decision 16 must be settled before a second transport lands**, since it asks whether Change Drill D10's budget survives contact with the capability bitmask. Creating the GitHub repository and pushing waits until local-only work ends.
 
 ### Review record
 
