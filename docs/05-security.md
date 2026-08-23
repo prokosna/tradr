@@ -295,6 +295,23 @@ The set is closed rather than a free string so that adding a context is a visibl
 
 **The certificate is the exception, and it is safe by structure rather than by tag.** X.509 fixes what gets signed, so no prefix can be added. It does not need one: a `TBSCertificate` is DER and begins with `0x30`, while every tagged message begins with `tradr-`, so no byte string is a valid instance of both. That reasoning is worth keeping written down, because it is the only thing standing between the certificate key and the same attack.
 
+### How a signature is encoded, and where its nonce comes from
+
+**64 bytes, `r || s`, each a 32-byte big-endian scalar. Never DER.**
+
+`bytes signature` in `proto/` said only "P-256 signature", and DER and raw `r || s` are both exactly that while being incompatible. The deciding reason is not taste:
+
+- **A Brokr verifies `BrokrRegister.challenge_signature`**, and a Brokr is TypeScript. `crypto.subtle.verify` with `ECDSA` takes raw `r || s` and nothing else, so DER would oblige every Brokr to carry an ASN.1 parser to undo an encoding the client chose for no reason.
+- **Fixed length makes a length check a real check.** A 64-byte field either is the right size or is rejected before any parsing happens. DER is variable-length, and its parsers are a well-supplied source of vulnerabilities.
+
+`s` is normalized to the lower half of the curve order. `(r, s)` and `(r, n - s)` both verify, so leaving it unnormalized means one signature has two valid spellings; nothing here treats a signature as an identifier today, and permitting that is still free to avoid.
+
+**The ECDSA nonce is derived per RFC 6979, from the private key and the message. It must not come from the `Rng` the KeyStore was given.**
+
+This is the sharpest edge in the whole design. Injecting randomness is what rule B7 asks for everywhere else, and doing it here is fatal: **two ECDSA signatures made under one nonce expose the private key** by elementary algebra, and a test `Rng` is deterministic by construction. An implementation that draws its nonce from the injected source is correct-looking, passes every functional test, and hands its Device Key to anyone who collects two signatures.
+
+RFC 6979 removes the failure mode rather than defending against it: there is no nonce source to get wrong, and signing needs no randomness at all.
+
 ## Why there are two encryption layers
 
 | Transport | Secure channel |
