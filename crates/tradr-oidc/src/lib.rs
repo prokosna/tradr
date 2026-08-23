@@ -5,8 +5,19 @@
 //! fetches passes all seven of docs/05's verification steps with a
 //! perfectly valid signature.
 
+//! Also builds the authorization request that starts the desktop OIDC
+//! flow, including RFC 7636's PKCE extension: the flow's redirect lands
+//! on a loopback port, where any local process that wins the race for it
+//! sees the authorization code, and only a code verifier that never left
+//! this process can turn that code into a token.
+
 use std::fmt;
 use std::time::Duration;
+
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use sha2::{Digest, Sha256};
+use tradr_core::Rng;
 
 /// The whole-body cap `BodyAccumulator` enforces. Google's JWKS is a
 /// couple of kilobytes; this holds roughly fifty RSA keys.
@@ -34,6 +45,14 @@ pub enum OidcError {
     Redirected { to: String },
     /// The HTTP client itself failed, rendered to a string.
     Transport(String),
+    /// A candidate code verifier failed RFC 7636 section 4.1's check:
+    /// wrong length, or a character outside `ALPHA / DIGIT / "-" / "." /
+    /// "_" / "~"`.
+    MalformedVerifier(String),
+    /// The `Rng` a generated verifier would draw its entropy from failed.
+    /// Not a shape problem like `MalformedVerifier`: the source itself
+    /// could not produce bytes, rendered to a string.
+    Entropy(String),
 }
 
 impl fmt::Display for OidcError {
@@ -49,6 +68,8 @@ impl fmt::Display for OidcError {
             Self::BodyTooLarge { cap } => write!(f, "response body exceeds the {cap}-byte cap"),
             Self::Redirected { to } => write!(f, "response came from {to}, not the requested uri"),
             Self::Transport(reason) => write!(f, "transport error: {reason}"),
+            Self::MalformedVerifier(reason) => write!(f, "malformed pkce verifier: {reason}"),
+            Self::Entropy(reason) => write!(f, "entropy source failed: {reason}"),
         }
     }
 }
@@ -195,4 +216,113 @@ pub async fn fetch_jwks(uri: &str) -> Result<Vec<u8>, OidcError> {
     }
 
     Ok(body.finish())
+}
+
+/// Octets of entropy a generated code verifier draws from `Rng`. RFC 7636
+/// section 7.1 recommends 32; base64url-encoded without padding that is exactly
+/// 43 characters, the RFC's minimum verifier length.
+const GENERATED_VERIFIER_ENTROPY_BYTES: usize = 32;
+
+/// RFC 7636 section 4.1's inclusive bounds on a code verifier's length.
+const VERIFIER_MIN_LEN: usize = 43;
+const VERIFIER_MAX_LEN: usize = 128;
+
+/// The only code challenge transform this crate produces. RFC 7636 also
+/// permits a transform under which the challenge equals the verifier
+/// verbatim, so using it would hand the authorization request the very
+/// secret PKCE exists to keep out of it; that transform is never wired
+/// up here.
+const CHALLENGE_METHOD: &str = "S256";
+
+/// An RFC 7636 code verifier, and the S256 challenge derived from it.
+/// Both fields are set once, at construction, so a `Pkce` can never hold
+/// a verifier that failed the section 4.1 shape check.
+pub struct Pkce {
+    verifier: String,
+    challenge: String,
+}
+
+impl Pkce {
+    /// Draws 32 bytes of entropy from `rng` and encodes them as unpadded
+    /// base64url to form a verifier, then validates the result through
+    /// `from_verifier` rather than trusting the encoding. `rng` failing
+    /// is an error: no other source of bytes is substituted.
+    pub fn generate(rng: &dyn Rng) -> Result<Self, OidcError> {
+        let mut entropy = [0u8; GENERATED_VERIFIER_ENTROPY_BYTES];
+        rng.fill_bytes(&mut entropy)
+            .map_err(|e| OidcError::Entropy(e.to_string()))?;
+
+        let verifier = URL_SAFE_NO_PAD.encode(entropy);
+        Self::from_verifier(&verifier)
+    }
+
+    /// Validates `verifier` against RFC 7636 section 4.1 -- length 43 to 128
+    /// octets inclusive, drawn only from `ALPHA / DIGIT / "-" / "." /
+    /// "_" / "~"` -- and derives its section 4.2 S256 challenge.
+    pub fn from_verifier(verifier: &str) -> Result<Self, OidcError> {
+        let len = verifier.len();
+        if !(VERIFIER_MIN_LEN..=VERIFIER_MAX_LEN).contains(&len) {
+            return Err(OidcError::MalformedVerifier(format!(
+                "verifier length {len} is outside the RFC 7636 range {VERIFIER_MIN_LEN}..={VERIFIER_MAX_LEN}"
+            )));
+        }
+        if !verifier
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-._~".contains(c))
+        {
+            return Err(OidcError::MalformedVerifier(
+                "verifier contains a character outside RFC 7636's unreserved set".to_string(),
+            ));
+        }
+
+        let digest = Sha256::digest(verifier.as_bytes());
+        let challenge = URL_SAFE_NO_PAD.encode(digest);
+
+        Ok(Self {
+            verifier: verifier.to_string(),
+            challenge,
+        })
+    }
+
+    /// The code verifier this instance holds.
+    pub fn verifier(&self) -> &str {
+        &self.verifier
+    }
+
+    /// The RFC 7636 section 4.2 S256 challenge derived from the verifier.
+    pub fn challenge(&self) -> &str {
+        &self.challenge
+    }
+}
+
+/// Builds the desktop flow's authorization request: `authorization_uri`
+/// with the query parameters OIDC and RFC 7636 require, percent-encoded.
+/// Refuses a non-https `authorization_uri` through `require_https`.
+/// `nonce` is carried through unaltered -- an Attestation nonce this
+/// crate neither computes nor inspects.
+pub fn authorization_url(
+    authorization_uri: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    scope: &str,
+    nonce: &str,
+    state: &str,
+    challenge: &str,
+) -> Result<String, OidcError> {
+    require_https(authorization_uri)?;
+
+    let mut url = reqwest::Url::parse(authorization_uri)
+        .map_err(|e| OidcError::MalformedUri(e.to_string()))?;
+
+    url.query_pairs_mut()
+        .append_pair("response_type", "code")
+        .append_pair("client_id", client_id)
+        .append_pair("redirect_uri", redirect_uri)
+        .append_pair("scope", scope)
+        .append_pair("nonce", nonce)
+        .append_pair("state", state)
+        .append_pair("code_challenge", challenge)
+        .append_pair("code_challenge_method", CHALLENGE_METHOD);
+
+    Ok(url.to_string())
 }
