@@ -295,6 +295,23 @@ The set is closed rather than a free string so that adding a context is a visibl
 
 **The certificate is the exception, and it is safe by structure rather than by tag.** X.509 fixes what gets signed, so no prefix can be added. It does not need one: a `TBSCertificate` is DER and begins with `0x30`, while every tagged message begins with `tradr-`, so no byte string is a valid instance of both. That reasoning is worth keeping written down, because it is the only thing standing between the certificate key and the same attack.
 
+### The token never chooses how it is verified
+
+Step 2 verifies the `id_token` against the profile's JWKS. Three things about that are decisions rather than details, and none was written down until now.
+
+**The accepted algorithms are a field of the Provider Profile, and the token's `alg` header is checked against that set, never used to select anything.** Google's profile lists `RS256` and nothing else.
+
+This is step 1's rule applied a second time. A verifier that reads `alg` and dispatches on it lets the token nominate its own verification method, and the two classic outcomes are well known:
+
+- **`alg: none`.** A token declaring it has no signature, verified by a verifier that believes it.
+- **Algorithm confusion.** A token declaring `HS256`, verified by passing the provider's RSA *public* key as an HMAC secret. The public key is public, so anyone can mint a token that passes.
+
+Both are unreachable when the algorithm comes from the profile and the header is only ever compared to it. **`none` is not a value any profile may contain.**
+
+**`kid` selects among the profile's keys and nothing else.** A provider publishes several and rotates them, so the header has to pick one; what it must not do is reach outside the set the profile's `jwks_uri` returned. An unknown `kid` is a rejection, not a lookup.
+
+**A cache miss may trigger at most one refetch, and refetches are rate limited.** Key rotation means an unknown `kid` is sometimes legitimate, so the cache is refreshed and the token retried once. Without a limit that is a denial-of-service primitive: a peer sending tokens with random `kid` values would drive one outbound fetch each, from every device it contacts. **Verification works offline against an existing cache**, which is what makes Tier 0 serverless, so a failed refetch degrades to rejecting that one token rather than to failing every verification.
+
 ### How a signature is encoded, and where its nonce comes from
 
 **64 bytes, `r || s`, each a 32-byte big-endian scalar. Never DER.**
@@ -417,6 +434,7 @@ BLE and `relay` are raw byte streams where TLS does not fit — its handshake ov
 | QUIC encryption | TLS 1.3, `TLS_AES_128_GCM_SHA256` | via `rustls` |
 | Hashing for integrity and identifiers | BLAKE3 | |
 | KDF | HKDF-SHA256 | EID derivation and similar |
+| ID token signature | RS256, pinned by the Provider Profile | The token's `alg` header is compared against the profile, never used to select. See [above](#the-token-never-chooses-how-it-is-verified) |
 | Randomness | The OS CSPRNG via `getrandom` | |
 
 Post-quantum migration is deferred. Noise offers hybrid patterns such as `Noise_IKhfs`, and `rustls` is gaining X25519MLKEM768; once both are stable, an ADR will record the switch. Priority is low on the judgement that most transferred files do not need secrecy over the horizon that harvest-now-decrypt-later implies.
