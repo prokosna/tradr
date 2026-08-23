@@ -10,7 +10,7 @@ phase: implementing
 current_milestone: M0
 implementation_started: true
 work_items_landed: 23
-last_commit: b2f4e90
+last_commit: 31e9c69
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -18,21 +18,23 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-**M0 is under way and nothing is blocked.** Twenty-three Work Items have landed, and **every Layer 1 trait now exists**: `Clock`, `Rng`, `KeyStore`, `Vfs`, `SecureChannel`, `Transport` and the streams, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
+> **This section states only what no table below already holds.** Counts, per-Work-Item status, DCR contents and decisions live in the tables, and a summary that restates them drifts out of step with them -- which has now happened three times, always here. The header's `work_items_landed` and `last_commit` are the numbers; the Work Item table is the status.
 
-`crates/` holds `tradr-core` with no dependency at all, and six other crates whose edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
+**M0 is under way. Nothing is blocked, and nothing is in flight unless the In flight block below says so.**
 
-**The build environment is complete.** WebKitGTK, the Android SDK, NDK r27, the four Android Rust targets, JDK 21 and a booting emulator are all in place — see Build environment below, which also lists three traps that produce misleading errors.
+**What exists:** both workspaces, code generation, the CI checks, the Layer 0 domain types, **every Layer 1 trait** (`Clock`, `Rng`, `KeyStore`, `Vfs`, `SecureChannel`, `Transport` and the streams), a software `KeyStore` over P-256, Attestation policy, and a Tauri shell that builds and runs on Linux and Android.
 
-**The app runs on Android.** WI-M0-004b installed the APK on the emulator and the React frontend rendered inside the WebView. Two of [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md)'s three withdrawal conditions remain open, and neither is blocked.
+**What does not exist yet:** anything that touches a real network or a real filesystem. Every trait is declared and none has a production implementation, so no two devices have ever spoken. M0 finishes when they do.
 
-Nineteen DCRs have been raised since design "finished". Six of them fixed defects that would have been expensive after implementation: an `aud` compared as a scalar, a dependency diagram that inverted the architecture, sender-chosen strings used as path components, identity-key signatures with no domain separation — that one let a Brokr impersonate a device — a layout table that put a Layer 1 trait in a Layer 3 crate, a filename able to disguise its own extension, and an ECDSA nonce that rule B7 would have drawn from a deterministic test source.
+**`tradr-core` depends on nothing at all**, and the six other crates' edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
+
+**The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and roughly four in five of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far.
 
 ## Next three actions
 
 1. **WI-M0-011b**, the JWKS signature check. It is the one step of docs/05's seven that nothing yet performs, and `VerifiedClaims` only names the contract rather than enforcing it -- see the note below
 2. **WI-M0-007b**, persisting keys through the OS key store: Linux Secret Service, Android Keystore. This is where `backing()` stops being a constant
-3. **WI-M0-012**, adding `--locked` to CI's Rust jobs -- its Work Order is written, at `scratchpad/wo-locked.txt`, and was the intended first trial of the Flash Implementer. Then **WI-M0-005b**, `ACTION_SEND` through the plugin — ADR-0001's last open condition, and the cheapest remaining piece of that evidence now that the plugin exists — the second withdrawal condition, and the only remaining one testable locally. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
+3. **WI-M0-008**, Google OAuth on desktop, loopback with PKCE. M0 is done when two devices exchange Attestations and verify each other, and that needs real tokens. It also has to lift the client secret out of the two gitignored downloads in the repository root and delete them
 
 Decisions 13, 15 and the environment are closed. **Decision 16 must be settled before a second transport lands**, since it asks whether Change Drill D10's budget survives contact with the capability bitmask. Creating the GitHub repository and pushing waits until local-only work ends.
 
@@ -68,6 +70,8 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 **Breaking a check proves the test notices the check is gone. It does not prove the check is complete.** WI-M0-006a is the example: the Implementer had a negative test for a non-hex character, verified it correctly by removing the check and watching it fail, and it still missed `+` — because the test used a character someone chose. The fix was to demand a **property** instead of a list: for any string `FromStr` accepts, `Display` of the result must equal the input lowercased. A property rules out the class; a list rules out what was thought of.
 
 **Stage `Cargo.lock` with any manifest change.** WI-M0-005 was committed with `crates/tauri-plugin-tradr/Cargo.toml` gaining four dependencies and the lockfile left unstaged, because my explicit-path staging listed the directories the Work Item touched and `Cargo.lock` sits at the root. `git show --stat` caught it, and `cargo build --locked` on the committed tree fails with `cannot update the lock file`. **The habit that prevents the `git add -A` trap creates this one**, and the answer to both is the same: read `git show --stat` after every commit and ask what is missing as well as what is extra.
+
+**`last_commit` was fabricated for most of M0.** An audit on 2026-08-23 found that seven of the nine values written into that field named no commit in the repository: they were plausible-looking hashes typed into a substitution script instead of read from `git rev-parse`. The field exists so that arrival step 5 can run `git log <last_commit>..HEAD`, and against a hash that does not exist that command fails outright, so **the one check meant to catch this file drifting was itself unusable.** Never type a hash; read it. The same audit found the summary prose restating counts and statuses the tables already held, wrong in three places, so that section now says only what nothing else holds.
 
 **An Implementer that starts a background build stops, and stays stopped.** WI-M0-005b's build finished at 12:19 and nothing moved until 16:18, when a status check found it idle: the agent had attached a watcher, ended its turn, and never been woken. **A Work Item involving a long build needs the Supervisor to check on it**, because an idle agent and a working one look identical from here. One message resumed it and it finished in three minutes.
 
@@ -331,6 +335,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth | todo | |
 | WI-M0-010 | **Attestation policy tests, written first.** 22 tests over docs/05 steps 1 and 3 to 6 | **done** — landed with WI-M0-011 | Yes |
 | WI-M0-011 | Attestation policy: profile selection, audience set, nonce binding, staleness, `(iss, sub)` tier | **done** — PASS, no REVISE | Yes |
+| WI-M0-013 | **A CI check that STATE.md agrees with the repository.** `last_commit` must name a real commit, `work_items_landed` must match the rows marked done, every `DCR-N` must appear in a commit message, and every path the file references must resolve. All four are mechanical, and all four were wrong or unverified at some point during M0 | todo | |
 | WI-M0-011b | **Step 2 only**: fetch the profile's JWKS, verify the `id_token` signature, cache the keys, work offline against the cache. Produces the `VerifiedClaims` `classify` consumes | todo | Yes |
 | WI-M0-011c | Attestation **issue**: mint the nonce from the two public keys and carry the token. WI-M0-011 covers verification alone | todo | Yes |
 
