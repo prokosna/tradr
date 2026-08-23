@@ -12,7 +12,7 @@ current_milestone: M0
 branch: m0-skeleton
 implementation_started: true
 work_items_landed: 29
-last_commit: 75151f5
+last_commit: 96de7ca
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -86,6 +86,8 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 **An Implementer that starts a background build stops, and stays stopped.** WI-M0-005b's build finished at 12:19 and nothing moved until 16:18, when a status check found it idle: the agent had attached a watcher, ended its turn, and never been woken. **A Work Item involving a long build needs the Supervisor to check on it**, because an idle agent and a working one look identical from here. One message resumed it and it finished in three minutes.
 
 **A mutation whose edit did not apply is indistinguishable from one that survived.** WI-M0-011's harness reported "identity compared on `sub` alone" as surviving; the `sed` had targeted a variable named `pair` where the implementation calls it `account`, so nothing changed and the tests passed for the obvious reason. **A mutation harness must compare the file before and after and refuse to report a result when they match.** That is the fourth Supervisor instrument to have been wrong, and the first whose failure would have sent me looking for a defect that was not there.
+
+**A gate that must be bypassed on schedule stops being read.** `ci/state-sync.sh` Check 3 requires every `DCR-N` in this file to appear in a commit message. [CLAUDE.md](CLAUDE.md) §7 requires the docs change, carrying the new DCR's row, to be committed *before* the implementation -- so at the moment the pre-commit gate runs on a new DCR, that DCR is in `STATE.md` and in no commit anywhere, and **the check cannot pass**. It fails exactly once per DCR, by construction. It did so for DCR-022 and I read the non-zero exit as a quirk of my own shell pipeline and re-ran the commit without looking; it did so again for DCR-023 and only then was it visible for what it is. **The first bypass is the expensive one**, because a gate whose failure has a known innocent explanation stops being read on the occasion it is not innocent. WI-M0-013c narrows it: a DCR the working tree is adding is exempt, a DCR already committed to `STATE.md` and still in no commit message is not.
 
 **Every M0 commit landed on `main`, against [CLAUDE.md](CLAUDE.md) §5's "never commit directly to `main`".** Found on 2026-08-23 by reading the output of a `git commit` that had just succeeded, at Work Item 27 -- so all 73 commits, the whole milestone, were on the wrong branch and nothing had said so. **What made it invisible is that it fails nowhere**: the tree builds, every test passes, `ci/run-all.sh` is green, and `git log` reads exactly as it should. It is the same shape as the fabricated `last_commit` above -- a rule with no instrument behind it is a rule that holds only as long as nobody forgets, and this one was forgotten from the first commit. Repaired by branching `m0-skeleton` at `HEAD` and moving `main` back to the last pre-implementation commit, `67a55e2`; `git rev-list --count --all --not m0-skeleton main` reports 0, so nothing was rewritten and nothing was lost. **The cost of noticing late was zero only because nothing is pushed**, which will not be true again after WI-M0-000. `branch:` is now a field of this file's header and WI-M0-013b makes `ci/state-sync.sh` check it.
 
@@ -353,7 +355,8 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-011d | **Parse a JWKS document** into the keys `verify_id_token` selects among. An entry this build cannot represent is skipped; a usable entry that is broken rejects the whole document | **done** -- PASS, no REVISE | Yes |
 | WI-M0-011e | **The JWKS cache**: offline verification against it, and **at most one rate-limited refetch** on an unknown `kid`, since random `kid` values would otherwise be a denial-of-service primitive (DCR-020, DCR-022) | **done** -- PASS, no REVISE | Yes |
 | WI-M0-013b | **Make `ci/state-sync.sh` check the branch.** The header's `branch:` field must equal `git rev-parse --abbrev-ref HEAD`, so a commit on the wrong branch fails the gate that already runs before every commit. Cut the moment 73 commits were found on `main` | **done** -- PASS after one REVISE | Yes |
-| WI-M0-011f | Fetch the bytes: the `JwksSource` trait and an implementation that speaks HTTP. Split off because the trait's async shape should be settled with a real client in hand | todo | No |
+| WI-M0-011f | **Fetch the bytes over HTTP**: the `tradr-oidc` crate, `reqwest` with `rustls-tls`, plain `async fn`, no trait (DCR-023). Also confines `reqwest` in `ci/layer-deps.sh` the way `prost` and `tauri` are confined | todo | Yes |
+| WI-M0-013c | **Stop `ci/state-sync.sh` Check 3 failing on the DCR it is watching being born.** A DCR that the working tree is adding to `STATE.md` must be exempt; one already committed to `STATE.md` and still in no commit message must not be | todo | Yes |
 | WI-M0-011c | Attestation **issue**: mint the nonce from the two public keys. Carrying it on the wire is `proto/` work and waits for the message | **done** -- PASS, no REVISE | Yes |
 
 WI-M0-010 completes **before** WI-M0-011. That is the Critical Module discipline, [CLAUDE.md](CLAUDE.md) §6.
