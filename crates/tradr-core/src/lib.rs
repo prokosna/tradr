@@ -1,11 +1,12 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 //! Layer 0 domain types (`DeviceId`, `TransferId`, `ChunkIndex`,
-//! `TrustTier`) plus the Layer 1 `Clock`, `Rng`, `KeyStore`, and `Vfs`
-//! traits. Depends on nothing beyond `std` (rule B1, invariant I4).
-//! Domain types validate bytes another layer produced; the traits
-//! declare operations, and every implementation belongs to Layer 3.
+//! `TrustTier`) plus the Layer 1 `Clock`, `Rng`, `KeyStore`, `Vfs`, and
+//! `SecureChannel` traits. Depends on nothing beyond `std` (rule B1,
+//! invariant I4). Domain types validate bytes another layer produced; the
+//! traits declare operations, and every implementation belongs to Layer 3.
 
+mod channel;
 mod chunk_index;
 mod clock;
 mod device_id;
@@ -18,6 +19,7 @@ mod transfer_id;
 mod trust_tier;
 mod vfs;
 
+pub use channel::{RecvStream, SecureChannel, SendStream, TransportError, TransportId};
 pub use chunk_index::{ChunkIndex, ChunkIndexError, REFERENCE_CHUNK_SIZE_BYTES};
 pub use clock::{Clock, Monotonic, UnixTime, UnixTimeError};
 pub use device_id::{DEVICE_ID_LEN, DeviceId, DeviceIdError};

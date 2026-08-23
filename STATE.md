@@ -9,8 +9,8 @@ last_updated: 2026-08-22
 phase: implementing
 current_milestone: M0
 implementation_started: true
-work_items_landed: 15
-last_commit: f8e2107
+work_items_landed: 16
+last_commit: 0b7d1c4
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -18,7 +18,7 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-**M0 is under way and nothing is blocked.** Fifteen Work Items have landed, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
+**M0 is under way and nothing is blocked.** Sixteen Work Items have landed, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
 
 `crates/` holds `tradr-core` with no dependency at all, and six other crates whose edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
 
@@ -30,9 +30,8 @@ Sixteen DCRs have been raised since design "finished". Six of them fixed defects
 
 ## Next three actions
 
-1. **Review WI-M0-006e**, `SecureChannel` and the stream traits, then cut **WI-M0-006g**, `Transport`. Both shapes are compiled and waiting; `TransportId` is a `&'static str` newtype so that no wire value can name a transport and the weight table needs no allocation
-2. **WI-M0-006g**, `Transport`, `Candidate` and the listening side, which completes the Layer 1 traits and closes out WI-M0-006
-3. **WI-M0-005**, bidirectional Kotlin and Rust calls — the second withdrawal condition, and the only remaining one testable locally. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
+1. **WI-M0-006g**, `Transport`, `Candidate` and the listening side. It completes the Layer 1 traits and closes out WI-M0-006. `SecureChannel` and `BoxFuture` are landed for it to build on
+2. **WI-M0-005**, bidirectional Kotlin and Rust calls — the second withdrawal condition, and the only remaining one testable locally. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
 
 Decisions 13, 15 and the environment are closed. **Decision 16 must be settled before a second transport lands**, since it asks whether Change Drill D10's budget survives contact with the capability bitmask. Creating the GitHub repository and pushing waits until local-only work ends.
 
@@ -40,6 +39,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M0-006e | PASS | 0 | `SecureChannel` and the stream traits. **The compiled shape I handed over failed clippy**: `open_bi` and `accept_bi` returning `(Box<dyn SendStream>, Box<dyn RecvStream>)` trip `type_complexity` under `-D warnings`. The Implementer took clippy's own suggested fix, a private `type BiStreams` alias that changes no signature and is not re-exported, rather than the `#[allow]` the rules forbid. **That is a hole in how I verify a shape**: I compile a probe with `cargo build`, which lints nothing, so a shape can pass my check and fail the project's gate. Probes now run `cargo clippy -- -D warnings`. My independent check ran from outside the crate with every bound coming from the traits, and caught all six mutations: dropping `Send` or `Sync` from `SecureChannel`, `Send` from either stream trait, `const` from `TransportId::new`, and `Hash` from `TransportId` |
 | WI-M0-002b | PASS | 0 | The wire half of DCR-015, and the first Work Item run in parallel with another. **My Definition of Done was impossible**: it required `cargo clippy --workspace` and `sh ci/run-all.sh` to be clean, which they cannot be while a second Work Item has uncommitted code in the same tree. The Implementer scoped to `-p tradr-proto`, said plainly that the workspace-wide gates fail, and named the other Work Item's file as the cause rather than reporting a clean bill it could not support. **I verified the zero-cost claim myself rather than reading it**: 60 bytes with the field defaulted, 60 with it explicitly zero, 64 with it set — matching the report exactly. And I checked the assertion could fail, by setting the test's non-zero case to zero and watching it report `default=60, non_zero=60`. Two proto mutations were caught: deleting field 7, and renumbering it onto `payload_len`'s 4 |
 | WI-M0-006f | PASS | 1 | The `Vfs` trait, shaped by [ADR-0014](docs/adr/0014-vfs-exposes-operations-never-paths.md). **I compiled the trait shape before writing the Work Order**, which is why the round-trip found contracts rather than type errors. Two of the three findings were unstated contracts that only bite later: `open_write` never truncates — `File::create` is the obvious call and it would silently destroy everything a resumed transfer had already received — and `remove` never recurses, since a `RelPath` is peer-influenced. The third was mine: my Work Order named `std::task::Wake` when `Waker::noop()` has been stable since 1.85, so the Implementer had to add an `#[allow]` suppressing a lint that was correct. `grep -rn 'allow(' crates/` now returns nothing and that is the standard. **My own verification tool could not fail at first**: I checked `Arc<dyn Vfs + Send + Sync>`, which supplies the bounds at the use site, so it proved nothing about the trait. Rewritten as `Arc<dyn Vfs>`, it now catches all three of dropping `Send` from `Vfs`, `Sync` from `Vfs`, and `Send` from `BoxFuture` |
 | WI-M0-006d | PASS | 1 | The second Critical Module, tests written first as for `ItemId`. **The REVISE was mine**: `char::is_control()` returns false for every bidirectional control, so the documented rule let `report\u{202E}fdp.exe` through, which renders to the user as `reportexe.pdf`. The implementation matched docs/04 exactly; docs/04 was wrong (DCR-013). The Implementer also found that **my own test file failed two of my own CI checks**, and declined to add the `ci/allowlist.txt` entry that would have turned the suite green, on the grounds that suppressing a check against the Supervisor's spec file is a process call. It is, and the fix was to rewrite my prose rather than touch either check. **I mutation-tested the result: nine mutations, eight caught.** The ninth, removing the absolute-path check, survived — and is an equivalent mutant rather than a gap, since a leading `/` always produces an empty first component which `EmptyComponent` rejects. Established by differential testing over 28,561 generated strings, not by argument. Four of the nine mutations tested **over-rejection**, which is the failure mode that matters here: rejecting `con`, trimming trailing dots, widening the bidi range over `U+200E`, and applying the drive check per component were all caught |
@@ -60,6 +60,8 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 **Breaking a check proves the test notices the check is gone. It does not prove the check is complete.** WI-M0-006a is the example: the Implementer had a negative test for a non-hex character, verified it correctly by removing the check and watching it fail, and it still missed `+` — because the test used a character someone chose. The fix was to demand a **property** instead of a list: for any string `FromStr` accepts, `Display` of the result must equal the input lowercased. A property rules out the class; a list rules out what was thought of.
 
+**A shape verified by compiling is not a shape verified.** WI-M0-006e's traits were probed with `cargo build`, which runs no lints, so the shape I handed over tripped `type_complexity` the moment it met the project's `-D warnings` gate. **Shape probes run `cargo clippy -- -D warnings`.** The Implementer resolved it with clippy's own suggestion rather than the suppression the rules forbid, which is the outcome worth having, but the round should not have needed the judgment.
+
 **Two Work Items in one tree means neither can be gated on the workspace.** WI-M0-002b's Definition of Done demanded `cargo clippy --workspace` and `sh ci/run-all.sh`, and both failed on a file belonging to the Work Item running beside it. **A parallel Work Item's gates scope to its own crates** — `cargo clippy -p <crate>` — and the workspace-wide run happens at the Supervisor's commit, once the tree holds one Work Item's changes again.
 
 **A check written to confirm something confirms nothing until it has been made to fail.** This applies to the Supervisor's own tools, not only to the Implementer's. WI-M0-006f's independent `Send + Sync` check was written as `Arc<dyn Vfs + Send + Sync>`, which supplies both bounds at the use site and therefore holds whatever the trait declares. It passed, and it would have passed against a trait with no supertraits at all.
@@ -77,11 +79,11 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: [WI-M0-006e]
+work_items: []
 blocked: []
 ```
 
-**WI-M0-006e is in flight**, holding `crates/tradr-core/src/channel.rs`, `crates/tradr-core/tests/channel.rs` and part of `crates/tradr-core/src/lib.rs` uncommitted. **Stage explicit paths**, and read `git show --stat` after the commit. The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
+**Nothing is in flight and nothing is blocked.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
 **The original WI-M0-001 was re-cut into three**, since one skeleton covering both workspaces plus code generation exceeded the 8-file guide in [docs/10](docs/10-implementation-process.md#the-unit-of-work-the-work-item) by roughly threefold. `WI-M0-001c` depends on both of the other two.
 
@@ -284,7 +286,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-006c | Layer 1 traits: `KeyStore`, `Clock`, `Rng`. **`KeyStore` is operation-shaped per [ADR-0011](docs/adr/0011-keystore-exposes-operations.md); no method returns key material** | **done** — PASS after one REVISE | |
 | WI-M0-006d | **`RelPath`**, the Layer 0 half of docs/06's step 2. Critical Module: the Supervisor wrote the tests first, as for `ItemId`. NFC normalization is explicitly **not** here, per DCR-012 | **done** — PASS after one REVISE | Yes |
 | WI-M0-006f | Layer 1 trait: `Vfs`, per [ADR-0014](docs/adr/0014-vfs-exposes-operations-never-paths.md). Also `BoxFuture`, in its own module because `Transport` reuses it | **done** — PASS after one REVISE | |
-| WI-M0-006e | Layer 1 traits: `SecureChannel` and the stream traits it hands out. Pinned by [docs/04](docs/04-protocol.md#the-three-planes)'s three planes: one control stream, a bidirectional stream per Browse request, a unidirectional stream per Item | todo | |
+| WI-M0-006e | Layer 1 traits: `SecureChannel` and the stream traits it hands out, plus `TransportId` and `TransportError` | **done** — PASS, no REVISE | |
 | WI-M0-002b | **Add `offset_in_chunk` to `ChunkData`**, following DCR-015 as WI-M0-002a followed DCR-007. The second Work Item permitted to edit `proto/` | **done** — PASS, no REVISE | |
 | WI-M0-006g | Layer 1 trait: `Transport`, plus `TransportId`, `Candidate` and the listening side. Pinned by [docs/03](docs/03-discovery-and-transport.md). Depends on WI-M0-006e for `SecureChannel` | todo | |
 | WI-M0-007 | Key generation and OS key store storage — Linux Secret Service, Android Keystore. P-256 per [ADR-0012](docs/adr/0012-p256-for-device-keys.md); decision 13 is closed and this is unblocked | todo | Yes |
