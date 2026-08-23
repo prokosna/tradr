@@ -144,7 +144,7 @@ Written down, not yet decided.
 5. **What write limits a writable Share should carry.**
    A limit is needed against disk filling, but legitimate large transfers look identical. A daily byte cap is workable; there is no basis yet for a default value.
 
-6. **What `ChunkData.chunk_index` counts when a transport subdivides.**
+6. **What `ChunkData.chunk_index` counts when a transport subdivides.** ~~Open~~ **Decided 2026-08-23**: `chunk_index` counts reference chunks, and a new `offset_in_chunk` field carries the position within one. See [docs/04](04-protocol.md#where-a-subdivided-piece-belongs) for why stream order was not used. The text below is kept as the record of the question.
    [docs/04](04-protocol.md#chunk-sizes) fixes 1 MiB as the reference boundary and has `relay` and `ble-gatt` subdivide it, into 256 KiB and 4 KiB. `ChunkData` carries `chunk_index`, `payload_len` and `last`, but **no offset within the reference chunk**, so a 1 MiB chunk arriving as four relay pieces has nothing on the wire distinguishing the second piece from the third.
 
    Stream order can carry it: the data plane is one unidirectional stream per Item, so the pieces arrive in order and the receiver tracks the offset itself, with `last` closing the reference chunk. That works, and it is unstated, which is the problem — it makes correct resumption depend on an assumption nobody wrote down.
