@@ -2,9 +2,11 @@
 # Mechanizes STATE.md's own contract (CLAUDE.md section 2-1's arrival step 5,
 # and the "last_commit was fabricated for most of M0" audit): last_commit
 # must name a real commit, work_items_landed must match the Work Item table,
-# every DCR-N mentioned must reach a commit message, every repository path
-# the file references must resolve, and the declared branch must match the
-# branch actually checked out. Never writes STATE.md.
+# every DCR-N already committed into STATE.md must reach a commit message
+# (one the working tree is only now adding is exempt -- it has no commit yet
+# by construction), every repository path the file references must resolve,
+# and the declared branch must match the branch actually checked out. Never
+# writes STATE.md.
 set -u
 
 CHECK_NAME=state-sync
@@ -80,19 +82,32 @@ elif [ "$declared_count" != "$actual_count" ]; then
 	status=1
 fi
 
-# --- Check 3: every DCR-N mentioned in STATE.md appears in a commit message ---
+# --- Check 3: every DCR-N already committed into STATE.md appears in a
+# commit message. A DCR the working tree is only now adding to STATE.md
+# is exempt -- CLAUDE.md section 7 commits a DCR's STATE.md row docs-first,
+# so at the moment this gate runs on that commit the DCR is in STATE.md and
+# in no commit yet, by construction. Committed against no working tree, its
+# HEAD version, is what tells the two cases apart. If HEAD:STATE.md cannot
+# be read at all -- no git repository, or a repository with no commits yet
+# -- there is no way to tell them apart, so the check is skipped rather than
+# guessed at, the same treatment Check 5 gives an unreadable repository.
 dcrs=$(grep -oE 'DCR-[0-9]+' "$STATE_FILE" | sort -u)
 
-dcr_hits=$(printf '%s\n' "$dcrs" | while IFS= read -r dcr; do
-	[ -n "$dcr" ] || continue
-	if ! git log --oneline --grep="$dcr" -F | grep -q .; then
-		echo "STATE.md: $dcr is mentioned but appears in no commit message"
-	fi
-done)
+if committed_state=$(git show HEAD:STATE.md 2> /dev/null); then
+	committed_dcrs=$(printf '%s\n' "$committed_state" | grep -oE 'DCR-[0-9]+' | sort -u)
 
-if [ -n "$dcr_hits" ]; then
-	printf '%s\n' "$dcr_hits"
-	status=1
+	dcr_hits=$(printf '%s\n' "$dcrs" | while IFS= read -r dcr; do
+		[ -n "$dcr" ] || continue
+		printf '%s\n' "$committed_dcrs" | grep -Fxq "$dcr" || continue
+		if ! git log --oneline --grep="$dcr" -F | grep -q .; then
+			echo "STATE.md: $dcr is mentioned but appears in no commit message"
+		fi
+	done)
+
+	if [ -n "$dcr_hits" ]; then
+		printf '%s\n' "$dcr_hits"
+		status=1
+	fi
 fi
 
 # --- Check 4: every repository path STATE.md references resolves ---
