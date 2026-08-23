@@ -30,9 +30,9 @@ Nineteen DCRs have been raised since design "finished". Six of them fixed defect
 
 ## Next three actions
 
-1. **Write the tests for WI-M0-007** before its Work Order goes out. DCR-018 settled it as a Critical Module, so this is the `ItemId` and `RelPath` procedure: Supervisor-authored tests, handed over not compiling
-2. **WI-M0-007**, key generation and OS key store storage. Settled as a **Critical Module** by DCR-018, so **the Supervisor writes its tests first**, as for `ItemId` and `RelPath`. A software `KeyStore` driven by a pinned `Rng` is what those tests exercise
-3. **Cut a Work Item adding `--locked` to CI's build and test jobs.** Nothing today catches a manifest change committed without its lockfile, which happened on WI-M0-005 and was found by hand. Then **WI-M0-005b**, `ACTION_SEND` through the plugin — ADR-0001's last open condition, and the cheapest remaining piece of that evidence now that the plugin exists — the second withdrawal condition, and the only remaining one testable locally. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
+1. **Review WI-M0-007a** against the twenty tests already written. Four of them were validated by measurement rather than reasoning: low-s normalization, RFC 6979 determinism, the off-curve rejection, and the `agree` key-substitution discriminator
+2. **WI-M0-007b**, persisting keys through the OS key store, then **WI-M0-010**, the Attestation verification tests, which the Supervisor writes before WI-M0-011 implements against them
+3. **WI-M0-012**, adding `--locked` to CI's Rust jobs -- its Work Order is written, at `scratchpad/wo-locked.txt`, and was the intended first trial of the Flash Implementer. Then **WI-M0-005b**, `ACTION_SEND` through the plugin — ADR-0001's last open condition, and the cheapest remaining piece of that evidence now that the plugin exists — the second withdrawal condition, and the only remaining one testable locally. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
 
 Decisions 13, 15 and the environment are closed. **Decision 16 must be settled before a second transport lands**, since it asks whether Change Drill D10's budget survives contact with the capability bitmask. Creating the GitHub repository and pushing waits until local-only work ends.
 
@@ -86,11 +86,11 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: []
+work_items: [WI-M0-007a]
 blocked: []
 ```
 
-**Nothing is in flight and nothing is blocked.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
+**WI-M0-007a is in flight.** Its tests are already in the tree, uncommitted, at `crates/tradr-identity/tests/software_key_store.rs`, and they are the Supervisor's under §6. They hand over not compiling: `p256`, `blake3` and `SoftwareKeyStore` are all absent until the implementation lands. **Stage explicit paths, and stage `Cargo.lock` with them** -- WI-M0-005 was committed without it. The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
 **The original WI-M0-001 was re-cut into three**, since one skeleton covering both workspaces plus code generation exceeded the 8-file guide in [docs/10](docs/10-implementation-process.md#the-unit-of-work-the-work-item) by roughly threefold. `WI-M0-001c` depends on both of the other two.
 
@@ -188,6 +188,8 @@ agy --model gemini-3.7-flash-high --add-dir /home/prokosna/dev/trader --print='<
 ```
 
 **The prompt must be attached to the flag with `=`.** Splitting them makes `--print` swallow `--model` as its prompt, and the CLI says so rather than failing quietly. Writing files needs no `--dangerously-skip-permissions`; print mode auto-approves.
+
+**Shell commands are not auto-approved; file writes are.** A Work Order that runs `cargo` therefore needs `--dangerously-skip-permissions`, and **this session's classifier blocks that invocation**. Using Flash as an Implementer needs a Bash permission rule in the user's settings first; the trial is queued behind that, not abandoned.
 
 **It runs outside this session, so §3's "the Implementer never commits" is held up by the prompt alone.** A subagent's tool use is visible and subject to the session's permission mode; a plain subprocess is not. **Record `git rev-parse HEAD` before dispatching and compare after.** That detects a violation; it does not prevent one.
 
@@ -299,6 +301,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-004b | Install the APK on the emulator and confirm the app starts — the launch half of WI-M0-004 | **done** — PASS, no REVISE | |
 | WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client — see the note below | todo | |
 | WI-M0-005 | Bidirectional Kotlin and Rust calls, evidence for ADR-0001 | **done** — PASS, no REVISE | |
+| WI-M0-012 | **`--locked` on CI's Rust jobs.** Nothing catches a manifest change committed without its lockfile; it happened on WI-M0-005 and was found by hand | todo | |
 | WI-M0-005b | **`ACTION_SEND` arrives through the Tauri plugin** — ADR-0001's third and last withdrawal condition, and the only one still uncut. Evidence only: receive the intent and print what arrived. The share sheet itself is M2 | todo | |
 | WI-M0-006a | Layer 0 domain types: `DeviceId`, `TransferId`, `ChunkIndex`, `TrustTier` | **done** — PASS after one REVISE | |
 | WI-M0-006b | **`ItemId`**, validated as an opaque token. Critical Module: the Supervisor wrote the tests first | **done** — PASS, no REVISE | Yes |
@@ -308,7 +311,8 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-006e | Layer 1 traits: `SecureChannel` and the stream traits it hands out, plus `TransportId` and `TransportError` | **done** — PASS, no REVISE | |
 | WI-M0-002b | **Add `offset_in_chunk` to `ChunkData`**, following DCR-015 as WI-M0-002a followed DCR-007. The second Work Item permitted to edit `proto/` | **done** — PASS, no REVISE | |
 | WI-M0-006g | Layer 1 trait: `Transport`, plus `Candidate` and the listening side. **Completes WI-M0-006** | **done** — PASS after one REVISE | |
-| WI-M0-007 | Key generation and OS key store storage — Linux Secret Service, Android Keystore. P-256 per [ADR-0012](docs/adr/0012-p256-for-device-keys.md); decision 13 is closed and this is unblocked | todo | Yes |
+| WI-M0-007a | **`SoftwareKeyStore`**: Device Key generation and the four `KeyStore` operations, P-256 per [ADR-0012](docs/adr/0012-p256-for-device-keys.md). Critical Module by DCR-018, **tests written first** in `crates/tradr-identity/tests/software_key_store.rs` | todo | Yes |
+| WI-M0-007b | Persisting keys through the OS key store: Linux Secret Service, Android Keystore. Split from WI-M0-007a because it needs real platform integration and cannot be unit tested here, and because `backing()` only becomes interesting once a secure element is in play | todo | Yes |
 | WI-M0-008 | Google OAuth on desktop: loopback with PKCE | todo | |
 | WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth | todo | |
 | WI-M0-010 | **Attestation verification tests, written first** — the Supervisor writes these. Must cover profile selection by exact `iss`, rejection of an unknown `iss`, and `(iss, sub)` pair comparison | todo | Yes |
