@@ -323,6 +323,16 @@ Both are unreachable when the algorithm comes from the profile and the header is
 
 **A cache is bound to a `jwks_uri` when it is built.** A JWKS document names no issuer, so nothing in the bytes could catch a document from one provider being installed into another provider's cache. Binding the two at construction removes the chance to pair them wrongly rather than detecting it afterwards.
 
+### Who runs the seven steps
+
+**The sequence lives in `tradr-identity`, not in whatever crate binds the app to its shell.** Every piece of it -- profile selection, signature verification, the audience set, the nonce binding, staleness, the tier -- is code in that crate, and until now nothing joined them, so the join would have landed in the composition root by default. [ADR-0001](adr/0001-tauri-2-as-app-shell.md) records conditions under which the shell is dropped and Change Drill D9 budgets for swapping the crate that names it. **The order of these steps is security design and not wiring**, and leaving it in the crate D9 discards means whoever writes the next binding re-derives it from this document, correctly, under time pressure.
+
+**The fetch still stays outside, by the same device [DCR-022](../STATE.md) used for the cache.** Verification returns "this token names a `kid` I do not hold and the budget allows one fetch of *this* uri" instead of fetching; the caller fetches, installs, and calls again. So the sequence is synchronous and pure, `tradr-identity` names no HTTP client, and the single `await` remains in the composition root where the process already holds its I/O.
+
+**The profile is selected once and used for every step that depends on one.** Step 2 needs the profile to know which algorithms are permitted and which keys to trust; steps 3, 4 and 5 need it for the client id set and the nonce binding. Two independent selections is the failure this rules out: a signature checked under one provider's rules while another provider's `nonce_binding` and `client_ids` decide what the claims mean. Step 1's rule is that a token may not nominate its own verification rules, and **a token that gets the rules applied to it chosen twice has done exactly that**, whichever way each selection went.
+
+**Selecting the profile reads `iss` before any signature has been checked, and that is not a contradiction.** Verification does not alter the payload, so the `iss` read in step 1 is the `iss` the signature covers; if it were forged, the profile it selects carries keys that will not verify the token, and step 2 rejects it. What step 1 must never do is read anything *other* than `iss` -- a JWKS host, a `kid`, an `alg` -- to decide which rules apply.
+
 ### How a signature is encoded, and where its nonce comes from
 
 **64 bytes, `r || s`, each a 32-byte big-endian scalar. Never DER.**
