@@ -2,8 +2,9 @@
 # Mechanizes STATE.md's own contract (CLAUDE.md section 2-1's arrival step 5,
 # and the "last_commit was fabricated for most of M0" audit): last_commit
 # must name a real commit, work_items_landed must match the Work Item table,
-# every DCR-N mentioned must reach a commit message, and every repository
-# path the file references must resolve. Never writes STATE.md.
+# every DCR-N mentioned must reach a commit message, every repository path
+# the file references must resolve, and the declared branch must match the
+# branch actually checked out. Never writes STATE.md.
 set -u
 
 CHECK_NAME=state-sync
@@ -145,6 +146,22 @@ path_hits=$(printf '%s\n%s\n' "$link_hits" "$inline_hits" | sed '/^$/d')
 if [ -n "$path_hits" ]; then
 	printf '%s\n' "$path_hits"
 	status=1
+fi
+
+# --- Check 5: the current branch matches STATE.md's branch field ---
+# A detached HEAD is a bisect or an old-commit checkout, not a commit landing
+# on the wrong branch, so it is skipped rather than failed. A directory that
+# is not a git repository at all is likewise skipped; git's own stderr is
+# discarded so its absence does not leak into this script's output.
+declared_branch=$(grep -m1 '^branch:' "$STATE_FILE" | sed -e 's/^branch:[[:space:]]*//' -e 's/[[:space:]]*$//')
+if [ -z "$declared_branch" ]; then
+	echo "STATE.md: branch field is missing from the yaml block"
+	status=1
+elif current_branch=$(git rev-parse --abbrev-ref HEAD 2> /dev/null); then
+	if [ "$current_branch" != "HEAD" ] && [ "$current_branch" != "$declared_branch" ]; then
+		echo "STATE.md: branch says '$declared_branch', but the current branch is '$current_branch'"
+		status=1
+	fi
 fi
 
 exit $status
