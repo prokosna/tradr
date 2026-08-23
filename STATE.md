@@ -9,8 +9,8 @@ last_updated: 2026-08-23
 phase: implementing
 current_milestone: M0
 implementation_started: true
-work_items_landed: 19
-last_commit: 040df9a
+work_items_landed: 20
+last_commit: 4f8e1c3
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -18,7 +18,7 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-**M0 is under way and nothing is blocked.** Nineteen Work Items have landed, and **every Layer 1 trait now exists**: `Clock`, `Rng`, `KeyStore`, `Vfs`, `SecureChannel`, `Transport` and the streams, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
+**M0 is under way and nothing is blocked.** Twenty Work Items have landed, and **every Layer 1 trait now exists**: `Clock`, `Rng`, `KeyStore`, `Vfs`, `SecureChannel`, `Transport` and the streams, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
 
 `crates/` holds `tradr-core` with no dependency at all, and six other crates whose edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
 
@@ -40,6 +40,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M0-012 | PASS | 0 | `--locked` on CI's two cargo lines, closing the hole that let WI-M0-005 commit a manifest change without its lockfile. The Implementer demonstrated the fail-then-pass cycle on `cargo test` and **said plainly that it had not demonstrated the `clippy` line**, having only confirmed it passes clean. I ran that one: exit 101 with the same `cannot update the lock file`, exit 0 after reverting. `Cargo.lock` stayed byte-identical throughout, which is the part that would have gone wrong -- adding a dependency and reverting the manifest can leave the lockfile moved |
 | WI-M0-007a | PASS | 1 | The third Critical Module, and the first where **writing the tests found the design flaw**: rule B7 says randomness arrives through the `Rng` trait, and obeying it for an ECDSA nonce leaks the private key (DCR-019). Found before any implementation existed. **I validated four test claims by measurement rather than reasoning**, and one was wrong: RustCrypto does not normalize `s` for P-256, so 99 of 200 raw signatures are high-s and my test would have failed about 97% of the time against a conforming implementation. The REVISE was a gap in my tests, not in the code: `random_secret_key` retried forever, and an `Rng` **succeeding while returning a constant** P-256 rejects, which is what a stuck hardware source looks like, hung `generate` with no diagnostic. Demonstrated at exit 124 against exit 0 for a working source. The Implementer declined to add a `KeyStoreError` variant on its own, correctly, since that type is Layer 1 and the change would need a DCR. Seven mutations caught, including raising the new bound to 100000 |
 | WI-M0-005 | PASS | 0 | **ADR-0001's second withdrawal condition is met.** Rust into Kotlin uses `PluginHandle::run_mobile_plugin`, the documented path. Kotlin into Rust uses `tauri::ipc::Channel`, which serializes into the command payload as a `__CHANNEL__:<id>` handle and gives Kotlin a live object it can push through later; the Kotlin side calls `invoke.resolve()` first and pushes from a `Handler.postDelayed` 1500 ms afterwards, off that call's stack. **The negative control was run, not argued**: changing Kotlin's formula moved Rust's printed value from 83 to 125, proving Rust does not compute it, and disabling the push made the second line vanish entirely with the process still alive. I checked the unfakeable half myself -- `adb shell getprop ro.product.model` returns `sdk_gphone64_x86_64`, the value Rust printed and cannot otherwise know -- and measured the gap between the two lines at 1.504 s. `grep -ril tauri crates/` returns seven files, all under `crates/tauri-plugin-tradr/`, so Change Drill D9's budget is intact |
 | WI-M0-006g | PASS | 1 | `Transport`, `Candidate` and the listening side, closing out the Layer 1 traits. **The REVISE was for a test that could not fail in the direction that matters.** Mutating `Candidate::new` to also reject an address containing a space left all six tests green — and over-rejection is the failure mode that hides: an address the core wrongly refuses presents as a transport that never establishes, diagnosed as a network fault or an offline peer, never as a validation rule three layers away. My Definition of Done named four addresses to accept and none touched the boundary; the table now holds thirteen shapes the five transports actually produce. `Candidate::new` was not changed and did not need to be — it already accepted all thirteen. **My own check was inert for `Incoming`**, since it exercised `connect` and never `listen`, the same mistake as WI-M0-006f in a new place. Fixed, then five mutations caught: three over-rejections I invented, plus removing each of the two checks |
@@ -91,7 +92,7 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: [WI-M0-012, WI-M0-005b, WI-M0-010]
+work_items: [WI-M0-005b, WI-M0-010]
 blocked: []
 ```
 
@@ -308,7 +309,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-004b | Install the APK on the emulator and confirm the app starts — the launch half of WI-M0-004 | **done** — PASS, no REVISE | |
 | WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client — see the note below | todo | |
 | WI-M0-005 | Bidirectional Kotlin and Rust calls, evidence for ADR-0001 | **done** — PASS, no REVISE | |
-| WI-M0-012 | **`--locked` on CI's Rust jobs.** Nothing catches a manifest change committed without its lockfile; it happened on WI-M0-005 and was found by hand | todo | |
+| WI-M0-012 | **`--locked` on CI's Rust jobs**, closing the hole WI-M0-005 fell into | **done** — PASS, no REVISE | |
 | WI-M0-005b | **`ACTION_SEND` arrives through the Tauri plugin** — ADR-0001's third and last withdrawal condition, and the only one still uncut. Evidence only: receive the intent and print what arrived. The share sheet itself is M2 | todo | |
 | WI-M0-006a | Layer 0 domain types: `DeviceId`, `TransferId`, `ChunkIndex`, `TrustTier` | **done** — PASS after one REVISE | |
 | WI-M0-006b | **`ItemId`**, validated as an opaque token. Critical Module: the Supervisor wrote the tests first | **done** — PASS, no REVISE | Yes |

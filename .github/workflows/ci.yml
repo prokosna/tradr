@@ -23,7 +23,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo fmt --check
       - run: pnpm lint
       - run: pnpm typecheck
@@ -44,7 +44,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      - run: cargo test --workspace
+      - run: cargo test --locked --workspace
       - run: pnpm test
 
   checks:
