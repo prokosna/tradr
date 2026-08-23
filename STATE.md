@@ -74,11 +74,11 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: []
+work_items: [WI-M0-006e, WI-M0-002b]
 blocked: []
 ```
 
-**Nothing is in flight and nothing is blocked.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
+**Two Work Items are in flight at once, deliberately.** Their file sets are disjoint — WI-M0-006e touches `crates/tradr-core/` and WI-M0-002b touches `proto/` and `crates/tradr-proto/` — so a review of either can land without waiting on the other. **Stage explicit paths for each**, and check `git show --stat` after both commits. Both DCRs behind them, DCR-015 and DCR-016, are already in `docs/`. The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
 **The original WI-M0-001 was re-cut into three**, since one skeleton covering both workspaces plus code generation exceeded the 8-file guide in [docs/10](docs/10-implementation-process.md#the-unit-of-work-the-work-item) by roughly threefold. `WI-M0-001c` depends on both of the other two.
 
