@@ -61,6 +61,10 @@ fn verbatim(identity: &PublicIdentity) -> String {
 
 fn profile(binding: NonceBinding) -> ProviderProfile {
     ProviderProfile {
+        client_id: "test-client".to_string(),
+        client_secret: Some("test-secret".to_string()),
+        authorization_uri: "https://accounts.google.com/o/oauth2/auth".to_string(),
+        token_uri: "https://oauth2.googleapis.com/token".to_string(),
         issuer: ISS.to_string(),
         client_ids: vec![AUD.to_string()],
         nonce_binding: binding,

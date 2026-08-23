@@ -27,6 +27,20 @@ pub enum NonceBinding {
 /// Everything a provider brings to verification. Nothing else in this
 /// crate names a provider (docs/05, "Provider profiles").
 pub struct ProviderProfile {
+    /// The client id this device authenticates as. Must be a member of
+    /// `client_ids`, or the Attestations this device mints fail step 3
+    /// against every peer on the default set.
+    pub client_id: String,
+    /// The secret paired with `client_id`, where the client type has one.
+    /// `None` for client types Google issues no secret for, such as Android.
+    pub client_secret: Option<String>,
+    /// Where this device starts the OAuth flow. Discovered once from
+    /// `/.well-known/openid-configuration`, then pinned (docs/05, "Provider
+    /// profiles").
+    pub authorization_uri: String,
+    /// Where this device exchanges a code for an `id_token`. Discovered once
+    /// from `/.well-known/openid-configuration`, then pinned.
+    pub token_uri: String,
     /// Compared byte-for-byte against `iss`. Selecting the profile is step 1.
     pub issuer: String,
     /// One client id per platform. `aud` is checked against the whole set

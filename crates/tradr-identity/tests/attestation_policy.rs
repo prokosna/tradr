@@ -68,6 +68,10 @@ fn verbatim_nonce(identity: &PublicKeyPoint, agreement: &PublicKeyPoint) -> Stri
 
 fn google_profile() -> ProviderProfile {
     ProviderProfile {
+        client_id: "test-client".to_string(),
+        client_secret: Some("test-secret".to_string()),
+        authorization_uri: "https://accounts.google.com/o/oauth2/auth".to_string(),
+        token_uri: "https://oauth2.googleapis.com/token".to_string(),
         issuer: "https://accounts.google.com".to_string(),
         client_ids: vec![
             "desktop-client.apps.googleusercontent.com".to_string(),
