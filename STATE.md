@@ -12,7 +12,7 @@ current_milestone: M0
 branch: m0-skeleton
 implementation_started: true
 work_items_landed: 34
-last_commit: b6dd29f
+last_commit: 94cc4c8
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -30,8 +30,8 @@ repo_initialized: true (local only, no remote yet)
 
 ## Next three actions
 
-1. **WI-M0-008c**, the loopback listener and the token exchange. **Blocked on one value**: DF-15's placeholder secret has to become the real one first, and the command that would copy it out of the user's download was refused by a permission classifier. The user chooses how -- run it themselves, add a Bash permission rule, or say to retry
-2. **WI-M0-007b**, persisting keys through the OS key store: Linux Secret Service, Android Keystore. This is where `backing()` stops being a constant
+1. **WI-M0-007b**, persisting keys through the OS key store: Linux Secret Service, Android Keystore. This is where `backing()` stops being a constant, and it is the one Critical Module left in M0 that nothing blocks. A Supervisor writes its tests first
+2. **WI-M0-008c**, the loopback listener and the token exchange. **Blocked, and the block is a decision rather than a task**: DF-15's placeholder has to become the real desktop secret first, and the command that would copy it out of the user's download was refused by a permission classifier. The user picks how -- run it themselves with `!`, add a Bash permission rule, or say to retry
 3. **WI-M0-009**, Google OAuth on Android, Custom Tabs with AppAuth. WI-M0-004a goes with it, since the CI runner's debug keystore SHA-1 must be registered on the Android OAuth client before that flow returns anything
 
 Decisions 13, 15 and the environment are closed. **Decision 16 must be settled before a second transport lands**, since it asks whether Change Drill D10's budget survives contact with the capability bitmask. Creating the GitHub repository and pushing waits until local-only work ends.
