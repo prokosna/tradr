@@ -315,6 +315,14 @@ Both are unreachable when the algorithm comes from the profile and the header is
 
 **A cache miss may trigger at most one refetch, and refetches are rate limited.** Key rotation means an unknown `kid` is sometimes legitimate, so the cache is refreshed and the token retried once. Without a limit that is a denial-of-service primitive: a peer sending tokens with random `kid` values would drive one outbound fetch each, from every device it contacts. **Verification works offline against an existing cache**, which is what makes Tier 0 serverless, so a failed refetch degrades to rejecting that one token rather than to failing every verification.
 
+**The cache decides; the composition root fetches.** The limit is a property of the cache's own state rather than of the code calling it: asking the cache whether a refetch is warranted *is* the act of spending that budget, so a caller that asks twice is refused the second time however its loop happens to be written. Putting the rule anywhere else makes it a rule about callers, and there will be more than one caller. This also keeps verification synchronous and free of any HTTP client, and leaves the single `await` where the process already holds its I/O.
+
+**The floor between refetches is five minutes.** That bounds a peer sending random `kid` values to twelve outbound requests an hour from each device it reaches, while still picking up a legitimate rotation within one -- and providers publish a new key well before signing with it, so five minutes costs nothing against the rotation this exists to tolerate. A device whose first fetch fails is then unable to verify anything for five minutes, which is the same limit doing its job: the tokens it would have verified came from peers, and rejecting them is the safe direction.
+
+**The cache does not expire.** An old cache is a working cache, since offline verification is the property that keeps Tier 0 serverless, and a key does not become dangerous by ageing. A fetch that fails, or returns a document that does not parse, therefore leaves the existing keys exactly as they were: a refetch can only ever add to what a device can verify, never take it away.
+
+**A cache is bound to a `jwks_uri` when it is built.** A JWKS document names no issuer, so nothing in the bytes could catch a document from one provider being installed into another provider's cache. Binding the two at construction removes the chance to pair them wrongly rather than detecting it afterwards.
+
 ### How a signature is encoded, and where its nonce comes from
 
 **64 bytes, `r || s`, each a 32-byte big-endian scalar. Never DER.**
