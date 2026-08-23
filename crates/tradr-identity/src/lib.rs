@@ -9,7 +9,7 @@ mod software_key_store;
 
 pub use attestation::{
     AccountId, AttestationError, AttestationPolicy, NonceBinding, ProviderProfile, VerifiedClaims,
-    classify,
+    attestation_nonce, classify,
 };
 pub use id_token::{Jwk, SignatureAlgorithm, TokenError, verify_id_token};
 pub use jwks::{JwksError, parse_jwks};

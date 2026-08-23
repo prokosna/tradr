@@ -8,7 +8,7 @@ use std::fmt;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use sha2::{Digest, Sha256};
-use tradr_core::{PublicKeyPoint, TrustTier, UnixTime};
+use tradr_core::{PublicIdentity, PublicKeyPoint, TrustTier, UnixTime};
 
 use crate::id_token::SignatureAlgorithm;
 
@@ -146,6 +146,15 @@ fn expected_nonce(
         NonceBinding::Verbatim => verbatim,
         NonceBinding::Hashed => URL_SAFE_NO_PAD.encode(Sha256::digest(verbatim.as_bytes())),
     }
+}
+
+/// The nonce a device computes before starting the OAuth flow, so the
+/// `id_token` it gets back binds its own identity and agreement keys
+/// (docs/05 step 4). Hand the result to the provider as the OAuth `nonce`
+/// parameter: the returned `id_token` then carries it back for `classify`
+/// to check.
+pub fn attestation_nonce(binding: NonceBinding, identity: &PublicIdentity) -> String {
+    expected_nonce(binding, identity.identity_pub(), identity.agreement_pub())
 }
 
 /// Applies `policy` to `claims`, already-verified per docs/05 step 2, and
