@@ -91,11 +91,13 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: []
+work_items: [WI-M0-012, WI-M0-005b, WI-M0-010]
 blocked: []
 ```
 
-**Nothing is in flight and nothing is blocked.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
+**Three Work Items are in flight on disjoint file sets.** WI-M0-012 touches `.github/`, WI-M0-005b touches `crates/tauri-plugin-tradr/` and `apps/tradr/`, and WI-M0-010 is the Supervisor's own test-writing in `crates/tradr-identity/tests/`. **Each Work Order's gates are scoped to its own area**, because a workspace-wide `cargo clippy` or `sh ci/run-all.sh` cannot pass while another Work Item has uncommitted code in the tree -- that was WI-M0-002b's finding. The workspace-wide run happens at each commit, once the tree holds one Work Item's changes again.
+
+**Stage explicit paths for each, `Cargo.lock` included when a manifest moves, and read `git show --stat` afterwards.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
 **The original WI-M0-001 was re-cut into three**, since one skeleton covering both workspaces plus code generation exceeded the 8-file guide in [docs/10](docs/10-implementation-process.md#the-unit-of-work-the-work-item) by roughly threefold. `WI-M0-001c` depends on both of the other two.
 
