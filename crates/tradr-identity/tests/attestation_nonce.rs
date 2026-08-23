@@ -65,6 +65,7 @@ fn profile(binding: NonceBinding) -> ProviderProfile {
         client_ids: vec![AUD.to_string()],
         nonce_binding: binding,
         algorithms: vec![SignatureAlgorithm::Rs256],
+        jwks_uri: "https://www.googleapis.com/oauth2/v3/certs".to_string(),
     }
 }
 

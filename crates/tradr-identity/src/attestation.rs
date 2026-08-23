@@ -38,6 +38,9 @@ pub struct ProviderProfile {
     /// DCR-021). The token's `alg` header is compared against this set and
     /// never used to select a verification method.
     pub algorithms: Vec<SignatureAlgorithm>,
+    /// Where this provider's JWKS is published. Moves independently of
+    /// `issuer` (docs/05, Change Drill D1: Google moving its JWKS URL).
+    pub jwks_uri: String,
 }
 
 /// An account's identity, the `(iss, sub)` pair (ADR-0010). `sub` is unique
@@ -158,10 +161,10 @@ pub fn attestation_nonce(binding: NonceBinding, identity: &PublicIdentity) -> St
 }
 
 /// Applies `policy` to `claims`, already-verified per docs/05 step 2, and
-/// returns the trust tier a conforming Attestation earns. Steps run in
-/// order and stop at the first failure: step 1 selects the profile before
-/// anything else is read, since every later step depends on which profile
-/// is in force.
+/// returns the trust tier a conforming Attestation earns. Step 1 selects
+/// the profile before anything else is read, since every later step
+/// depends on which profile is in force, then delegates to
+/// `classify_with_profile` for steps 3 through 6.
 pub fn classify(
     policy: &AttestationPolicy,
     claims: &VerifiedClaims,
@@ -177,6 +180,22 @@ pub fn classify(
         .find(|p| p.issuer == claims.iss)
         .ok_or(AttestationError::UnknownIssuer)?;
 
+    classify_with_profile(profile, policy, claims, identity_pub, agreement_pub, now)
+}
+
+/// Steps 3 through 6 against `profile`, which the caller has already
+/// selected. Kept apart from profile selection so a caller that verified
+/// the `id_token` under a specific profile classifies against that exact
+/// same value rather than selecting a second time (docs/05, "Who runs the
+/// seven steps").
+pub fn classify_with_profile(
+    profile: &ProviderProfile,
+    policy: &AttestationPolicy,
+    claims: &VerifiedClaims,
+    identity_pub: &PublicKeyPoint,
+    agreement_pub: &PublicKeyPoint,
+    now: UnixTime,
+) -> Result<TrustTier, AttestationError> {
     // Step 3: aud is checked against the profile's whole client id set, not
     // one value, since aud is whichever platform ran the flow.
     if !profile.client_ids.iter().any(|id| id == &claims.aud) {

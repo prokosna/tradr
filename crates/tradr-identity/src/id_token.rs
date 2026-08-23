@@ -129,6 +129,18 @@ pub fn verify_id_token(
     parse_claims(&payload)
 }
 
+/// Reads `iss` from `token`'s payload without checking its signature.
+/// Verification does not alter the payload, so the `iss` read here is the
+/// `iss` the signature covers: a forged one selects a profile whose keys
+/// will not verify the token, and step 2 rejects it. Nothing but `iss` may
+/// be read this way, not a JWKS host, a `kid`, or an `alg`.
+pub fn peek_issuer(token: &str) -> Result<String, TokenError> {
+    let (_, payload_b64, _) = split_segments(token)?;
+    let payload_bytes = decode_segment(payload_b64)?;
+    let payload = parse_json(payload_bytes, "payload")?;
+    require_str(&payload, "iss")
+}
+
 /// Splits a token into its three raw (still base64url-encoded) segments.
 /// Rejects anything that is not exactly three dot-separated segments.
 fn split_segments(token: &str) -> Result<(&str, &str, &str), TokenError> {

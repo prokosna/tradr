@@ -75,6 +75,7 @@ fn google_profile() -> ProviderProfile {
         ],
         nonce_binding: NonceBinding::Verbatim,
         algorithms: vec![SignatureAlgorithm::Rs256],
+        jwks_uri: "https://www.googleapis.com/oauth2/v3/certs".to_string(),
     }
 }
 
@@ -268,7 +269,7 @@ fn a_hashed_profile_expects_the_digest_of_the_verbatim_nonce() {
     };
 
     let verbatim = f.nonce();
-    let hashed = base64url(Sha256::digest(verbatim.as_bytes()).as_slice());
+    let hashed = base64url(&Sha256::digest(verbatim.as_bytes()));
 
     let run = |nonce: String| {
         classify(
