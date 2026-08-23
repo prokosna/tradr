@@ -4,6 +4,7 @@ members = [
     "crates/tradr-core",
     "crates/tradr-proto",
     "crates/tradr-identity",
+    "crates/tradr-oidc",
     "crates/tradr-transport",
     "crates/tradr-discovery",
     "crates/tradr-vfs",

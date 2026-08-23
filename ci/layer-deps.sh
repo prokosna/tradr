@@ -1,9 +1,10 @@
 #!/bin/sh
 # Mechanizes invariant I4, rule B1, and Change Drills D5 and D9: tradr-core
 # depends on nothing, only tradr-proto names prost, only tauri-plugin-tradr
-# names tauri, and no implementation crate depends internally on anything
-# but tradr-core and tradr-proto (tauri-plugin-tradr, the composition root,
-# is exempt from that last rule).
+# names tauri, only tradr-oidc names reqwest (DCR-024), and no
+# implementation crate depends internally on anything but tradr-core and
+# tradr-proto (tauri-plugin-tradr, the composition root, is exempt from
+# that last rule).
 set -u
 
 CHECK_NAME=layer-deps
@@ -93,6 +94,15 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 			| while IFS= read -r ln; do
 				[ -n "$ln" ] || continue
 				echo "$m:$ln: only tauri-plugin-tradr may name tauri (Change Drill D9)" >> "$TMP_HITS"
+			done
+	fi
+
+	# Check 3b: reqwest confinement (DCR-024, Critical Module tradr-oidc)
+	if [ "$m" != "crates/tradr-oidc/Cargo.toml" ]; then
+		awk '/^[ \t]*"?reqwest(-[A-Za-z0-9_]+)?"?[ \t]*=/ { print FNR }' "$m" \
+			| while IFS= read -r ln; do
+				[ -n "$ln" ] || continue
+				echo "$m:$ln: only tradr-oidc may name reqwest (DCR-024)" >> "$TMP_HITS"
 			done
 	fi
 
