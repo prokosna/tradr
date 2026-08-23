@@ -100,6 +100,8 @@ TRADR_OAUTH_CLIENT_SECRET
 
 An override extends the accepted `aud` set with the supplied client ID rather than replacing it, so an overridden device still verifies peers on the default client.
 
+**Both variables are set together or neither is.** An id without its secret, or a secret without its id, is a pair Google's token endpoint rejects, and the failure surfaces as a refused exchange with nothing naming the cause. Refusing the half-set configuration at startup puts the message where the mistake was made.
+
 **But the reverse does not hold, and that is the consequence worth stating.** A device using an overridden client produces Attestations whose `aud` is that client, which a device on defaults does not recognize and rejects. **Overriding therefore has to be done across every device of an account, never on some of them** — a partial override splits the account into two sets that cannot see each other. The settings UI says so at the point of override.
 
 Read positively, this means an organization can point every device at its own Google project and obtain a self-contained trust domain, unable to authenticate against anyone else's deployment.
@@ -108,7 +110,7 @@ Should the published client be abused — a third party using it to present a co
 
 ### Provider profiles
 
-Everything a provider brings to verification lives in one value. Nothing else in the codebase names a provider.
+Everything a provider brings lives in one value -- what a peer's token is verified against, and what this device needs to obtain a token of its own. Nothing else in the codebase names a provider.
 
 | Field | Why it cannot be assumed |
 |---|---|
@@ -116,11 +118,14 @@ Everything a provider brings to verification lives in one value. Nothing else in
 | `jwks_uri` | Moves independently of the issuer string. D1 of the Change Drill is this field |
 | `authorization_uri`, `token_uri` | Discovered once from `/.well-known/openid-configuration`, then pinned |
 | `client_ids` | One per platform, per provider. See [above](#why-step-3-compares-against-a-set) |
+| `client_secret` | Required by Google's token endpoint for Desktop clients even under PKCE, and not confidential. See [below](#oauth-client-configuration) |
 | `nonce_binding` | Verbatim or hashed. A provider that stores a digest of the nonce fails step 4 outright under the wrong assumption |
 | `algorithms` | The signature algorithms this provider's tokens may use. The token's `alg` header is compared against this and never used to select. See [above](#the-token-never-chooses-how-it-is-verified) |
 | `renewal` | Whether a fresh ID token can be minted without user interaction, and on what terms |
 
 The last two are why **adding a provider is not a URL swap**, and why they are fields rather than an assumption discovered during a rewrite. `renewal` in particular carries the design's weight: the 24-hour silent renewal below assumes a refresh token and a `prompt=none` path. A provider offering neither shifts that account's whole revocation story, and the profile is where that becomes visible.
+
+**A credential sits in this value, and that is deliberate.** Splitting it into a verification half and an authentication half would put a provider's name in two places, and Change Drill D2 budgets two files for adding a provider -- one definition and one registration. What keeps that budget is that **`tradr-oidc` never sees this type**: it may not depend on `tradr-identity` at all (`ci/layer-deps.sh`), so the flow takes a uri, a client id and a secret as plain arguments and names no provider. A driver that cannot name a provider cannot acquire a second place to name one.
 
 **Profiles are compiled in and are not user-configurable.** A shipped profile is a root of trust for every user of that build, so adding one is a trust decision taken in an ADR, not a setting.
 
