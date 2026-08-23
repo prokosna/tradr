@@ -16,3 +16,4 @@ tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
 tauri = { version = "2.11", features = [] }
+tauri-plugin-tradr = { path = "../../../crates/tauri-plugin-tradr" }

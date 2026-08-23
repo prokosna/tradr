@@ -9,8 +9,8 @@ last_updated: 2026-08-22
 phase: implementing
 current_milestone: M0
 implementation_started: true
-work_items_landed: 17
-last_commit: 1c177e9
+work_items_landed: 18
+last_commit: 5b4d6f2
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -30,9 +30,9 @@ Eighteen DCRs have been raised since design "finished". Six of them fixed defect
 
 ## Next three actions
 
-1. **WI-M0-005**, bidirectional Kotlin and Rust calls. The second of ADR-0001's three withdrawal conditions, and the only one testable without CI. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
+1. **Write the tests for WI-M0-007** before its Work Order goes out. DCR-018 settled it as a Critical Module, so this is the `ItemId` and `RelPath` procedure: Supervisor-authored tests, handed over not compiling
 2. **WI-M0-007**, key generation and OS key store storage. Settled as a **Critical Module** by DCR-018, so **the Supervisor writes its tests first**, as for `ItemId` and `RelPath`. A software `KeyStore` driven by a pinned `Rng` is what those tests exercise
-3. **WI-M0-010**, the Attestation verification tests, which the Supervisor writes before WI-M0-011 implements against them — the second withdrawal condition, and the only remaining one testable locally. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
+3. **WI-M0-005b**, `ACTION_SEND` through the plugin — ADR-0001's last open condition, and the cheapest remaining piece of that evidence now that the plugin exists — the second withdrawal condition, and the only remaining one testable locally. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
 
 Decisions 13, 15 and the environment are closed. **Decision 16 must be settled before a second transport lands**, since it asks whether Change Drill D10's budget survives contact with the capability bitmask. Creating the GitHub repository and pushing waits until local-only work ends.
 
@@ -40,6 +40,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M0-005 | PASS | 0 | **ADR-0001's second withdrawal condition is met.** Rust into Kotlin uses `PluginHandle::run_mobile_plugin`, the documented path. Kotlin into Rust uses `tauri::ipc::Channel`, which serializes into the command payload as a `__CHANNEL__:<id>` handle and gives Kotlin a live object it can push through later; the Kotlin side calls `invoke.resolve()` first and pushes from a `Handler.postDelayed` 1500 ms afterwards, off that call's stack. **The negative control was run, not argued**: changing Kotlin's formula moved Rust's printed value from 83 to 125, proving Rust does not compute it, and disabling the push made the second line vanish entirely with the process still alive. I checked the unfakeable half myself -- `adb shell getprop ro.product.model` returns `sdk_gphone64_x86_64`, the value Rust printed and cannot otherwise know -- and measured the gap between the two lines at 1.504 s. `grep -ril tauri crates/` returns seven files, all under `crates/tauri-plugin-tradr/`, so Change Drill D9's budget is intact |
 | WI-M0-006g | PASS | 1 | `Transport`, `Candidate` and the listening side, closing out the Layer 1 traits. **The REVISE was for a test that could not fail in the direction that matters.** Mutating `Candidate::new` to also reject an address containing a space left all six tests green — and over-rejection is the failure mode that hides: an address the core wrongly refuses presents as a transport that never establishes, diagnosed as a network fault or an offline peer, never as a validation rule three layers away. My Definition of Done named four addresses to accept and none touched the boundary; the table now holds thirteen shapes the five transports actually produce. `Candidate::new` was not changed and did not need to be — it already accepted all thirteen. **My own check was inert for `Incoming`**, since it exercised `connect` and never `listen`, the same mistake as WI-M0-006f in a new place. Fixed, then five mutations caught: three over-rejections I invented, plus removing each of the two checks |
 | WI-M0-006e | PASS | 0 | `SecureChannel` and the stream traits. **The compiled shape I handed over failed clippy**: `open_bi` and `accept_bi` returning `(Box<dyn SendStream>, Box<dyn RecvStream>)` trip `type_complexity` under `-D warnings`. The Implementer took clippy's own suggested fix, a private `type BiStreams` alias that changes no signature and is not re-exported, rather than the `#[allow]` the rules forbid. **That is a hole in how I verify a shape**: I compile a probe with `cargo build`, which lints nothing, so a shape can pass my check and fail the project's gate. Probes now run `cargo clippy -- -D warnings`. My independent check ran from outside the crate with every bound coming from the traits, and caught all six mutations: dropping `Send` or `Sync` from `SecureChannel`, `Send` from either stream trait, `const` from `TransportId::new`, and `Hash` from `TransportId` |
 | WI-M0-002b | PASS | 0 | The wire half of DCR-015, and the first Work Item run in parallel with another. **My Definition of Done was impossible**: it required `cargo clippy --workspace` and `sh ci/run-all.sh` to be clean, which they cannot be while a second Work Item has uncommitted code in the same tree. The Implementer scoped to `-p tradr-proto`, said plainly that the workspace-wide gates fail, and named the other Work Item's file as the cause rather than reporting a clean bill it could not support. **I verified the zero-cost claim myself rather than reading it**: 60 bytes with the field defaulted, 60 with it explicitly zero, 64 with it set — matching the report exactly. And I checked the assertion could fail, by setting the test's non-zero case to zero and watching it report `default=60, non_zero=60`. Two proto mutations were caught: deleting field 7, and renumbering it onto `payload_len`'s 4 |
@@ -263,8 +264,8 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 **Decision point at the end of M0** — evaluate [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md)'s withdrawal conditions. Failing any of these means switching to Electron with Kotlin.
 
 - [ ] The Tauri 2 Android build passes reliably in CI — **builds and runs here** (WI-M0-004: all four ABIs, correctly signed; WI-M0-004b: installs, launches, and renders the frontend). Unchecked because no CI has run it yet, and CI is where "reliably" gets tested
-- [ ] Bidirectional calls work: Kotlin plugin into Rust, Rust back into Kotlin — WI-M0-005
-- [ ] Android `ACTION_SEND` arrives through the Tauri plugin — not yet cut
+- [x] Bidirectional calls work: Kotlin plugin into Rust, Rust back into Kotlin — **met** by WI-M0-005, both directions on a real emulator with a negative control
+- [ ] Android `ACTION_SEND` arrives through the Tauri plugin — WI-M0-005b, now cut
 
 Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the end of M0.
 
@@ -283,7 +284,8 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-004 | The Tauri 2 Android build produces an installable APK — evidence for ADR-0001 | **done** — PASS, no REVISE. Re-cut to build-only; launching moved to WI-M0-004b | |
 | WI-M0-004b | Install the APK on the emulator and confirm the app starts — the launch half of WI-M0-004 | **done** — PASS, no REVISE | |
 | WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client — see the note below | todo | |
-| WI-M0-005 | Bidirectional Kotlin and Rust calls — evidence for ADR-0001 | todo | |
+| WI-M0-005 | Bidirectional Kotlin and Rust calls, evidence for ADR-0001 | **done** — PASS, no REVISE | |
+| WI-M0-005b | **`ACTION_SEND` arrives through the Tauri plugin** — ADR-0001's third and last withdrawal condition, and the only one still uncut. Evidence only: receive the intent and print what arrived. The share sheet itself is M2 | todo | |
 | WI-M0-006a | Layer 0 domain types: `DeviceId`, `TransferId`, `ChunkIndex`, `TrustTier` | **done** — PASS after one REVISE | |
 | WI-M0-006b | **`ItemId`**, validated as an opaque token. Critical Module: the Supervisor wrote the tests first | **done** — PASS, no REVISE | Yes |
 | WI-M0-006c | Layer 1 traits: `KeyStore`, `Clock`, `Rng`. **`KeyStore` is operation-shaped per [ADR-0011](docs/adr/0011-keystore-exposes-operations.md); no method returns key material** | **done** — PASS after one REVISE | |
@@ -393,7 +395,7 @@ From [docs/09](docs/09-roadmap-and-risks.md). Update as implementation proceeds.
 | # | Risk | Likelihood | Status |
 |---|---|---|---|
 | R1 | BLE peripheral role means four separate implementations | High | Not started. M7's first week goes to connectivity checks |
-| R2 | Tauri 2's Android maturity | Medium | **One of three conditions met.** WI-M0-004 built a correctly signed APK carrying all four ABIs. The two conditions needing a running Android are testable now that an AVD boots |
+| R2 | Tauri 2's Android maturity | Medium | **Two of three conditions met.** WI-M0-004 built a correctly signed APK with all four ABIs and WI-M0-004b ran it; WI-M0-005 proved both call directions, the condition most likely to have failed. The third, `ACTION_SEND`, is cut as WI-M0-005b. Condition one stays unchecked until CI exists, since "reliably" is what CI measures |
 | R8 | Brokr-free operation breaks as features are added | High | Make CI's `no-brokr` job required from M1 |
 | R9 | macOS and Windows signing procurement takes weeks | Medium | Needs starting before M4. Re-check at the start of M2 |
 | R11 | The AppImage bundler downloads unpinned executables at build time | Medium | **Observed at M0.** Five artifacts fetched with no hash pinning; `deb` and `rpm` need none. Folded into open decision 7 — either drop AppImage or vendor and pin, before M2 |
