@@ -9,8 +9,8 @@ last_updated: 2026-08-22
 phase: implementing
 current_milestone: M0
 implementation_started: true
-work_items_landed: 13
-last_commit: 0e4a2f1
+work_items_landed: 14
+last_commit: a930e7a
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -18,7 +18,7 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-**M0 is under way and nothing is blocked.** Thirteen Work Items have landed, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
+**M0 is under way and nothing is blocked.** Fourteen Work Items have landed, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
 
 `crates/` holds `tradr-core` with no dependency at all, and six other crates whose edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
 
@@ -30,8 +30,8 @@ Fifteen DCRs have been raised since design "finished". Six of them fixed defects
 
 ## Next three actions
 
-1. **WI-M0-006f**, the `Vfs` trait, per [ADR-0014](docs/adr/0014-vfs-exposes-operations-never-paths.md). `RelPath` now exists for it to take. The write half is fixed by docs/04's partial-file rules: write at an offset, `fsync`, atomic rename into place, and sweep
-2. **WI-M0-006e**, the `Transport` trait. Its stream model is the least settled thing in M0; scope it to what [docs/03](docs/03-discovery-and-transport.md) pins down and say in the Work Order what is being left to M1
+1. **WI-M0-006e**, `SecureChannel` and the stream traits, then **WI-M0-006g**, `Transport`. Both shapes are compiled and waiting; `TransportId` is a `&'static str` newtype so that no wire value can name a transport and the weight table needs no allocation
+2. **WI-M0-002b**, the `offset_in_chunk` wire field from DCR-015. Small, and it unblocks M1's chunk work
 3. **WI-M0-005**, bidirectional Kotlin and Rust calls — the second withdrawal condition, and the only remaining one testable locally. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
 
 Decisions 13, 15 and the environment are closed. **Decision 16 must be settled before a second transport lands**, since it asks whether Change Drill D10's budget survives contact with the capability bitmask. Creating the GitHub repository and pushing waits until local-only work ends.
@@ -40,6 +40,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M0-006f | PASS | 1 | The `Vfs` trait, shaped by [ADR-0014](docs/adr/0014-vfs-exposes-operations-never-paths.md). **I compiled the trait shape before writing the Work Order**, which is why the round-trip found contracts rather than type errors. Two of the three findings were unstated contracts that only bite later: `open_write` never truncates — `File::create` is the obvious call and it would silently destroy everything a resumed transfer had already received — and `remove` never recurses, since a `RelPath` is peer-influenced. The third was mine: my Work Order named `std::task::Wake` when `Waker::noop()` has been stable since 1.85, so the Implementer had to add an `#[allow]` suppressing a lint that was correct. `grep -rn 'allow(' crates/` now returns nothing and that is the standard. **My own verification tool could not fail at first**: I checked `Arc<dyn Vfs + Send + Sync>`, which supplies the bounds at the use site, so it proved nothing about the trait. Rewritten as `Arc<dyn Vfs>`, it now catches all three of dropping `Send` from `Vfs`, `Sync` from `Vfs`, and `Send` from `BoxFuture` |
 | WI-M0-006d | PASS | 1 | The second Critical Module, tests written first as for `ItemId`. **The REVISE was mine**: `char::is_control()` returns false for every bidirectional control, so the documented rule let `report\u{202E}fdp.exe` through, which renders to the user as `reportexe.pdf`. The implementation matched docs/04 exactly; docs/04 was wrong (DCR-013). The Implementer also found that **my own test file failed two of my own CI checks**, and declined to add the `ci/allowlist.txt` entry that would have turned the suite green, on the grounds that suppressing a check against the Supervisor's spec file is a process call. It is, and the fix was to rewrite my prose rather than touch either check. **I mutation-tested the result: nine mutations, eight caught.** The ninth, removing the absolute-path check, survived — and is an equivalent mutant rather than a gap, since a leading `/` always produces an empty first component which `EmptyComponent` rejects. Established by differential testing over 28,561 generated strings, not by argument. Four of the nine mutations tested **over-rejection**, which is the failure mode that matters here: rejecting `con`, trimming trailing dots, widening the bidi range over `U+200E`, and applying the drive check per component were all caught |
 | WI-M0-004b | PASS | 0 | **The app runs on Android.** The Implementer reported the screen as "a mostly blank white screen" with one line of text and explicitly declined to judge whether that counted as success, saying the call needed someone who knew what the frontend should produce. That was the right call and the answer is that it is a complete render: `apps/tradr/index.html` contains only an empty `<div id="root">`, and the `<h1>Tradr</h1>` on screen exists nowhere but inside the React bundle. **Its presence proves the whole chain** — asset protocol, HTML, module script, React mount, DOM — which a WebView fallback page or a failed script load could not produce. `primaryCpuAbi=x86_64` confirms the ABI claim from WI-M0-004 was not merely present in the archive but selected and used. The negative control was run properly: after `am force-stop`, the same `pidof` and `dumpsys` commands report the process gone and the launcher resumed instead |
 | WI-M0-001 | PASS | 1 | The Work Order, not the Implementer. It said to copy a crate's doc line verbatim from the `docs/02` layout table; that table's row for `tauri-plugin-tradr` begins "Exposes the above", which points at nothing once lifted out of the table |
@@ -57,6 +58,8 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 **Two Work Orders in three have carried an error of mine, and in both cases the cost was one REVISE cycle, not a wrong implementation.** The pattern that keeps it cheap: the Work Order names the constraint it is protecting, and says to stop and report rather than work around a blocker. An Implementer told *why* a rule exists stops at the right place; one given only the rule improvises.
 
 **Breaking a check proves the test notices the check is gone. It does not prove the check is complete.** WI-M0-006a is the example: the Implementer had a negative test for a non-hex character, verified it correctly by removing the check and watching it fail, and it still missed `+` — because the test used a character someone chose. The fix was to demand a **property** instead of a list: for any string `FromStr` accepts, `Display` of the result must equal the input lowercased. A property rules out the class; a list rules out what was thought of.
+
+**A check written to confirm something confirms nothing until it has been made to fail.** This applies to the Supervisor's own tools, not only to the Implementer's. WI-M0-006f's independent `Send + Sync` check was written as `Arc<dyn Vfs + Send + Sync>`, which supplies both bounds at the use site and therefore holds whatever the trait declares. It passed, and it would have passed against a trait with no supertraits at all.
 
 **A surviving mutation is a question, not a verdict.** WI-M0-006d's absolute-path check can be deleted with every test still green, which looks exactly like a hole in the suite and is not one: any leading `/` produces an empty first component, so `EmptyComponent` rejects the same set. Confirmed by running both versions over 28,561 generated strings and comparing acceptance, which is the only way to tell an equivalent mutant from a gap. Deciding it by reading the code would have been a guess either way.
 
@@ -94,6 +97,7 @@ blocked: []
 | 3 | Documentation language | **English throughout.** Code comments were already English-only | 2026-08-22 |
 | 4 | Repository host and CI | **GitHub with GitHub Actions.** Needed for the Windows and macOS runners at M4 | 2026-08-22 |
 | 5 | Google OAuth clients | **Created.** Values below. The consent screen stays in Testing until release | 2026-08-22 |
+| 17 | Whether checklist A5, doc comments on public API only, governs `tests/` | **No, it governs crate source.** Every item in an integration test is private, so reading A5 literally would ban explanatory comments from test files, which inverts its purpose: A5 exists to stop private implementation from accumulating API-shaped documentation. Raised by the Implementer on WI-M0-006f rather than settled by inventing a third convention | 2026-08-23 |
 | 15 | What `ChunkData.chunk_index` counts when a transport subdivides | **Reference chunks, always**, with a new `offset_in_chunk` field beside it. Stream order was rejected: `ble-gatt` cannot promise it, and the offset feeds verification. See DCR-015 | 2026-08-23 |
 | 14 | TypeScript lint and format tooling | **Biome.** One tool covering both, no plugin matrix to keep aligned. Reason to withdraw: if a React rule ESLint has and Biome lacks catches a real bug in review, revisit at M2 | 2026-08-22 |
 | 13 | The identity curve | **P-256 throughout**, ECDSA for signing and ECDH for agreement. Wire fields are named for their role, `identity_pub` and `agreement_pub`. See [ADR-0012](docs/adr/0012-p256-for-device-keys.md) | 2026-08-22 |
@@ -276,7 +280,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-006b | **`ItemId`**, validated as an opaque token. Critical Module: the Supervisor wrote the tests first | **done** — PASS, no REVISE | Yes |
 | WI-M0-006c | Layer 1 traits: `KeyStore`, `Clock`, `Rng`. **`KeyStore` is operation-shaped per [ADR-0011](docs/adr/0011-keystore-exposes-operations.md); no method returns key material** | **done** — PASS after one REVISE | |
 | WI-M0-006d | **`RelPath`**, the Layer 0 half of docs/06's step 2. Critical Module: the Supervisor wrote the tests first, as for `ItemId`. NFC normalization is explicitly **not** here, per DCR-012 | **done** — PASS after one REVISE | Yes |
-| WI-M0-006f | Layer 1 trait: `Vfs`, per [ADR-0014](docs/adr/0014-vfs-exposes-operations-never-paths.md). Depends on WI-M0-006d for `RelPath` | todo | |
+| WI-M0-006f | Layer 1 trait: `Vfs`, per [ADR-0014](docs/adr/0014-vfs-exposes-operations-never-paths.md). Also `BoxFuture`, in its own module because `Transport` reuses it | **done** — PASS after one REVISE | |
 | WI-M0-006e | Layer 1 traits: `SecureChannel` and the stream traits it hands out. Pinned by [docs/04](docs/04-protocol.md#the-three-planes)'s three planes: one control stream, a bidirectional stream per Browse request, a unidirectional stream per Item | todo | |
 | WI-M0-002b | **Add `offset_in_chunk` to `ChunkData`** in `proto/tradr/v1/transfer.proto` and extend `crates/tradr-proto/tests/roundtrip.rs`. Follows DCR-015, as WI-M0-002a followed DCR-007. The second Work Item permitted to edit `proto/` | todo | |
 | WI-M0-006g | Layer 1 trait: `Transport`, plus `TransportId`, `Candidate` and the listening side. Pinned by [docs/03](docs/03-discovery-and-transport.md). Depends on WI-M0-006e for `SecureChannel` | todo | |
@@ -360,6 +364,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 | DF-2 | Shell integration: Windows context menu, macOS share menu, Linux `.desktop` | Phase 3 | [docs/08](docs/08-platform-integration.md) |
 | DF-3 | Post-quantum migration. Write an ADR once `rustls` X25519MLKEM768 and hybrid Noise are both stable | Undecided | [docs/05](docs/05-security.md) |
 | DF-4 | Android 14+ `ChooserAction` custom actions. Sharing Shortcuts suffice for v1 | Undecided | [docs/08](docs/08-platform-integration.md) |
+| DF-11 | **Two `Vfs` contracts are stated but not tested.** `open_write` creates if absent and **never truncates** — a truncating implementation silently destroys everything a resumed transfer already received. `remove` takes a file or an already-empty directory and **never recurses** — a `RelPath` is peer-influenced, and recursion on the far end of one is more power than any caller needs. Both are contracts on implementations that do not exist yet, so M3's `tradr-vfs` Work Order carries the tests. **Both are Critical Module adjacent**, so the Supervisor writes those tests first | M3, with `tradr-vfs` | WI-M0-006f |
 | DF-10 | **A colon in a component opens an NTFS alternate data stream.** `RelPath` rejects `C:` only in the drive position, because rejecting `:` outright would make ordinary Linux filenames such as `2026-08-22T10:00:00.log` unbrowsable — a cost on every platform to defend one. The Windows `Vfs` must handle it the way docs/04 handles reserved names, by transforming rather than rejecting | Before M4's Windows build | WI-M0-006d |
 | DF-9 | **`KeyStore` is synchronous and two of its operations block.** An Android Keystore `sign` is an IPC to `keystore2`, and `agree` runs once per Noise connection; both occupy a runtime worker for milliseconds. [ADR-0013](docs/adr/0013-layer-1-async-traits-return-boxed-futures.md) left `KeyStore` sync rather than reopening [ADR-0011](docs/adr/0011-keystore-exposes-operations.md) with no implementation to measure against. Resolving it means either `BoxFuture` on `KeyStore` too, or `spawn_blocking` at every Layer 3 call site | Before M1's Noise work | ADR-0013 |
 | DF-7 | **`SharedSecret` is not zeroized on drop.** It cannot be, in `tradr-core`: `zeroize` is a dependency the crate may not have, and a hand-written `Drop` needs `write_volatile`, which needs `unsafe`, which `#![forbid(unsafe_code)]` rules out. An ECDH secret therefore lingers in freed memory until overwritten. Resolving it means either letting a Layer 3 type own the zeroizing and having `KeyStore::agree` return something it implements, or accepting the exposure and saying so | Before M1's Noise work | WI-M0-006c |
