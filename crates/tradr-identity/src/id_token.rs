@@ -29,7 +29,7 @@ pub enum SignatureAlgorithm {
 
 /// One entry of a provider's published JWKS, already parsed. Fetching and
 /// caching the set this comes from is WI-M0-011d.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Jwk {
     /// The key id an `id_token` header names to select this key.
     pub kid: String,
