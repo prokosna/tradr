@@ -7,8 +7,8 @@
 use sha2::{Digest, Sha256};
 use tradr_core::{PublicKeyPoint, TrustTier, UnixTime};
 use tradr_identity::{
-    AccountId, AttestationError, AttestationPolicy, NonceBinding, ProviderProfile, VerifiedClaims,
-    classify,
+    AccountId, AttestationError, AttestationPolicy, NonceBinding, ProviderProfile,
+    SignatureAlgorithm, VerifiedClaims, classify,
 };
 
 const DAY: i64 = 86_400;
@@ -74,6 +74,7 @@ fn google_profile() -> ProviderProfile {
             "android-client.apps.googleusercontent.com".to_string(),
         ],
         nonce_binding: NonceBinding::Verbatim,
+        algorithms: vec![SignatureAlgorithm::Rs256],
     }
 }
 

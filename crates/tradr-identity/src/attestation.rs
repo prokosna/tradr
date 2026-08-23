@@ -10,6 +10,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use sha2::{Digest, Sha256};
 use tradr_core::{PublicKeyPoint, TrustTier, UnixTime};
 
+use crate::id_token::SignatureAlgorithm;
+
 /// How a provider stores the Attestation nonce (docs/05, "Provider
 /// profiles"). A provider that stores a digest of the nonce fails step 4
 /// outright under the wrong assumption, which is why this is a profile
@@ -32,6 +34,10 @@ pub struct ProviderProfile {
     pub client_ids: Vec<String>,
     /// How this provider encodes the Attestation nonce.
     pub nonce_binding: NonceBinding,
+    /// The signature algorithms this provider's tokens may use (DCR-020,
+    /// DCR-021). The token's `alg` header is compared against this set and
+    /// never used to select a verification method.
+    pub algorithms: Vec<SignatureAlgorithm>,
 }
 
 /// An account's identity, the `(iss, sub)` pair (ADR-0010). `sub` is unique
@@ -57,6 +63,7 @@ impl AccountId {
 /// against the provider's JWKS (docs/05 step 2). The type carries that
 /// guarantee in its name: nothing in this crate can build one without
 /// having gone through step 2.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedClaims {
     /// The token's issuer.
     pub iss: String,
