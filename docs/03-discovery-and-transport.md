@@ -194,6 +194,14 @@ The mechanism behind picking the right path automatically. **It does not pick �
 +-----------------------------------------------------------+
 ```
 
+### A transport delivers an already-secure channel
+
+`Transport::connect` returns a `SecureChannel`, never a raw byte stream. [docs/05](05-security.md#two-encryption-layers) gives two families for the five transports — QUIC paths use QUIC's own TLS 1.3, while `relay` and `ble-gatt` use Noise_IK — and says the layer above is never told which.
+
+**That promise is only keepable if each implementation owns its own encryption.** `direct-quic` gets it from the protocol; the `relay` and `ble-gatt` implementations wrap their raw stream in Noise before returning. Putting the Noise handshake in Layer 1 instead would mean the core branching on which transport it is holding, which is the coupling the trait exists to prevent, and it would put a second encryption layer on the QUIC paths or a conditional that skips it.
+
+A `SecureChannel` therefore offers the same thing on every path: mutually authenticated, forward secret, ordered, bidirectional, and multiplexed into the streams [docs/04](04-protocol.md#the-three-planes) describes. Where the underlying transport has no native multiplexing, the implementation provides it in-band, which is what the `stream_id` frame variant in docs/04 is for. **Layer 1 asks for a stream and gets one**; whether that cost a QUIC stream or a frame header is not its concern.
+
 ### What the core knows about a transport
 
 **Nothing that changes when a transport is added.** Change Drill D10 budgets one implementation, one registration and one weight-table entry for a new transport, and no drill may reach `tradr-core`. Two things follow, and both are constraints on the `Transport` trait rather than observations about it.
