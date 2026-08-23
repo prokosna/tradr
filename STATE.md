@@ -5,12 +5,12 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.**
 
 ```yaml
-last_updated: 2026-08-22
+last_updated: 2026-08-23
 phase: implementing
 current_milestone: M0
 implementation_started: true
-work_items_landed: 18
-last_commit: 5b4d6f2
+work_items_landed: 19
+last_commit: 040df9a
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -18,7 +18,7 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-**M0 is under way and nothing is blocked.** Seventeen Work Items have landed, and **every Layer 1 trait now exists**: `Clock`, `Rng`, `KeyStore`, `Vfs`, `SecureChannel`, `Transport` and the streams, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
+**M0 is under way and nothing is blocked.** Nineteen Work Items have landed, and **every Layer 1 trait now exists**: `Clock`, `Rng`, `KeyStore`, `Vfs`, `SecureChannel`, `Transport` and the streams, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
 
 `crates/` holds `tradr-core` with no dependency at all, and six other crates whose edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
 
@@ -30,8 +30,8 @@ Nineteen DCRs have been raised since design "finished". Six of them fixed defect
 
 ## Next three actions
 
-1. **Review WI-M0-007a** against the twenty tests already written. Four of them were validated by measurement rather than reasoning: low-s normalization, RFC 6979 determinism, the off-curve rejection, and the `agree` key-substitution discriminator
-2. **WI-M0-007b**, persisting keys through the OS key store, then **WI-M0-010**, the Attestation verification tests, which the Supervisor writes before WI-M0-011 implements against them
+1. **WI-M0-010**, the Attestation verification tests. Critical Module, so the Supervisor writes them before WI-M0-011 implements against them, and `SoftwareKeyStore` now exists to sign the fixtures they need
+2. **WI-M0-007b**, persisting keys through the OS key store: Linux Secret Service, Android Keystore. This is where `backing()` stops being a constant
 3. **WI-M0-012**, adding `--locked` to CI's Rust jobs -- its Work Order is written, at `scratchpad/wo-locked.txt`, and was the intended first trial of the Flash Implementer. Then **WI-M0-005b**, `ACTION_SEND` through the plugin — ADR-0001's last open condition, and the cheapest remaining piece of that evidence now that the plugin exists — the second withdrawal condition, and the only remaining one testable locally. `println!` under the `RustStdoutStderr` logcat tag is the observation channel
 
 Decisions 13, 15 and the environment are closed. **Decision 16 must be settled before a second transport lands**, since it asks whether Change Drill D10's budget survives contact with the capability bitmask. Creating the GitHub repository and pushing waits until local-only work ends.
@@ -40,6 +40,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M0-007a | PASS | 1 | The third Critical Module, and the first where **writing the tests found the design flaw**: rule B7 says randomness arrives through the `Rng` trait, and obeying it for an ECDSA nonce leaks the private key (DCR-019). Found before any implementation existed. **I validated four test claims by measurement rather than reasoning**, and one was wrong: RustCrypto does not normalize `s` for P-256, so 99 of 200 raw signatures are high-s and my test would have failed about 97% of the time against a conforming implementation. The REVISE was a gap in my tests, not in the code: `random_secret_key` retried forever, and an `Rng` **succeeding while returning a constant** P-256 rejects, which is what a stuck hardware source looks like, hung `generate` with no diagnostic. Demonstrated at exit 124 against exit 0 for a working source. The Implementer declined to add a `KeyStoreError` variant on its own, correctly, since that type is Layer 1 and the change would need a DCR. Seven mutations caught, including raising the new bound to 100000 |
 | WI-M0-005 | PASS | 0 | **ADR-0001's second withdrawal condition is met.** Rust into Kotlin uses `PluginHandle::run_mobile_plugin`, the documented path. Kotlin into Rust uses `tauri::ipc::Channel`, which serializes into the command payload as a `__CHANNEL__:<id>` handle and gives Kotlin a live object it can push through later; the Kotlin side calls `invoke.resolve()` first and pushes from a `Handler.postDelayed` 1500 ms afterwards, off that call's stack. **The negative control was run, not argued**: changing Kotlin's formula moved Rust's printed value from 83 to 125, proving Rust does not compute it, and disabling the push made the second line vanish entirely with the process still alive. I checked the unfakeable half myself -- `adb shell getprop ro.product.model` returns `sdk_gphone64_x86_64`, the value Rust printed and cannot otherwise know -- and measured the gap between the two lines at 1.504 s. `grep -ril tauri crates/` returns seven files, all under `crates/tauri-plugin-tradr/`, so Change Drill D9's budget is intact |
 | WI-M0-006g | PASS | 1 | `Transport`, `Candidate` and the listening side, closing out the Layer 1 traits. **The REVISE was for a test that could not fail in the direction that matters.** Mutating `Candidate::new` to also reject an address containing a space left all six tests green — and over-rejection is the failure mode that hides: an address the core wrongly refuses presents as a transport that never establishes, diagnosed as a network fault or an offline peer, never as a validation rule three layers away. My Definition of Done named four addresses to accept and none touched the boundary; the table now holds thirteen shapes the five transports actually produce. `Candidate::new` was not changed and did not need to be — it already accepted all thirteen. **My own check was inert for `Incoming`**, since it exercised `connect` and never `listen`, the same mistake as WI-M0-006f in a new place. Fixed, then five mutations caught: three over-rejections I invented, plus removing each of the two checks |
 | WI-M0-006e | PASS | 0 | `SecureChannel` and the stream traits. **The compiled shape I handed over failed clippy**: `open_bi` and `accept_bi` returning `(Box<dyn SendStream>, Box<dyn RecvStream>)` trip `type_complexity` under `-D warnings`. The Implementer took clippy's own suggested fix, a private `type BiStreams` alias that changes no signature and is not re-exported, rather than the `#[allow]` the rules forbid. **That is a hole in how I verify a shape**: I compile a probe with `cargo build`, which lints nothing, so a shape can pass my check and fail the project's gate. Probes now run `cargo clippy -- -D warnings`. My independent check ran from outside the crate with every bound coming from the traits, and caught all six mutations: dropping `Send` or `Sync` from `SecureChannel`, `Send` from either stream trait, `const` from `TransportId::new`, and `Hash` from `TransportId` |
@@ -65,6 +66,10 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 **Stage `Cargo.lock` with any manifest change.** WI-M0-005 was committed with `crates/tauri-plugin-tradr/Cargo.toml` gaining four dependencies and the lockfile left unstaged, because my explicit-path staging listed the directories the Work Item touched and `Cargo.lock` sits at the root. `git show --stat` caught it, and `cargo build --locked` on the committed tree fails with `cannot update the lock file`. **The habit that prevents the `git add -A` trap creates this one**, and the answer to both is the same: read `git show --stat` after every commit and ask what is missing as well as what is extra.
 
+**A scripted edit that aborts must not be followed by a commit that runs anyway.** WI-M0-007a was committed with no `STATE.md` update because a Python edit asserted partway and the `git commit` on the next line ran regardless. **This is the third time**, and the previous two are recorded above; the habit that keeps failing is separating the two commands by a newline instead of `&&`. Undone with `git reset --soft HEAD~1`, which is the same remedy as the `git add -A` incident and is available only because nothing is pushed.
+
+**Calibrate a review instrument before trusting its output.** WI-M0-007a's mutation run reported all six mutations as "did not compile", which was false: they compiled, the tests caught them, and `cargo test` prints `error: test failed` on a failure, which the harness matched as a compile error. **A mutation harness is checked by running it against a mutation known to be caught, one known to survive, and one that genuinely does not compile**, and only then on the real set. Three Supervisor instruments have now been wrong -- a `Send + Sync` check that supplied its own bounds, a trait check that never called `listen`, and this classifier.
+
 **Mutate the review's own instruments, not only the code under review.** WI-M0-006g's round caught two things in one pass: a test suite that could not detect over-rejection, and a Supervisor check that never exercised `Incoming` and so could not detect that trait losing `Send`. Running mutations against both at once is what surfaced the second, and it was the same mistake as WI-M0-006f's in a different place.
 
 **A shape verified by compiling is not a shape verified.** WI-M0-006e's traits were probed with `cargo build`, which runs no lints, so the shape I handed over tripped `type_complexity` the moment it met the project's `-D warnings` gate. **Shape probes run `cargo clippy -- -D warnings`.** The Implementer resolved it with clippy's own suggestion rather than the suppression the rules forbid, which is the outcome worth having, but the round should not have needed the judgment.
@@ -86,11 +91,11 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: [WI-M0-007a]
+work_items: []
 blocked: []
 ```
 
-**WI-M0-007a is in flight.** Its tests are already in the tree, uncommitted, at `crates/tradr-identity/tests/software_key_store.rs`, and they are the Supervisor's under §6. They hand over not compiling: `p256`, `blake3` and `SoftwareKeyStore` are all absent until the implementation lands. **Stage explicit paths, and stage `Cargo.lock` with them** -- WI-M0-005 was committed without it. The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
+**Nothing is in flight and nothing is blocked.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
 **The original WI-M0-001 was re-cut into three**, since one skeleton covering both workspaces plus code generation exceeded the 8-file guide in [docs/10](docs/10-implementation-process.md#the-unit-of-work-the-work-item) by roughly threefold. `WI-M0-001c` depends on both of the other two.
 
@@ -311,7 +316,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-006e | Layer 1 traits: `SecureChannel` and the stream traits it hands out, plus `TransportId` and `TransportError` | **done** — PASS, no REVISE | |
 | WI-M0-002b | **Add `offset_in_chunk` to `ChunkData`**, following DCR-015 as WI-M0-002a followed DCR-007. The second Work Item permitted to edit `proto/` | **done** — PASS, no REVISE | |
 | WI-M0-006g | Layer 1 trait: `Transport`, plus `Candidate` and the listening side. **Completes WI-M0-006** | **done** — PASS after one REVISE | |
-| WI-M0-007a | **`SoftwareKeyStore`**: Device Key generation and the four `KeyStore` operations, P-256 per [ADR-0012](docs/adr/0012-p256-for-device-keys.md). Critical Module by DCR-018, **tests written first** in `crates/tradr-identity/tests/software_key_store.rs` | todo | Yes |
+| WI-M0-007a | **`SoftwareKeyStore`**: Device Key generation and the four `KeyStore` operations, P-256. Critical Module, 21 Supervisor-written tests | **done** — PASS after one REVISE | Yes |
 | WI-M0-007b | Persisting keys through the OS key store: Linux Secret Service, Android Keystore. Split from WI-M0-007a because it needs real platform integration and cannot be unit tested here, and because `backing()` only becomes interesting once a secure element is in play | todo | Yes |
 | WI-M0-008 | Google OAuth on desktop: loopback with PKCE | todo | |
 | WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth | todo | |

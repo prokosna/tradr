@@ -7,3 +7,5 @@ publish.workspace = true
 
 [dependencies]
 tradr-core = { path = "../tradr-core" }
+p256 = { version = "0.13", features = ["ecdsa", "ecdh"] }
+blake3 = "1"
