@@ -117,6 +117,7 @@ Everything a provider brings to verification lives in one value. Nothing else in
 | `authorization_uri`, `token_uri` | Discovered once from `/.well-known/openid-configuration`, then pinned |
 | `client_ids` | One per platform, per provider. See [above](#why-step-3-compares-against-a-set) |
 | `nonce_binding` | Verbatim or hashed. A provider that stores a digest of the nonce fails step 4 outright under the wrong assumption |
+| `algorithms` | The signature algorithms this provider's tokens may use. The token's `alg` header is compared against this and never used to select. See [above](#the-token-never-chooses-how-it-is-verified) |
 | `renewal` | Whether a fresh ID token can be minted without user interaction, and on what terms |
 
 The last two are why **adding a provider is not a URL swap**, and why they are fields rather than an assumption discovered during a rewrite. `renewal` in particular carries the design's weight: the 24-hour silent renewal below assumes a refresh token and a `prompt=none` path. A provider offering neither shifts that account's whole revocation story, and the profile is where that becomes visible.
@@ -307,6 +308,8 @@ This is step 1's rule applied a second time. A verifier that reads `alg` and dis
 - **Algorithm confusion.** A token declaring `HS256`, verified by passing the provider's RSA *public* key as an HMAC secret. The public key is public, so anyone can mint a token that passes.
 
 Both are unreachable when the algorithm comes from the profile and the header is only ever compared to it. **`none` is not a value any profile may contain.**
+
+**`aud` is a single string, and a token carrying an array is rejected.** RFC 7519 permits either, and the providers this design serves send one client id. Accepting an array would require a policy for which member counts, and every such policy is a place for a token to slip a value past a check that was written for the other shape. One accepted spelling means the comparison in step 3 has one meaning.
 
 **`kid` selects among the profile's keys and nothing else.** A provider publishes several and rotates them, so the header has to pick one; what it must not do is reach outside the set the profile's `jwks_uri` returned. An unknown `kid` is a rejection, not a lookup.
 
