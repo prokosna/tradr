@@ -91,6 +91,18 @@ Adding a platform means adding its client ID to that set, which older builds wil
 
 The client IDs are public values and live in the repository. The desktop client also carries a secret, which Google's token endpoint requires for Desktop-type clients even under PKCE. Google states that an installed application's secret is not treated as confidential, and it is extractable from any shipped binary regardless of how it is delivered. **PKCE is what actually protects the flow.** Android-type clients have no secret at all.
 
+**That requirement was measured rather than assumed**, by posting a deliberately invalid authorization code to `https://oauth2.googleapis.com/token` three times:
+
+| Request | Response |
+|---|---|
+| Desktop client id, **with** the secret | `invalid_grant` -- *Malformed auth code* |
+| Desktop client id, **without** it | `invalid_request` -- *client_secret is missing* |
+| Android client id, without it | `invalid_grant` -- *Malformed auth code* |
+
+The first two differ in *how far the request got*: with the secret, Google authenticated the client and went on to reject the code; without it, the request died before the code was read. So the parameter's presence is required.
+
+**The third row is what shows the value is not protecting anything.** The Android client authenticates with no secret at all, and reaches exactly the same point. Google requires the Desktop client to send the parameter; it does not require it to be unknown to anyone. That is why committing it costs nothing, why `client_secret` is an `Option` rather than a `String`, and why rotating it is a release rather than an incident.
+
 That secret is therefore committed alongside the client IDs, so that anyone who clones and builds gets a working application. Both values can be overridden at runtime:
 
 ```
