@@ -9,9 +9,10 @@
 last_updated: 2026-08-23
 phase: implementing
 current_milestone: M0
+branch: m0-skeleton
 implementation_started: true
 work_items_landed: 27
-last_commit: 800a9c2
+last_commit: 43a51dc
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -83,6 +84,8 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 **An Implementer that starts a background build stops, and stays stopped.** WI-M0-005b's build finished at 12:19 and nothing moved until 16:18, when a status check found it idle: the agent had attached a watcher, ended its turn, and never been woken. **A Work Item involving a long build needs the Supervisor to check on it**, because an idle agent and a working one look identical from here. One message resumed it and it finished in three minutes.
 
 **A mutation whose edit did not apply is indistinguishable from one that survived.** WI-M0-011's harness reported "identity compared on `sub` alone" as surviving; the `sed` had targeted a variable named `pair` where the implementation calls it `account`, so nothing changed and the tests passed for the obvious reason. **A mutation harness must compare the file before and after and refuse to report a result when they match.** That is the fourth Supervisor instrument to have been wrong, and the first whose failure would have sent me looking for a defect that was not there.
+
+**Every M0 commit landed on `main`, against [CLAUDE.md](CLAUDE.md) §5's "never commit directly to `main`".** Found on 2026-08-23 by reading the output of a `git commit` that had just succeeded, at Work Item 27 -- so all 73 commits, the whole milestone, were on the wrong branch and nothing had said so. **What made it invisible is that it fails nowhere**: the tree builds, every test passes, `ci/run-all.sh` is green, and `git log` reads exactly as it should. It is the same shape as the fabricated `last_commit` above -- a rule with no instrument behind it is a rule that holds only as long as nobody forgets, and this one was forgotten from the first commit. Repaired by branching `m0-skeleton` at `HEAD` and moving `main` back to the last pre-implementation commit, `67a55e2`; `git rev-list --count --all --not m0-skeleton main` reports 0, so nothing was rewritten and nothing was lost. **The cost of noticing late was zero only because nothing is pushed**, which will not be true again after WI-M0-000. `branch:` is now a field of this file's header and WI-M0-013b makes `ci/state-sync.sh` check it.
 
 **A scripted edit that aborts must not be followed by a commit that runs anyway.** WI-M0-007a was committed with no `STATE.md` update because a Python edit asserted partway and the `git commit` on the next line ran regardless. **This is the third time**, and the previous two are recorded above; the habit that keeps failing is separating the two commands by a newline instead of `&&`. Undone with `git reset --soft HEAD~1`, which is the same remedy as the `git add -A` incident and is available only because nothing is pushed.
 
@@ -346,6 +349,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-011b | **Step 2**: verify the `id_token` signature against supplied keys. Produces the `VerifiedClaims` `classify` consumes | **done** — PASS after one REVISE | Yes |
 | WI-M0-011d | **Parse a JWKS document** into the keys `verify_id_token` selects among. An entry this build cannot represent is skipped; a usable entry that is broken rejects the whole document | **done** -- PASS, no REVISE | Yes |
 | WI-M0-011e | **The JWKS cache**: offline verification against it, and **at most one rate-limited refetch** on an unknown `kid`, since random `kid` values would otherwise be a denial-of-service primitive (DCR-020, DCR-022) | **done** -- PASS, no REVISE | Yes |
+| WI-M0-013b | **Make `ci/state-sync.sh` check the branch.** The header's new `branch:` field must equal `git rev-parse --abbrev-ref HEAD`, so a commit on the wrong branch fails the gate that already runs before every commit. Cut the moment 73 commits were found on `main` | todo | Yes |
 | WI-M0-011f | Fetch the bytes: the `JwksSource` trait and an implementation that speaks HTTP. Split off because the trait's async shape should be settled with a real client in hand | todo | No |
 | WI-M0-011c | Attestation **issue**: mint the nonce from the two public keys and carry the token. WI-M0-011 covers verification alone | todo | Yes |
 
