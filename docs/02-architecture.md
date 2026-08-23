@@ -127,8 +127,19 @@ tradr/
     +-- tradr-transport/        #   Five Transport implementations and path selection
     +-- tradr-discovery/        #   mDNS, BLE advertise and scan, static pins, Brokr presence
     +-- tradr-vfs/              #   Share Root boundary enforcement, posix and saf backends
+    +-- tradr-oidc/             #   JWKS fetch, OAuth loopback and token exchange. Speaks HTTP
     \-- tauri-plugin-tradr/     #   Exposes the above as Tauri commands; holds the Kotlin side
 ```
+
+### Where the talk to an identity provider lives
+
+`crates/tradr-oidc/` is the only crate that speaks HTTP and the only one naming an HTTP client. It holds the JWKS fetch, and from WI-M0-008 the OAuth loopback and token exchange as well.
+
+**Where it lives was forced rather than chosen.** [DCR-022](../STATE.md) put the JWKS cache's policy inside `tradr-identity` and the fetching outside it, and `ci/layer-deps.sh` lets an implementation crate depend only on `tradr-core` and `tradr-proto` -- so an HTTP client reachable from `tradr-identity` would have to live *inside* `tradr-identity`, the crate holding Attestation verification. `tauri-plugin-tradr` was the other candidate and is worse: Change Drill D9 swaps that crate out the day Tauri goes, and fetching a JWKS has nothing to do with a shell.
+
+**No Layer 1 trait wraps it.** Nothing in Layer 1 fetches anything: DCR-022 leaves the single `await` in the composition root, so a `JwksSource` trait would be a dispatch point with one implementation and no caller that needs to swap it. What such a trait would buy -- confinement, so that changing the client touches one place -- the crate boundary already buys, and buys checkably: `grep -rl reqwest crates/` must return `crates/tradr-oidc/` and nothing else. `tradr-oidc` therefore exposes plain `async fn`s, and [ADR-0013](adr/0013-layer-1-async-traits-return-boxed-futures.md)'s `BoxFuture` does not reach it.
+
+**`reqwest`, with `rustls-tls` and no default features.** rustls is already in the driver layer for QUIC, so sharing that stack costs nothing new, while `native-tls` would pull OpenSSL into the Linux and Android builds to perform one GET. A blocking client wrapped in `spawn_blocking` was the alternative and buys nothing here, since every caller is already async.
 
 ### Direction of dependency
 
