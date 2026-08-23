@@ -1,6 +1,7 @@
 # STATE
 
 > **Only the Supervisor edits this file.** Update it after each review, before anything else.
+> **`last_commit` is the commit this file was reconciled against, not `HEAD`.** A commit cannot name its own hash inside itself, so whenever the newest commit is the one that edited this file, the field lags it by exactly one and `git log <last_commit>..HEAD` shows that commit. That is correct and expected; **`last_commit == HEAD` is not an invariant and must not be "fixed"**. `ci/state-sync.sh` checks that the hash exists, which is the property that matters.
 > An arriving Supervisor reads this first, then runs `git log --oneline -20` to see what happened after `last_updated`.
 > **Commits newer than `last_updated` mean the first job is reconciling this file.**
 
@@ -9,8 +10,8 @@ last_updated: 2026-08-23
 phase: implementing
 current_milestone: M0
 implementation_started: true
-work_items_landed: 23
-last_commit: 31e9c69
+work_items_landed: 24
+last_commit: f066c04
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -32,7 +33,7 @@ repo_initialized: true (local only, no remote yet)
 
 ## Next three actions
 
-1. **WI-M0-011b**, the JWKS signature check. It is the one step of docs/05's seven that nothing yet performs, and `VerifiedClaims` only names the contract rather than enforcing it -- see the note below
+1. **WI-M0-011b**, the JWKS signature check. It is the one step of docs/05's seven that nothing yet performs, DCR-020 has just pinned how, and `VerifiedClaims` only names the contract rather than enforcing it -- see DF-13. Critical Module, so the tests are written first
 2. **WI-M0-007b**, persisting keys through the OS key store: Linux Secret Service, Android Keystore. This is where `backing()` stops being a constant
 3. **WI-M0-008**, Google OAuth on desktop, loopback with PKCE. M0 is done when two devices exchange Attestations and verify each other, and that needs real tokens. It also has to lift the client secret out of the two gitignored downloads in the repository root and delete them
 
@@ -42,6 +43,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M0-013 | PASS | 0 | The check that makes this file's accuracy mechanical rather than a matter of the Supervisor's diligence, cut immediately after an audit found `last_commit` fabricated in seven of nine writes. The path-reference extraction is the part that could have gone wrong: the script counts a backtick span as a path **only when its leading component names a real top-level entry in the repository**, which separates `crates/tradr-core/src/lib.rs` from a shell command, a glob, a bare type name and a path outside the repo, with no special cases -- and the Implementer says it enumerated every backtick span by hand before writing the regex rather than trusting it. I broke all four checks myself and each failed with a message naming the problem; `STATE.md` came back byte-identical, md5 unchanged. **The Implementer also flagged, without being asked and without editing the file, that `last_commit` structurally lags `HEAD` by one**, which is now written into the file's own header so nobody "fixes" it |
 | WI-M0-005b | PASS | 0 | **ADR-0001's third withdrawal condition is met**, and it turned out to cost two Kotlin methods and one manifest filter: `Plugin.onNewIntent` is already a documented hook in Tauri's Android runtime, wired through `PluginManager` and `TauriActivity`, so nothing had to be worked around. Both launch paths carry a value invented outside the app. **The corroboration that matters came from Android, not from us**: `ActivityTaskManager` logs `result code=0` for the cold start and `result code=3` with `onActivityRestartAttempt` for the warm one, and the pid is identical across both, so the second delivery genuinely reached the running process. I checked the filter on the installed package rather than in the manifest text: `pm query-activities -a android.intent.action.SEND` resolves `com.tradr.app.MainActivity`. **The Implementer answered the manifest question I raised without being told the answer** -- the filter lives in the generated `gen/android` tree, and it survives a build because that tree is checked in and only `cargo tauri android init --force` regenerates it |
 | WI-M0-010, WI-M0-011 | PASS | 0 | Attestation policy, the fourth Critical Module and the root of trust: with no Tradr backend behind it, this code **is** the security boundary. **Scoped to docs/05 steps 1 and 3 through 6**; step 2, the JWKS signature check, is WI-M0-011b, since a JWKS fetcher, a key cache and RS256 make one Work Item that is really three. **I validated the tests by running them**, against a throwaway reference implementation in the scratchpad built as `[lib] name = "tradr_identity"` so the test file needed no edit. That caught a self-inconsistency reading had not: the fixture's default claims named a stranger, so four tests asserting `is_ok()` could not have passed against any correct implementation. Eight mutations of the reference all failed a test before the Work Order went out. **Two more gaps appeared against the real implementation** and both were mine: step 6's precedence was untested, so checking linked before own-account, and letting `ephemeral_receive` outrank the tier checks, both survived. Turning on ephemeral receive must not downgrade a peer that already qualifies. Two tests added, twenty-two now, and all eight mutations caught |
 | WI-M0-012 | PASS | 0 | `--locked` on CI's two cargo lines, closing the hole that let WI-M0-005 commit a manifest change without its lockfile. The Implementer demonstrated the fail-then-pass cycle on `cargo test` and **said plainly that it had not demonstrated the `clippy` line**, having only confirmed it passes clean. I ran that one: exit 101 with the same `cannot update the lock file`, exit 0 after reverting. `Cargo.lock` stayed byte-identical throughout, which is the part that would have gone wrong -- adding a dependency and reverting the manifest can leave the lockfile moved |
@@ -335,7 +337,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth | todo | |
 | WI-M0-010 | **Attestation policy tests, written first.** 22 tests over docs/05 steps 1 and 3 to 6 | **done** — landed with WI-M0-011 | Yes |
 | WI-M0-011 | Attestation policy: profile selection, audience set, nonce binding, staleness, `(iss, sub)` tier | **done** — PASS, no REVISE | Yes |
-| WI-M0-013 | **A CI check that STATE.md agrees with the repository.** `last_commit` must name a real commit, `work_items_landed` must match the rows marked done, every `DCR-N` must appear in a commit message, and every path the file references must resolve. All four are mechanical, and all four were wrong or unverified at some point during M0 | todo | |
+| WI-M0-013 | **A CI check that STATE.md agrees with the repository**, `ci/state-sync.sh`: `last_commit` exists, `work_items_landed` matches the done rows, every `DCR-N` appears in a commit, every referenced path resolves | **done** — PASS, no REVISE | |
 | WI-M0-011b | **Step 2 only**: fetch the profile's JWKS, verify the `id_token` signature, cache the keys, work offline against the cache. Produces the `VerifiedClaims` `classify` consumes | todo | Yes |
 | WI-M0-011c | Attestation **issue**: mint the nonce from the two public keys and carry the token. WI-M0-011 covers verification alone | todo | Yes |
 

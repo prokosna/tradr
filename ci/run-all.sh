@@ -7,7 +7,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 overall=0
 
-for check in comment-lang comment-length excuse-grep layer-deps; do
+for check in comment-lang comment-length excuse-grep layer-deps state-sync; do
 	echo "== $check =="
 	if ! "$SCRIPT_DIR/$check.sh"; then
 		overall=1
