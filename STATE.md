@@ -121,7 +121,7 @@ Consequences already applied: every document is in English, `Coordinator` is now
 
 | # | Decision | Needed by | Who decides |
 |---|---|---|---|
-| 6 | Implementer model tier. `.claude/agents/implementer.md` currently says `sonnet`; Haiku 4.5 is cheaper but likely costs more in `REVISE` cycles on Rust work. **After eleven Work Items: seven REVISE cycles, three of them caused by my Work Order rather than by the model.** `sonnet` stopped at the right place every time it was blocked, flagged every addition beyond a Definition of Done, and never worked around a constraint. No evidence against it; no evidence for dropping to Haiku either, since nothing so far has been hard. Revisit at M0's end | M0's end | User, or measured |
+| 6 | Implementer model tier | **After eighteen Work Items: ten REVISE cycles, eight of them caused by my Work Order rather than by the model.** That ratio is the finding. The constraint on throughput is the precision of the instruction, not the capability of the implementer, so a cheaper model saves less than it looks like it should. What `sonnet` has supplied every time is the behaviour a cheap model may not: it stopped and reported when an instruction was impossible rather than working around it, on `@types/node`, on `layer-deps` rule 4, on the workspace-wide gates during a parallel Work Item, and on my own spec file failing my own CI checks. **Gemini 3.7 Flash is now available through `agy`** (see Build environment) and is worth measuring against that behaviour, not against output quality. First trial: the `--locked` CI Work Item, chosen because it is small, mechanical, and cannot fail quietly | Measured per Work Item; settle at M0's end | Supervisor |
 | 7 | Distribution channels: Play Store, F-Droid, direct APK, and **whether Linux ships AppImage at all**. AppImage bundling downloads unpinned executables at build time; `deb` and `rpm` do not. See [docs/09](docs/09-roadmap-and-risks.md#risks) R11. Also affects how Android permissions must be justified | M2 | User |
 | 8 | Code-signing certificates: Apple Developer Program and Authenticode. Procurement takes weeks | M2 start | User |
 | 9 | Whether same-account transfers auto-accept by default | M1 | Decide from how it feels |
@@ -178,6 +178,18 @@ NDK_HOME=/home/prokosna/android-sdk/ndk/27.3.13750724
 **The NDK version is a decision: r27.** r28 and r29 are available and 30 is at release candidate, but r27 is the series Tauri 2's Android tooling has been exercised against. Newest-available buys nothing here; if r27 proves too old, moving up is one `sdkmanager` invocation.
 
 **A lesson about checking an environment.** The first check used `dpkg -s` and `pkg-config` and reported the WebKitGTK stack missing, which was true at the time. But `pkg-config` was itself absent in that same check, so every `pkg-config --exists` line in it was meaningless rather than negative — a tool reporting on its own absence. **Probe for the artifact, not for a package manager's opinion of it**: `pkg-config --modversion`, or the `.pc` file on disk, answers the question that matters and cannot answer it wrongly for that reason.
+
+#### A second Implementer is available: `agy`, Gemini 3.7 Flash
+
+`/home/prokosna/.local/bin/agy` v1.1.18 runs a non-interactive agent against Gemini 3.7 Flash, among other models (`agy models` lists them). Verified working on 2026-08-23: it reads and writes files and exits 0.
+
+```
+agy --model gemini-3.7-flash-high --add-dir /home/prokosna/dev/trader --print='<work order>'
+```
+
+**The prompt must be attached to the flag with `=`.** Splitting them makes `--print` swallow `--model` as its prompt, and the CLI says so rather than failing quietly. Writing files needs no `--dangerously-skip-permissions`; print mode auto-approves.
+
+**It runs outside this session, so §3's "the Implementer never commits" is held up by the prompt alone.** A subagent's tool use is visible and subject to the session's permission mode; a plain subprocess is not. **Record `git rev-parse HEAD` before dispatching and compare after.** That detects a violation; it does not prevent one.
 
 #### Toolchain present on the development machine
 
