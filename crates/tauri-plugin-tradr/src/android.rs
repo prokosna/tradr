@@ -1,5 +1,6 @@
-//! Kotlin glue proving ADR-0001's second withdrawal condition: bidirectional calls
-//! between Rust and Kotlin. Runs once from the plugin's setup hook, no UI needed.
+//! Kotlin glue proving ADR-0001's second and third withdrawal conditions:
+//! bidirectional calls between Rust and Kotlin, and an `ACTION_SEND` intent
+//! reaching Rust. Runs once from the plugin's setup hook, no UI needed.
 
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -43,6 +44,24 @@ struct ChannelPush {
     value: i32,
 }
 
+/// Sent once at startup: opens the channel Kotlin pushes every `ACTION_SEND`
+/// intent through afterward, whichever launch state delivers it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InitShareChannelRequest {
+    channel: Channel<serde_json::Value>,
+}
+
+/// What Kotlin pushes each time the activity receives an `ACTION_SEND` intent:
+/// its action, its declared MIME type, and the `EXTRA_TEXT` payload.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ShareIntent {
+    action: String,
+    mime_type: Option<String>,
+    extra_text: Option<String>,
+}
+
 /// Runs both ADR-0001 call directions once and prints what each side proves.
 pub fn demonstrate_bidirectional_calls<R: Runtime, C: serde::de::DeserializeOwned>(
     api: PluginApi<R, C>,
@@ -75,6 +94,28 @@ pub fn demonstrate_bidirectional_calls<R: Runtime, C: serde::de::DeserializeOwne
         Ok(())
     });
     handle.run_mobile_plugin::<()>("openChannel", OpenChannelRequest { nonce, channel })?;
+
+    // WI-M0-005b, ADR-0001's third withdrawal condition: this channel stays open
+    // for the rest of the process, and Kotlin pushes through it every time this
+    // activity receives an ACTION_SEND intent, whether at cold start or through
+    // onNewIntent while already running. Nothing printed here can be produced
+    // without a real intent arriving from outside the app.
+    let share_channel = Channel::new(|body| {
+        let share: ShareIntent = body.deserialize()?;
+        println!(
+            "WI-M0-005b share-intent: action={} mime_type={} extra_text={}",
+            share.action,
+            share.mime_type.as_deref().unwrap_or("<none>"),
+            share.extra_text.as_deref().unwrap_or("<none>")
+        );
+        Ok(())
+    });
+    handle.run_mobile_plugin::<()>(
+        "initShareChannel",
+        InitShareChannelRequest {
+            channel: share_channel,
+        },
+    )?;
 
     Ok(())
 }

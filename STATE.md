@@ -9,8 +9,8 @@ last_updated: 2026-08-23
 phase: implementing
 current_milestone: M0
 implementation_started: true
-work_items_landed: 22
-last_commit: 8c3a7d1
+work_items_landed: 23
+last_commit: b2f4e90
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -18,7 +18,7 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-**M0 is under way and nothing is blocked.** Twenty-two Work Items have landed, and **every Layer 1 trait now exists**: `Clock`, `Rng`, `KeyStore`, `Vfs`, `SecureChannel`, `Transport` and the streams, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
+**M0 is under way and nothing is blocked.** Twenty-three Work Items have landed, and **every Layer 1 trait now exists**: `Clock`, `Rng`, `KeyStore`, `Vfs`, `SecureChannel`, `Transport` and the streams, every one reviewed against the §4 checklist before its commit: both workspaces, code generation, the CI checks, the Layer 0 domain types, the Layer 1 traits, and the Tauri shell building and now **running** on Linux and Android.
 
 `crates/` holds `tradr-core` with no dependency at all, and six other crates whose edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
 
@@ -40,6 +40,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M0-005b | PASS | 0 | **ADR-0001's third withdrawal condition is met**, and it turned out to cost two Kotlin methods and one manifest filter: `Plugin.onNewIntent` is already a documented hook in Tauri's Android runtime, wired through `PluginManager` and `TauriActivity`, so nothing had to be worked around. Both launch paths carry a value invented outside the app. **The corroboration that matters came from Android, not from us**: `ActivityTaskManager` logs `result code=0` for the cold start and `result code=3` with `onActivityRestartAttempt` for the warm one, and the pid is identical across both, so the second delivery genuinely reached the running process. I checked the filter on the installed package rather than in the manifest text: `pm query-activities -a android.intent.action.SEND` resolves `com.tradr.app.MainActivity`. **The Implementer answered the manifest question I raised without being told the answer** -- the filter lives in the generated `gen/android` tree, and it survives a build because that tree is checked in and only `cargo tauri android init --force` regenerates it |
 | WI-M0-010, WI-M0-011 | PASS | 0 | Attestation policy, the fourth Critical Module and the root of trust: with no Tradr backend behind it, this code **is** the security boundary. **Scoped to docs/05 steps 1 and 3 through 6**; step 2, the JWKS signature check, is WI-M0-011b, since a JWKS fetcher, a key cache and RS256 make one Work Item that is really three. **I validated the tests by running them**, against a throwaway reference implementation in the scratchpad built as `[lib] name = "tradr_identity"` so the test file needed no edit. That caught a self-inconsistency reading had not: the fixture's default claims named a stranger, so four tests asserting `is_ok()` could not have passed against any correct implementation. Eight mutations of the reference all failed a test before the Work Order went out. **Two more gaps appeared against the real implementation** and both were mine: step 6's precedence was untested, so checking linked before own-account, and letting `ephemeral_receive` outrank the tier checks, both survived. Turning on ephemeral receive must not downgrade a peer that already qualifies. Two tests added, twenty-two now, and all eight mutations caught |
 | WI-M0-012 | PASS | 0 | `--locked` on CI's two cargo lines, closing the hole that let WI-M0-005 commit a manifest change without its lockfile. The Implementer demonstrated the fail-then-pass cycle on `cargo test` and **said plainly that it had not demonstrated the `clippy` line**, having only confirmed it passes clean. I ran that one: exit 101 with the same `cannot update the lock file`, exit 0 after reverting. `Cargo.lock` stayed byte-identical throughout, which is the part that would have gone wrong -- adding a dependency and reverting the manifest can leave the lockfile moved |
 | WI-M0-007a | PASS | 1 | The third Critical Module, and the first where **writing the tests found the design flaw**: rule B7 says randomness arrives through the `Rng` trait, and obeying it for an ECDSA nonce leaks the private key (DCR-019). Found before any implementation existed. **I validated four test claims by measurement rather than reasoning**, and one was wrong: RustCrypto does not normalize `s` for P-256, so 99 of 200 raw signatures are high-s and my test would have failed about 97% of the time against a conforming implementation. The REVISE was a gap in my tests, not in the code: `random_secret_key` retried forever, and an `Rng` **succeeding while returning a constant** P-256 rejects, which is what a stuck hardware source looks like, hung `generate` with no diagnostic. Demonstrated at exit 124 against exit 0 for a working source. The Implementer declined to add a `KeyStoreError` variant on its own, correctly, since that type is Layer 1 and the change would need a DCR. Seven mutations caught, including raising the new bound to 100000 |
@@ -68,6 +69,8 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 **Stage `Cargo.lock` with any manifest change.** WI-M0-005 was committed with `crates/tauri-plugin-tradr/Cargo.toml` gaining four dependencies and the lockfile left unstaged, because my explicit-path staging listed the directories the Work Item touched and `Cargo.lock` sits at the root. `git show --stat` caught it, and `cargo build --locked` on the committed tree fails with `cannot update the lock file`. **The habit that prevents the `git add -A` trap creates this one**, and the answer to both is the same: read `git show --stat` after every commit and ask what is missing as well as what is extra.
 
+**An Implementer that starts a background build stops, and stays stopped.** WI-M0-005b's build finished at 12:19 and nothing moved until 16:18, when a status check found it idle: the agent had attached a watcher, ended its turn, and never been woken. **A Work Item involving a long build needs the Supervisor to check on it**, because an idle agent and a working one look identical from here. One message resumed it and it finished in three minutes.
+
 **A mutation whose edit did not apply is indistinguishable from one that survived.** WI-M0-011's harness reported "identity compared on `sub` alone" as surviving; the `sed` had targeted a variable named `pair` where the implementation calls it `account`, so nothing changed and the tests passed for the obvious reason. **A mutation harness must compare the file before and after and refuse to report a result when they match.** That is the fourth Supervisor instrument to have been wrong, and the first whose failure would have sent me looking for a defect that was not there.
 
 **A scripted edit that aborts must not be followed by a commit that runs anyway.** WI-M0-007a was committed with no `STATE.md` update because a Python edit asserted partway and the `git commit` on the next line ran regardless. **This is the third time**, and the previous two are recorded above; the habit that keeps failing is separating the two commands by a newline instead of `&&`. Undone with `git reset --soft HEAD~1`, which is the same remedy as the `git add -A` incident and is available only because nothing is pushed.
@@ -95,11 +98,11 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: [WI-M0-005b]
+work_items: []
 blocked: []
 ```
 
-**WI-M0-005b alone is in flight**, holding `crates/tauri-plugin-tradr/`, `apps/tradr/src-tauri/src/lib.rs` and the generated `apps/tradr/src-tauri/gen/android/app/src/main/AndroidManifest.xml`. **Each Work Order's gates are scoped to its own area**, because a workspace-wide `cargo clippy` or `sh ci/run-all.sh` cannot pass while another Work Item has uncommitted code in the tree -- that was WI-M0-002b's finding. The workspace-wide run happens at each commit, once the tree holds one Work Item's changes again.
+**Nothing is in flight and nothing is blocked.** **Each Work Order's gates are scoped to its own area**, because a workspace-wide `cargo clippy` or `sh ci/run-all.sh` cannot pass while another Work Item has uncommitted code in the tree -- that was WI-M0-002b's finding. The workspace-wide run happens at each commit, once the tree holds one Work Item's changes again.
 
 **Stage explicit paths for each, `Cargo.lock` included when a manifest moves, and read `git show --stat` afterwards.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
@@ -292,7 +295,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 - [ ] The Tauri 2 Android build passes reliably in CI — **builds and runs here** (WI-M0-004: all four ABIs, correctly signed; WI-M0-004b: installs, launches, and renders the frontend). Unchecked because no CI has run it yet, and CI is where "reliably" gets tested
 - [x] Bidirectional calls work: Kotlin plugin into Rust, Rust back into Kotlin — **met** by WI-M0-005, both directions on a real emulator with a negative control
-- [ ] Android `ACTION_SEND` arrives through the Tauri plugin — WI-M0-005b, now cut
+- [x] Android `ACTION_SEND` arrives through the Tauri plugin — **met** by WI-M0-005b, cold start and `onNewIntent`, corroborated by `ActivityTaskManager`'s own launch codes
 
 Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the end of M0.
 
@@ -313,7 +316,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client — see the note below | todo | |
 | WI-M0-005 | Bidirectional Kotlin and Rust calls, evidence for ADR-0001 | **done** — PASS, no REVISE | |
 | WI-M0-012 | **`--locked` on CI's Rust jobs**, closing the hole WI-M0-005 fell into | **done** — PASS, no REVISE | |
-| WI-M0-005b | **`ACTION_SEND` arrives through the Tauri plugin** — ADR-0001's third and last withdrawal condition, and the only one still uncut. Evidence only: receive the intent and print what arrived. The share sheet itself is M2 | todo | |
+| WI-M0-005b | **`ACTION_SEND` arrives through the Tauri plugin**, ADR-0001's third withdrawal condition. Cold start and `onNewIntent` both | **done** — PASS, no REVISE | |
 | WI-M0-006a | Layer 0 domain types: `DeviceId`, `TransferId`, `ChunkIndex`, `TrustTier` | **done** — PASS after one REVISE | |
 | WI-M0-006b | **`ItemId`**, validated as an opaque token. Critical Module: the Supervisor wrote the tests first | **done** — PASS, no REVISE | Yes |
 | WI-M0-006c | Layer 1 traits: `KeyStore`, `Clock`, `Rng`. **`KeyStore` is operation-shaped per [ADR-0011](docs/adr/0011-keystore-exposes-operations.md); no method returns key material** | **done** — PASS after one REVISE | |
@@ -428,7 +431,7 @@ From [docs/09](docs/09-roadmap-and-risks.md). Update as implementation proceeds.
 | # | Risk | Likelihood | Status |
 |---|---|---|---|
 | R1 | BLE peripheral role means four separate implementations | High | Not started. M7's first week goes to connectivity checks |
-| R2 | Tauri 2's Android maturity | Medium | **Two of three conditions met.** WI-M0-004 built a correctly signed APK with all four ABIs and WI-M0-004b ran it; WI-M0-005 proved both call directions, the condition most likely to have failed. The third, `ACTION_SEND`, is cut as WI-M0-005b. Condition one stays unchecked until CI exists, since "reliably" is what CI measures |
+| R2 | Tauri 2's Android maturity | **Low** | **Two of three conditions met, and the third is the only one left.** WI-M0-004 built a correctly signed APK with all four ABIs and WI-M0-004b ran it; WI-M0-005 proved both call directions and WI-M0-005b proved `ACTION_SEND` on both launch paths, the two conditions most likely to have failed. **Only condition one remains, and it is not about capability**: the build works here, and "reliably" is what CI measures, so it stays unchecked until CI has run it |
 | R8 | Brokr-free operation breaks as features are added | High | Make CI's `no-brokr` job required from M1 |
 | R9 | macOS and Windows signing procurement takes weeks | Medium | Needs starting before M4. Re-check at the start of M2 |
 | R11 | The AppImage bundler downloads unpinned executables at build time | Medium | **Observed at M0.** Five artifacts fetched with no hash pinning; `deb` and `rpm` need none. Folded into open decision 7 — either drop AppImage or vendor and pin, before M2 |

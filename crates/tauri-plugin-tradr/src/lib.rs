@@ -1,8 +1,9 @@
 #![forbid(unsafe_code)]
 //! Composition root: binds the other crates to tradr-core's traits; hosts the Kotlin glue.
 //!
-//! WI-M0-005 also lives here: both of ADR-0001's call directions run once, from this
-//! plugin's setup hook, so the evidence needs no interaction with the frontend.
+//! WI-M0-005 and WI-M0-005b also live here: both of ADR-0001's call directions,
+//! plus the ACTION_SEND intent channel, run once from this plugin's setup hook,
+//! so the evidence needs no interaction with the frontend.
 
 use tauri::{
     Runtime,
