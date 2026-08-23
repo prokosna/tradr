@@ -12,7 +12,7 @@ current_milestone: M0
 branch: m0-skeleton
 implementation_started: true
 work_items_landed: 32
-last_commit: 699eb2b
+last_commit: b25eb2f
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -20,17 +20,13 @@ repo_initialized: true (local only, no remote yet)
 
 ## Where we are
 
-> **This section states only what no table below already holds.** Counts, per-Work-Item status, DCR contents and decisions live in the tables, and a summary that restates them drifts out of step with them -- which has now happened three times, always here. The header's `work_items_landed` and `last_commit` are the numbers; the Work Item table is the status.
+> **Everything below this line is derivable from somewhere else, so it is not written here.** What exists is the Work Item table. How many crates there are is `ls crates/`. Which rules hold is `ci/run-all.sh`. **A prose inventory in this spot has now gone stale four times, the last time while carrying a warning that said it goes stale** -- so the inventory is gone rather than corrected a fifth time, and what remains is the two things nothing else records.
 
 **M0 is under way. Nothing is blocked, and nothing is in flight unless the In flight block below says so.**
 
-**What exists:** both workspaces, code generation, the CI checks, the Layer 0 domain types, **every Layer 1 trait** (`Clock`, `Rng`, `KeyStore`, `Vfs`, `SecureChannel`, `Transport` and the streams), a software `KeyStore` over P-256, Attestation policy, and a Tauri shell that builds and runs on Linux and Android.
+**No two devices have ever spoken, and that is what M0 finishes on.** Verifying a peer's Attestation is complete end to end and reaches the real network; moving a file between two machines does not exist at all, because no `Transport` has an implementation yet.
 
-**What does not exist yet:** anything that touches a real network or a real filesystem. Every trait is declared and none has a production implementation, so no two devices have ever spoken. M0 finishes when they do.
-
-**`tradr-core` depends on nothing at all**, and the six other crates' edges all point at it. `ci/run-all.sh` enforces that mechanically, along with Change Drills D5 and D9.
-
-**The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and roughly four in five of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far.
+**The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
 ## Next three actions
 
