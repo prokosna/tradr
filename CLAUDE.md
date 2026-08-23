@@ -252,10 +252,13 @@ For these modules **the Supervisor writes the tests first and the Implementer th
 |---|---|
 | Boundary enforcement in `tradr-vfs` | Arbitrary file read |
 | Attestation verification in `tradr-identity` | Impersonation |
+| **Device Key generation in `tradr-identity`** | **Impersonation, by a second route: a predictable key is a derivable key. And a `backing()` that overstates itself makes [docs/05](docs/05-security.md#key-storage)'s hardware promise false without failing anywhere** |
 | Chunk resumption in `tradr-core` | The entire path-selection design collapses |
-| Filename sanitization | Zip slip |
+| Filename sanitization: `RelPath` and `ItemId` in `tradr-core`, the transforms in `tradr-vfs` | Zip slip |
 
 Having a cheap model write security-critical code is fine. **Having it define the standard that code is judged against is not.**
+
+**The test is whether being wrong produces a named, severe failure that nothing else catches.** Key generation qualifies on both counts: a weak key fails no build, no test and no handshake, and the module that would notice, Attestation verification, is verifying a signature that is perfectly valid.
 
 ---
 
