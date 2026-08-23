@@ -169,8 +169,11 @@ Layer 3  Driver    quinn, btleplug, mdns-sd, rustls, SAF, React, Fastify
 | `PASS` | Accepted | Mark done in `STATE.md`, commit, move on |
 | `REVISE` | Fixable in implementation | Return with the findings |
 | `REDESIGN` | The design is wrong | Discard the work. **Fix `docs/` first**, then re-cut the Work Item |
+| `DISCARD` | The work cannot be accepted whatever its quality | Throw it away and re-cut. **Not a judgement on the code**: use it when the implementation's provenance is wrong, when the report describes work the diff does not contain, or when accepting it would defeat a rule the code itself cannot express |
 
 **Do not hesitate to issue `REDESIGN`. A design flaw papered over in implementation is the origin of every later collapse.**
+
+**`DISCARD` exists because §2-3 can be defeated without the Supervisor writing a line into the repository.** A reference implementation left where an Implementer can read it is the Supervisor's code, and it arrives having passed every gate. The remedy is not a rule -- **delete the reference before dispatching**, and keep its hash so the review can prove the delivered file is not it. A rule an Implementer can break is weaker than a file that does not exist.
 
 ---
 
