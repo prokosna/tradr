@@ -91,21 +91,16 @@ Adding a platform means adding its client ID to that set, which older builds wil
 
 The client IDs are public values and live in the repository. The desktop client also carries a secret, which Google's token endpoint requires for Desktop-type clients even under PKCE. Google states that an installed application's secret is not treated as confidential, and it is extractable from any shipped binary regardless of how it is delivered. **PKCE is what actually protects the flow.** Android-type clients have no secret at all.
 
-**Whether that requirement is real is still open, and the probe that appeared to settle it did not.** Posting a *fabricated* authorization code to `https://oauth2.googleapis.com/token` gives:
+**Google requires it, and this was settled by running the flow.** An earlier probe posting a *fabricated* code proved nothing: `client_secret is missing` arrives as `invalid_request`, which is parameter validation reached before any code is looked up, so it measured the endpoint's handling of a code Google had never issued. The real flow, on 2026-08-24, with a genuine code obtained under `code_challenge_method=S256`:
 
-| Request | Response |
+| Attempt | Result |
 |---|---|
-| Desktop client id, with the secret | `invalid_grant` -- *Malformed auth code* |
-| Desktop client id, without it | `invalid_request` -- *client_secret is missing* |
-| Desktop client id, secret sent empty | `invalid_request` -- *client_secret is missing* |
-| Desktop client id, wrong secret | `invalid_client` -- *The provided client secret is invalid* |
-| Android client id, without it | `invalid_grant` -- *Malformed auth code* |
+| Exchange with **no** `client_secret` | `invalid_request` |
+| Exchange **with** it, reusing the same code | a valid `id_token` |
 
-**No authorization request preceded any of these, so no PKCE state was ever bound to that code.** `client_secret is missing` arrives as `invalid_request`, which is parameter validation reached before the code is looked up at all -- so what these rows measure is the endpoint's handling of a code it has never seen, not its handling of a `code_verifier` that matches a `code_challenge` it issued. RFC 8252 section 8.5 and RFC 7636 make a native app a public client whose PKCE exchange needs no client authentication, and Google's own guide for mobile and desktop apps describes exactly that flow. **Nothing above contradicts it, and nothing above confirms it either.**
+**The second row is what makes the first conclusive, and it did more than it was designed to.** It was included expecting failure -- an authorization code is single use -- so that a refusal could not be mistaken for a spent code. It succeeded instead, which means **the secretless attempt never consumed the code**: Google rejected it before reaching the grant at all. So the refusal is about the secret and nothing else.
 
-What the rows do establish: an empty secret is not a secret, a wrong one is distinguished from an absent one, and the Android client -- registered as `installed`, like the desktop one -- authenticates with none. `token_endpoint_auth_methods_supported` in Google's discovery document lists only `client_secret_post` and `client_secret_basic`, which describes how a client authenticates *when it does*, and says nothing about a public client that does not.
-
-**The question is decided by running the flow once**: obtain a real code under `code_challenge_method=S256`, then attempt the exchange with no `client_secret` at all. If it succeeds, the value below is unnecessary and comes out of this repository. Until that has been run, it stays, and it stays on the understanding that it is protecting nothing.
+RFC 8252 section 8.5 and RFC 7636 make a native app a public client whose PKCE exchange needs no client authentication, and RFC 8252 also permits an authorization server to issue credentials to native apps. Google's Desktop client type does, and requires them. **PKCE is still what protects the flow** -- the Android client, registered `installed` like this one, authenticates with no secret at all and reaches the same point -- so the value below guards nothing, and committing it costs nothing.
 
 **The redirect uri is the loopback IP literal, and that too was measured.** Three authorization requests on 2026-08-24, differing only in `redirect_uri`:
 

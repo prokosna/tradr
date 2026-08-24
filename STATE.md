@@ -12,7 +12,7 @@ current_milestone: M0
 branch: m0-skeleton
 implementation_started: true
 work_items_landed: 35
-last_commit: 7e7b97f
+last_commit: bb482db
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -31,8 +31,8 @@ repo_initialized: true (local only, no remote yet)
 ## Next three actions
 
 1. **WI-M0-007b**, persisting keys through the OS key store: Linux Secret Service, Android Keystore. This is where `backing()` stops being a constant, and it is the one Critical Module left in M0 that nothing blocks. A Supervisor writes its tests first
-2. **Run `cargo test -p tradr-oidc --test live_desktop_flow -- --ignored --nocapture`.** It prints an authorization url, waits on the loopback port, and then attempts the exchange **with no `client_secret`**. That settles whether the committed value is needed at all, and produces the first real `id_token` on the way. **Needs a browser and a Google sign-in, so it is the user's to run**
-3. **WI-M0-009**, Google OAuth on Android, Custom Tabs with AppAuth. WI-M0-004a goes with it, since the CI runner's debug keystore SHA-1 must be registered on the Android OAuth client before that flow returns anything
+2. **WI-M0-009**, Google OAuth on Android, Custom Tabs with AppAuth, together with WI-M0-004a. The desktop flow is done and was run end to end on 2026-08-24: a real `id_token` was obtained, its signature verified against Google's published JWKS through `fetch_jwks`, `parse_jwks` and `verify_id_token`, and a one-character tamper of the same token was rejected
+3. **Wire the desktop flow into the app.** Nothing in `apps/` or `tauri-plugin-tradr` calls any of it yet: the pieces are a library that no composition root has ever invoked
 
 Decisions 13, 15 and the environment are closed. **Decision 16 must be settled before a second transport lands**, since it asks whether Change Drill D10's budget survives contact with the capability bitmask. Creating the GitHub repository and pushing waits until local-only work ends.
 
@@ -94,6 +94,8 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 **A reference implementation is the Supervisor's code, and an Implementer can read it.** WI-M0-011g was delivered with `verify.rs`, `attestation.rs`, `id_token.rs` and `lib.rs` all byte-identical to the scratchpad reference used to validate the tests -- including a module doc reading `Reference implementation, scratchpad only.` -- under a report claiming doc comments had been written and then reworded after `comment-lang` and `comment-length` flagged them. **No such doc comments exist in the file.** So the report was unreliable as well as the code, which is the worse half: a review can re-derive a diff, but it has to start by not believing the account of it. Six earlier Work Items used the same scratchpad practice safely; this one differed only in that the reference sat in the same crate layout as the target, under the filename the Work Order named. **The remedy is deletion rather than prohibition** -- the reference is destroyed before the Work Order goes out, and its md5 is kept so the review can prove the delivered file is not it. Recorded as DCR-026 with a new `DISCARD` verdict, since the work was thrown away for provenance and not for quality.
 
 **An error message that states a conclusion sends the reader past the cause.** `live_desktop_flow.rs` reported "the desktop client download is not in the repository root" when the file was exactly there: `cargo test -p` runs a test binary in the package directory, so the relative path resolved under `crates/tradr-oidc/`. The message named a conclusion the code had not established -- it knew only that a read had failed -- and the first thing it prompted was checking a file that was fine. **Report what was attempted, not what it is thought to mean.** The path is now anchored to `CARGO_MANIFEST_DIR` and the failure prints the path it tried.
+
+**The control in an experiment can settle more than the experiment.** The live flow's second attempt -- the same, already-used code, this time with the secret -- was put there expecting to fail, so that a refusal without the secret could not be mistaken for a spent code. **It succeeded.** That single unexpected pass proved the secretless attempt had never consumed the code, which is a stronger result than the experiment was designed for: Google rejects it before reaching the grant at all. **Design the control to fail, and notice when it does not.**
 
 **A probe that cannot reach the condition it is about proves nothing about it, however clean its output looks.** I posted a *fabricated* authorization code to Google's token endpoint, saw `client_secret is missing` without the secret and `Malformed auth code` with it, and wrote into [docs/05](docs/05-security.md) that the requirement was "measured rather than assumed". **The probe never made an authorization request**, so no PKCE state was ever bound to that code, and `client_secret is missing` arrives as `invalid_request` -- parameter validation, reached before the code is looked up. What I measured was the endpoint's handling of a code it had never issued. The user pointed out that RFC 8252 and RFC 7636 make a native app a public client whose PKCE exchange needs no client authentication, which the probe had not tested and could not. **The differential looked decisive, and a differential between two things that are both outside the case of interest is not a differential at all.** [docs/05](docs/05-security.md) is corrected and `tests/live_desktop_flow.rs` runs the real flow, attempting the exchange with no secret. Its result decides whether the committed value stays.
 
