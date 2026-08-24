@@ -28,39 +28,33 @@ impl Rng for UrandomRng {
     }
 }
 
-/// Reads the desktop client from the download Google produced. The test is
-/// a diagnostic and is skipped when that file is not present.
+/// Reads the client from the environment, the way the application does
+/// (DCR-028). Nothing ships with these values; a deployer registers their
+/// own Google project and exports them.
 fn desktop_client() -> Option<(String, String)> {
-    // `cargo test -p` runs the binary in the package directory, not the
-    // workspace root, so the path is anchored to the manifest instead.
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../client_secret_475695468283-shsoa7f59bdbta9jlubfs49jonv1m7ng",
-        ".apps.googleusercontent.com.json"
-    );
-    let raw = match std::fs::read_to_string(path) {
-        Ok(raw) => raw,
-        Err(e) => {
-            println!("could not read {path}: {e}");
-            return None;
+    let id = std::env::var("TRADR_OAUTH_CLIENT_ID")
+        .ok()
+        .filter(|v| !v.is_empty());
+    let secret = std::env::var("TRADR_OAUTH_CLIENT_SECRET")
+        .ok()
+        .filter(|v| !v.is_empty());
+    match (id, secret) {
+        (Some(id), Some(secret)) => Some((id, secret)),
+        _ => {
+            println!(
+                "set TRADR_OAUTH_CLIENT_ID and TRADR_OAUTH_CLIENT_SECRET from your own \
+                 Google Cloud project before running this"
+            );
+            None
         }
-    };
-    let id = between(&raw, "\"client_id\":\"", "\"")?;
-    let secret = between(&raw, "\"client_secret\":\"", "\"")?;
-    Some((id, secret))
-}
-
-fn between(haystack: &str, start: &str, end: &str) -> Option<String> {
-    let from = haystack.find(start)? + start.len();
-    let rest = &haystack[from..];
-    Some(rest[..rest.find(end)?].to_string())
+    }
 }
 
 #[tokio::test]
 #[ignore]
 async fn a_pkce_exchange_without_the_client_secret() {
     let Some((client_id, secret)) = desktop_client() else {
-        panic!("the desktop client download could not be read; the path tried is printed above");
+        panic!("the client is not configured; see the message above");
     };
 
     // A fixed port by default, so an ssh forward can be set up before the
