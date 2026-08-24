@@ -12,7 +12,7 @@ current_milestone: M0
 branch: m0-skeleton
 implementation_started: true
 work_items_landed: 36
-last_commit: dca91ab
+last_commit: 8030a54
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -167,7 +167,7 @@ blocked: []
 | 15 | What `ChunkData.chunk_index` counts when a transport subdivides | **Reference chunks, always**, with a new `offset_in_chunk` field beside it. Stream order was rejected: `ble-gatt` cannot promise it, and the offset feeds verification. See DCR-015 | 2026-08-23 |
 | 14 | TypeScript lint and format tooling | **Biome.** One tool covering both, no plugin matrix to keep aligned. Reason to withdraw: if a React rule ESLint has and Biome lacks catches a real bug in review, revisit at M2 | 2026-08-22 |
 | 13 | The identity curve | **P-256 throughout**, ECDSA for signing and ECDH for agreement. Wire fields are named for their role, `identity_pub` and `agreement_pub`. See [ADR-0012](docs/adr/0012-p256-for-device-keys.md) | 2026-08-22 |
-| 12 | The desktop client secret in a public repository | **Committed, with a runtime override.** See [docs/05](docs/05-security.md#oauth-client-configuration) | 2026-08-22 |
+| 12 | The desktop client secret in a public repository | **Committed, with a runtime override. Reaffirmed 2026-08-24 after the reasoning behind it was corrected**: the value is verified by Google, not merely required, so publishing it does give away the exchange step. It is published anyway because the value ships in every binary, which makes withholding it a delay rather than a defence. **The residual risk is a third party completing an OAuth flow under this application's name**, and the answer to that is rotation. See [docs/05](docs/05-security.md#oauth-client-configuration) | 2026-08-22 |
 
 Consequences already applied: every document is in English, `Coordinator` is now `Brokr` everywhere, `proto/tradr/v1/` replaces `proto/watari/v1/`, crates are named `tradr-*`, the mDNS service type is `_tradr._udp`, the URL scheme is `tradr://`, Brokr environment variables are `BROKR_*`, and domain-separation strings are `tradr-*-v1`.
 
@@ -185,7 +185,9 @@ Consequences already applied: every document is in English, `Coordinator` is now
 
 The one outstanding input is the desktop client secret's value, which WI-M0-008 needs.
 
-#### Build environment, Ubuntu 24.04.4 LTS
+#**Before the first push, check for a secret-scanning alert.** Google participates in GitHub's secret scanning partner programme, so a Google OAuth client secret appearing in a public repository is expected to raise one. Whether Google automatically revokes an OAuth *client* secret on that signal is not established here -- it does act on service account keys -- and if it does, every token exchange fails from that moment. **Look at the repository's security tab immediately after pushing**, rather than discovering it from a user whose sign-in stopped working.
+
+### Build environment, Ubuntu 24.04.4 LTS
 
 **Linux desktop: ready.** The user installed the WebKitGTK stack on 2026-08-22 at 22:34. `pkg-config` reports `webkit2gtk-4.1` 2.52.3, `javascriptcoregtk-4.1` 2.52.3, `libsoup-3.0` 3.4.4 and `gtk+-3.0` 3.24.41, and `patchelf` is on the path. `WI-M0-003` is unblocked.
 
