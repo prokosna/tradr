@@ -12,7 +12,7 @@ current_milestone: M0
 branch: m0-skeleton
 implementation_started: true
 work_items_landed: 36
-last_commit: 8030a54
+last_commit: 3d894fb
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -185,7 +185,15 @@ Consequences already applied: every document is in English, `Coordinator` is now
 
 The one outstanding input is the desktop client secret's value, which WI-M0-008 needs.
 
-#**Before the first push, check for a secret-scanning alert.** Google participates in GitHub's secret scanning partner programme, so a Google OAuth client secret appearing in a public repository is expected to raise one. Whether Google automatically revokes an OAuth *client* secret on that signal is not established here -- it does act on service account keys -- and if it does, every token exchange fails from that moment. **Look at the repository's security tab immediately after pushing**, rather than discovering it from a user whose sign-in stopped working.
+#**Before the first push, decide what to do about secret scanning. Checked on the web, 2026-08-24.**
+
+GitHub's supported-patterns reference lists `google_oauth_client_id, google_oauth_client_secret` with **both** the partner column and the user-alert column set. So on push to a public repository this is expected to be detected, reported to Google, **and** raised as an alert on the repository. The two identifiers appear as one row, which most likely means the pattern matches an id and a secret together rather than either alone -- **that is a reading rather than a confirmed fact**, and it decides whether removing the secret would avoid detection at all.
+
+What Google does on being notified is not established. GitHub describes partners as taking action "such as revoking the credential". **If it revokes, every token exchange fails from that moment**, for every user, until a new value ships.
+
+**There is a third option nobody proposed, and rclone already does it.** `backend/drive/drive.go` holds `rcloneClientID` in plain text and the secret as `rcloneEncryptedClientSecret`, revealed at runtime through `obscure.MustReveal()`. The obscuring is trivially reversible and is not pretending otherwise; what it changes is that **the plaintext never appears in the repository**, so no scanner matches it and no revocation follows. The cost is that it is deliberate evasion of a control built to catch accidental leaks -- defensible only because this disclosure is neither accidental nor undocumented, and worth stating plainly in whatever form it takes rather than looking like an attempt to hide something.
+
+Also worth knowing: **rclone's shared client id is being retired during 2026**, which is the same risk this project is accepting, arriving on someone else's timeline.
 
 ### Build environment, Ubuntu 24.04.4 LTS
 
