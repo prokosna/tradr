@@ -40,6 +40,9 @@ join-token
 .env
 .env.*
 !.env.example
+# Baked into the build by apps/tradr/src-tauri/build.rs (DCR-030)
+.tradr-deployment.env
+!.tradr-deployment.env.example
 
 # OS
 .DS_Store
