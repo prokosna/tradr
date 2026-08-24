@@ -276,6 +276,14 @@ Private keys never leave the device after generation. There is no export functio
 
 **Falling short of hardware backing on Linux is stated plainly.** Settings displays the storage method in use and says so explicitly when it has fallen back to a file. Headless environments without a running Secret Service get a warning.
 
+### Descending the Linux ladder
+
+That ladder is a **search on load, not only a preference on write**. A device that stored its key in a `0600` file because no Secret Service was running must find that same key the day one is running. Reading only the highest available rung would find it empty, and the device would generate a second Device Key and present to its own peers as a device none of them has ever seen.
+
+**A key found on a lower rung is not moved to a higher one.** Moving it means deleting it from the rung being vacated, and a move whose delete fails leaves the key readable from the weaker of the two while `backing()` names the stronger. That is the overstatement [the KeyStore boundary](#the-keystore-boundary) exists to prevent, arriving by a different route. `backing()` names the rung the key is actually on, and a device that once fell back says so for as long as that remains true.
+
+**A rung that is absent is skipped; a rung that is present and then fails stops the search.** The two are separated when a rung is constructed rather than when it is read: a Secret Service that cannot be reached at all is never on the ladder, and one that is on it and then errors is not treated as an empty slot, because a read that failed and a slot that is empty are indistinguishable in the answer while only one of them may lead to generating a key. A headless box with no D-Bus session descends to the keyring and says so; a D-Bus session that is running and refuses is an error the user is shown, not a new identity.
+
 ### The KeyStore boundary
 
 A key inside StrongBox, a TPM, or the Secure Enclave **cannot be read out** — that is the entire point of those elements. So the shape of the `KeyStore` trait, not the choice of curve, is what first decides whether hardware backing is reachable at all. A trait that hands Layer 1 a private key can only ever be implemented in software, on every platform, and it fails silently because the code still works.
