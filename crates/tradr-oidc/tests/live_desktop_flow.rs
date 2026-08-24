@@ -63,7 +63,15 @@ async fn a_pkce_exchange_without_the_client_secret() {
         panic!("the desktop client download could not be read; the path tried is printed above");
     };
 
-    let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+    // A fixed port by default, so an ssh forward can be set up before the
+    // run rather than raced against it. TRADR_CALLBACK_PORT overrides it,
+    // and 0 asks the OS for whatever is free.
+    let port: u16 = std::env::var("TRADR_CALLBACK_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(45837);
+    let listener =
+        TcpListener::bind(("127.0.0.1", port)).expect("the callback port is already in use");
     let port = listener.local_addr().expect("the bound address").port();
     let redirect = callback_redirect_uri(port);
     let pkce = Pkce::generate(&UrandomRng).expect("entropy");
