@@ -89,7 +89,27 @@ Adding a platform means adding its client ID to that set, which older builds wil
 
 ### OAuth client configuration
 
-The client IDs are public values and live in the repository. The desktop client also carries a secret, which Google's token endpoint requires for Desktop-type clients even under PKCE. Google states that an installed application's secret is not treated as confidential, and it is extractable from any shipped binary regardless of how it is delivered. **PKCE is what actually protects the flow.** Android-type clients have no secret at all.
+**No client ID and no client secret ship with this software.** Both are configuration, supplied at runtime, and every deployment registers its own Google Cloud project. Tradr is set up by the person running it, not distributed with credentials of its own.
+
+```
+TRADR_OAUTH_CLIENT_ID       this device's client ID, from the deployer's project
+TRADR_OAUTH_CLIENT_SECRET   its secret; a Desktop client needs one, an Android client has none
+TRADR_OAUTH_AUDIENCES       every client ID in the deployment, comma separated
+```
+
+`TRADR_OAUTH_AUDIENCES` defaults to `TRADR_OAUTH_CLIENT_ID` alone. **A deployment spanning more than one platform must list every client ID it uses**, because a Desktop client and an Android client are different IDs in the same project, and step 3 compares `aud` against this set. Getting it wrong is loud rather than silent: the peer is rejected at connection time.
+
+**Each deployment is therefore its own trust domain**, unable to authenticate against anyone else's. That was previously a consequence of overriding a shipped default; it is now the only mode, and it is the point rather than a side effect.
+
+**Why nothing ships.** Committing a working client so that a clone builds and runs is the obvious convenience, and it was the earlier decision here. Three things cost more than it is worth:
+
+- **A shared client ID is a shared rate limit.** rclone ships one for Google Drive and is retiring it during 2026 for exactly this reason, telling every user to register their own instead. That is this design's risk arriving on someone else's schedule.
+- **A published secret is a single revocation point.** `google_oauth_client_id, google_oauth_client_secret` is a GitHub secret-scanning pattern in the partner programme, so pushing one to a public repository is reported to Google. If Google revokes, every deployment's sign-in stops at once.
+- **A published client is a brandable consent screen.** The measurements below show the secret gates the exchange step, so publishing it lets a third party complete an OAuth flow under this application's name.
+
+Setting up a project is a few minutes in Google Cloud Console, and it is a step the person running an OSS tool takes once.
+
+**A Desktop client still needs its secret, and that is worth knowing before registering one.**
 
 **Google requires it, and this was settled by running the flow.** An earlier probe posting a *fabricated* code proved nothing: `client_secret is missing` arrives as `invalid_request`, which is parameter validation reached before any code is looked up, so it measured the endpoint's handling of a code Google had never issued. The real flow, on 2026-08-24, with a genuine code obtained under `code_challenge_method=S256`:
 
@@ -126,22 +146,9 @@ The reason to publish it anyway is Google's own: an installed application's secr
 
 The third row is what makes the first two mean anything: the check is real, and loopback is what it exempts. An installed client's registered `redirect_uris` are not an exhaustive list -- RFC 8252 section 7.3's loopback rule is, and any port is accepted. **The literal is chosen over the name because a name resolves through the host's own resolver**, and what it resolves to is not this process's decision.
 
-That secret is therefore committed alongside the client IDs, so that anyone who clones and builds gets a working application. Both values can be overridden at runtime:
+**Both variables are set together or neither is.** An ID without its secret, or a secret without its ID, is a pair Google's token endpoint rejects, and the failure surfaces as a refused exchange. Refusing the half-set configuration at startup puts the message where the mistake was made. An Android client is the exception: it has no secret, and none is expected.
 
-```
-TRADR_OAUTH_CLIENT_ID
-TRADR_OAUTH_CLIENT_SECRET
-```
-
-An override extends the accepted `aud` set with the supplied client ID rather than replacing it, so an overridden device still verifies peers on the default client.
-
-**Both variables are set together or neither is.** An id without its secret, or a secret without its id, is a pair Google's token endpoint rejects, and the failure surfaces as a refused exchange with nothing naming the cause. Refusing the half-set configuration at startup puts the message where the mistake was made.
-
-**But the reverse does not hold, and that is the consequence worth stating.** A device using an overridden client produces Attestations whose `aud` is that client, which a device on defaults does not recognize and rejects. **Overriding therefore has to be done across every device of an account, never on some of them** — a partial override splits the account into two sets that cannot see each other. The settings UI says so at the point of override.
-
-Read positively, this means an organization can point every device at its own Google project and obtain a self-contained trust domain, unable to authenticate against anyone else's deployment.
-
-Should the published client be abused — a third party using it to present a consent screen bearing Tradr's name — the response is to rotate it in Google Cloud Console and ship the new value. Devices that fail to renew their Attestation against a retired client fall back on the 30-day staleness window, which leaves ample room for the release to reach them.
+**Profiles remain compiled in; only the client is configured.** The issuer, the JWKS URI, the nonce binding and the permitted algorithms are a trust decision and are not settings. What a deployer supplies is which OAuth client speaks for them, never how a peer's token is verified.
 
 ### Provider profiles
 
@@ -153,14 +160,14 @@ Everything a provider brings lives in one value -- what a peer's token is verifi
 | `jwks_uri` | Moves independently of the issuer string. D1 of the Change Drill is this field |
 | `authorization_uri`, `token_uri` | Discovered once from `/.well-known/openid-configuration`, then pinned |
 | `client_ids` | One per platform, per provider. See [above](#why-step-3-compares-against-a-set) |
-| `client_secret` | Required by Google's token endpoint for Desktop clients even under PKCE, and not confidential. See [below](#oauth-client-configuration) |
+| `client_id`, `client_secret` | **Configuration, not shipped.** Which OAuth client speaks for this deployment. See [below](#oauth-client-configuration) |
 | `nonce_binding` | Verbatim or hashed. A provider that stores a digest of the nonce fails step 4 outright under the wrong assumption |
 | `algorithms` | The signature algorithms this provider's tokens may use. The token's `alg` header is compared against this and never used to select. See [above](#the-token-never-chooses-how-it-is-verified) |
 | `renewal` | Whether a fresh ID token can be minted without user interaction, and on what terms |
 
 The last two are why **adding a provider is not a URL swap**, and why they are fields rather than an assumption discovered during a rewrite. `renewal` in particular carries the design's weight: the 24-hour silent renewal below assumes a refresh token and a `prompt=none` path. A provider offering neither shifts that account's whole revocation story, and the profile is where that becomes visible.
 
-**A credential sits in this value, and that is deliberate.** Splitting it into a verification half and an authentication half would put a provider's name in two places, and Change Drill D2 budgets two files for adding a provider -- one definition and one registration. What keeps that budget is that **`tradr-oidc` never sees this type**: it may not depend on `tradr-identity` at all (`ci/layer-deps.sh`), so the flow takes a uri, a client id and a secret as plain arguments and names no provider. A driver that cannot name a provider cannot acquire a second place to name one.
+**A credential sits in this value at runtime, and that is deliberate.** Splitting it into a verification half and an authentication half would put a provider's name in two places, and Change Drill D2 budgets two files for adding a provider -- one definition and one registration. What keeps that budget is that **`tradr-oidc` never sees this type**: it may not depend on `tradr-identity` at all (`ci/layer-deps.sh`), so the flow takes a uri, a client id and a secret as plain arguments and names no provider. A driver that cannot name a provider cannot acquire a second place to name one.
 
 **Profiles are compiled in and are not user-configurable.** A shipped profile is a root of trust for every user of that build, so adding one is a trust decision taken in an ADR, not a setting.
 
