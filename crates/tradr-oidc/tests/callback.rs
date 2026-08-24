@@ -187,15 +187,46 @@ fn a_body_that_is_not_json_is_refused() {
     ));
 }
 
-/// The token endpoint reports failure as a 200-shaped JSON body with an
-/// `error` member, so this is the shape a real refusal arrives in.
+/// The fixture is the real refusal this project spent an experiment
+/// re-deriving. `invalid_request` alone says only that something was
+/// wrong; the description names what, and an earlier version of this code
+/// discarded it one line after it arrived.
 #[test]
-fn an_error_body_is_reported_with_the_reason_the_provider_gave() {
-    let body = br#"{"error":"invalid_grant","error_description":"Bad Request"}"#;
+fn an_error_body_keeps_both_the_code_and_the_description() {
+    let body = br#"{"error":"invalid_request","error_description":"client_secret is missing."}"#;
 
     assert_eq!(
         parse_token_response(body),
-        Err(OidcError::TokenExchangeRefused("invalid_grant".to_string()))
+        Err(OidcError::TokenExchangeRefused {
+            error: "invalid_request".to_string(),
+            description: Some("client_secret is missing.".to_string()),
+        })
+    );
+}
+
+#[test]
+fn an_error_body_without_a_description_is_still_an_error() {
+    let body = br#"{"error":"invalid_grant"}"#;
+
+    assert_eq!(
+        parse_token_response(body),
+        Err(OidcError::TokenExchangeRefused {
+            error: "invalid_grant".to_string(),
+            description: None,
+        })
+    );
+}
+
+#[test]
+fn a_description_that_is_not_a_string_counts_as_absent() {
+    let body = br#"{"error":"invalid_grant","error_description":42}"#;
+
+    assert_eq!(
+        parse_token_response(body),
+        Err(OidcError::TokenExchangeRefused {
+            error: "invalid_grant".to_string(),
+            description: None,
+        })
     );
 }
 

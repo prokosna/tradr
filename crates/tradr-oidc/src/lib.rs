@@ -78,8 +78,13 @@ pub enum OidcError {
     /// OAuth and useless OIDC, so its absence is an error, not an absence.
     MalformedTokenResponse(String),
     /// The token endpoint reported failure through an `error` member in an
-    /// otherwise 200-shaped JSON body, carrying the reason it gave.
-    TokenExchangeRefused(String),
+    /// otherwise 200-shaped JSON body. `description` is the `error_description`
+    /// member when the provider sent one as a string, `None` otherwise --
+    /// its absence is not itself an error.
+    TokenExchangeRefused {
+        error: String,
+        description: Option<String>,
+    },
 }
 
 impl fmt::Display for OidcError {
@@ -105,9 +110,12 @@ impl fmt::Display for OidcError {
             Self::MalformedTokenResponse(reason) => {
                 write!(f, "malformed token response: {reason}")
             }
-            Self::TokenExchangeRefused(reason) => {
-                write!(f, "token exchange refused: {reason}")
-            }
+            Self::TokenExchangeRefused { error, description } => match description {
+                Some(description) => {
+                    write!(f, "token exchange refused: {error} ({description})")
+                }
+                None => write!(f, "token exchange refused: {error}"),
+            },
         }
     }
 }
@@ -429,7 +437,14 @@ pub fn parse_token_response(body: &[u8]) -> Result<String, OidcError> {
     })?;
 
     if let Some(error) = object.get("error").and_then(Value::as_str) {
-        return Err(OidcError::TokenExchangeRefused(error.to_string()));
+        let description = object
+            .get("error_description")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        return Err(OidcError::TokenExchangeRefused {
+            error: error.to_string(),
+            description,
+        });
     }
 
     match object.get("id_token").and_then(Value::as_str) {
