@@ -6,13 +6,13 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.**
 
 ```yaml
-last_updated: 2026-08-23
+last_updated: 2026-08-25
 phase: implementing
 current_milestone: M0
 branch: m0-skeleton
 implementation_started: true
 work_items_landed: 41
-last_commit: 43b7464
+last_commit: 10c1b8b
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -342,7 +342,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | # | Content | Estimate | Status |
 |---|---|---|---|
-| **M0** | **Skeleton** — monorepo, Tauri launching on Linux and Android, Google sign-in, key generation, Attestation issue and verify | 2 weeks | **in progress, 11 Work Items landed** |
+| **M0** | **Skeleton** — monorepo, Tauri launching on Linux and Android, Google sign-in, key generation, Attestation issue and verify | 2 weeks | **in progress** |
 | M1 | **LAN transfer**, the most important — mDNS, QUIC, transfer, resumption, drag-and-drop send | 4 weeks | todo |
 | M2 | Android integration — share sheet, Sharing Shortcuts, SAF, permissions | 3 weeks | todo |
 | M3 | Share browsing — VFS, boundary enforcement, the Browse plane | 3 weeks | todo |
@@ -395,7 +395,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-006g | Layer 1 trait: `Transport`, plus `Candidate` and the listening side. **Completes WI-M0-006** | **done** — PASS after one REVISE | |
 | WI-M0-007a | **`SoftwareKeyStore`**: Device Key generation and the four `KeyStore` operations, P-256. Critical Module, 21 Supervisor-written tests | **done** — PASS after one REVISE | Yes |
 | WI-M0-007b | **The persistence policy**: load or generate, the stored form, and a `backing()` that reports the level actually reached. No keyring, no D-Bus, no filesystem | **done** -- PASS, no REVISE | Yes |
-| WI-M0-007c | **The three Linux backends** behind `SecretStore`: Secret Service, then the kernel keyring, then a `0600` file. Android Keystore goes with it or after. Note DF-9: a D-Bus round trip through a synchronous trait blocks its caller
+| WI-M0-007c | **The three Linux backends** behind `SecretStore`: Secret Service, then the kernel keyring, then a `0600` file. Android Keystore goes with it or after. Note DF-9: a D-Bus round trip through a synchronous trait blocks its caller | todo | Yes |
 | WI-M0-008a | **Google's provider value and the runtime override** (DCR-027). The only place in the codebase that names a provider | **done** -- PASS, no REVISE | Yes |
 | WI-M0-008b | PKCE: the verifier, the S256 challenge, and the authorization uri. Pure, and it carries the Attestation nonce into the flow | **done** -- PASS after one REVISE | Yes |
 | WI-M0-008c | The loopback listener and the token exchange. Carries the real desktop client secret, closing DF-15 | **done** -- PASS, no REVISE | Yes |
