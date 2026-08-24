@@ -83,21 +83,26 @@ Google issues one OAuth client ID per platform: one for desktop, one for Android
 
 Comparing against a single value would therefore fail every cross-platform verification while same-platform pairs kept working — a failure mode that presents as "only Android will not connect" and hides its cause well.
 
-Every device carries the full set of Tradr client IDs, compiled in, and step 3 accepts membership in the set belonging to the selected profile. The values are public and belong in the repository.
+Every device carries the full set of its deployment's client IDs and step 3 accepts membership in it. Those IDs are configuration rather than shipped values -- see [below](#oauth-client-configuration) -- and one string carries them to every device.
 
-Adding a platform means adding its client ID to that set, which older builds will not have. Since an unknown `aud` is rejected, **a new platform cannot be verified by devices that predate it**. Client IDs are therefore added to the set one release ahead of the platform that uses them.
+Adding a platform means adding its client ID to that one string. **Devices that predate the new platform accept it as soon as they are restarted with the updated configuration**, since an ID whose platform label they do not recognise still joins the `aud` set. When the set was compiled in, the same change required a rebuild and older builds rejected the new platform outright.
 
 ### OAuth client configuration
 
 **No client ID and no client secret ship with this software.** Both are configuration, supplied at runtime, and every deployment registers its own Google Cloud project. Tradr is set up by the person running it, not distributed with credentials of its own.
 
 ```
-TRADR_OAUTH_CLIENT_ID       this device's client ID, from the deployer's project
-TRADR_OAUTH_CLIENT_SECRET   its secret; a Desktop client needs one, an Android client has none
-TRADR_OAUTH_AUDIENCES       every client ID in the deployment, comma separated
+TRADR_OAUTH_CLIENT_IDS      desktop:<id>,android:<id>   the same string on every device
+TRADR_OAUTH_CLIENT_SECRET   this platform's secret; a Desktop client has one, an Android client none
 ```
 
-`TRADR_OAUTH_AUDIENCES` defaults to `TRADR_OAUTH_CLIENT_ID` alone. **A deployment spanning more than one platform must list every client ID it uses**, because a Desktop client and an Android client are different IDs in the same project, and step 3 compares `aud` against this set. Getting it wrong is loud rather than silent: the peer is rejected at connection time.
+**The first is one value, identical across the deployment, and every device derives the rest from it.** A build knows which platform it is, so it looks itself up in the list to find the client it authenticates as, and takes every ID in the list as the `aud` set it accepts. Nothing is written twice and nothing differs per device but the secret.
+
+**That is what makes the incomplete list detectable.** An earlier draft had each device configured separately with its own ID and its own audience set, which put the same value in two places and made a forgotten entry surface only at the first connection between two devices, as a rejected peer. Now a deployment that lists `desktop:` and forgets `android:` starts its desktop devices correctly -- as a desktop-only deployment, which is what it is -- and **an Android device refuses to start at all**, saying that this build is Android and the list names no Android client. The mistake is reported where it was made.
+
+**An entry naming a platform this build does not know contributes its ID to the `aud` set and nothing else.** Adding iOS later means adding `ios:<id>` to the one string, and existing desktop and Android devices then accept iOS peers without being rebuilt. Rejecting the whole list instead would make adding a platform break every device that predates it, which is the cost the compiled-in design used to carry.
+
+**The secret stays out of that list.** Putting each platform's secret beside its ID would be the tidier string, and would place the Desktop client's secret in the environment of every Android device, which never uses it. A value not present cannot leak.
 
 **Each deployment is therefore its own trust domain**, unable to authenticate against anyone else's. That was previously a consequence of overriding a shipped default; it is now the only mode, and it is the point rather than a side effect.
 
