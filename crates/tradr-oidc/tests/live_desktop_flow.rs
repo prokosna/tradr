@@ -31,9 +31,20 @@ impl Rng for UrandomRng {
 /// Reads the desktop client from the download Google produced. The test is
 /// a diagnostic and is skipped when that file is not present.
 fn desktop_client() -> Option<(String, String)> {
-    let path = "client_secret_475695468283-shsoa7f59bdbta9jlubfs49jonv1m7ng\
-                .apps.googleusercontent.com.json";
-    let raw = std::fs::read_to_string(path).ok()?;
+    // `cargo test -p` runs the binary in the package directory, not the
+    // workspace root, so the path is anchored to the manifest instead.
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../client_secret_475695468283-shsoa7f59bdbta9jlubfs49jonv1m7ng",
+        ".apps.googleusercontent.com.json"
+    );
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(e) => {
+            println!("could not read {path}: {e}");
+            return None;
+        }
+    };
     let id = between(&raw, "\"client_id\":\"", "\"")?;
     let secret = between(&raw, "\"client_secret\":\"", "\"")?;
     Some((id, secret))
@@ -49,7 +60,7 @@ fn between(haystack: &str, start: &str, end: &str) -> Option<String> {
 #[ignore]
 async fn a_pkce_exchange_without_the_client_secret() {
     let Some((client_id, secret)) = desktop_client() else {
-        panic!("the desktop client download is not in the repository root");
+        panic!("the desktop client download could not be read; the path tried is printed above");
     };
 
     let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
