@@ -4554,7 +4554,6 @@ dependencies = [
  "sha2",
  "tokio",
  "tradr-core",
- "tradr-identity",
 ]
 
 [[package]]
