@@ -148,9 +148,9 @@ impl fmt::Display for AttestationError {
 
 impl std::error::Error for AttestationError {}
 
-/// The nonce a conforming peer must present, per the profile's
-/// `nonce_binding`. Concatenation order is part of the binding: swapping
-/// the two keys must not produce the same nonce.
+// The nonce a conforming peer must present, per the profile's
+// `nonce_binding`. Concatenation order is part of the binding: swapping
+// the two keys must not produce the same nonce.
 fn expected_nonce(
     binding: NonceBinding,
     identity_pub: &PublicKeyPoint,

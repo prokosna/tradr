@@ -28,9 +28,9 @@ impl Rng for UrandomRng {
     }
 }
 
-/// Reads the client from the environment, the way the application does
-/// (DCR-028). Nothing ships with these values; a deployer registers their
-/// own Google project and exports them.
+// Reads the client from the environment, the way the application does
+// (DCR-028). Nothing ships with these values; a deployer registers their
+// own Google project and exports them.
 fn desktop_client() -> Option<(String, String)> {
     let ids = std::env::var("TRADR_OAUTH_CLIENT_IDS")
         .ok()

@@ -112,10 +112,10 @@ struct UsableEntry {
     algorithm: SignatureAlgorithm,
 }
 
-/// Decides whether this build can use `object` at all. Returns `None` for
-/// anything outside what this build represents (a different key type, a
-/// different algorithm, a non-signing use, or no `kid` to be selected by)
-/// so the caller can skip it without treating it as an error.
+// Decides whether this build can use `object` at all. Returns `None` for
+// anything outside what this build represents (a different key type, a
+// different algorithm, a non-signing use, or no `kid` to be selected by)
+// so the caller can skip it without treating it as an error.
 fn usable_entry(object: &Map<String, Value>) -> Option<UsableEntry> {
     if object.get("kty").and_then(Value::as_str) != Some("RSA") {
         return None;
@@ -135,9 +135,9 @@ fn usable_entry(object: &Map<String, Value>) -> Option<UsableEntry> {
     })
 }
 
-/// Decodes an entry's `field` (`n` or `e`) as unpadded base64url. A usable
-/// entry that fails here is corrupt, not merely unrepresentable, so this
-/// makes the whole document `Malformed` rather than dropping the entry.
+// Decodes an entry's `field` (`n` or `e`) as unpadded base64url. A usable
+// entry that fails here is corrupt, not merely unrepresentable, so this
+// makes the whole document `Malformed` rather than dropping the entry.
 fn decode_key_material(object: &Map<String, Value>, field: &str) -> Result<Vec<u8>, JwksError> {
     let raw = object
         .get(field)

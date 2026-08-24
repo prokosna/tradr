@@ -51,8 +51,8 @@ fn identity(seed: u8) -> PublicIdentity {
         .expect("a generated store must expose its public identity")
 }
 
-/// The verbatim nonce, computed here from BLAKE3 rather than taken from
-/// the crate, so both encoding tests stand on something independent.
+// The verbatim nonce, computed here from BLAKE3 rather than taken from
+// the crate, so both encoding tests stand on something independent.
 fn verbatim(identity: &PublicIdentity) -> String {
     let mut input = identity.identity_pub().as_bytes().to_vec();
     input.extend_from_slice(identity.agreement_pub().as_bytes());
@@ -83,9 +83,9 @@ fn claims(nonce: &str) -> VerifiedClaims {
     }
 }
 
-/// A policy whose own account is the one every `claims` above names, so a
-/// conforming Attestation lands at `SameAccount` and any rejection in
-/// these tests came from step 4 rather than from step 6.
+// A policy whose own account is the one every `claims` above names, so a
+// conforming Attestation lands at `SameAccount` and any rejection in
+// these tests came from step 4 rather than from step 6.
 fn policy<'a>(profiles: &'a [ProviderProfile], own: &'a AccountId) -> AttestationPolicy<'a> {
     AttestationPolicy {
         profiles,

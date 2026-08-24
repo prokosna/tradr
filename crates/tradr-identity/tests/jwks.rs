@@ -18,8 +18,8 @@ fn b64(bytes: &[u8]) -> String {
     B64.encode(bytes)
 }
 
-/// A modulus of `len` bytes with a non-zero leading byte, so its
-/// significant length equals its full length.
+// A modulus of `len` bytes with a non-zero leading byte, so its
+// significant length equals its full length.
 fn modulus(len: usize) -> Vec<u8> {
     let mut bytes = vec![0xAB; len];
     bytes[0] = 0xC7;
@@ -47,8 +47,8 @@ fn single(key: Value) -> Vec<u8> {
     document(vec![key])
 }
 
-/// Asserts the error is `Malformed`, without pinning its wording: the
-/// reason string is for a human reading a log, not a value to depend on.
+// Asserts the error is `Malformed`, without pinning its wording: the
+// reason string is for a human reading a log, not a value to depend on.
 fn assert_malformed(result: Result<Vec<tradr_identity::Jwk>, JwksError>) {
     match result {
         Err(JwksError::Malformed(_)) => {}

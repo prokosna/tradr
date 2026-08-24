@@ -16,10 +16,10 @@ async fn google_jwks_is_fetched_as_a_json_object() {
     assert_eq!(first_non_whitespace, Some(&b'{'));
 }
 
-/// `https://google.com/` redirects to its `www` host, so this is a real
-/// redirect arriving at a client configured to follow none. Coming back
-/// `Redirected` instead would mean the client had begun following them
-/// and the second barrier caught it, which is worth knowing either way.
+// `https://google.com/` redirects to its `www` host, so this is a real
+// redirect arriving at a client configured to follow none. Coming back
+// `Redirected` instead would mean the client had begun following them
+// and the second barrier caught it, which is worth knowing either way.
 #[tokio::test]
 #[ignore]
 async fn a_redirect_arrives_as_a_status_and_is_refused() {

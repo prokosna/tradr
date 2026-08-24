@@ -93,11 +93,11 @@ impl fmt::Debug for SoftwareKeyStore {
     }
 }
 
-/// What `backing()` reports for a `SoftwareKeyStore` opened at `level`.
-/// Reaching the Secret Service is a different sentence from falling past
-/// it to the keyring or a file (docs/05-security.md, "Key storage"), even
-/// though every Linux level is software: none of them keeps the key from
-/// coming back into this process to be used.
+// What `backing()` reports for a `SoftwareKeyStore` opened at `level`.
+// Reaching the Secret Service is a different sentence from falling past
+// it to the keyring or a file (docs/05-security.md, "Key storage"), even
+// though every Linux level is software: none of them keeps the key from
+// coming back into this process to be used.
 fn backing_for_level(level: StorageLevel) -> Backing {
     let reason = match level {
         StorageLevel::SecretService => SoftwareReason::PlatformHasNoSecureElement,
@@ -106,8 +106,8 @@ fn backing_for_level(level: StorageLevel) -> Backing {
     Backing::Software(reason)
 }
 
-/// Serializes both scalars into the stored form: a version byte, the
-/// identity scalar, then the agreement scalar, in that fixed order.
+// Serializes both scalars into the stored form: a version byte, the
+// identity scalar, then the agreement scalar, in that fixed order.
 fn encode_stored(identity_key: &SigningKey, agreement_key: &SecretKey) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(STORED_LEN);
     bytes.push(STORED_FORMAT_VERSION);
@@ -116,8 +116,8 @@ fn encode_stored(identity_key: &SigningKey, agreement_key: &SecretKey) -> Vec<u8
     bytes
 }
 
-/// Parses the stored form, refusing any length or version that does not
-/// match exactly rather than misreading it as a key.
+// Parses the stored form, refusing any length or version that does not
+// match exactly rather than misreading it as a key.
 fn decode_stored(bytes: &[u8]) -> Result<(SigningKey, SecretKey), KeyStoreError> {
     if bytes.len() != STORED_LEN {
         return Err(KeyStoreError::Backend(Box::new(
@@ -170,10 +170,10 @@ impl std::error::Error for StoredKeyError {}
 /// unlucky.
 const SCALAR_DRAW_LIMIT: usize = 16;
 
-/// Draws a valid P-256 non-zero scalar from `rng` by rejection sampling,
-/// consuming fresh bytes from `rng` on each retry. Bounded: an `Rng` that
-/// keeps succeeding but never returns a byte string P-256 accepts (an
-/// all-zero buffer, for instance) must not hang the caller forever.
+// Draws a valid P-256 non-zero scalar from `rng` by rejection sampling,
+// consuming fresh bytes from `rng` on each retry. Bounded: an `Rng` that
+// keeps succeeding but never returns a byte string P-256 accepts (an
+// all-zero buffer, for instance) must not hang the caller forever.
 fn random_secret_key(rng: &dyn Rng) -> Result<SecretKey, KeyStoreError> {
     for _ in 0..SCALAR_DRAW_LIMIT {
         let mut bytes = [0u8; 32];
@@ -202,9 +202,9 @@ impl fmt::Display for RngExhausted {
 
 impl std::error::Error for RngExhausted {}
 
-/// Converts a SEC-1 encoded point's bytes into a `PublicKeyPoint`, which
-/// only fails on the wrong length. That length is fixed by the curve, so a
-/// failure here would mean the `p256` encoding changed underneath us.
+// Converts a SEC-1 encoded point's bytes into a `PublicKeyPoint`, which
+// only fails on the wrong length. That length is fixed by the curve, so a
+// failure here would mean the `p256` encoding changed underneath us.
 fn public_key_point(bytes: &[u8]) -> Result<PublicKeyPoint, KeyStoreError> {
     PublicKeyPoint::from_bytes(bytes).map_err(|e| KeyStoreError::Backend(Box::new(e)))
 }

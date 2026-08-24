@@ -52,10 +52,10 @@ fn the_id_a_device_uses_is_always_one_it_accepts() {
 
 // --- The list a deployment forgot to finish ---
 
-/// The whole point of the shape. A deployment naming only its desktop
-/// client is a valid desktop-only deployment, and its desktop devices
-/// start; an Android build refuses at startup rather than being rejected
-/// by a peer after both ends are already set up.
+// The whole point of the shape. A deployment naming only its desktop
+// client is a valid desktop-only deployment, and its desktop devices
+// start; an Android build refuses at startup rather than being rejected
+// by a peer after both ends are already set up.
 #[test]
 fn a_build_the_list_does_not_name_refuses_to_start() {
     let desktop_only = format!("desktop:{DESKTOP_ID}");
@@ -133,10 +133,10 @@ fn an_entry_carrying_no_id_is_malformed() {
     ));
 }
 
-/// Adding iOS must not break the devices that predate it. An unknown
-/// label contributes its ID to the accepted set and nothing else, so an
-/// existing desktop device verifies an iOS peer after a restart rather
-/// than after a rebuild.
+// Adding iOS must not break the devices that predate it. An unknown
+// label contributes its ID to the accepted set and nothing else, so an
+// existing desktop device verifies an iOS peer after a restart rather
+// than after a rebuild.
 #[test]
 fn a_platform_this_build_does_not_know_still_joins_the_accepted_set() {
     let with_ios = format!("{BOTH},ios:111-ios.apps.googleusercontent.com");
@@ -174,8 +174,8 @@ fn a_desktop_build_without_its_secret_is_refused_at_startup() {
     );
 }
 
-/// A secret on an Android build means two clients' settings were pasted
-/// together. Google issues none for that client type.
+// A secret on an Android build means two clients' settings were pasted
+// together. Google issues none for that client type.
 #[test]
 fn a_secret_supplied_to_an_android_build_is_refused() {
     assert_eq!(

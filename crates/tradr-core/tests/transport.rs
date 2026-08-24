@@ -178,8 +178,8 @@ impl Transport for FailingTransport {
     }
 }
 
-/// Compiles only if the future `F` produces is `Send`, the bound a
-/// multi-threaded executor needs (ADR-0013).
+// Compiles only if the future `F` produces is `Send`, the bound a
+// multi-threaded executor needs (ADR-0013).
 fn assert_send<F: Future + Send>(_: F) {}
 
 #[test]

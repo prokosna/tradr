@@ -98,7 +98,7 @@ fn signed_payload(domain: DomainTag, message: &[u8]) -> Vec<u8> {
     payload
 }
 
-/// Verifies through `p256` rather than through the crate under test.
+// Verifies through `p256` rather than through the crate under test.
 fn verifies(store: &SoftwareKeyStore, domain: DomainTag, message: &[u8], signature: &[u8]) -> bool {
     let identity = identity_of(store);
     let Ok(key) = VerifyingKey::from_sec1_bytes(identity.identity_pub().as_bytes()) else {

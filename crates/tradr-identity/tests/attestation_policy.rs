@@ -14,8 +14,8 @@ use tradr_identity::{
 const DAY: i64 = 86_400;
 const NOW: i64 = 1_800_000_000;
 
-/// RFC 4648 base64url without padding, written here rather than taken from
-/// the crate under test. Checked against the RFC's own vectors below.
+// RFC 4648 base64url without padding, written here rather than taken from
+// the crate under test. Checked against the RFC's own vectors below.
 fn base64url(input: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::new();
@@ -59,7 +59,7 @@ fn point(fill: u8) -> PublicKeyPoint {
     }
 }
 
-/// The nonce docs/05 step 4 requires, computed independently.
+// The nonce docs/05 step 4 requires, computed independently.
 fn verbatim_nonce(identity: &PublicKeyPoint, agreement: &PublicKeyPoint) -> String {
     let mut input = identity.as_bytes().to_vec();
     input.extend_from_slice(agreement.as_bytes());

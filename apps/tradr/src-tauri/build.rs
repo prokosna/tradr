@@ -12,9 +12,9 @@ const CLIENT_IDS_VAR: &str = "TRADR_OAUTH_CLIENT_IDS";
 const CLIENT_SECRET_VAR: &str = "TRADR_OAUTH_CLIENT_SECRET";
 const DEPLOYMENT_ENV_FILE: &str = ".tradr-deployment.env";
 
-/// `KEY=VALUE` lookup in a `.tradr-deployment.env`-shaped file. Blank lines
-/// and lines starting with `#` are skipped; a value is everything after the
-/// first `=`, trimmed of surrounding whitespace only.
+// `KEY=VALUE` lookup in a `.tradr-deployment.env`-shaped file. Blank lines
+// and lines starting with `#` are skipped; a value is everything after the
+// first `=`, trimmed of surrounding whitespace only.
 fn lookup(contents: &str, key: &str) -> Option<String> {
     for line in contents.lines() {
         let trimmed = line.trim();
@@ -29,9 +29,9 @@ fn lookup(contents: &str, key: &str) -> Option<String> {
     None
 }
 
-/// The value for `key`: the environment if set and non-empty, else the
-/// matching line in `.tradr-deployment.env` at the repository root, else
-/// empty.
+// The value for `key`: the environment if set and non-empty, else the
+// matching line in `.tradr-deployment.env` at the repository root, else
+// empty.
 fn resolve(key: &str, deployment_env: Option<&str>) -> String {
     if let Ok(value) = env::var(key)
         && !value.is_empty()

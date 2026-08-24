@@ -60,7 +60,7 @@ fn private_key() -> RsaPrivateKey {
     }
 }
 
-/// The JWKS entry a provider would publish for the key above.
+// The JWKS entry a provider would publish for the key above.
 fn published_key() -> Jwk {
     let public = RsaPublicKey::from(&private_key());
     Jwk {
@@ -91,7 +91,7 @@ fn payload_json() -> String {
     )
 }
 
-/// Mints a token signed with the real key, under whatever header is given.
+// Mints a token signed with the real key, under whatever header is given.
 fn signed_token(header_json: &str, payload_json: &str) -> String {
     let input = format!("{}.{}", B64.encode(header_json), B64.encode(payload_json));
     let signing_key = SigningKey::<Sha256>::new(private_key());
@@ -367,7 +367,7 @@ fn a_missing_claim_is_rejected_rather_than_defaulted() {
     }
 }
 
-/// Removes one claim from the fixture payload, leaving valid JSON.
+// Removes one claim from the fixture payload, leaving valid JSON.
 fn strip_claim(payload: &str, name: &str) -> String {
     let Some(value) = serde_json_value(payload, name) else {
         panic!("the fixture must contain {name}");
@@ -377,8 +377,8 @@ fn strip_claim(payload: &str, name: &str) -> String {
         .replace(&format!(r#","{name}":{value}"#), "")
 }
 
-/// Finds a claim's raw JSON text without parsing the document, so the test
-/// helper does not depend on a JSON library agreeing with the implementation.
+// Finds a claim's raw JSON text without parsing the document, so the test
+// helper does not depend on a JSON library agreeing with the implementation.
 fn serde_json_value(payload: &str, name: &str) -> Option<String> {
     let key = format!(r#""{name}":"#);
     let start = payload.find(&key)? + key.len();

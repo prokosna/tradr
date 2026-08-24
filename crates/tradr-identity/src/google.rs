@@ -86,8 +86,8 @@ impl fmt::Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
-/// This build's platform, as the label matched case-insensitively against
-/// `TRADR_OAUTH_CLIENT_IDS` entries.
+// This build's platform, as the label matched case-insensitively against
+// `TRADR_OAUTH_CLIENT_IDS` entries.
 fn platform_label(platform: Platform) -> &'static str {
     match platform {
         Platform::Desktop => "desktop",

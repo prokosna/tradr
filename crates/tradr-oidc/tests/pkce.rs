@@ -91,9 +91,9 @@ fn a_generated_verifier_is_within_the_length_the_rfc_allows() {
     assert!((43..=128).contains(&verifier), "length {verifier}");
 }
 
-/// 0xFB and 0xFF are the byte values whose base64 sextets land on indexes
-/// 62 and 63, the two the standard alphabet spells `+` and `/`. A fixture
-/// that avoids them cannot tell a url-safe encoder from a standard one.
+// 0xFB and 0xFF are the byte values whose base64 sextets land on indexes
+// 62 and 63, the two the standard alphabet spells `+` and `/`. A fixture
+// that avoids them cannot tell a url-safe encoder from a standard one.
 #[test]
 fn a_generated_verifier_uses_only_the_rfc_unreserved_characters() {
     for byte in [0x00, 0x7f, 0xfb, 0xff] {
@@ -118,9 +118,9 @@ fn different_randomness_gives_a_different_verifier() {
     assert_ne!(generated(1).verifier(), generated(2).verifier());
 }
 
-/// A failing entropy source is not a malformed verifier: no verifier was
-/// formed. The distinction is what an operator reads in a log, and only
-/// one of the two readings points at the machine that is actually broken.
+// A failing entropy source is not a malformed verifier: no verifier was
+// formed. The distinction is what an operator reads in a log, and only
+// one of the two readings points at the machine that is actually broken.
 #[test]
 fn an_rng_that_fails_is_reported_as_an_entropy_failure() {
     assert!(matches!(
@@ -213,9 +213,9 @@ fn the_url_carries_every_parameter_the_flow_needs() {
     }
 }
 
-/// `plain` is a permitted PKCE method and it defends nothing: the code
-/// challenge and the verifier are the same string, so anyone who sees the
-/// authorization request can complete the exchange.
+// `plain` is a permitted PKCE method and it defends nothing: the code
+// challenge and the verifier are the same string, so anyone who sees the
+// authorization request can complete the exchange.
 #[test]
 fn the_challenge_method_is_s256_and_plain_appears_nowhere() {
     let url = built();

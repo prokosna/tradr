@@ -66,10 +66,10 @@ fn state_is_compared_in_full_and_not_by_prefix() {
     );
 }
 
-/// A query string may repeat a name, and a parser that takes the first or
-/// the last is choosing on the caller's behalf between two values an
-/// attacker supplied one of. Neither choice is defensible, so both are
-/// refused.
+// A query string may repeat a name, and a parser that takes the first or
+// the last is choosing on the caller's behalf between two values an
+// attacker supplied one of. Neither choice is defensible, so both are
+// refused.
 #[test]
 fn a_repeated_parameter_is_refused_rather_than_resolved() {
     let two_codes = format!("code={CODE}&code=another&state={STATE}");
@@ -87,9 +87,9 @@ fn a_repeated_parameter_is_refused_rather_than_resolved() {
 
 // --- What the provider says went wrong ---
 
-/// The state check runs first. An `error=` response with a foreign state
-/// is somebody else's failure, and reporting it as this request's would
-/// let any local process end this flow with a message of its choosing.
+// The state check runs first. An `error=` response with a foreign state
+// is somebody else's failure, and reporting it as this request's would
+// let any local process end this flow with a message of its choosing.
 #[test]
 fn a_provider_error_is_reported_only_when_the_state_matches() {
     let denied = format!("error=access_denied&state={STATE}");
@@ -145,10 +145,10 @@ fn a_token_response_yields_its_id_token() {
     assert_eq!(parse_token_response(body), Ok("h.p.s".to_string()));
 }
 
-/// An OAuth token response is a perfectly valid one without an `id_token`
-/// -- that is what a plain OAuth exchange returns. This design needs the
-/// OIDC one, and treating the difference as absence rather than as an
-/// error is how a flow ends up authenticating nobody.
+// An OAuth token response is a perfectly valid one without an `id_token`
+// -- that is what a plain OAuth exchange returns. This design needs the
+// OIDC one, and treating the difference as absence rather than as an
+// error is how a flow ends up authenticating nobody.
 #[test]
 fn a_response_with_no_id_token_is_an_error_and_not_an_absence() {
     let body = br#"{"access_token":"ya29.x","expires_in":3599,"token_type":"Bearer"}"#;
@@ -187,10 +187,10 @@ fn a_body_that_is_not_json_is_refused() {
     ));
 }
 
-/// The fixture is the real refusal this project spent an experiment
-/// re-deriving. `invalid_request` alone says only that something was
-/// wrong; the description names what, and an earlier version of this code
-/// discarded it one line after it arrived.
+// The fixture is the real refusal this project spent an experiment
+// re-deriving. `invalid_request` alone says only that something was
+// wrong; the description names what, and an earlier version of this code
+// discarded it one line after it arrived.
 #[test]
 fn an_error_body_keeps_both_the_code_and_the_description() {
     let body = br#"{"error":"invalid_request","error_description":"client_secret is missing."}"#;
@@ -232,11 +232,11 @@ fn a_description_that_is_not_a_string_counts_as_absent() {
 
 // --- Where the provider is told to send the browser ---
 
-/// Measured against Google's authorization endpoint on 2026-08-24: a
-/// loopback redirect is accepted at any port whether it is written as the
-/// IP literal or as a name, and a non-loopback host is refused. The
-/// literal is chosen because a name resolves through the host's own
-/// resolver, which is not this process's decision (RFC 8252 section 7.3).
+// Measured against Google's authorization endpoint on 2026-08-24: a
+// loopback redirect is accepted at any port whether it is written as the
+// IP literal or as a name, and a non-loopback host is refused. The
+// literal is chosen because a name resolves through the host's own
+// resolver, which is not this process's decision (RFC 8252 section 7.3).
 #[test]
 fn the_redirect_uri_names_the_loopback_address_and_not_a_resolvable_host() {
     let uri = callback_redirect_uri(8731);

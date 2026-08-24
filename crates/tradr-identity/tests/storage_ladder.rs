@@ -96,9 +96,9 @@ fn a_key_on_the_only_rung_selects_that_rung() {
     assert_eq!(chosen.level(), StorageLevel::File);
 }
 
-/// The whole reason DCR-031 exists. A device that fell back to a file on
-/// its first launch must find that key the day a Secret Service is
-/// running, or it mints a new identity and every peer forgets it.
+// The whole reason DCR-031 exists. A device that fell back to a file on
+// its first launch must find that key the day a Secret Service is
+// running, or it mints a new identity and every peer forgets it.
 #[test]
 fn a_key_on_the_lowest_rung_is_found_though_a_higher_rung_is_available() {
     let secret_service = Rung::empty(StorageLevel::SecretService);
@@ -114,9 +114,9 @@ fn a_key_on_the_lowest_rung_is_found_though_a_higher_rung_is_available() {
     assert_eq!(file.loads(), 1);
 }
 
-/// Separates selecting the rung that answered from selecting the first
-/// rung. Both pass every test where the key sits on the highest rung, and
-/// getting it wrong makes `backing()` name storage the key is not in.
+// Separates selecting the rung that answered from selecting the first
+// rung. Both pass every test where the key sits on the highest rung, and
+// getting it wrong makes `backing()` name storage the key is not in.
 #[test]
 fn the_rung_selected_is_the_rung_holding_the_key() {
     let secret_service = Rung::empty(StorageLevel::SecretService);
@@ -152,8 +152,8 @@ fn two_rungs_holding_keys_select_the_higher() {
     assert_eq!(chosen.level(), StorageLevel::SecretService);
 }
 
-/// A fresh device writes as high as it can reach. Selecting the last rung
-/// instead leaves a brand-new key in a file with a Secret Service running.
+// A fresh device writes as high as it can reach. Selecting the last rung
+// instead leaves a brand-new key in a file with a Secret Service running.
 #[test]
 fn an_empty_ladder_of_three_selects_the_highest_for_writing() {
     let secret_service = Rung::empty(StorageLevel::SecretService);
@@ -179,10 +179,10 @@ fn an_empty_ladder_of_three_reads_every_rung() {
     assert_eq!(file.loads(), 1);
 }
 
-/// An empty value is a stored value. A rung answering with zero bytes has
-/// answered, and reading that as an absence descends past a key that is
-/// there -- corrupt, but there, and generating over it is still identity
-/// loss.
+// An empty value is a stored value. A rung answering with zero bytes has
+// answered, and reading that as an absence descends past a key that is
+// there -- corrupt, but there, and generating over it is still identity
+// loss.
 #[test]
 fn a_zero_byte_value_is_a_key_and_not_an_absence() {
     let secret_service = Rung::holding(StorageLevel::SecretService, b"");
@@ -209,10 +209,10 @@ fn a_failing_highest_rung_is_an_error_and_not_a_descent() {
     );
 }
 
-/// The sharpest case, and the one a plausible implementation gets wrong
-/// in the name of availability: the key really is on the file rung, so
-/// descending would work. It is refused because the rung that failed
-/// might have held a different key, and nothing can tell from here.
+// The sharpest case, and the one a plausible implementation gets wrong
+// in the name of availability: the key really is on the file rung, so
+// descending would work. It is refused because the rung that failed
+// might have held a different key, and nothing can tell from here.
 #[test]
 fn a_failing_rung_is_an_error_even_when_a_lower_rung_holds_the_key() {
     let secret_service = Rung::failing(StorageLevel::SecretService);

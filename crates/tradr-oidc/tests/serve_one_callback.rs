@@ -15,8 +15,8 @@ fn bound_listener() -> TcpListener {
     TcpListener::bind("127.0.0.1:0").expect("binding a loopback listener on port 0 must succeed")
 }
 
-/// Connects to `port`, writes `request_line`, then reads the response to
-/// completion so the server's write finishes before this connection closes.
+// Connects to `port`, writes `request_line`, then reads the response to
+// completion so the server's write finishes before this connection closes.
 fn send_request_line(port: u16, request_line: &str) {
     let mut stream = TcpStream::connect(("127.0.0.1", port))
         .expect("connecting to the just-bound loopback listener must succeed");

@@ -4,7 +4,7 @@
 
 use tradr_core::ItemId;
 
-/// The alphabet docs/04 permits: lowercase ASCII letters, digits, `-` and `_`.
+// The alphabet docs/04 permits: lowercase ASCII letters, digits, `-` and `_`.
 fn valid_chars() -> Vec<char> {
     let mut chars: Vec<char> = ('a'..='z').collect();
     chars.extend('0'..='9');

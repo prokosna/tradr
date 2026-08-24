@@ -39,10 +39,10 @@ impl FakeStore {
         store
     }
 
-    /// Fails only on load, and holds a value. The dangerous mutation is
-    /// treating an unreadable store as an empty one: that generates a key
-    /// and writes it over whatever was there, which a store failing on
-    /// both operations would hide behind the second failure.
+    // Fails only on load, and holds a value. The dangerous mutation is
+    // treating an unreadable store as an empty one: that generates a key
+    // and writes it over whatever was there, which a store failing on
+    // both operations would hide behind the second failure.
     fn failing_to_load() -> Self {
         Self {
             fail_load: true,
@@ -128,9 +128,9 @@ fn a_second_open_returns_the_same_identity_and_writes_nothing() {
     assert_eq!(*store.stores.borrow(), before);
 }
 
-/// The seed differs between the two opens above on purpose. If the second
-/// open regenerated instead of loading, the identity would differ and
-/// nothing else in the suite would notice.
+// The seed differs between the two opens above on purpose. If the second
+// open regenerated instead of loading, the identity would differ and
+// nothing else in the suite would notice.
 #[test]
 fn a_different_rng_does_not_change_a_key_that_was_already_stored() {
     let store = FakeStore::empty(StorageLevel::SecretService);
@@ -192,9 +192,9 @@ fn a_store_that_cannot_be_read_is_an_error_and_never_overwritten() {
 
 // --- What backing() is allowed to say ---
 
-/// Linux has no secure element. Storing a key in a keyring makes it
-/// durable, not protected: the material comes back into this process to
-/// be used, which is the whole difference from StrongBox or a TPM.
+// Linux has no secure element. Storing a key in a keyring makes it
+// durable, not protected: the material comes back into this process to
+// be used, which is the whole difference from StrongBox or a TPM.
 #[test]
 fn no_linux_storage_level_ever_reports_hardware() {
     for level in [
@@ -223,8 +223,8 @@ fn reaching_the_secret_service_is_reported_as_the_platform_having_no_secure_elem
     );
 }
 
-/// Falling past the Secret Service is a different sentence in Settings
-/// from reaching it, and docs/05 requires a headless box to be told.
+// Falling past the Secret Service is a different sentence in Settings
+// from reaching it, and docs/05 requires a headless box to be told.
 #[test]
 fn falling_past_the_secret_service_is_reported_as_such() {
     for level in [StorageLevel::KernelKeyring, StorageLevel::File] {
@@ -275,10 +275,10 @@ fn signing_works_the_same_before_and_after_a_reopen() {
     );
 }
 
-/// The two scalars are written in a fixed order and read back in the same
-/// one. A device whose identity key came back as its agreement key would
-/// sign with the wrong key and agree with the wrong key, and every field
-/// of `PublicIdentity` would still be well formed.
+// The two scalars are written in a fixed order and read back in the same
+// one. A device whose identity key came back as its agreement key would
+// sign with the wrong key and agree with the wrong key, and every field
+// of `PublicIdentity` would still be well formed.
 #[test]
 fn the_two_keys_keep_their_roles_across_a_reopen() {
     let store = FakeStore::empty(StorageLevel::SecretService);

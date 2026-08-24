@@ -114,9 +114,9 @@ fn published_key(kid: &str) -> Jwk {
     }
 }
 
-/// A key published under a real `kid` whose modulus is not the signing
-/// key's, so a token selecting it fails on the signature rather than on
-/// an unknown id.
+// A key published under a real `kid` whose modulus is not the signing
+// key's, so a token selecting it fails on the signature rather than on
+// an unknown id.
 fn impostor_key(kid: &str) -> Jwk {
     let mut key = published_key(kid);
     key.modulus[8] ^= 0xFF;

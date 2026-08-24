@@ -141,8 +141,8 @@ pub fn peek_issuer(token: &str) -> Result<String, TokenError> {
     require_str(&payload, "iss")
 }
 
-/// Splits a token into its three raw (still base64url-encoded) segments.
-/// Rejects anything that is not exactly three dot-separated segments.
+// Splits a token into its three raw (still base64url-encoded) segments.
+// Rejects anything that is not exactly three dot-separated segments.
 fn split_segments(token: &str) -> Result<(&str, &str, &str), TokenError> {
     let parts: Vec<&str> = token.split('.').collect();
     match parts[..] {
@@ -153,9 +153,9 @@ fn split_segments(token: &str) -> Result<(&str, &str, &str), TokenError> {
     }
 }
 
-/// Decodes one JWT segment. Strict base64url without padding: JWT defines
-/// one spelling, and accepting the padded form would give a token two
-/// encodings.
+// Decodes one JWT segment. Strict base64url without padding: JWT defines
+// one spelling, and accepting the padded form would give a token two
+// encodings.
 fn decode_segment(segment: &str) -> Result<Vec<u8>, TokenError> {
     URL_SAFE_NO_PAD
         .decode(segment)
@@ -167,8 +167,8 @@ fn parse_json(bytes: Vec<u8>, which: &str) -> Result<Value, TokenError> {
         .map_err(|e| TokenError::Malformed(format!("{which} is not valid JSON: {e}")))
 }
 
-/// Compares `alg` against the profile's accepted set. The set is the only
-/// source of truth; `alg` is never used to choose how verification proceeds.
+// Compares `alg` against the profile's accepted set. The set is the only
+// source of truth; `alg` is never used to choose how verification proceeds.
 fn permitted_algorithm(
     profile: &ProviderProfile,
     alg: &str,
@@ -207,9 +207,9 @@ fn verify_rs256(key: &Jwk, signing_input: &[u8], signature: &[u8]) -> Result<(),
         .map_err(|_| TokenError::SignatureInvalid)
 }
 
-/// Reads the five claims docs/05 requires, rejecting a missing or
-/// wrong-shaped one rather than defaulting it: a defaulted claim is a claim
-/// an attacker did not have to supply.
+// Reads the five claims docs/05 requires, rejecting a missing or
+// wrong-shaped one rather than defaulting it: a defaulted claim is a claim
+// an attacker did not have to supply.
 fn parse_claims(payload: &Value) -> Result<VerifiedClaims, TokenError> {
     Ok(VerifiedClaims {
         iss: require_str(payload, "iss")?,
@@ -220,8 +220,8 @@ fn parse_claims(payload: &Value) -> Result<VerifiedClaims, TokenError> {
     })
 }
 
-/// Reads a string claim. `aud` given as a JSON array also fails here, since
-/// `as_str` returns `None` for any non-string value (DCR-021).
+// Reads a string claim. `aud` given as a JSON array also fails here, since
+// `as_str` returns `None` for any non-string value (DCR-021).
 fn require_str(payload: &Value, name: &str) -> Result<String, TokenError> {
     payload
         .get(name)
