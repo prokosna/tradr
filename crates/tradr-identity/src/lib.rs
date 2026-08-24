@@ -7,6 +7,7 @@ mod id_token;
 mod jwks;
 mod jwks_cache;
 mod software_key_store;
+mod storage_ladder;
 mod verify;
 
 pub use attestation::{
@@ -18,4 +19,5 @@ pub use id_token::{Jwk, SignatureAlgorithm, TokenError, peek_issuer, verify_id_t
 pub use jwks::{JwksError, parse_jwks};
 pub use jwks_cache::JwksCache;
 pub use software_key_store::SoftwareKeyStore;
+pub use storage_ladder::{LadderError, select_rung};
 pub use verify::{Verification, VerifyError, verify_attestation};
