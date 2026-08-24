@@ -95,8 +95,10 @@ The client IDs are public values and live in the repository. The desktop client 
 
 | Attempt | Result |
 |---|---|
-| Exchange with **no** `client_secret` | `invalid_request` |
+| Exchange with **no** `client_secret` | `invalid_request` -- *client_secret is missing.* |
 | Exchange **with** it, reusing the same code | a valid `id_token` |
+
+The same request shape, with `code_verifier` present and a code Google never issued, gives that description verbatim -- so the name of the cause comes from Google rather than from inference.
 
 **The second row is what makes the first conclusive, and it did more than it was designed to.** It was included expecting failure -- an authorization code is single use -- so that a refusal could not be mistaken for a spent code. It succeeded instead, which means **the secretless attempt never consumed the code**: Google rejected it before reaching the grant at all. So the refusal is about the secret and nothing else.
 
