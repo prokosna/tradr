@@ -91,17 +91,21 @@ Adding a platform means adding its client ID to that set, which older builds wil
 
 The client IDs are public values and live in the repository. The desktop client also carries a secret, which Google's token endpoint requires for Desktop-type clients even under PKCE. Google states that an installed application's secret is not treated as confidential, and it is extractable from any shipped binary regardless of how it is delivered. **PKCE is what actually protects the flow.** Android-type clients have no secret at all.
 
-**That requirement was measured rather than assumed**, by posting a deliberately invalid authorization code to `https://oauth2.googleapis.com/token` three times:
+**Whether that requirement is real is still open, and the probe that appeared to settle it did not.** Posting a *fabricated* authorization code to `https://oauth2.googleapis.com/token` gives:
 
 | Request | Response |
 |---|---|
-| Desktop client id, **with** the secret | `invalid_grant` -- *Malformed auth code* |
-| Desktop client id, **without** it | `invalid_request` -- *client_secret is missing* |
+| Desktop client id, with the secret | `invalid_grant` -- *Malformed auth code* |
+| Desktop client id, without it | `invalid_request` -- *client_secret is missing* |
+| Desktop client id, secret sent empty | `invalid_request` -- *client_secret is missing* |
+| Desktop client id, wrong secret | `invalid_client` -- *The provided client secret is invalid* |
 | Android client id, without it | `invalid_grant` -- *Malformed auth code* |
 
-The first two differ in *how far the request got*: with the secret, Google authenticated the client and went on to reject the code; without it, the request died before the code was read. So the parameter's presence is required.
+**No authorization request preceded any of these, so no PKCE state was ever bound to that code.** `client_secret is missing` arrives as `invalid_request`, which is parameter validation reached before the code is looked up at all -- so what these rows measure is the endpoint's handling of a code it has never seen, not its handling of a `code_verifier` that matches a `code_challenge` it issued. RFC 8252 section 8.5 and RFC 7636 make a native app a public client whose PKCE exchange needs no client authentication, and Google's own guide for mobile and desktop apps describes exactly that flow. **Nothing above contradicts it, and nothing above confirms it either.**
 
-**The third row is what shows the value is not protecting anything.** The Android client authenticates with no secret at all, and reaches exactly the same point. Google requires the Desktop client to send the parameter; it does not require it to be unknown to anyone. That is why committing it costs nothing, why `client_secret` is an `Option` rather than a `String`, and why rotating it is a release rather than an incident.
+What the rows do establish: an empty secret is not a secret, a wrong one is distinguished from an absent one, and the Android client -- registered as `installed`, like the desktop one -- authenticates with none. `token_endpoint_auth_methods_supported` in Google's discovery document lists only `client_secret_post` and `client_secret_basic`, which describes how a client authenticates *when it does*, and says nothing about a public client that does not.
+
+**The question is decided by running the flow once**: obtain a real code under `code_challenge_method=S256`, then attempt the exchange with no `client_secret` at all. If it succeeds, the value below is unnecessary and comes out of this repository. Until that has been run, it stays, and it stays on the understanding that it is protecting nothing.
 
 **The redirect uri is the loopback IP literal, and that too was measured.** Three authorization requests on 2026-08-24, differing only in `redirect_uri`:
 
