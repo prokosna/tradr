@@ -272,7 +272,7 @@ Private keys never leave the device after generation. There is no export functio
 | Android | Android Keystore, attempting `setIsStrongBoxBacked(true)`, falling back to the TEE | Yes — StrongBox or TEE |
 | macOS | Keychain, with Secure Enclave key generation where available | Yes — the Enclave handles P-256, which is what Device Keys use |
 | Windows | CNG with DPAPI; the Platform Crypto Provider where a TPM exists | Yes, with a TPM |
-| Linux | Secret Service via `libsecret`, then the kernel keyring, then a `0600` file | No — the last resort is software only |
+| Linux | Secret Service over D-Bus, then the kernel keyring, then a `0600` file | No — the last resort is software only |
 
 **Falling short of hardware backing on Linux is stated plainly.** Settings displays the storage method in use and says so explicitly when it has fallen back to a file. Headless environments without a running Secret Service get a warning.
 

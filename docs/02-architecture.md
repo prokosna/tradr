@@ -123,11 +123,12 @@ tradr/
 \-- crates/                     # Rust workspace, Cargo
     +-- tradr-core/             #   Transfer/Item/Chunk, resumption, integrity
     +-- tradr-proto/            #   The protobuf codec, and the only crate naming prost
-    +-- tradr-identity/         #   Attestation issue and verify, Noise, key storage
+    +-- tradr-identity/         #   Attestation issue and verify, Noise, key policy
     +-- tradr-transport/        #   Five Transport implementations and path selection
     +-- tradr-discovery/        #   mDNS, BLE advertise and scan, static pins, Brokr presence
     +-- tradr-vfs/              #   Share Root boundary enforcement, posix and saf backends
     +-- tradr-oidc/             #   JWKS fetch, OAuth loopback and token exchange. Speaks HTTP
+    +-- tradr-secrets/          #   Where a Device Key is actually held. Speaks D-Bus and the keyring
     \-- tauri-plugin-tradr/     #   Exposes the above as Tauri commands; holds the Kotlin side
 ```
 
@@ -136,6 +137,14 @@ tradr/
 `crates/tradr-oidc/` is the only crate that speaks HTTP and the only one naming an HTTP client. It holds the JWKS fetch, and from WI-M0-008 the OAuth loopback and token exchange as well.
 
 **Where it lives was forced rather than chosen.** [DCR-022](../STATE.md) put the JWKS cache's policy inside `tradr-identity` and the fetching outside it, and `ci/layer-deps.sh` lets an implementation crate depend only on `tradr-core` and `tradr-proto` -- so an HTTP client reachable from `tradr-identity` would have to live *inside* `tradr-identity`, the crate holding Attestation verification. `tauri-plugin-tradr` was the other candidate and is worse: Change Drill D9 swaps that crate out the day Tauri goes, and fetching a JWKS has nothing to do with a shell.
+
+### Where a Device Key is actually held
+
+`crates/tradr-secrets/` implements `SecretStore` and nothing else: the Secret Service over D-Bus, the kernel keyring, and a `0600` file, the three rungs [docs/05](05-security.md#key-storage) lists for Linux. It is the only crate naming a D-Bus client, checked the way `prost`, `tauri` and `reqwest` are.
+
+**The reason it is not in `tradr-identity` is the reason `tradr-oidc` is not either**, one paragraph above. A Secret Service client brings an executor and roughly ninety-six transitive crates, and `ci/layer-deps.sh` permits an implementation crate only `tradr-core` and `tradr-proto`, so a client reachable from `tradr-identity` would have to live *inside* the crate that verifies Attestations. The split falls where the earlier one did: **`tradr-identity` keeps the policy and `tradr-secrets` keeps the I/O.** `select_rung` and `SoftwareKeyStore` are pure and stay where they are; the composition root builds the ladder and hands it in, exactly as it hands in a fetched JWKS.
+
+**Only Linux has a ladder at all.** On Android, macOS and Windows the key is generated inside a secure element and never exists as bytes to store, so there is nothing for a `SecretStore` to hold. This crate is the answer to the one platform with no such element, which is why a cross-platform credential-store dependency would buy nothing the other three could use.
 
 **No Layer 1 trait wraps it.** Nothing in Layer 1 fetches anything: DCR-022 leaves the single `await` in the composition root, so a `JwksSource` trait would be a dispatch point with one implementation and no caller that needs to swap it. What such a trait would buy -- confinement, so that changing the client touches one place -- the crate boundary already buys, and buys checkably: `grep -rl reqwest crates/` must return `crates/tradr-oidc/` and nothing else. `tradr-oidc` therefore exposes plain `async fn`s, and [ADR-0013](adr/0013-layer-1-async-traits-return-boxed-futures.md)'s `BoxFuture` does not reach it.
 
