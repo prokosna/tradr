@@ -80,7 +80,12 @@ async fn a_pkce_exchange_without_the_client_secret() {
     )
     .expect("a well-formed authorization url");
 
+    // An authorization code is single use and short lived, so everything
+    // needed to retry the exchange by hand is printed before the browser
+    // is involved. A verifier is ephemeral and this file is a diagnostic.
     println!("\n=== open this, sign in, and come back ===\n{url}\n");
+    println!("redirect_uri  {redirect}");
+    println!("code_verifier {}\n", pkce.verifier());
 
     let code = serve_one_callback(&listener, state.verifier()).expect("a callback carrying a code");
     println!("=== callback received ===");
