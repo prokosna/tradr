@@ -11,8 +11,8 @@ phase: implementing
 current_milestone: M0
 branch: m0-skeleton
 implementation_started: true
-work_items_landed: 40
-last_commit: 62f9dd8
+work_items_landed: 41
+last_commit: 43b7464
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -30,7 +30,7 @@ repo_initialized: true (local only, no remote yet)
 
 ## Next three actions
 
-1. **WI-M0-007b**, persisting keys through the OS key store: Linux Secret Service, Android Keystore. This is where `backing()` stops being a constant, and it is the one Critical Module left in M0 that nothing blocks. A Supervisor writes its tests first
+1. **WI-M0-007c**, the three Linux backends behind `SecretStore`. The policy is done and hermetic; this is the I/O, and it is where DF-9 bites -- a D-Bus round trip through a synchronous trait blocks whatever thread calls it
 2. **WI-M0-009**, Google OAuth on Android, Custom Tabs with AppAuth, together with WI-M0-004a. The desktop flow is done and was run end to end on 2026-08-24: a real `id_token` was obtained, its signature verified against Google's published JWKS through `fetch_jwks`, `parse_jwks` and `verify_id_token`, and a one-character tamper of the same token was rejected
 3. **Wire the desktop flow into the app.** Nothing in `apps/` or `tauri-plugin-tradr` calls any of it yet: the pieces are a library that no composition root has ever invoked
 
@@ -40,6 +40,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M0-007b | PASS | 0 | A device key that survives a restart, and where `CLAUDE.md` section 6's third failure becomes reachable: **a device that cannot read its stored key and quietly generates a new one has lost its identity and every link to it**, presenting to its own peers as a device nobody has seen. Six mutations against the delivered code, all caught. **Two more were caught against the reference and both were faults in my own fixtures.** A store failing on *both* load and store let the dangerous mutation -- treating an unreadable store as an empty one -- pass for the wrong reason, the second failure hiding the first; the fixture now fails only on load, holds a value, and the test asserts that value survived. And a fixed-byte `Rng` gave a device the same scalar for both keys, so swapping their stored order was a no-op; the fixture now counts, and **the test asserts the two keys differ before relying on the difference**, since a fixture that stopped varying would silently stop testing. `backing()` reaches `Hardware` from no level: a keyring makes a key durable, not protected |
 | WI-M0-013d | PASS | 0 | Closing the hole the previous Work Item's Implementer found. **The rule it makes structural is a decision I owed**: the app does not gain a `tradr-identity` dependency, because `tauri-plugin-tradr` is the composition root and the configuration the app bakes in reaches it as plain strings. Six breakages checked here rather than read -- `prost`, `reqwest`, a `tradr-identity` path dependency and a `tradr-core` one all now fail naming the file and the rule; a `prost` in `crates/` still fails as before; and with `apps/` renamed away the script exits 0 instead of erroring. **The `tauri` exemption had to be widened rather than narrowed**, since the app legitimately names Tauri and Change Drill D9's own `grep -ril tauri crates/` is scoped to `crates/` deliberately |
 | WI-M0-008g | PASS | 0 | Configuration reaching the binary instead of the process. The judgement in the Work Order was that **an unset variable must not fail the build**: a build that refuses to compile without a registered Google project would stop anyone from running `cargo test` on a fresh clone, so the value is emitted empty and `oauth_client` reports it at startup, where the message already exists. **The Implementer stopped where it was told to** rather than adding a dependency the Work Order said I would decide about, and it went further: it noticed that `ci/layer-deps.sh` scans `crates/` only, so nothing governs the app crate at all. I confirmed that by breaking it rather than by reading -- `prost` and a direct `tradr-vfs` path dependency added to `apps/tradr/src-tauri/Cargo.toml` leave the gate at exit 0. WI-M0-013d closes it. Its Android demonstration was honest about its limit too: the NDK toolchain is absent, so a real cross-build dies in `blake3`'s build script, and it compiled `build.rs` standalone against both `CARGO_CFG_TARGET_OS` values instead of claiming a build it had not run |
 | WI-M0-008f | PASS | 0 | The user's design, one string for a deployment instead of three values per device. **It removed a failure I had called undetectable**: a list omitting a platform now stops that platform's build at startup, because a device knows what it is even though it cannot know what else the deployment runs. It also improved on the compiled-in scheme it replaces -- an unrecognised label contributes its ID to the accepted set and nothing else, so adding iOS becomes a restart for existing devices where before docs/05 promised outright rejection until they were rebuilt. **My addition to the proposal was to keep the secret out of the list**, since pairing each ID with its secret would put the Desktop secret in every Android device's environment for no use |
@@ -385,7 +386,8 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-002b | **Add `offset_in_chunk` to `ChunkData`**, following DCR-015 as WI-M0-002a followed DCR-007. The second Work Item permitted to edit `proto/` | **done** — PASS, no REVISE | |
 | WI-M0-006g | Layer 1 trait: `Transport`, plus `Candidate` and the listening side. **Completes WI-M0-006** | **done** — PASS after one REVISE | |
 | WI-M0-007a | **`SoftwareKeyStore`**: Device Key generation and the four `KeyStore` operations, P-256. Critical Module, 21 Supervisor-written tests | **done** — PASS after one REVISE | Yes |
-| WI-M0-007b | Persisting keys through the OS key store: Linux Secret Service, Android Keystore. Split from WI-M0-007a because it needs real platform integration and cannot be unit tested here, and because `backing()` only becomes interesting once a secure element is in play | todo | Yes |
+| WI-M0-007b | **The persistence policy**: load or generate, the stored form, and a `backing()` that reports the level actually reached. No keyring, no D-Bus, no filesystem | **done** -- PASS, no REVISE | Yes |
+| WI-M0-007c | **The three Linux backends** behind `SecretStore`: Secret Service, then the kernel keyring, then a `0600` file. Android Keystore goes with it or after. Note DF-9: a D-Bus round trip through a synchronous trait blocks its caller
 | WI-M0-008a | **Google's provider value and the runtime override** (DCR-027). The only place in the codebase that names a provider | **done** -- PASS, no REVISE | Yes |
 | WI-M0-008b | PKCE: the verifier, the S256 challenge, and the authorization uri. Pure, and it carries the Attestation nonce into the flow | **done** -- PASS after one REVISE | Yes |
 | WI-M0-008c | The loopback listener and the token exchange. Carries the real desktop client secret, closing DF-15 | **done** -- PASS, no REVISE | Yes |

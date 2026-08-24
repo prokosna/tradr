@@ -202,6 +202,64 @@ pub enum Backing {
     Software(SoftwareReason),
 }
 
+/// Where a `SecretStore` actually reached, as opposed to what a caller
+/// asked for (docs/05-security.md, "Key storage"). `backing()` must report
+/// this, since a Secret Service that is merely unreachable and a
+/// `0600` file are different sentences to show a user, even though both
+/// are software.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageLevel {
+    /// The platform's Secret Service, reached over D-Bus.
+    SecretService,
+    /// The kernel keyring, reached because no Secret Service session was
+    /// available.
+    KernelKeyring,
+    /// A `0600` file, reached because neither of the above was available.
+    File,
+}
+
+/// An error from a `SecretStore` operation.
+#[derive(Debug)]
+pub enum SecretStoreError {
+    /// The underlying storage backend failed; its own error is preserved.
+    Backend(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl fmt::Display for SecretStoreError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Backend(e) => write!(f, "secret store backend error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for SecretStoreError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Backend(e) => Some(e.as_ref()),
+        }
+    }
+}
+
+/// Durable storage for one secret at a time, keyed by an opaque slot name.
+/// Declared here, not in Layer 3, so the load-or-generate policy around a
+/// `KeyStore` can be tested with no keyring, no D-Bus and no filesystem
+/// (WI-M0-007b); the real Linux backends implementing it are WI-M0-007c.
+pub trait SecretStore {
+    /// Writes `secret` under `slot`, replacing any value already there.
+    fn store(&self, slot: &str, secret: &[u8]) -> Result<(), SecretStoreError>;
+
+    /// Reads the value under `slot`, or `None` if the slot is empty. A
+    /// backend that cannot be reached returns `Err`, never `Ok(None)`: the
+    /// two must not be confused by a caller deciding whether to generate a
+    /// replacement.
+    fn load(&self, slot: &str) -> Result<Option<Vec<u8>>, SecretStoreError>;
+
+    /// The storage level this instance actually reached, for `backing()`
+    /// to report.
+    fn level(&self) -> StorageLevel;
+}
+
 /// An error from a `KeyStore` operation.
 #[derive(Debug)]
 pub enum KeyStoreError {
