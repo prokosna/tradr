@@ -32,18 +32,26 @@ impl Rng for UrandomRng {
 /// (DCR-028). Nothing ships with these values; a deployer registers their
 /// own Google project and exports them.
 fn desktop_client() -> Option<(String, String)> {
-    let id = std::env::var("TRADR_OAUTH_CLIENT_ID")
+    let ids = std::env::var("TRADR_OAUTH_CLIENT_IDS")
         .ok()
         .filter(|v| !v.is_empty());
     let secret = std::env::var("TRADR_OAUTH_CLIENT_SECRET")
         .ok()
         .filter(|v| !v.is_empty());
-    match (id, secret) {
+    // The desktop entry is picked out here rather than through
+    // `tradr_identity::oauth_client`, which this crate may not depend on.
+    let desktop = ids.as_ref().and_then(|list| {
+        list.split(',')
+            .filter_map(|entry| entry.split_once(':'))
+            .find(|(label, _)| label.trim().eq_ignore_ascii_case("desktop"))
+            .map(|(_, id)| id.trim().to_string())
+    });
+    match (desktop, secret) {
         (Some(id), Some(secret)) => Some((id, secret)),
         _ => {
             println!(
-                "set TRADR_OAUTH_CLIENT_ID and TRADR_OAUTH_CLIENT_SECRET from your own \
-                 Google Cloud project before running this"
+                "set TRADR_OAUTH_CLIENT_IDS to desktop:<id>[,android:<id>] and \
+                 TRADR_OAUTH_CLIENT_SECRET, both from your own Google Cloud project"
             );
             None
         }

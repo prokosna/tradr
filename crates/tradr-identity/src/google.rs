@@ -35,31 +35,50 @@ pub struct OAuthClient {
 /// Why the runtime configuration could not be turned into an `OAuthClient`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderError {
-    /// `TRADR_OAUTH_CLIENT_ID` was not set. Nothing ships with one.
-    MissingClientId,
+    /// `TRADR_OAUTH_CLIENT_IDS` was not set, or was empty or whitespace
+    /// only. Nothing ships with one.
+    MissingClientIds,
+    /// An entry in `TRADR_OAUTH_CLIENT_IDS` had no `label:id` shape, or its
+    /// id was empty after trimming. Carries the offending entry.
+    MalformedClientIds(String),
+    /// The same platform label appeared twice in `TRADR_OAUTH_CLIENT_IDS`.
+    /// Carries the label, lower-cased.
+    DuplicatePlatform(String),
+    /// No entry in `TRADR_OAUTH_CLIENT_IDS` named this build's own
+    /// platform, so it has no client to authenticate as.
+    PlatformNotConfigured,
     /// A Desktop client with no secret. Google's token endpoint requires it.
     MissingClientSecret,
     /// An Android client with a secret. Google issues none for that client
     /// type, so a value here means two clients' settings were pasted
     /// together.
     UnexpectedClientSecret,
-    /// This device's own client id is absent from its audience set, which
-    /// means every peer, including its own other devices, rejects it.
-    ClientIdNotInAudiences,
 }
 
 impl fmt::Display for ProviderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingClientId => write!(f, "TRADR_OAUTH_CLIENT_ID is not set"),
+            Self::MissingClientIds => write!(f, "TRADR_OAUTH_CLIENT_IDS is not set"),
+            Self::MalformedClientIds(entry) => {
+                write!(
+                    f,
+                    "'{entry}' is not a label:id entry in TRADR_OAUTH_CLIENT_IDS"
+                )
+            }
+            Self::DuplicatePlatform(label) => {
+                write!(f, "'{label}' appears twice in TRADR_OAUTH_CLIENT_IDS")
+            }
+            Self::PlatformNotConfigured => {
+                write!(
+                    f,
+                    "TRADR_OAUTH_CLIENT_IDS names no client for this platform"
+                )
+            }
             Self::MissingClientSecret => {
                 write!(f, "a desktop client requires TRADR_OAUTH_CLIENT_SECRET")
             }
             Self::UnexpectedClientSecret => {
                 write!(f, "an android client must not have a client secret")
-            }
-            Self::ClientIdNotInAudiences => {
-                write!(f, "the client id must appear in TRADR_OAUTH_AUDIENCES")
             }
         }
     }
@@ -67,21 +86,82 @@ impl fmt::Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
-/// Builds this device's `OAuthClient` from runtime configuration, treating
-/// an empty string as unset. `audiences` is a comma-separated list; each
-/// entry is trimmed, empty entries are dropped, and duplicates are dropped
-/// while keeping first-seen order. An absent or empty list defaults to
-/// `[client_id]` (docs/05, "OAuth client configuration").
+/// This build's platform, as the label matched case-insensitively against
+/// `TRADR_OAUTH_CLIENT_IDS` entries.
+fn platform_label(platform: Platform) -> &'static str {
+    match platform {
+        Platform::Desktop => "desktop",
+        Platform::Android => "android",
+    }
+}
+
+/// One `label:id` entry, already trimmed on both sides.
+struct Entry {
+    label: String,
+    id: String,
+}
+
+fn parse_entry(raw: &str) -> Result<Entry, ProviderError> {
+    let (label, id) = raw
+        .split_once(':')
+        .ok_or_else(|| ProviderError::MalformedClientIds(raw.to_string()))?;
+    let label = label.trim().to_lowercase();
+    let id = id.trim();
+    if id.is_empty() {
+        return Err(ProviderError::MalformedClientIds(raw.to_string()));
+    }
+    Ok(Entry {
+        label,
+        id: id.to_string(),
+    })
+}
+
+/// Builds this device's `OAuthClient` from runtime configuration
+/// (docs/05, "OAuth client configuration"). `client_ids` is the one string
+/// shared by every device in the deployment, `label:id` pairs separated by
+/// commas; `client_secret` is this platform's own, present only for
+/// Desktop.
 pub fn oauth_client(
     platform: Platform,
-    client_id: Option<&str>,
+    client_ids: Option<&str>,
     client_secret: Option<&str>,
-    audiences: Option<&str>,
 ) -> Result<OAuthClient, ProviderError> {
-    let client_id = client_id
+    let client_ids = client_ids
+        .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or(ProviderError::MissingClientId)?
-        .to_string();
+        .ok_or(ProviderError::MissingClientIds)?;
+
+    let mut entries: Vec<Entry> = Vec::new();
+    for raw in client_ids.split(',') {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            continue;
+        }
+        entries.push(parse_entry(raw)?);
+    }
+    if entries.is_empty() {
+        return Err(ProviderError::MissingClientIds);
+    }
+
+    let mut seen_labels: Vec<String> = Vec::new();
+    let mut audiences: Vec<String> = Vec::new();
+    for entry in &entries {
+        if seen_labels.contains(&entry.label) {
+            return Err(ProviderError::DuplicatePlatform(entry.label.clone()));
+        }
+        seen_labels.push(entry.label.clone());
+        if !audiences.contains(&entry.id) {
+            audiences.push(entry.id.clone());
+        }
+    }
+
+    let label = platform_label(platform);
+    let client_id = entries
+        .iter()
+        .find(|entry| entry.label == label)
+        .map(|entry| entry.id.clone())
+        .ok_or(ProviderError::PlatformNotConfigured)?;
+
     let client_secret = client_secret
         .filter(|value| !value.is_empty())
         .map(str::to_string);
@@ -94,23 +174,6 @@ pub fn oauth_client(
             return Err(ProviderError::UnexpectedClientSecret);
         }
         _ => {}
-    }
-
-    let mut parsed: Vec<String> = Vec::new();
-    for entry in audiences.unwrap_or("").split(',') {
-        let entry = entry.trim();
-        if !entry.is_empty() && !parsed.iter().any(|existing| existing == entry) {
-            parsed.push(entry.to_string());
-        }
-    }
-    let audiences = if parsed.is_empty() {
-        vec![client_id.clone()]
-    } else {
-        parsed
-    };
-
-    if !audiences.contains(&client_id) {
-        return Err(ProviderError::ClientIdNotInAudiences);
     }
 
     Ok(OAuthClient {
