@@ -5,6 +5,14 @@
 # implementation crate depends internally on anything but tradr-core and
 # tradr-proto (tauri-plugin-tradr, the composition root, is exempt from
 # that last rule).
+#
+# Scans every Cargo.toml under both crates/ and apps/. The app manifests
+# under apps/ (e.g. apps/tradr/src-tauri) get the same prost/reqwest
+# confinement as crates/, are exempted from the tauri confinement (an app
+# is allowed to name tauri), and are held to a stricter internal-dependency
+# rule than crates/: tauri-plugin-tradr is their only permitted path
+# dependency, with no composition-root exemption, since the app reaches
+# every implementation crate through that plugin rather than directly.
 set -u
 
 CHECK_NAME=layer-deps
@@ -50,9 +58,13 @@ is_allowed() {
 TMP_HITS=$(mktemp) || exit 1
 trap 'rm -f "$TMP_HITS"' EXIT
 
-manifests=$(find crates -maxdepth 2 -name 'Cargo.toml' \
+crate_manifests=$(find crates -maxdepth 2 -name 'Cargo.toml' \
 	-not -path '*/target/*' \
 	-not -path '*/.git/*' 2> /dev/null)
+app_manifests=$(find apps -maxdepth 3 -name 'Cargo.toml' \
+	-not -path '*/target/*' \
+	-not -path '*/.git/*' 2> /dev/null)
+manifests=$(printf '%s\n%s\n' "$crate_manifests" "$app_manifests")
 
 core_manifest="crates/tradr-core/Cargo.toml"
 
@@ -88,14 +100,19 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 			done
 	fi
 
-	# Check 3: tauri confinement (Change Drill D9)
-	if [ "$m" != "crates/tauri-plugin-tradr/Cargo.toml" ]; then
-		awk '/^[ \t]*"?tauri(-[A-Za-z0-9_]+)?"?[ \t]*=/ { print FNR }' "$m" \
-			| while IFS= read -r ln; do
-				[ -n "$ln" ] || continue
-				echo "$m:$ln: only tauri-plugin-tradr may name tauri (Change Drill D9)" >> "$TMP_HITS"
-			done
-	fi
+	# Check 3: tauri confinement (Change Drill D9). crates/tauri-plugin-tradr
+	# is the composition root; every manifest under apps/ is the Tauri app
+	# itself. Both are exempt.
+	case "$m" in
+		crates/tauri-plugin-tradr/Cargo.toml | apps/*) ;;
+		*)
+			awk '/^[ \t]*"?tauri(-[A-Za-z0-9_]+)?"?[ \t]*=/ { print FNR }' "$m" \
+				| while IFS= read -r ln; do
+					[ -n "$ln" ] || continue
+					echo "$m:$ln: only tauri-plugin-tradr may name tauri (Change Drill D9)" >> "$TMP_HITS"
+				done
+			;;
+	esac
 
 	# Check 3b: reqwest confinement (DCR-024, Critical Module tradr-oidc)
 	if [ "$m" != "crates/tradr-oidc/Cargo.toml" ]; then
@@ -108,9 +125,25 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 
 	# Check 4: an implementation crate may depend internally only on
 	# tradr-core and tradr-proto; tauri-plugin-tradr, the composition
-	# root, is exempt and may wire up every implementation.
+	# root, is exempt and may wire up every implementation. A manifest
+	# under apps/ is not the composition root, only its consumer: its
+	# sole permitted internal dependency is tauri-plugin-tradr itself,
+	# with no exemption.
 	if [ "$m" != "crates/tauri-plugin-tradr/Cargo.toml" ]; then
-		awk '
+		case "$m" in
+			apps/*)
+				allowed_keys="tauri-plugin-tradr"
+				message="an app crate may depend internally only on tauri-plugin-tradr"
+				;;
+			*)
+				allowed_keys="tradr-core tradr-proto"
+				message="an implementation crate may depend internally only on tradr-core and tradr-proto"
+				;;
+		esac
+		awk -v allowed="$allowed_keys" '
+		BEGIN {
+			n = split(allowed, a, " ")
+		}
 		/[Pp]ath[ \t]*=/ {
 			line = $0
 			eq = index(line, "=")
@@ -118,13 +151,17 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 			gsub(/^[ \t]*/, "", key)
 			gsub(/[ \t]*$/, "", key)
 			gsub(/"/, "", key)
-			if (key != "tradr-core" && key != "tradr-proto") {
+			ok = 0
+			for (i = 1; i <= n; i++) {
+				if (key == a[i]) ok = 1
+			}
+			if (!ok) {
 				print FNR ":" key
 			}
 		}
 		' "$m" | while IFS=: read -r ln key; do
 			[ -n "$ln" ] || continue
-			echo "$m:$ln: an implementation crate may depend internally only on tradr-core and tradr-proto (found $key)" >> "$TMP_HITS"
+			echo "$m:$ln: $message (found $key)" >> "$TMP_HITS"
 		done
 	fi
 done
