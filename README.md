@@ -44,6 +44,40 @@ Decisions are recorded in [docs/adr/](docs/adr/).
 
 Implementation is done by a cheap model (the Implementer) and reviewed by an expensive one (the Supervisor). Progress lives in `STATE.md` so that an agent with no context can take over as Supervisor at any moment — see [ADR-0009](docs/adr/0009-supervised-implementation-loop.md).
 
+## Setting it up
+
+**Tradr ships with no OAuth credentials.** Every deployment registers its own Google Cloud project, which is what makes each deployment a self-contained trust domain. See [docs/05](docs/05-security.md#oauth-client-configuration) for why.
+
+Create a project, then an OAuth client per platform you intend to build — one **Desktop app**, one **Android**. Google issues a secret for the Desktop client and none for the Android one; **that is expected, not a mistake in your setup.** A Desktop client's secret is required by Google's token endpoint even under PKCE, which was measured rather than assumed and is written up in docs/05.
+
+Both values are baked in at build time, from the environment:
+
+```
+TRADR_OAUTH_CLIENT_IDS=desktop:<id>,android:<id>
+TRADR_OAUTH_CLIENT_SECRET=<the Desktop client's secret>
+```
+
+Put them in a gitignored `.tradr-deployment.env` at the repository root and every build picks them up; in CI, set them per job from your repository secrets and no file is involved. **An Android build never receives the secret**, because nothing on Android uses it.
+
+Adding a platform later means adding one entry to `TRADR_OAUTH_CLIENT_IDS`. Devices that predate it accept the new platform after a rebuild with the updated value.
+
+## Building
+
+```
+cargo tauri build            # this host's desktop
+cargo tauri android build    # Android
+```
+
+**The asymmetry is deliberate and it is worth understanding before it looks like an oversight.**
+
+`cargo tauri build` takes no platform argument because there is nothing to choose: a desktop build needs the host it is built for. Linux bundles link against the system WebKitGTK, macOS bundles need macOS SDKs and signing, and Windows bundles want MSVC. Tauri can cross-compile a Windows bundle from Linux or macOS through NSIS, and its own documentation calls that a last resort. **So `cargo tauri build` means "the desktop this machine is", and that is the only desktop this machine builds.**
+
+`cargo tauri android build` is a separate command because Android is the one target that is *not* bound to the host. Any of the three desktop OSes can build it, given the NDK.
+
+Which is to say: **the two commands differ because the two situations differ.** A wrapper taking `linux|macos|windows|android` was considered and rejected — it would have presented four equal choices where three of them fail on any given machine, hiding the constraint instead of naming it.
+
+Building all four therefore means four machines, or a CI matrix with one runner per desktop OS plus an Android job on any of them.
+
 ## Stack
 
 - **App shell**: Tauri 2, targeting Linux, Windows, macOS, and Android from one project
