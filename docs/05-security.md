@@ -102,7 +102,19 @@ The same request shape, with `code_verifier` present and a code Google never iss
 
 **The second row is what makes the first conclusive, and it did more than it was designed to.** It was included expecting failure -- an authorization code is single use -- so that a refusal could not be mistaken for a spent code. It succeeded instead, which means **the secretless attempt never consumed the code**: Google rejected it before reaching the grant at all. So the refusal is about the secret and nothing else.
 
-RFC 8252 section 8.5 and RFC 7636 make a native app a public client whose PKCE exchange needs no client authentication, and RFC 8252 also permits an authorization server to issue credentials to native apps. Google's Desktop client type does, and requires them. **PKCE is still what protects the flow** -- the Android client, registered `installed` like this one, authenticates with no secret at all and reaches the same point -- so the value below guards nothing, and committing it costs nothing.
+RFC 8252 section 8.5 and RFC 7636 make a native app a public client whose PKCE exchange needs no client authentication, and RFC 8252 also permits an authorization server to issue credentials to native apps. Google's Desktop client type does, and requires them.
+
+**The value is checked, not merely required to be present.** Three states, three answers:
+
+| `client_secret` sent | Response |
+|---|---|
+| omitted | `invalid_request` -- *client_secret is missing.* |
+| any wrong value, including the real one with one character changed | `invalid_client` -- *The provided client secret is invalid.* |
+| the real value | `invalid_grant` -- *Malformed auth code*, so client authentication passed |
+
+**So it is not true that this value guards nothing.** What it gates is the exchange step: a third party holding only the client id can raise a consent screen bearing this application's name, because the authorization request needs no secret, but cannot turn the resulting code into tokens. Publishing the secret removes that last step. **PKCE protects something different** -- a code stolen on the user's own machine, by a local process racing the loopback port -- and it goes on doing so whether or not the secret is public.
+
+The reason to publish it anyway is Google's own: an installed application's secret is extractable from any shipped binary, so withholding it from the repository buys a delay rather than a defence, while costing every person who clones the repository a working sign-in. `TRADR_OAUTH_CLIENT_ID` and `TRADR_OAUTH_CLIENT_SECRET` exist so that anyone preferring their own Google project can use one. **That is a judgement about cost, not a claim that nothing is being given away**, and the earlier wording here said otherwise.
 
 **The redirect uri is the loopback IP literal, and that too was measured.** Three authorization requests on 2026-08-24, differing only in `redirect_uri`:
 
