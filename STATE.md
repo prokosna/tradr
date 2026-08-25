@@ -214,11 +214,22 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: []
+work_items: [WI-M1-002b]
 blocked: []
 ```
 
-**Nothing is in flight and nothing is blocked.** `WI-M1-000b` is cut and not dispatched; its Work Order is written. **Each Work Order's gates are scoped to its own area**, because a workspace-wide `cargo clippy` or `sh ci/run-all.sh` cannot pass while another Work Item has uncommitted code in the tree -- that was WI-M0-002b's finding. The workspace-wide run happens at each commit, once the tree holds one Work Item's changes again.
+**`WI-M1-002b` is in flight and nothing is blocked.** Its docs commit, DCR-038, has landed on branch `wi-m1-002b-identity-certificate`; **no pull request is open for it, deliberately, because the Work Item is not done** and section 5 opens one after the review passes. What it still needs is the Supervisor's tests and then an Implementer.
+
+**The test suite that Work Item needs, sketched, because working it out is most of the job.** `tradr-transport` cannot dev-depend on `tradr-identity` -- `ci/layer-deps.sh` Check 4 scans every section of a manifest, `[dev-dependencies]` included -- so these tests carry their own `KeyStore` built on `p256`. That is the right shape regardless: **a test that reaches for the other implementation is a test that can agree with it.**
+
+- The round trip: the identity point read back out of a built certificate equals the one the store holds
+- The self-signature verifies **over the TBS bytes exactly**, which is what proves `DomainTag::CertificateTbs` was used and nothing was prepended
+- Two devices' certificates carry byte-identical subject and issuer, which is decision 19 made checkable rather than asserted
+- A compressed 33-byte point is refused; a certificate naming a curve other than P-256 is refused
+- Truncated DER is refused at every prefix length, and empty input is refused
+- The join: the `DeviceId` derived from a peer's certificate equals that peer's own, through `WI-M1-002a`'s `from_identity_digest`
+
+**Writing those tests was deliberately not attempted at the end of this session.** Two of the four Supervisor-written test files in it had defects that an Implementer had to stop and report -- one asserting a property docs/05 does not claim -- and both times the cause was writing tests at the end of a long session rather than the start of one. A Critical Module's standard is the one thing section 6 says must not be produced carelessly. **Each Work Order's gates are scoped to its own area**, because a workspace-wide `cargo clippy` or `sh ci/run-all.sh` cannot pass while another Work Item has uncommitted code in the tree -- that was WI-M0-002b's finding. The workspace-wide run happens at each commit, once the tree holds one Work Item's changes again.
 
 **Stage explicit paths for each, `Cargo.lock` included when a manifest moves, and read `git show --stat` afterwards.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
