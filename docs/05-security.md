@@ -462,6 +462,8 @@ QUIC already contains TLS 1.3, so stacking another encryption layer on top would
 - The certificate's `SubjectPublicKeyInfo` is the device's P-256 identity public key
 - Certificates are requested in both directions, giving mutual TLS
 - Verification asks not whether a chain validates but whether this public key equals the expected Device ID
+- **The subject and issuer are a constant, identical on every device.** Putting the Device ID in the common name is the obvious move and it is wrong: it gives a device's identity a second place to live, and a verifier reading the wrong one is a defect that the most likely test — a device verifying itself, where both fields agree — cannot expose. The `SubjectPublicKeyInfo` is the only place identity appears, and a constant name is what keeps that literally true
+- **The validity window is fixed and never expires.** Nothing validates this certificate as a chain, so a window is a field nothing reads — and a narrow one is a field nothing reads until it silently begins refusing connections. A Device Key's lifetime is already governed by the staleness rule in [step 5](#what-a-verifier-does), against a different clock and a different mechanism. Two expiry dates that can disagree is worse than one that is never consulted, and it keeps certificate construction free of a `Clock`
 
 BLE and `relay` are raw byte streams where TLS does not fit — its handshake overhead is prohibitive over BLE, and on relay the WebSocket's TLS terminates at the Brokr. Those use **Noise_IK**.
 
