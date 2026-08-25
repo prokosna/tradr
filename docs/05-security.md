@@ -276,6 +276,14 @@ Private keys never leave the device after generation. There is no export functio
 
 **Falling short of hardware backing on Linux is stated plainly.** Settings displays the storage method in use and says so explicitly when it has fallen back to a file. Headless environments without a running Secret Service get a warning.
 
+### A locked Secret Service is a rung that fails, not a rung that is absent
+
+Never unlock a collection to reach a key. An unlock is an interactive prompt, and a prompt with nobody to answer it — a headless box, an ssh session, a login whose desktop has gone — **does not fail, it waits**, measured here as a process that never returns from its own startup. A key store opened during startup must not be able to do that: the window never appears and there is nothing on screen to read.
+
+So the rung is built without unlocking anything, and the distinction [descending the ladder](#descending-the-linux-ladder) already draws decides the rest. **A Secret Service that answers on the bus is present**, so the rung joins the ladder. **A collection that is locked has not said whether it holds this device's key**, so reading it is an error and the search stops, exactly as any other failed read does.
+
+Descending past it instead would be the worse answer, and it is the tempting one, because it keeps a headless machine working. It also mints a second Device Key over one that may be sitting in the locked collection, and that failure is silent while this one is a sentence the user can act on.
+
 ### Why the kernel keyring is not a rung
 
 The ladder listed the kernel keyring between the Secret Service and the file until it was measured. **A kernel keyring has no backing store**: it is kernel memory, there is no file behind it anywhere, and `persistent_keyring_expiry` bounds even the persistent keyring at three days without surviving a reboot at all.
