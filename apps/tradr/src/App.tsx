@@ -39,14 +39,14 @@ export function App() {
 	const [signIn, setSignIn] = useState<SignInUiState>({ status: "signed_out" });
 
 	useEffect(() => {
-		invoke<DeviceIdentitySnapshot>("device_identity").then(
+		invoke<DeviceIdentitySnapshot>("plugin:tradr|device_identity").then(
 			(snapshot) => setIdentity({ status: "loaded", snapshot }),
 			(error) => setIdentity({ status: "error", message: String(error) }),
 		);
 
 		// Restores a sign-in already completed before this reload, without
 		// running the flow again.
-		invoke<SignInOutcome | null>("sign_in_status").then((outcome) => {
+		invoke<SignInOutcome | null>("plugin:tradr|sign_in_status").then((outcome) => {
 			if (outcome) {
 				setSignIn({ status: "signed_in", outcome });
 			}
@@ -55,7 +55,7 @@ export function App() {
 
 	const startSignIn = () => {
 		setSignIn({ status: "signing_in" });
-		invoke<SignInOutcome>("sign_in").then(
+		invoke<SignInOutcome>("plugin:tradr|sign_in").then(
 			(outcome) => setSignIn({ status: "signed_in", outcome }),
 			(error) => setSignIn({ status: "failed", message: String(error) }),
 		);
