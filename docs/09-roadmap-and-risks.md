@@ -121,6 +121,7 @@ M5 is cheap and resolves UC-6, so **it comes before M6 and M7**.
 | R8 | **Brokr-free operation breaks as features are added** | The central premise of the design collapses | High | Make the no-Brokr Tier 0/1 integration test a required CI job. Introduce it at M1, not M8 |
 | R9 | **macOS and Windows code signing** | Distribution stops | Medium | Start certificate procurement before M4. Apple Developer Program and an Authenticode certificate can each take weeks |
 | R10 | **Dragging out cannot be implemented** | A gap in the experience | Medium | Substitute a download button in v1. Functionally equivalent and not fatal |
+| R11 | **The AppImage bundler downloads unpinned executables at build time** | The Linux release path is neither reproducible nor auditable, and a compromise upstream reaches users through a signed-looking bundle | Medium | Observed at M0: `cargo tauri build` fetched `AppRun`, `linuxdeploy` and its GTK and GStreamer plugins from `github.com/tauri-apps/binary-releases` and `raw.githubusercontent.com`, with no hash in the invocation. **`deb` and `rpm` need no such download.** Either drop AppImage, or vendor and hash-pin those five artifacts before M2. Folded into open decision 7, distribution channels |
 
 R1, R2, and R8 are the heavy ones. R2 gets an explicit decision point at the end of M0.
 
@@ -143,7 +144,14 @@ Written down, not yet decided.
 5. **What write limits a writable Share should carry.**
    A limit is needed against disk filling, but legitimate large transfers look identical. A daily byte cap is workable; there is no basis yet for a default value.
 
-6. **When to move to post-quantum cryptography.**
+6. **What `ChunkData.chunk_index` counts when a transport subdivides.** ~~Open~~ **Decided 2026-08-23**: `chunk_index` counts reference chunks, and a new `offset_in_chunk` field carries the position within one. See [docs/04](04-protocol.md#where-a-subdivided-piece-belongs) for why stream order was not used. The text below is kept as the record of the question.
+   [docs/04](04-protocol.md#chunk-sizes) fixes 1 MiB as the reference boundary and has `relay` and `ble-gatt` subdivide it, into 256 KiB and 4 KiB. `ChunkData` carries `chunk_index`, `payload_len` and `last`, but **no offset within the reference chunk**, so a 1 MiB chunk arriving as four relay pieces has nothing on the wire distinguishing the second piece from the third.
+
+   Stream order can carry it: the data plane is one unidirectional stream per Item, so the pieces arrive in order and the receiver tracks the offset itself, with `last` closing the reference chunk. That works, and it is unstated, which is the problem — it makes correct resumption depend on an assumption nobody wrote down.
+
+   **Decide before the chunk-resumption Work Item**, which [CLAUDE.md](../CLAUDE.md) §6 names a Critical Module. Either state the stream-order rule in `docs/04` and test it, or add an explicit offset to `ChunkData`. The second costs eight bytes a chunk and removes the assumption entirely.
+
+7. **When to move to post-quantum cryptography.**
    Write an ADR once both `rustls` X25519MLKEM768 and `snow`'s hybrid Noise patterns are stable. Priority is low, since transferred files rarely need secrecy over that horizon.
 
 ## The most fragile parts of this design

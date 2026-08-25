@@ -3,9 +3,9 @@ package tradr.v1;
 
 // Public information about a device. Used in Hello and in discovery results.
 message DeviceInfo {
-  bytes  device_id       = 1;  // BLAKE3(ed25519_pub)[0..16]
-  bytes  ed25519_pub     = 2;  // 32 bytes. Signing and identity. Curve is open decision 13
-  bytes  x25519_pub      = 3;  // 32 bytes. Noise static key
+  bytes  device_id       = 1;  // BLAKE3(identity_pub)[0..16]
+  bytes  identity_pub    = 2;  // 65 bytes, uncompressed SEC-1. Signing and identity
+  bytes  agreement_pub   = 3;  // 65 bytes, uncompressed SEC-1. Noise static key
   string display_name    = 4;  // User-chosen name, max 64 bytes
   Platform platform      = 5;
   uint32 capabilities    = 6;  // Bitmask, see docs/03
@@ -20,7 +20,7 @@ enum Platform {
   PLATFORM_IOS         = 5;  // Future
 }
 
-// A provider-signed ID token whose nonce binds ed25519_pub and x25519_pub.
+// A provider-signed ID token whose nonce binds identity_pub and agreement_pub.
 // On its own it proves that the holder of an account controls this key pair,
 // verifiable against that provider's JWKS alone. See docs/05.
 message Attestation {
@@ -31,13 +31,13 @@ message Attestation {
   int64  issued_at  = 3;  // Convenience copy; the authoritative value is iat inside id_token
 }
 
-// Self-signed proof that x25519_pub belongs to the holder of the Ed25519 key.
+// Self-signed proof that agreement_pub belongs to the holder of the identity key.
 // Strictly redundant while the Attestation nonce binds both keys, but it lets the
-// X25519 key rotate on its own later.
+// agreement key rotate on its own later.
 message KeyBinding {
-  bytes x25519_pub = 1;
-  bytes signature  = 2;  // Ed25519("tradr-keybind-v1" || x25519_pub)
-  int64 not_after  = 3;  // Unix seconds
+  bytes agreement_pub = 1;
+  bytes signature      = 2;  // P-256 signature over "tradr-keybind-v1" || agreement_pub
+  int64 not_after      = 3;  // Unix seconds
 }
 
 message FileEntry {

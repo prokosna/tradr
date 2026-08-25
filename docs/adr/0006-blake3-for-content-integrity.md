@@ -38,9 +38,9 @@ Options: SHA-256 with a chunk hash list, a SHA-256 Merkle tree, or BLAKE3.
 
 | Purpose | Input |
 |---|---|
-| Device ID | The first 16 bytes over `ed25519_pub` |
-| Attestation nonce | `ed25519_pub \|\| x25519_pub` |
-| Fingerprint | `"tradr-fp-v1" \|\| ed25519_pub \|\| x25519_pub` |
+| Device ID | The first 16 bytes over `identity_pub` |
+| Attestation nonce | `identity_pub \|\| agreement_pub` |
+| Fingerprint | `"tradr-fp-v1" \|\| identity_pub \|\| agreement_pub` |
 | Content Hash | File contents |
 | `account_tag` | `account_id \|\| salt`, where `account_id` is `iss \|\| 0x00 \|\| sub` |
 | `link_tag` | `link_secret` |

@@ -11,8 +11,8 @@ dist/
 
 # Tauri
 /apps/tradr/src-tauri/target/
-/apps/tradr/gen/android/app/build/
-/apps/tradr/gen/android/.gradle/
+/apps/tradr/src-tauri/gen/android/app/build/
+/apps/tradr/src-tauri/gen/android/.gradle/
 /apps/tradr/gen/apple/
 
 # Generated from proto
@@ -40,6 +40,9 @@ join-token
 .env
 .env.*
 !.env.example
+# Baked into the build by apps/tradr/src-tauri/build.rs (DCR-030)
+.tradr-deployment.env
+!.tradr-deployment.env.example
 
 # OS
 .DS_Store

@@ -15,3 +15,7 @@ Decisions and the reasoning behind them. To change a decision, write a new ADR a
 | [0009](0009-supervised-implementation-loop.md) | A cheap model implements, an expensive one reviews | Accepted |
 | [0010](0010-identity-is-the-issuer-subject-pair.md) | Account identity is the (issuer, subject) pair | Accepted |
 | [0011](0011-keystore-exposes-operations.md) | The KeyStore exposes operations, never key bytes | Accepted |
+| [0012](0012-p256-for-device-keys.md) | P-256 for Device Keys | Accepted |
+| [0013](0013-layer-1-async-traits-return-boxed-futures.md) | Layer 1 async traits return boxed futures | Accepted |
+| [0014](0014-vfs-exposes-operations-never-paths.md) | The Vfs exposes operations, never paths | Accepted |
+| [0015](0015-tauri-2-is-retained-after-m0.md) | Tauri 2 is retained after M0's decision point | Accepted |

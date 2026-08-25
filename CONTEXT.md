@@ -17,8 +17,8 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 
 | Term | Definition |
 |---|---|
-| **Device Key** | A device's long-lived key material: Ed25519 for signing and identity, X25519 for key agreement. It never leaves the device. |
-| **Device ID** | The first 16 bytes of `BLAKE3(ed25519_public_key)`. A device's permanent identifier. |
+| **Device Key** | A device's long-lived key material: a P-256 identity key for signing and a P-256 agreement key for ECDH. It never leaves the device, and on a platform with a secure element it never exists outside it. See [ADR-0012](docs/adr/0012-p256-for-device-keys.md). |
+| **Device ID** | The first 16 bytes of `BLAKE3(identity_pub)`, where `identity_pub` is the 65-byte uncompressed SEC-1 point. A device's permanent identifier. |
 | **Attestation** | A provider-signed ID token whose `nonce` claim is `BLAKE3(device_public_keys)`. On its own it proves that the holder of a given `(iss, sub)` controls a given Device Key, verifiable against the provider's public keys alone. Tradr's root of trust. |
 | **Provider Profile** | Everything verification needs to know about one identity provider: issuer, JWKS URI, client ID set, nonce binding, renewal terms. The only place a provider is named. |
 | **Account ID** | `iss || 0x00 || sub`. The input to every value derived from account identity — never the bare `sub`. |

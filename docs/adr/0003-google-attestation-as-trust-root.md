@@ -20,7 +20,7 @@ Options considered:
 
 ## Decision
 
-**Set the OIDC authorization request's `nonce` to `BLAKE3(ed25519_pub || x25519_pub)`.** The ID token Google returns carries that nonce, signed with Google's private key.
+**Set the OIDC authorization request's `nonce` to `BLAKE3(identity_pub || agreement_pub)`.** The ID token Google returns carries that nonce, signed with Google's private key.
 
 The token thereby becomes a Google-signed assertion that:
 

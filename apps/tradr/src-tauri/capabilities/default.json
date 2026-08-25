@@ -1,0 +1,14 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "default",
+	"description": "enables the default permissions",
+	"windows": ["main"],
+	"permissions": [
+		"core:default",
+		"tradr:allow-device-identity",
+		"tradr:allow-sign-in",
+		"tradr:allow-sign-in-status",
+		"tradr:allow-attestation-bundle",
+		"tradr:allow-verify-peer-attestation"
+	]
+}

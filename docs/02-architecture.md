@@ -110,8 +110,8 @@ tradr/
 +-- apps/
 |   +-- tradr/                  # Tauri 2 app, desktop and Android from one project
 |   |   +-- src/                #   UI entry point, React
-|   |   +-- src-tauri/          #   Rust entry point, command definitions, capabilities
-|   |   \-- gen/android/        #   Android project, Kotlin glue
+|   |   \-- src-tauri/          #   Rust entry point, command definitions, capabilities
+|   |       \-- gen/android/    #   Android project, Kotlin glue. Tauri generates it here
 |   \-- brokr/                  # The optional backend, TypeScript and Fastify
 |
 +-- packages/                   # TypeScript workspace, pnpm
@@ -122,12 +122,33 @@ tradr/
 |
 \-- crates/                     # Rust workspace, Cargo
     +-- tradr-core/             #   Transfer/Item/Chunk, resumption, integrity
-    +-- tradr-identity/         #   Attestation issue and verify, Noise, key storage
-    +-- tradr-transport/        #   The Transport trait, five implementations, path selection
+    +-- tradr-proto/            #   The protobuf codec, and the only crate naming prost
+    +-- tradr-identity/         #   Attestation issue and verify, Noise, key policy
+    +-- tradr-transport/        #   Five Transport implementations and path selection
     +-- tradr-discovery/        #   mDNS, BLE advertise and scan, static pins, Brokr presence
     +-- tradr-vfs/              #   Share Root boundary enforcement, posix and saf backends
+    +-- tradr-oidc/             #   JWKS fetch, OAuth loopback and token exchange. Speaks HTTP
+    +-- tradr-secrets/          #   Where a Device Key is actually held. Speaks D-Bus and the keyring
     \-- tauri-plugin-tradr/     #   Exposes the above as Tauri commands; holds the Kotlin side
 ```
+
+### Where the talk to an identity provider lives
+
+`crates/tradr-oidc/` is the only crate that speaks HTTP and the only one naming an HTTP client. It holds the JWKS fetch, and from WI-M0-008 the OAuth loopback and token exchange as well.
+
+**Where it lives was forced rather than chosen.** [DCR-022](../STATE.md) put the JWKS cache's policy inside `tradr-identity` and the fetching outside it, and `ci/layer-deps.sh` lets an implementation crate depend only on `tradr-core` and `tradr-proto` -- so an HTTP client reachable from `tradr-identity` would have to live *inside* `tradr-identity`, the crate holding Attestation verification. `tauri-plugin-tradr` was the other candidate and is worse: Change Drill D9 swaps that crate out the day Tauri goes, and fetching a JWKS has nothing to do with a shell.
+
+### Where a Device Key is actually held
+
+`crates/tradr-secrets/` implements `SecretStore` and nothing else: the Secret Service over D-Bus, the kernel keyring, and a `0600` file, the three rungs [docs/05](05-security.md#key-storage) lists for Linux. It is the only crate naming a D-Bus client, checked the way `prost`, `tauri` and `reqwest` are.
+
+**The reason it is not in `tradr-identity` is the reason `tradr-oidc` is not either**, one paragraph above. A Secret Service client brings an executor and roughly ninety-six transitive crates, and `ci/layer-deps.sh` permits an implementation crate only `tradr-core` and `tradr-proto`, so a client reachable from `tradr-identity` would have to live *inside* the crate that verifies Attestations. The split falls where the earlier one did: **`tradr-identity` keeps the policy and `tradr-secrets` keeps the I/O.** `select_rung` and `SoftwareKeyStore` are pure and stay where they are; the composition root builds the ladder and hands it in, exactly as it hands in a fetched JWKS.
+
+**Only Linux has a ladder at all.** On Android, macOS and Windows the key is generated inside a secure element and never exists as bytes to store, so there is nothing for a `SecretStore` to hold. This crate is the answer to the one platform with no such element, which is why a cross-platform credential-store dependency would buy nothing the other three could use.
+
+**No Layer 1 trait wraps it.** Nothing in Layer 1 fetches anything: DCR-022 leaves the single `await` in the composition root, so a `JwksSource` trait would be a dispatch point with one implementation and no caller that needs to swap it. What such a trait would buy -- confinement, so that changing the client touches one place -- the crate boundary already buys, and buys checkably: `grep -rl reqwest crates/` must return `crates/tradr-oidc/` and nothing else. `tradr-oidc` therefore exposes plain `async fn`s, and [ADR-0013](adr/0013-layer-1-async-traits-return-boxed-futures.md)'s `BoxFuture` does not reach it.
+
+**`reqwest`, with `rustls-tls` and no default features.** rustls is already in the driver layer for QUIC, so sharing that stack costs nothing new, while `native-tls` would pull OpenSSL into the Linux and Android builds to perform one GET. A blocking client wrapped in `spawn_blocking` was the alternative and buys nothing here, since every caller is already async.
 
 ### Direction of dependency
 
@@ -150,19 +171,32 @@ Crate dependencies, what appears in each `Cargo.toml`:
 ```
                           tradr-core          <- depends on nothing internal
                                ^                  declares the traits
-       +-----------+-----------+-----------+
-       |           |           |           |
-  tradr-transport  |     tradr-identity    |
-              tradr-vfs             tradr-discovery
+       +-----------+-----------+-----------+-----------+
+       |           |           |           |           |
+  tradr-transport  |     tradr-identity    |      tradr-proto
+              tradr-vfs             tradr-discovery      ^
+                                                         |
+       tradr-transport, tradr-identity and tradr-discovery
+       also depend on tradr-proto for the wire encoding
 
-       tauri-plugin-tradr -> all five        <- the composition root, and the
+       tauri-plugin-tradr -> all six         <- the composition root, and the
                                                 only place implementations are
                                                 bound to the traits
 ```
 
+### Where the protobuf codec lives
+
+`tradr-proto` is Layer 2. It converts between the domain types `tradr-core` owns and the wire messages in `proto/tradr/v1/`, and **it is the only crate that may name `prost` or any other protobuf library**. That is what makes Change Drill D5 — replacing protobuf with another format — an Adapter-layer change rather than a sweep.
+
+The check is mechanical, the same shape as D9's: `grep -rl prost crates/` must return `crates/tradr-proto/` and nothing else.
+
+`tradr-core` does not depend on it. Domain types have no encoding, which is rule B2 holding: the core must not know that protobuf exists.
+
 **Every arrow points at `tradr-core`, and none leaves it.** An implementation crate depends on the core to implement its traits; the core never names an implementation. `tradr-transport` does not depend on `tradr-identity` either — what it needs from keys arrives through `KeyStore`, which is what keeps Change Drill D3 confined to `transport/quic/`.
 
 The wiring happens once, in `tauri-plugin-tradr`. That crate is the only one that knows which implementations exist, which is why swapping the app shell (D9) reaches no further than it.
+
+**Every Layer 1 trait is declared in `tradr-core` and nowhere else.** `Transport`, `SecureChannel`, `Vfs`, `KeyStore`, `Clock` and `Rng` all live there, along with the stream traits `SecureChannel` hands out; `tradr-transport` and `tradr-vfs` hold implementations of them and declare none of their own. Reading a trait's name in an implementation crate's directory listing is not a statement about where it is declared, and putting a declaration beside its implementations would collapse rule B3 quietly, since everything would still compile.
 
 `tradr-core` never calls I/O directly; it declares the `Transport` and `Vfs` traits and depends on nothing else. That makes the core logic — offer and accept, chunking, deciding where to resume, verification — testable with neither a real network nor a real filesystem. This is the most breakable and most test-hungry part of the design, so it is kept pure on purpose.
 

@@ -100,6 +100,24 @@ The cost is one extra round trip, but `ChunkRequest` batches with `count` — 64
 
 **Chunk boundaries never change when the path does.** 1 MiB is the reference; smaller transports subdivide it. That is what lets a file received partway over `relay` resume over `direct-quic`.
 
+### Where a subdivided piece belongs
+
+`chunk_index` always counts **reference** chunks, never transport-sized pieces, which is [invariant I6](../CLAUDE.md#8-invariants-that-must-not-break). A subdivided piece additionally carries `offset_in_chunk`, its offset within that reference chunk, and the two together give the absolute position:
+
+```
+absolute offset = chunk_index * 1 MiB + offset_in_chunk
+```
+
+A transport that does not subdivide sends `offset_in_chunk = 0`. Protobuf omits a zero-valued scalar, so **the field costs nothing on the QUIC paths** and a few bytes per frame only where subdivision actually happens.
+
+**Stream order is deliberately not used to carry this.** The pieces do arrive in order on a QUIC stream, and deriving the offset from arrival order would cost no bytes at all. Three things rule it out:
+
+1. **`ble-gatt` cannot promise it.** A GATT write without response is neither ordered nor acknowledged, and that is the mode worth having for throughput on a transport already limited to 20-100 KB/s.
+2. **The offset is an input to verification, not only to placement.** Each piece's `verify_path` checks it against `content_hash` at its absolute position, so a wrong offset fails verification rather than corrupting the file — which is the good outcome, reached the bad way: docs/04 then re-requests the chunk, fails again, and after three attempts blames the path. A misordering bug is diagnosed as a bad network.
+3. **It would be an unwritten invariant underneath a Critical Module.** Chunk resumption is what [CLAUDE.md](../CLAUDE.md#6-critical-modules-tests-come-first) calls the module whose failure collapses path selection. Three transport implementations would each have to preserve an ordering property nobody stated, and the check for whether they do would be a transfer that thrashes.
+
+Eight bytes at most per subdivided frame, and none on the default path, buys the removal of that assumption.
+
 ### Why BLAKE3
 
 BLAKE3 is internally a Merkle tree, which yields two properties — see [ADR-0006](adr/0006-blake3-for-content-integrity.md):
@@ -116,7 +134,13 @@ An `Item` carries `content_hash`, the 32-byte BLAKE3 root, and each `ChunkData` 
 
 ## Partial files
 
-Incoming files are written to `<destination>/.tradr-partial/<transfer_id>/<item_id>`.
+Incoming files are written to `<destination>/.tradr-partial/<transfer_id>/<ordinal>`, where **`ordinal` is a number the receiver assigns**, not anything the sender chose.
+
+`item_id` is a string the sender picks. Using it as a path component would put an attacker-controlled value on the filesystem, and every defence against that — rejecting `..`, rejecting separators and control characters, handling Windows reserved names, catching two ids that differ only in case colliding on a case-insensitive filesystem — is a check that has to be right forever. **A receiver-assigned ordinal removes the class instead of defending against it.**
+
+The mapping from ordinal back to `item_id` lives in SQLite alongside the rest of the transfer's progress, which is where the receiver already looks when resuming.
+
+`item_id` is still validated on arrival, because it is a map key and it reaches logs and the UI. It is constrained to an opaque token: **1 to 64 characters of lowercase ASCII letters, digits, `-` and `_`**. That is deliberately narrower than a filename needs to be, since it never has to be one.
 
 - On completion and successful verification, `rename` into place — atomic within one filesystem
 - Progress lives in SQLite. To keep the database and the partial file from diverging, the database is updated after the chunk write is `fsync`ed
@@ -131,6 +155,7 @@ The receiver **never trusts an incoming `relative_path`**. It enforces:
 | Absolute path, starting `/` or `C:\` | Reject |
 | Contains `..` | Reject |
 | Contains NUL or other control characters | Reject |
+| Contains a bidirectional override, embedding or isolate, or a line or paragraph separator | Reject |
 | Windows reserved names: `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9` | Append `_` |
 | Trailing dots or spaces, which break on Windows | Strip |
 | Path length beyond the OS limit | Reject |
@@ -138,6 +163,22 @@ The receiver **never trusts an incoming `relative_path`**. It enforces:
 | Item is a symlink | Reject in v1, since the target may point outside the Share Root |
 
 This is the same attack surface as zip slip. The path is normalized before joining, and the joined result is re-checked to confirm it is prefixed by the destination's realpath.
+
+### Why a filename may not reorder itself
+
+The receiver shows an incoming filename to the user, who accepts or declines on the strength of it. A name carrying `U+202E RIGHT-TO-LEFT OVERRIDE` renders in the opposite order from the bytes it contains:
+
+```
+bytes on the wire   report\u{202E}fdp.exe
+what the user sees  reportexe.pdf
+what gets written   an executable
+```
+
+Rejected: `U+202A` to `U+202E`, the overrides and embeddings; `U+2066` to `U+2069`, the isolates; and `U+2028` and `U+2029`, the line and paragraph separators, which also break any single-line rendering of a name and any log line carrying one. None has a use in a filename.
+
+**`U+200E` and `U+200F`, the directional marks, stay permitted.** They influence the direction of neutral characters and cannot reverse a run, so they do not produce the substitution above, and Arabic and Hebrew filenames legitimately carry them. Rejecting them would cost every RTL user something real to defend against nothing.
+
+These are not control characters — `char::is_control` is false for every one of them — so the row above does not cover them and a check written against it alone would let them through.
 
 ## The Browse plane
 

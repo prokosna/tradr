@@ -34,6 +34,7 @@ output: an absolute path safe to touch, or a rejection
      absolute, leading "/" or "C:\"        -> reject
      contains ".."                         -> reject
      contains NUL or control characters    -> reject
+     contains a bidi override or separator -> reject
      apply Unicode NFC normalization       -> re-run the checks above
 3. Take the realpath of the root, resolving symlinks   -> real_root
 4. Join root and the relative path, take the realpath  -> real_target
@@ -47,6 +48,8 @@ output: an absolute path safe to touch, or a rejection
      device, FIFO, socket       -> reject
 7. Check against the deny list
 ```
+
+**Step 2 is split across two layers; steps 1 and 3 through 7 are not.** The checks in step 2 are statements about the shape of a name, so they live in `tradr-core` as the `RelPath` type, beside `ItemId` — nothing there touches a filesystem. The normalization inside step 2 cannot live there: the standard library has no Unicode normalization and `tradr-core` may take no dependency ([invariant I4](../CLAUDE.md#8-invariants-that-must-not-break)). So `tradr-vfs` normalizes and then **rebuilds a `RelPath` from the normalized string**, which is how "re-run the checks above" happens without a second copy of the rules existing to drift out of step with the first.
 
 ### TOCTOU
 
@@ -119,8 +122,8 @@ Enabling communication with another Google account. **Both sides must approve ex
      {                                        |
        v: 1,                                  |
        sub: "1048...",     <- Alice's sub     |
-       ed25519_pub: ...,   <- Alice's key     |
-       x25519_pub: ...,                       |
+       identity_pub: ...,  <- Alice's key     |
+       agreement_pub: ...,                    |
        attestation: ...,   <- Google-signed   |
        half_secret: ...,   <- 16 random bytes |
        expires: ...        <- 5 minutes       |
@@ -132,7 +135,7 @@ Enabling communication with another Google account. **Both sides must approve ex
         |<---- reply over BLE or LAN ---------|
         |        {                            |
         |          sub: "9273...",            |
-        |          ed25519_pub: ...,          |
+        |          identity_pub: ...,         |
         |          attestation: ...,          |
         |          half_secret: ...           |
         |        }                            |

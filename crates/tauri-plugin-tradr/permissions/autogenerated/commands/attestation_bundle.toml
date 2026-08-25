@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-attestation-bundle"
+description = "Enables the attestation_bundle command without any pre-configured scope."
+commands.allow = ["attestation_bundle"]
+
+[[permission]]
+identifier = "deny-attestation-bundle"
+description = "Denies the attestation_bundle command without any pre-configured scope."
+commands.deny = ["attestation_bundle"]

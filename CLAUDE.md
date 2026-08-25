@@ -144,7 +144,9 @@ Layer 3  Driver    quinn, btleplug, mdns-sd, rustls, SAF, React, Fastify
 
 **`tradr-core` must never appear in any count.** D9 is a requirement rather than a hypothetical: [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md) records conditions under which Tauri gets dropped, so staying droppable is part of the contract.
 
-**D9 reaches one crate, the binding crate, and that is the whole budget.** A composition root has to name some shell, so demanding that `crates/` be untouched entirely was never achievable; confining the shell's name to one crate is what the drill actually buys. The check is mechanical: `grep -ril tauri crates/` must return `crates/tauri-plugin-tradr/` and nothing else.
+**D9 reaches one crate, the binding crate, and that is the whole budget.** A composition root has to name some shell, so demanding that `crates/` be untouched entirely was never achievable; confining the shell's name to one crate is what the drill actually buys.
+
+**The check is over manifests, not over text.** No `Cargo.toml` under `crates/` but `crates/tauri-plugin-tradr/`'s may name `tauri`, and `ci/layer-deps.sh` enforces exactly that on every run. **A grep over all text is the wrong instrument here and was the stated one until it was walked**: it flags a doc comment that mentions Tauri in order to explain why its file is D9-safe, which is prose about the gate defeating the gate. A dependency is what a swap has to rewrite; a sentence is not.
 
 ### D. Tests
 
@@ -169,8 +171,11 @@ Layer 3  Driver    quinn, btleplug, mdns-sd, rustls, SAF, React, Fastify
 | `PASS` | Accepted | Mark done in `STATE.md`, commit, move on |
 | `REVISE` | Fixable in implementation | Return with the findings |
 | `REDESIGN` | The design is wrong | Discard the work. **Fix `docs/` first**, then re-cut the Work Item |
+| `DISCARD` | The work cannot be accepted whatever its quality | Throw it away and re-cut. **Not a judgement on the code**: use it when the implementation's provenance is wrong, when the report describes work the diff does not contain, or when accepting it would defeat a rule the code itself cannot express |
 
 **Do not hesitate to issue `REDESIGN`. A design flaw papered over in implementation is the origin of every later collapse.**
+
+**`DISCARD` exists because §2-3 can be defeated without the Supervisor writing a line into the repository.** A reference implementation left where an Implementer can read it is the Supervisor's code, and it arrives having passed every gate. The remedy is not a rule -- **delete the reference before dispatching**, and keep its hash so the review can prove the delivered file is not it. A rule an Implementer can break is weaker than a file that does not exist.
 
 ---
 
@@ -252,10 +257,14 @@ For these modules **the Supervisor writes the tests first and the Implementer th
 |---|---|
 | Boundary enforcement in `tradr-vfs` | Arbitrary file read |
 | Attestation verification in `tradr-identity` | Impersonation |
+| **Device Key generation in `tradr-identity`** | **Impersonation, by a second route: a predictable key is a derivable key. And a `backing()` that overstates itself makes [docs/05](docs/05-security.md#key-storage)'s hardware promise false without failing anywhere** |
+| **JWKS retrieval in `tradr-oidc`** | **Impersonation of every account at once.** An attacker whose keys a device fetches mints a token carrying any `iss`, `sub` and `aud`, binding their own device keys, and it passes all seven of [docs/05](docs/05-security.md)'s steps. **TLS to the provider's own host is the only thing that makes a JWKS Google's** -- a followed redirect, a `http://` scheme, or a body accepted past a size or status check all remove it. Attestation verification is the module that would notice and it cannot: every signature it checks afterwards is perfectly valid |
 | Chunk resumption in `tradr-core` | The entire path-selection design collapses |
-| Filename sanitization | Zip slip |
+| Filename sanitization: `RelPath` and `ItemId` in `tradr-core`, the transforms in `tradr-vfs` | Zip slip |
 
 Having a cheap model write security-critical code is fine. **Having it define the standard that code is judged against is not.**
+
+**The test is whether being wrong produces a named, severe failure that nothing else catches.** Key generation qualifies on both counts: a weak key fails no build, no test and no handshake, and the module that would notice, Attestation verification, is verifying a signature that is perfectly valid.
 
 ---
 

@@ -36,7 +36,7 @@ Four `DiscoverySource` implementations run concurrently, merging into one peer l
   |---|---|
   | `v` | Protocol major version |
   | `id` | Device ID, 16 bytes, base64url |
-  | `pk` | X25519 static public key fingerprint, first 8 bytes |
+  | `pk` | Agreement public key fingerprint, first 8 bytes |
   | `n` | Display name, UTF-8, 32 bytes maximum |
   | `p` | Platform: `linux`, `win`, `mac`, `android` |
   | `c` | Capability flags, a bitmask |
@@ -193,6 +193,24 @@ The mechanism behind picking the right path automatically. **It does not pick �
 |  and direct opens     to the direct path                  |
 +-----------------------------------------------------------+
 ```
+
+### A transport delivers an already-secure channel
+
+`Transport::connect` returns a `SecureChannel`, never a raw byte stream. [docs/05](05-security.md#two-encryption-layers) gives two families for the five transports — QUIC paths use QUIC's own TLS 1.3, while `relay` and `ble-gatt` use Noise_IK — and says the layer above is never told which.
+
+**That promise is only keepable if each implementation owns its own encryption.** `direct-quic` gets it from the protocol; the `relay` and `ble-gatt` implementations wrap their raw stream in Noise before returning. Putting the Noise handshake in Layer 1 instead would mean the core branching on which transport it is holding, which is the coupling the trait exists to prevent, and it would put a second encryption layer on the QUIC paths or a conditional that skips it.
+
+A `SecureChannel` therefore offers the same thing on every path: mutually authenticated, forward secret, ordered, bidirectional, and multiplexed into the streams [docs/04](04-protocol.md#the-three-planes) describes. Where the underlying transport has no native multiplexing, the implementation provides it in-band, which is what the `stream_id` frame variant in docs/04 is for. **Layer 1 asks for a stream and gets one**; whether that cost a QUIC stream or a frame header is not its concern.
+
+### What the core knows about a transport
+
+**Nothing that changes when a transport is added.** Change Drill D10 budgets one implementation, one registration and one weight-table entry for a new transport, and no drill may reach `tradr-core`. Two things follow, and both are constraints on the `Transport` trait rather than observations about it.
+
+- **A transport's identity is an opaque token, not a closed set.** The core carries a `TransportId` it can compare, order and display, and cannot enumerate. An `enum { DirectQuic, WifiDirect, ... }` in the core would make every new transport a core change, which is the one outcome the drill forbids
+- **A candidate address is opaque too.** `192.168.1.42:51820`, `relay://brokr.example/x` and `handle:0x0042` share no structure, and the core has no reason to parse any of them. It collects candidates from discovery and hands each to the transport that produced it
+- **Opaque is not unchecked.** A candidate can arrive from a Brokr, which [docs/05](05-security.md#threat-model) does not trust, and it reaches logs and the UI on its way to a transport. So the core rejects an empty address and one carrying control characters: the same two rules, and the same reasoning, as the `item_id` token in [docs/04](04-protocol.md#partial-files). It checks nothing else, because everything else is syntax only a transport knows. **The transport that receives a candidate validates it before use**, and that is a contract on each implementation rather than something the core can do for them
+- **The class weights above belong to path selection, not to the transports.** A weight is a comparison between transports, so it is a policy of the component doing the comparing. `tradr-transport` holds the table; a transport does not report its own rank
+- **A frame-size limit is the opposite case, and the channel reports it.** [docs/04](04-protocol.md#framing) negotiates `max_frame_size` in `Hello` — 1 MiB by default, 512 bytes over BLE — and that negotiation happens in Layer 1. Either the core carries a per-transport table of limits, which is the table this whole section exists to keep out of it, or the established channel says what it can carry. It says. Unlike a weight, a limit is a property of one path rather than a comparison between several
 
 ### Phase 5 is the point
 

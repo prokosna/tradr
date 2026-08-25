@@ -29,6 +29,9 @@ message ChunkData {
   // item.content_hash alone, with no separate chunk hash list.
   bytes  verify_path  = 5;
   bool   last         = 6;
+  // Offset within the reference chunk named by chunk_index; 0 when the transport does not subdivide.
+  // See docs/04-protocol.md, "Where a subdivided piece belongs".
+  uint32 offset_in_chunk = 7;
 }
 
 message ItemComplete {
