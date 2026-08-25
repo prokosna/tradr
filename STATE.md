@@ -9,7 +9,7 @@
 last_updated: 2026-08-26
 phase: implementing
 current_milestone: M1
-branch: wi-m1-000-ci-instruments
+branch: wi-m1-001-domain-tag-separation
 implementation_started: true
 work_items_landed: 52
 last_commit: bbb9c0b

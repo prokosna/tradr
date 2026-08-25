@@ -338,7 +338,7 @@ Pinning the encoding is not cosmetic. The Attestation nonce is `BLAKE3(identity_
 
 ## Every signature carries a domain tag
 
-The identity key signs in five places, and until this was written down only one of them said what it was signing for.
+The identity key signs in six places, and until this was written down only one of them said what it was signing for.
 
 | What is signed | Where |
 |---|---|
@@ -347,6 +347,7 @@ The identity key signs in five places, and until this was written down only one 
 | The Brokr's challenge nonce | `BrokrRegister.challenge_signature` |
 | A revocation record | [docs/07](07-brokr.md#data-model) |
 | The self-signed certificate's TBS structure | The QUIC handshake |
+| TLS 1.3's `CertificateVerify` content | The QUIC handshake |
 
 **Two of those are "sign these opaque bytes somebody handed me", and a Brokr chooses one of them.** That is a cross-protocol signature reuse attack, and it needs no cryptographic weakness:
 
@@ -372,7 +373,28 @@ tradr-revoke-v1      declaring a device revoked
 
 The set is closed rather than a free string so that adding a context is a visible edit in one place, not something any call site can invent.
 
-**The certificate is the exception, and it is safe by structure rather than by tag.** X.509 fixes what gets signed, so no prefix can be added. It does not need one: a `TBSCertificate` is DER and begins with `0x30`, while every tagged message begins with `tradr-`, so no byte string is a valid instance of both. That reasoning is worth keeping written down, because it is the only thing standing between the certificate key and the same attack.
+### Two contexts admit no prefix, and the structure is checked rather than argued
+
+The QUIC handshake signs bytes whose shape somebody else fixed, so no tag can go in front of them. There are two such contexts, not one.
+
+- **The self-signed certificate's `TBSCertificate`.** X.509 fixes the signed structure, and a prefix would make the certificate unparseable.
+- **TLS 1.3's `CertificateVerify`.** RFC 8446 fixes the content: sixty-four `0x20` bytes, then `TLS 1.3, server CertificateVerify` or `TLS 1.3, client CertificateVerify`, then a `0x00`, then the transcript hash. `rustls` assembles that buffer itself and hands it to the signer unhashed, so what the identity key signs there is not this design's to choose. **This row was missing until now and it is the unavoidable one**: mutual TLS on the QUIC paths does not happen without it.
+
+Neither needs a tag, because each already begins with a byte no other context can produce:
+
+| What is signed | First byte |
+|---|---|
+| Any of the four tagged messages | `0x74`, the `t` of `tradr-` |
+| `TBSCertificate` | `0x30`, DER's SEQUENCE |
+| `CertificateVerify` | `0x20`, the first of sixty-four spaces |
+
+**That was prose, and prose is not an instrument.** `KeyStore::sign` takes a `DomainTag` from a closed set, and the set could not say "these bytes carry their own separation", so an implementation reaching the QUIC handshake had two ways out and both are worse than the attack: an escape hatch on the closed set, which hands any caller an untagged signature over bytes the caller chose, or signing outside `KeyStore` altogether, which forfeits hardware backing and with it [ADR-0011](adr/0011-keystore-exposes-operations.md).
+
+**So a `DomainTag` names a separation, and a separation is one of two things**: bytes prepended to the message before signing, or bytes the message must *already* begin with, where signing is refused when it does not. `CertificateTbs` and `TlsCertificateVerify` join the closed set as the second kind, requiring `0x30` and the sixty-four spaces followed by `TLS 1.3, ` respectively. The disjointness above stops being an argument and becomes a refusal: a caller handing `CertificateTbs` a message that begins with `tradr-` gets an error rather than a signature.
+
+**One tag covers both spellings of `CertificateVerify`.** The client and server context strings differ, but RFC 8446 already separates them from each other, and both are the same act — a device proving possession of the key in the certificate it just sent.
+
+**TLS chooses its own signature encoding, and that is not a contradiction of the next section.** `r || s` is what Tradr's own wire fields carry, for the reasons given there; a `CertificateVerify` and an X.509 signature field are DER by their own specifications. The conversion belongs to the Layer 3 adapter that implements `rustls`'s signer against `KeyStore`, which is the same place [ADR-0011](adr/0011-keystore-exposes-operations.md) already puts the external signer.
 
 ### The token never chooses how it is verified
 
