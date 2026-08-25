@@ -12,7 +12,7 @@ current_milestone: M0
 branch: m0-skeleton
 implementation_started: true
 work_items_landed: 50
-last_commit: 4fb0f95
+last_commit: 789b30c
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -26,7 +26,9 @@ repo_initialized: true (local only, no remote yet)
 
 **The trust root works, end to end, on a real machine.** On 2026-08-25 the user ran the built desktop app, pressed sign in, and got back an account and `TrustTier::SameAccount`. That tier is the load-bearing part rather than the account name: it comes back only when the `id_token`'s nonce equals `BLAKE3(identity_pub || agreement_pub)` over **this device's** two keys and its `aud` is in the deployment's client set. A device now demonstrably proves which account it belongs to **with no Tradr backend anywhere in the path**. Steps 2 to 16 of that flow had never run before that moment.
 
-**What it does not show is the thing M0 finishes on: no two devices have ever spoken.** One device mints an Attestation and verifies its own. Two devices exchanging them by hand, each verifying the other, needs a second device and has not been done. Verifying a peer's Attestation is complete end to end and reaches the real network; moving a file between two machines does not exist at all, because no `Transport` has an implementation yet.
+**M0's completion criterion is met.** On 2026-08-25 a Linux desktop and a MacBook exchanged Attestations by hand and each verified the other, both returning `SameAccount`. **No Tradr backend is anywhere in that path** -- each device checked the other's `id_token` against Google's published JWKS, checked `aud` against the deployment's client set, and recomputed `BLAKE3(identity_pub || agreement_pub)` over the keys the peer supplied. ADR-0005 and ADR-0010 stopped being design documents.
+
+**What has still never happened is a file moving between them.** No `Transport` has an implementation; M1 is the whole of it. Verifying a peer's Attestation is complete end to end and reaches the real network; moving a file between two machines does not exist at all, because no `Transport` has an implementation yet.
 
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
@@ -437,6 +439,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M0-014b | **Sign in, and show the account.** The desktop OAuth flow, the Attestation minted and verified, rendered. `SystemClock` arrived with it | **done** -- PASS after one REVISE | Yes |
 | WI-M0-014c | **The frontend could not reach the plugin.** Commands registered on a plugin are addressed `plugin:tradr|<command>`; `App.tsx` invoked the bare names. `ci/invoke-commands.sh` now checks every `invoke` literal against `build.rs`'s `COMMANDS` | **done** -- PASS, no REVISE | Yes |
 | WI-M0-015 | **CI**: five jobs -- the seven `ci/` checks, the Rust gates, the web gates, the desktop build and the Android build. Closes the last of ADR-0001's three withdrawal conditions once it is green | **done** -- PASS, no REVISE | Yes |
+| WI-M0-017 | **The Mac is told something false about its own key.** Both devices displayed `no Secret Service session available`; on macOS that is not why. There is no Secret Service on macOS at all, and the real reason is that Tradr does not yet use the Keychain, which docs/05 assigns to M4. `backing_for_level` derives the reason from the `StorageLevel` alone, so a file rung always reports the Linux explanation. **`backing()` exists to tell a user the truth about where their key is and why**, and a reason naming a fixable configuration problem in place of an unimplemented platform is the same failure CLAUDE.md section 6 names, arriving as a misstatement rather than an overstatement. Needs a `SoftwareReason` variant and a DCR, since that enum is Layer 1 | todo | Yes |
 | WI-M0-015b | **The Android job costs 41 minutes**, which does not fit a free tier at every-push frequency. Almost certainly four ABIs times a release profile; a routine build should prove the toolchain, not the artifact | todo | |
 | WI-M0-016 | **The two-device exchange, and macOS.** Show this device's Attestation, verify a pasted one through `verify_attestation`, and gate the Secret Service rung to Linux so a MacBook builds | **done** -- PASS, no REVISE | Yes |
 | WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth | todo | |
