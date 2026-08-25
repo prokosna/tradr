@@ -8,11 +8,11 @@
 ```yaml
 last_updated: 2026-08-25
 phase: implementing
-current_milestone: M0
-branch: m0-skeleton
+current_milestone: M1
+branch: m1-lan-transfer
 implementation_started: true
 work_items_landed: 50
-last_commit: 789b30c
+last_commit: b5be0f4
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -34,7 +34,15 @@ repo_initialized: true (local only, no remote yet)
 
 ## Next three actions
 
-1. **The sign-in flow has never been run past its first step**, because `.tradr-deployment.env` exists on no machine here and creating one means handling the user's Google credentials. Steps 2 to 16 rest on code review and on each call being an unmodified call into an already-tested function. **The first real run is the next thing that would find something**, and it is the user's to start.
+1. **Read [docs/03](docs/03-discovery-and-transport.md) and [docs/04](docs/04-protocol.md) before cutting anything.** M1 is the largest milestone and the one the product is judged on; the first Work Item is mDNS discovery or the QUIC transport, and which comes first is a decision this file should carry before either is cut.
+2. **`WI-M0-015b`**, the Android CI job at 41 minutes, before M1's push frequency makes it expensive.
+3. **`WI-M0-017`**, the false reason shown on macOS.
+
+#### What M0 left behind, for whoever arrives next
+
+**The sign-in flow was run end to end on 2026-08-25 and the two-device exchange with it.** What follows is the record of the milestone rather than open work.
+
+1. ~~**The sign-in flow has never been run past its first step**~~, because `.tradr-deployment.env` exists on no machine here and creating one means handling the user's Google credentials. Steps 2 to 16 rest on code review and on each call being an unmodified call into an already-tested function. **The first real run is the next thing that would find something**, and it is the user's to start.
 2. **Nothing in M0 is left that does not need the user.** What remains is `WI-M0-000` (the GitHub remote), `WI-M0-004a` and `WI-M0-009` (both need their Google Console), and the first real sign-in run. **The Supervisor work that is left is the ADR-0001 decision point and the Change Drill D9 walk on paper**, both of which M0 says happen at its end. **DF-9 does not bite here and the note that said it would was wrong**: `SecretStore` is read once, at open, and never again -- `sign` and `agree` work from the key already in memory, so a blocking D-Bus round trip at startup is a startup cost. DF-9's actual bite is `KeyStore::sign` on Android, a different trait and a per-operation call. **The open question 007d must answer is which Secret Service binding**: `libsecret` is a C dependency on every Linux build machine, and the pure-Rust `secret-service` crate brings zbus and therefore an executor into a synchronous trait
 3. **WI-M0-009**, Google OAuth on Android, Custom Tabs with AppAuth, together with WI-M0-004a. The desktop flow is done and was run end to end on 2026-08-24: a real `id_token` was obtained, its signature verified against Google's published JWKS through `fetch_jwks`, `parse_jwks` and `verify_id_token`, and a one-character tamper of the same token was rejected
 **The third action that stood here since M0 began is done.** It read "nothing in `apps/` or `tauri-plugin-tradr` calls any of it yet"; as of WI-M0-014a the key custody half does
@@ -370,8 +378,8 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | # | Content | Estimate | Status |
 |---|---|---|---|
-| **M0** | **Skeleton** — monorepo, Tauri launching on Linux and Android, Google sign-in, key generation, Attestation issue and verify | 2 weeks | **in progress** |
-| M1 | **LAN transfer**, the most important — mDNS, QUIC, transfer, resumption, drag-and-drop send | 4 weeks | todo |
+| **M0** | **Skeleton** — monorepo, Tauri launching on Linux and Android, Google sign-in, key generation, Attestation issue and verify | 2 weeks | **done 2026-08-25** |
+| M1 | **LAN transfer**, the most important — mDNS, QUIC, transfer, resumption, drag-and-drop send | 4 weeks | **in progress** |
 | M2 | Android integration — share sheet, Sharing Shortcuts, SAF, permissions | 3 weeks | todo |
 | M3 | Share browsing — VFS, boundary enforcement, the Browse plane | 3 weeks | todo |
 | M4 | Windows and macOS — builds, signing, auto-update, tray | 3 weeks | todo |
@@ -381,7 +389,19 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | M8 | Brokr — presence, rendezvous, relay, FCM, revocation list | 3 weeks | todo |
 | M9 | Finishing — security review, store submission, packaging, i18n | ongoing | todo |
 
-### Current milestone: M0, the skeleton
+### Current milestone: M1, LAN transfer
+
+**Design**: [docs/03-discovery-and-transport.md](docs/03-discovery-and-transport.md), [docs/04-protocol.md](docs/04-protocol.md)
+
+**Done when**: a file moves between two devices over the LAN and a transfer interrupted partway resumes.
+
+**Nothing has ever moved between two devices.** `Transport`, `SecureChannel` and the stream traits are declared in `tradr-core` and implemented nowhere; `tradr-transport` and `tradr-discovery` hold no implementation at all. The trust root M0 finished is what a transport authenticates against, and that is the whole of what M0 hands over.
+
+**Invariant I1 becomes enforced here**: CI's `no-brokr` job is required from M1, and every Tier 0 and Tier 1 feature must work with no Brokr. [ADR-0005](docs/adr/0005-brokr-is-optional.md) becomes a fiction the first time it does not.
+
+**Two things carry over and are not M1 work.** `WI-M0-015b`, the 41-minute Android job, wants doing before M1's push frequency rises. `WI-M0-017`, the Mac being told a Linux-shaped reason its key is in a file, is small and is the kind of thing that never gets done once a milestone moves on.
+
+#### Closed milestone: M0, the skeleton
 
 **Design**: [docs/02-architecture.md](docs/02-architecture.md), [docs/05-security.md](docs/05-security.md)
 
@@ -409,7 +429,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M0-003 | The Tauri 2 app launches on Linux | **done** — PASS, no REVISE | |
 | WI-M0-004 | The Tauri 2 Android build produces an installable APK — evidence for ADR-0001 | **done** — PASS, no REVISE. Re-cut to build-only; launching moved to WI-M0-004b | |
 | WI-M0-004b | Install the APK on the emulator and confirm the app starts — the launch half of WI-M0-004 | **done** — PASS, no REVISE | |
-| WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client — see the note below | todo | |
+| WI-M0-004a | Register the CI runner's debug keystore SHA-1 on the Android OAuth client. **Moved to M2** with WI-M0-009, for the same reason and on the same Console | moved to M2 | |
 | WI-M0-005 | Bidirectional Kotlin and Rust calls, evidence for ADR-0001 | **done** — PASS, no REVISE | |
 | WI-M0-012 | **`--locked` on CI's Rust jobs**, closing the hole WI-M0-005 fell into | **done** — PASS, no REVISE | |
 | WI-M0-005b | **`ACTION_SEND` arrives through the Tauri plugin**, ADR-0001's third withdrawal condition. Cold start and `onNewIntent` both | **done** — PASS, no REVISE | |
@@ -442,7 +462,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M0-017 | **The Mac is told something false about its own key.** Both devices displayed `no Secret Service session available`; on macOS that is not why. There is no Secret Service on macOS at all, and the real reason is that Tradr does not yet use the Keychain, which docs/05 assigns to M4. `backing_for_level` derives the reason from the `StorageLevel` alone, so a file rung always reports the Linux explanation. **`backing()` exists to tell a user the truth about where their key is and why**, and a reason naming a fixable configuration problem in place of an unimplemented platform is the same failure CLAUDE.md section 6 names, arriving as a misstatement rather than an overstatement. Needs a `SoftwareReason` variant and a DCR, since that enum is Layer 1 | todo | Yes |
 | WI-M0-015b | **The Android job costs 41 minutes**, which does not fit a free tier at every-push frequency. Almost certainly four ABIs times a release profile; a routine build should prove the toolchain, not the artifact | todo | |
 | WI-M0-016 | **The two-device exchange, and macOS.** Show this device's Attestation, verify a pasted one through `verify_attestation`, and gate the Secret Service rung to Linux so a MacBook builds | **done** -- PASS, no REVISE | Yes |
-| WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth | todo | |
+| WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth. **Moved to M2**, which is the milestone named for Android integration: M0's criterion is met without it, and leaving it here would stop a closed milestone on a Google Console only the user can reach | moved to M2 | |
 | WI-M0-010 | **Attestation policy tests, written first.** 22 tests over docs/05 steps 1 and 3 to 6 | **done** — landed with WI-M0-011 | Yes |
 | WI-M0-011 | Attestation policy: profile selection, audience set, nonce binding, staleness, `(iss, sub)` tier | **done** — PASS, no REVISE | Yes |
 | WI-M0-013 | **A CI check that STATE.md agrees with the repository**, `ci/state-sync.sh`: `last_commit` exists, `work_items_landed` matches the done rows, every `DCR-N` appears in a commit, every referenced path resolves | **done** — PASS, no REVISE | |
