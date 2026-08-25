@@ -7,3 +7,4 @@ publish.workspace = true
 
 [dependencies]
 tradr-core = { path = "../tradr-core" }
+secret-service = { version = "5", features = ["rt-async-io-crypto-rust"] }

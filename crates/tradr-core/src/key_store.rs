@@ -203,18 +203,15 @@ pub enum Backing {
 }
 
 /// Where a `SecretStore` actually reached, as opposed to what a caller
-/// asked for (docs/05-security.md, "Key storage"). `backing()` must report
-/// this, since a Secret Service that is merely unreachable and a
-/// `0600` file are different sentences to show a user, even though both
-/// are software.
+/// asked for (docs/05-security.md, "Key storage"). `backing()` must
+/// report this: a Secret Service that is merely unreachable and a
+/// `0600` file are different sentences, though both are software. Two
+/// rungs, not three (DCR-033).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageLevel {
     /// The platform's Secret Service, reached over D-Bus.
     SecretService,
-    /// The kernel keyring, reached because no Secret Service session was
-    /// available.
-    KernelKeyring,
-    /// A `0600` file, reached because neither of the above was available.
+    /// A `0600` file, reached because no Secret Service was available.
     File,
 }
 

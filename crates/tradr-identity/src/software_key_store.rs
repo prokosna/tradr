@@ -1,8 +1,8 @@
 //! An in-memory `KeyStore` over P-256 (ADR-0011, ADR-0012), with an
 //! optional load-or-generate policy over a `SecretStore` (WI-M0-007b).
-//! The three real Linux `SecretStore` backends, Secret Service, kernel
-//! keyring, a `0600` file, are WI-M0-007c; this type generates, signs,
-//! agrees, and persists through whatever `SecretStore` it is given.
+//! The two real Linux `SecretStore` backends, Secret Service and a
+//! `0600` file, are WI-M0-007d/e; this type generates, signs, agrees,
+//! and persists through whatever `SecretStore` it is given.
 
 use std::fmt;
 
@@ -95,13 +95,13 @@ impl fmt::Debug for SoftwareKeyStore {
 
 // What `backing()` reports for a `SoftwareKeyStore` opened at `level`.
 // Reaching the Secret Service is a different sentence from falling past
-// it to the keyring or a file (docs/05-security.md, "Key storage"), even
-// though every Linux level is software: none of them keeps the key from
-// coming back into this process to be used.
+// it to a file (docs/05-security.md, "Key storage"), even though both
+// Linux levels are software: neither keeps the key from coming back
+// into this process to be used.
 fn backing_for_level(level: StorageLevel) -> Backing {
     let reason = match level {
         StorageLevel::SecretService => SoftwareReason::PlatformHasNoSecureElement,
-        StorageLevel::KernelKeyring | StorageLevel::File => SoftwareReason::NoSecretService,
+        StorageLevel::File => SoftwareReason::NoSecretService,
     };
     Backing::Software(reason)
 }

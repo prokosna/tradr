@@ -1,7 +1,7 @@
 //! The pure decision of which rung of the Linux storage ladder holds a
 //! device's key (docs/05-security.md, "Descending the Linux ladder"). The
-//! three real backends, Secret Service, kernel keyring, a `0600` file, are
-//! WI-M0-007d; this module only walks whatever `SecretStore`s it is given.
+//! two real backends, Secret Service and a `0600` file, are WI-M0-007d/e;
+//! this module only walks whatever `SecretStore`s it is given.
 
 use std::fmt;
 
@@ -49,7 +49,6 @@ impl std::error::Error for LadderError {
 fn level_name(level: StorageLevel) -> &'static str {
     match level {
         StorageLevel::SecretService => "Secret Service",
-        StorageLevel::KernelKeyring => "kernel keyring",
         StorageLevel::File => "file",
     }
 }

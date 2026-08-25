@@ -197,11 +197,7 @@ fn a_store_that_cannot_be_read_is_an_error_and_never_overwritten() {
 // be used, which is the whole difference from StrongBox or a TPM.
 #[test]
 fn no_linux_storage_level_ever_reports_hardware() {
-    for level in [
-        StorageLevel::SecretService,
-        StorageLevel::KernelKeyring,
-        StorageLevel::File,
-    ] {
+    for level in [StorageLevel::SecretService, StorageLevel::File] {
         let store = FakeStore::empty(level);
         let keys = open(&store, 7).expect("open");
 
@@ -227,15 +223,12 @@ fn reaching_the_secret_service_is_reported_as_the_platform_having_no_secure_elem
 // from reaching it, and docs/05 requires a headless box to be told.
 #[test]
 fn falling_past_the_secret_service_is_reported_as_such() {
-    for level in [StorageLevel::KernelKeyring, StorageLevel::File] {
-        let store = FakeStore::empty(level);
+    let store = FakeStore::empty(StorageLevel::File);
 
-        assert_eq!(
-            open(&store, 7).expect("open").backing(),
-            Backing::Software(SoftwareReason::NoSecretService),
-            "{level:?}"
-        );
-    }
+    assert_eq!(
+        open(&store, 7).expect("open").backing(),
+        Backing::Software(SoftwareReason::NoSecretService)
+    );
 }
 
 #[test]

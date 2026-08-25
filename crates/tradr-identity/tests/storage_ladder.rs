@@ -102,7 +102,7 @@ fn a_key_on_the_only_rung_selects_that_rung() {
 #[test]
 fn a_key_on_the_lowest_rung_is_found_though_a_higher_rung_is_available() {
     let secret_service = Rung::empty(StorageLevel::SecretService);
-    let keyring = Rung::empty(StorageLevel::KernelKeyring);
+    let keyring = Rung::empty(StorageLevel::SecretService);
     let file = Rung::holding(StorageLevel::File, KEY);
 
     let chosen = select_rung(&ladder([&secret_service, &keyring, &file]), SLOT)
@@ -119,19 +119,27 @@ fn a_key_on_the_lowest_rung_is_found_though_a_higher_rung_is_available() {
 // getting it wrong makes `backing()` name storage the key is not in.
 #[test]
 fn the_rung_selected_is_the_rung_holding_the_key() {
-    let secret_service = Rung::empty(StorageLevel::SecretService);
-    let keyring = Rung::holding(StorageLevel::KernelKeyring, KEY);
+    let first = Rung::empty(StorageLevel::SecretService);
+    let holder = Rung::holding(StorageLevel::SecretService, KEY);
+    let lowest = Rung::empty(StorageLevel::File);
 
     let chosen =
-        select_rung(&ladder([&secret_service, &keyring]), SLOT).expect("the middle rung holds it");
+        select_rung(&ladder([&first, &holder, &lowest]), SLOT).expect("the middle holds it");
 
-    assert_eq!(chosen.level(), StorageLevel::KernelKeyring);
+    // Identity by counter rather than by level: the two upper rungs share
+    // a level deliberately, so returning the first instead of the one that
+    // answered cannot hide behind them being different kinds of storage.
+    let (before_first, before_holder) = (first.loads(), holder.loads());
+    let _ = chosen.load(SLOT);
+    assert_eq!(holder.loads(), before_holder + 1);
+    assert_eq!(first.loads(), before_first);
+    assert_eq!(lowest.loads(), 0);
 }
 
 #[test]
 fn a_key_on_the_highest_rung_leaves_the_lower_rungs_unread() {
     let secret_service = Rung::holding(StorageLevel::SecretService, KEY);
-    let keyring = Rung::empty(StorageLevel::KernelKeyring);
+    let keyring = Rung::empty(StorageLevel::SecretService);
     let file = Rung::empty(StorageLevel::File);
 
     let chosen = select_rung(&ladder([&secret_service, &keyring, &file]), SLOT)
@@ -157,7 +165,7 @@ fn two_rungs_holding_keys_select_the_higher() {
 #[test]
 fn an_empty_ladder_of_three_selects_the_highest_for_writing() {
     let secret_service = Rung::empty(StorageLevel::SecretService);
-    let keyring = Rung::empty(StorageLevel::KernelKeyring);
+    let keyring = Rung::empty(StorageLevel::SecretService);
     let file = Rung::empty(StorageLevel::File);
 
     let chosen = select_rung(&ladder([&secret_service, &keyring, &file]), SLOT)
@@ -169,7 +177,7 @@ fn an_empty_ladder_of_three_selects_the_highest_for_writing() {
 #[test]
 fn an_empty_ladder_of_three_reads_every_rung() {
     let secret_service = Rung::empty(StorageLevel::SecretService);
-    let keyring = Rung::empty(StorageLevel::KernelKeyring);
+    let keyring = Rung::empty(StorageLevel::SecretService);
     let file = Rung::empty(StorageLevel::File);
 
     let _ = select_rung(&ladder([&secret_service, &keyring, &file]), SLOT);
@@ -198,7 +206,7 @@ fn a_zero_byte_value_is_a_key_and_not_an_absence() {
 #[test]
 fn a_failing_highest_rung_is_an_error_and_not_a_descent() {
     let secret_service = Rung::failing(StorageLevel::SecretService);
-    let keyring = Rung::empty(StorageLevel::KernelKeyring);
+    let keyring = Rung::empty(StorageLevel::SecretService);
     let file = Rung::empty(StorageLevel::File);
 
     let outcome = select_rung(&ladder([&secret_service, &keyring, &file]), SLOT);
@@ -229,13 +237,13 @@ fn a_failing_rung_is_an_error_even_when_a_lower_rung_holds_the_key() {
 #[test]
 fn a_failing_rung_names_the_level_that_failed() {
     let secret_service = Rung::empty(StorageLevel::SecretService);
-    let keyring = Rung::failing(StorageLevel::KernelKeyring);
+    let file = Rung::failing(StorageLevel::File);
 
-    let outcome = select_rung(&ladder([&secret_service, &keyring]), SLOT);
+    let outcome = select_rung(&ladder([&secret_service, &file]), SLOT);
 
     match outcome {
         Err(LadderError::RungFailed { level, .. }) => {
-            assert_eq!(level, StorageLevel::KernelKeyring);
+            assert_eq!(level, StorageLevel::File);
         }
         Err(other) => panic!("expected the failing rung to be named, got {other:?}"),
         Ok(rung) => panic!("expected an error, got the rung at {:?}", rung.level()),
@@ -245,7 +253,7 @@ fn a_failing_rung_names_the_level_that_failed() {
 #[test]
 fn a_failing_middle_rung_stops_before_the_lowest_is_read() {
     let secret_service = Rung::empty(StorageLevel::SecretService);
-    let keyring = Rung::failing(StorageLevel::KernelKeyring);
+    let keyring = Rung::failing(StorageLevel::SecretService);
     let file = Rung::holding(StorageLevel::File, KEY);
 
     let _ = select_rung(&ladder([&secret_service, &keyring, &file]), SLOT);

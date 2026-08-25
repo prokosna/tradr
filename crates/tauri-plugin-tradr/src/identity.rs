@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, Runtime, State};
 
 use tradr_core::{Backing, KeyStore, PublicIdentity, SecretStore, SoftwareReason, StorageLevel};
 use tradr_identity::{OsRng, SoftwareKeyStore, select_rung};
-use tradr_secrets::FileStore;
+use tradr_secrets::{FileStore, SecretServiceStore};
 
 /// The slot every rung of the storage ladder uses for the Device Key.
 const DEVICE_KEY_SLOT: &str = "device-key";
@@ -52,10 +52,20 @@ fn open_identity<R: Runtime>(
         .join("keys");
 
     let file_rung = FileStore::new(keys_dir);
-    // The two rungs above the file are WI-M0-007e; today's ladder holds
-    // only this one, but it is walked through select_rung rather than
-    // used directly, so those rungs are a one-line addition later.
-    let ladder: [&dyn SecretStore; 1] = [&file_rung];
+    let secret_service_rung = SecretServiceStore::open();
+
+    // A rung that is absent is skipped by never joining the ladder at all
+    // (docs/05-security.md, "Descending the Linux ladder"), which is why
+    // this pushes conditionally rather than passing a fixed-size array.
+    let mut ladder: Vec<&dyn SecretStore> = Vec::with_capacity(2);
+    match &secret_service_rung {
+        Ok(rung) => ladder.push(rung),
+        // One line, so a headless machine without a Secret Service does
+        // not get this on every start.
+        Err(e) => eprintln!("device-identity: secret service unavailable, using file: {e}"),
+    }
+    ladder.push(&file_rung);
+
     let rung = select_rung(&ladder, DEVICE_KEY_SLOT).map_err(|e| e.to_string())?;
 
     let key_store =
@@ -98,7 +108,6 @@ fn software_reason_name(reason: SoftwareReason) -> &'static str {
 fn storage_level_name(level: StorageLevel) -> &'static str {
     match level {
         StorageLevel::SecretService => "secret service",
-        StorageLevel::KernelKeyring => "kernel keyring",
         StorageLevel::File => "file",
     }
 }
