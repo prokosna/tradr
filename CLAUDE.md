@@ -144,7 +144,9 @@ Layer 3  Driver    quinn, btleplug, mdns-sd, rustls, SAF, React, Fastify
 
 **`tradr-core` must never appear in any count.** D9 is a requirement rather than a hypothetical: [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md) records conditions under which Tauri gets dropped, so staying droppable is part of the contract.
 
-**D9 reaches one crate, the binding crate, and that is the whole budget.** A composition root has to name some shell, so demanding that `crates/` be untouched entirely was never achievable; confining the shell's name to one crate is what the drill actually buys. The check is mechanical: `grep -ril tauri crates/` must return `crates/tauri-plugin-tradr/` and nothing else.
+**D9 reaches one crate, the binding crate, and that is the whole budget.** A composition root has to name some shell, so demanding that `crates/` be untouched entirely was never achievable; confining the shell's name to one crate is what the drill actually buys.
+
+**The check is over manifests, not over text.** No `Cargo.toml` under `crates/` but `crates/tauri-plugin-tradr/`'s may name `tauri`, and `ci/layer-deps.sh` enforces exactly that on every run. **A grep over all text is the wrong instrument here and was the stated one until it was walked**: it flags a doc comment that mentions Tauri in order to explain why its file is D9-safe, which is prose about the gate defeating the gate. A dependency is what a swap has to rewrite; a sentence is not.
 
 ### D. Tests
 
