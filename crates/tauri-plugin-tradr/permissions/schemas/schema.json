@@ -305,6 +305,30 @@
           "type": "string",
           "const": "deny-device-identity",
           "markdownDescription": "Denies the device_identity command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sign_in command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sign-in",
+          "markdownDescription": "Enables the sign_in command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sign_in command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sign-in",
+          "markdownDescription": "Denies the sign_in command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sign_in_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sign-in-status",
+          "markdownDescription": "Enables the sign_in_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sign_in_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sign-in-status",
+          "markdownDescription": "Denies the sign_in_status command without any pre-configured scope."
         }
       ]
     }

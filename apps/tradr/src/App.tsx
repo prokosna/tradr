@@ -15,30 +15,84 @@ type IdentityLoadState =
 	| { status: "loaded"; snapshot: DeviceIdentitySnapshot }
 	| { status: "error"; message: string };
 
-// The app's first screen (WI-M0-014a): shows the Device Key the store
-// opened at startup, or why it could not. Design and the rest of the UI
-// belong to a later Work Item; this one proves the key store was reached.
+// Mirrors the Rust struct crates/tauri-plugin-tradr/src/sign_in.rs
+// returns from `sign_in` and `sign_in_status`.
+interface SignInOutcome {
+	issuer: string;
+	subject: string;
+	tier: string;
+}
+
+type SignInUiState =
+	| { status: "signed_out" }
+	| { status: "signing_in" }
+	| { status: "signed_in"; outcome: SignInOutcome }
+	| { status: "failed"; message: string };
+
+// The app's first screen (WI-M0-014a, WI-M0-014b): shows the Device Key
+// the store opened at startup, and lets a person sign in with Google to
+// see which account this device now belongs to. Design and the rest of
+// the UI belong to a later Work Item; this one proves both paths reach
+// the app.
 export function App() {
-	const [state, setState] = useState<IdentityLoadState>({ status: "loading" });
+	const [identity, setIdentity] = useState<IdentityLoadState>({ status: "loading" });
+	const [signIn, setSignIn] = useState<SignInUiState>({ status: "signed_out" });
 
 	useEffect(() => {
 		invoke<DeviceIdentitySnapshot>("device_identity").then(
-			(snapshot) => setState({ status: "loaded", snapshot }),
-			(error) => setState({ status: "error", message: String(error) }),
+			(snapshot) => setIdentity({ status: "loaded", snapshot }),
+			(error) => setIdentity({ status: "error", message: String(error) }),
 		);
+
+		// Restores a sign-in already completed before this reload, without
+		// running the flow again.
+		invoke<SignInOutcome | null>("sign_in_status").then((outcome) => {
+			if (outcome) {
+				setSignIn({ status: "signed_in", outcome });
+			}
+		});
 	}, []);
+
+	const startSignIn = () => {
+		setSignIn({ status: "signing_in" });
+		invoke<SignInOutcome>("sign_in").then(
+			(outcome) => setSignIn({ status: "signed_in", outcome }),
+			(error) => setSignIn({ status: "failed", message: String(error) }),
+		);
+	};
 
 	return (
 		<main>
 			<h1>Tradr</h1>
-			{state.status === "loading" && <p>Loading device identity...</p>}
-			{state.status === "error" && <p>Could not open the key store: {state.message}</p>}
-			{state.status === "loaded" && (
+			{identity.status === "loading" && <p>Loading device identity...</p>}
+			{identity.status === "error" && <p>Could not open the key store: {identity.message}</p>}
+			{identity.status === "loaded" && (
 				<p>
-					This device is {state.snapshot.device_id}. Its key is held in{" "}
-					{state.snapshot.backing}
-					{state.snapshot.reason ? ` (${state.snapshot.reason})` : ""}, at the{" "}
-					{state.snapshot.storage} storage level.
+					This device is {identity.snapshot.device_id}. Its key is held in{" "}
+					{identity.snapshot.backing}
+					{identity.snapshot.reason ? ` (${identity.snapshot.reason})` : ""}, at the{" "}
+					{identity.snapshot.storage} storage level.
+				</p>
+			)}
+
+			{signIn.status === "signed_out" && (
+				<button type="button" onClick={startSignIn}>
+					Sign in with Google
+				</button>
+			)}
+			{signIn.status === "signing_in" && <p>Signing in with Google...</p>}
+			{signIn.status === "failed" && (
+				<>
+					<p>Sign-in failed: {signIn.message}</p>
+					<button type="button" onClick={startSignIn}>
+						Try again
+					</button>
+				</>
+			)}
+			{signIn.status === "signed_in" && (
+				<p>
+					Signed in as {signIn.outcome.subject} on {signIn.outcome.issuer} (
+					{signIn.outcome.tier}).
 				</p>
 			)}
 		</main>

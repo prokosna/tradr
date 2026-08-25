@@ -13,17 +13,33 @@ use tauri::{
 #[cfg(target_os = "android")]
 mod android;
 mod identity;
+mod sign_in;
 
-/// Builds the plugin. Its setup hook opens the Device Key store once
-/// (WI-M0-014a). On Android it also demonstrates both ADR-0001 call
-/// directions with Kotlin; on every other target that part is a no-op,
-/// since there is no Kotlin side to call into or be called from.
-pub fn init<R: Runtime>() -> TauriPlugin<R> {
+use sign_in::OAuthConfig;
+
+/// Builds the plugin. Its setup hook opens the Device Key store once and
+/// manages `client_ids`/`client_secret`, this build's OAuth configuration
+/// (DCR-030) -- `None` in either means a fresh clone. On Android it also
+/// demonstrates both ADR-0001 call directions with Kotlin; on every other
+/// target that part is a no-op, since there is no Kotlin side to call into.
+pub fn init<R: Runtime>(
+    client_ids: Option<&'static str>,
+    client_secret: Option<&'static str>,
+) -> TauriPlugin<R> {
     Builder::new("tradr")
-        .invoke_handler(tauri::generate_handler![identity::device_identity])
-        .setup(|app, _api| {
+        .invoke_handler(tauri::generate_handler![
+            identity::device_identity,
+            sign_in::sign_in,
+            sign_in::sign_in_status,
+        ])
+        .setup(move |app, _api| {
             let state = identity::init_identity_state(app);
             app.manage(state);
+            app.manage(OAuthConfig {
+                client_ids,
+                client_secret,
+            });
+            app.manage(sign_in::SignInState::empty());
 
             #[cfg(target_os = "android")]
             android::demonstrate_bidirectional_calls(_api)?;

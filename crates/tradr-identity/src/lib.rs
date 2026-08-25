@@ -9,6 +9,7 @@ mod jwks_cache;
 mod os_rng;
 mod software_key_store;
 mod storage_ladder;
+mod system_clock;
 mod verify;
 
 pub use attestation::{
@@ -22,4 +23,5 @@ pub use jwks_cache::JwksCache;
 pub use os_rng::OsRng;
 pub use software_key_store::SoftwareKeyStore;
 pub use storage_ladder::{LadderError, select_rung};
+pub use system_clock::SystemClock;
 pub use verify::{Verification, VerifyError, verify_attestation};

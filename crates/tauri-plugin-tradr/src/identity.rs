@@ -6,7 +6,7 @@
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime, State};
 
-use tradr_core::{Backing, KeyStore, SecretStore, SoftwareReason, StorageLevel};
+use tradr_core::{Backing, KeyStore, PublicIdentity, SecretStore, SoftwareReason, StorageLevel};
 use tradr_identity::{OsRng, SoftwareKeyStore, select_rung};
 use tradr_secrets::FileStore;
 
@@ -25,14 +25,26 @@ pub struct DeviceIdentitySnapshot {
 
 /// The outcome of opening the key store at startup, kept as managed state
 /// so a failure here can be shown in a window instead of aborting `setup`
-/// and leaving no window at all.
-pub struct IdentityState(pub Result<DeviceIdentitySnapshot, String>);
+/// and leaving no window at all. Carries the `PublicIdentity` alongside the
+/// snapshot so `sign_in` can compute the Attestation nonce (WI-M0-014b)
+/// without opening the key store a second time.
+pub struct IdentityState(Result<(DeviceIdentitySnapshot, PublicIdentity), String>);
 
-/// Builds the storage ladder, opens the Device Key through it, and turns
-/// the result into a snapshot the frontend can render. Runs once, from
-/// the plugin's `setup` hook. Never panics: every failure becomes the
-/// `Err` side of the returned `Result`.
-pub fn open_identity<R: Runtime>(app: &AppHandle<R>) -> Result<DeviceIdentitySnapshot, String> {
+impl IdentityState {
+    /// The device's own `PublicIdentity`, as opened once at startup. Used
+    /// by `sign_in` to compute the Attestation nonce.
+    pub fn public_identity(&self) -> Result<PublicIdentity, String> {
+        self.0.clone().map(|(_, identity)| identity)
+    }
+}
+
+// Builds the storage ladder, opens the Device Key through it, and turns
+// the result into a snapshot plus the PublicIdentity it was built from.
+// Runs once, from the plugin's setup hook. Never panics: every failure
+// becomes the Err side of the returned Result.
+fn open_identity<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<(DeviceIdentitySnapshot, PublicIdentity), String> {
     let keys_dir = app
         .path()
         .app_data_dir()
@@ -52,12 +64,14 @@ pub fn open_identity<R: Runtime>(app: &AppHandle<R>) -> Result<DeviceIdentitySna
 
     let (backing, reason) = describe_backing(key_store.backing());
 
-    Ok(DeviceIdentitySnapshot {
+    let snapshot = DeviceIdentitySnapshot {
         device_id: identity.device_id().to_string(),
         backing: backing.to_string(),
         reason,
         storage: storage_level_name(rung.level()).to_string(),
-    })
+    };
+
+    Ok((snapshot, identity))
 }
 
 // Splits a Backing into the two fields the frontend renders separately:
@@ -95,11 +109,11 @@ fn storage_level_name(level: StorageLevel) -> &'static str {
 pub fn init_identity_state<R: Runtime>(app: &AppHandle<R>) -> IdentityState {
     let outcome = open_identity(app);
     match &outcome {
-        Ok(snapshot) => println!(
-            "WI-M0-014a device-identity: device_id={} backing={}",
+        Ok((snapshot, _)) => println!(
+            "device-identity: device_id={} backing={}",
             snapshot.device_id, snapshot.backing
         ),
-        Err(e) => println!("WI-M0-014a device-identity: failed to open key store: {e}"),
+        Err(e) => println!("device-identity: failed to open key store: {e}"),
     }
     IdentityState(outcome)
 }
@@ -109,5 +123,5 @@ pub fn init_identity_state<R: Runtime>(app: &AppHandle<R>) -> IdentityState {
 /// show even when the key store could not be opened.
 #[tauri::command]
 pub fn device_identity(state: State<'_, IdentityState>) -> Result<DeviceIdentitySnapshot, String> {
-    state.0.clone()
+    state.0.clone().map(|(snapshot, _)| snapshot)
 }
