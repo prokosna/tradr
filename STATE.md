@@ -35,7 +35,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ## Next three actions
 
 1. **`WI-M1-000b`, cut and not yet dispatched.** `ci/state-sync.sh` Check 2 counts `^| WI-M0-` rows only, so `work_items_landed` stopped tracking landed work the moment M1 opened, and it says so nowhere -- it simply keeps agreeing with itself. Found while committing `WI-M1-000`, which is the third instrument in one night whose failure mode was reporting success.
-2. **`WI-M1-001`**, the Critical Module DCR-037 opens. **Its tests are already written and are the Supervisor's**; the Work Order is drafted and the docs commit goes ahead of it.
+2. **`WI-M1-001`**, the Critical Module the domain-separation design change opens. **Its tests are already written and are the Supervisor's**; the Work Order is drafted and the docs commit goes ahead of it.
 3. **The branch-protection rule is still the user's to apply**, with the `gh` command in [README.md](README.md). `.githooks/pre-commit` now refuses a commit on `main` (WI-M1-000), so the rule finally has something local behind it, but a hook protects the machine that has it and nothing else.
 
 **The transport goes before discovery, and that ordering is now decided.** It was the one thing the session that closed M0 said this file should carry before either was cut. Four reasons, in the order they carry weight:
@@ -43,7 +43,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 - **A candidate can be supplied by hand and a transport cannot.** docs/03's Static Peer is an address the user typed, needing no discovery at all, so the QUIC work is provable end to end with `tradr-discovery` still empty. The reverse is not true: mDNS with no transport produces a peer list that leads nowhere and nothing about it can be demonstrated.
 - **M1's completion criterion is a file moving and an interrupted transfer resuming.** Both are transport-side. Discovery makes the product pleasant; it is not what the milestone is judged on.
 - **The transport is the first thing other than a pasted string to use the trust root M0 finished.** An Attestation verified against a peer that a certificate already authenticated is the join M0 stopped one step short of.
-- **And the ordering has already paid for itself.** Cutting the certificate work turned up DCR-037 before a line was written. Under the other order it would have surfaced three Work Items later, with `KeyStore` call sites already written against a trait that cannot sign for TLS.
+- **And the ordering has already paid for itself.** Cutting the certificate work turned up a design change before a line was written. Under the other order it would have surfaced three Work Items later, with `KeyStore` call sites already written against a trait that cannot sign for TLS.
 
 **The Work Item table for M1 is below.** It is a plan and not a promise; every entry after `WI-M1-004` is likely to be re-cut once the transport exists.
 
@@ -427,7 +427,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 |---|---|---|---|
 | WI-M1-000 | **Two instruments that do not instrument.** `ci/comment-lang.sh`'s awk was rejected by GNU awk under a UTF-8 locale and the script reported `passed` anyway; `ci/state-sync.sh` Check 5 made `main` permanently red | **done** -- PASS, no REVISE | |
 | WI-M1-000b | **Check 2 counts `WI-M0-` rows only**, so `work_items_landed` stopped meaning anything the moment M1 opened, while continuing to agree with itself | todo | |
-| WI-M1-001 | **A `DomainTag` names a separation** (DCR-037). `CertificateTbs` and `TlsCertificateVerify` require a prefix the message already carries instead of prepending one, so the QUIC handshake signs through `KeyStore` and ADR-0011's hardware backing survives. Critical Module, Supervisor tests first | todo | Yes |
+| WI-M1-001 | **A `DomainTag` names a separation.** `CertificateTbs` and `TlsCertificateVerify` require a prefix the message already carries instead of prepending one, so the QUIC handshake signs through `KeyStore` and ADR-0011's hardware backing survives. Critical Module, Supervisor tests first | todo | Yes |
 | WI-M1-002 | **The self-signed certificate**: a DER `TBSCertificate` whose SPKI is the identity public key, signed through `KeyStore`, and the SPKI-to-`DeviceId` derivation a verifier needs | todo | Yes |
 | WI-M1-003 | **`rustls` against `KeyStore`**: the external signer, and the certificate verifiers that pin on the peer's SPKI rather than validating a chain. Mutual TLS in both directions | todo | Yes |
 | WI-M1-004 | **`QuicTransport`**: `Transport`, `Incoming` and `SecureChannel` over `quinn`. **Decision 18 must be settled before this is cut** | todo | |
