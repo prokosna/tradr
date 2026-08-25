@@ -52,6 +52,7 @@ files=$(find crates packages -type f \( -name '*.rs' -o -name '*.ts' \) \
 	-not -path '*/target/*' \
 	-not -path '*/node_modules/*' \
 	-not -path 'packages/protocol/src/gen/*' \
+	-not -path 'packages/*/dist/*' \
 	-not -path '*/.git/*' 2> /dev/null)
 
 hits=$(printf '%s\n' "$files" | while IFS= read -r f; do

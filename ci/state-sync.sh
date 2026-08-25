@@ -71,9 +71,13 @@ fi
 
 # --- Check 2: work_items_landed matches the count of Work Item rows marked done ---
 # WI-M0-010 and WI-M0-011 landed in a single commit and hold two rows, so
-# rows are what is counted here, never commits.
+# rows are what is counted here, never commits. The milestone number is a
+# wildcard -- WI-M0-, WI-M1-, and every later milestone -- so this keeps
+# counting once a new milestone opens. Anchored at line start so only a
+# row's first cell counts: the same id inside prose or a later cell, as the
+# Deferred table's last column holds, never starts a line with "| WI-M".
 declared_count=$(grep -m1 '^work_items_landed:' "$STATE_FILE" | sed -e 's/^work_items_landed:[[:space:]]*//' -e 's/[[:space:]]*$//')
-actual_count=$(awk '/^\| WI-M0-/ && /\*\*done\*\*/ { n++ } END { print n + 0 }' "$STATE_FILE")
+actual_count=$(awk '/^\| WI-M[0-9]+-/ && /\*\*done\*\*/ { n++ } END { print n + 0 }' "$STATE_FILE")
 if [ -z "$declared_count" ]; then
 	echo "STATE.md: work_items_landed field is missing from the yaml block"
 	status=1
