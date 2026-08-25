@@ -12,7 +12,7 @@ current_milestone: M0
 branch: m0-skeleton
 implementation_started: true
 work_items_landed: 48
-last_commit: 5e2df20
+last_commit: 5bf61b3
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -24,7 +24,9 @@ repo_initialized: true (local only, no remote yet)
 
 **M0 is under way. Nothing is blocked, and nothing is in flight unless the In flight block below says so.**
 
-**No two devices have ever spoken, and that is what M0 finishes on.** Verifying a peer's Attestation is complete end to end and reaches the real network; moving a file between two machines does not exist at all, because no `Transport` has an implementation yet.
+**The trust root works, end to end, on a real machine.** On 2026-08-25 the user ran the built desktop app, pressed sign in, and got back an account and `TrustTier::SameAccount`. That tier is the load-bearing part rather than the account name: it comes back only when the `id_token`'s nonce equals `BLAKE3(identity_pub || agreement_pub)` over **this device's** two keys and its `aud` is in the deployment's client set. A device now demonstrably proves which account it belongs to **with no Tradr backend anywhere in the path**. Steps 2 to 16 of that flow had never run before that moment.
+
+**What it does not show is the thing M0 finishes on: no two devices have ever spoken.** One device mints an Attestation and verifies its own. Two devices exchanging them by hand, each verifying the other, needs a second device and has not been done. Verifying a peer's Attestation is complete end to end and reaches the real network; moving a file between two machines does not exist at all, because no `Transport` has an implementation yet.
 
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
