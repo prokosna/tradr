@@ -12,8 +12,8 @@ use p256::elliptic_curve::sec1::ToEncodedPoint;
 use p256::{FieldBytes, PublicKey, SecretKey};
 
 use tradr_core::{
-    Backing, DEVICE_ID_LEN, DeviceId, DomainTag, KeyStore, KeyStoreError, PublicIdentity,
-    PublicKeyPoint, Rng, SecretStore, SharedSecret, Signature, SoftwareReason, StorageLevel,
+    Backing, DeviceId, DomainTag, KeyStore, KeyStoreError, PublicIdentity, PublicKeyPoint, Rng,
+    SecretStore, SharedSecret, Signature, SoftwareReason, StorageLevel,
 };
 
 /// The stored form's version byte. A stored value carrying any other byte
@@ -218,8 +218,7 @@ impl KeyStore for SoftwareKeyStore {
         let agreement_pub = public_key_point(agreement_point.as_bytes())?;
 
         let hash = blake3::hash(identity_pub.as_bytes());
-        let device_id = DeviceId::from_bytes(&hash.as_bytes()[..DEVICE_ID_LEN])
-            .map_err(|e| KeyStoreError::Backend(Box::new(e)))?;
+        let device_id = DeviceId::from_identity_digest(hash.as_bytes());
 
         Ok(PublicIdentity::new(identity_pub, agreement_pub, device_id))
     }
