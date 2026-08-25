@@ -5,8 +5,8 @@
 # every DCR-N already committed into STATE.md must reach a commit message
 # (one the working tree is only now adding is exempt -- it has no commit yet
 # by construction), every repository path the file references must resolve,
-# and the declared branch must match the branch actually checked out. Never
-# writes STATE.md.
+# a non-main declared branch must match the branch actually checked out, and
+# the declared branch must never be "main" itself. Never writes STATE.md.
 set -u
 
 CHECK_NAME=state-sync
@@ -71,9 +71,13 @@ fi
 
 # --- Check 2: work_items_landed matches the count of Work Item rows marked done ---
 # WI-M0-010 and WI-M0-011 landed in a single commit and hold two rows, so
-# rows are what is counted here, never commits.
+# rows are what is counted here, never commits. The milestone number is a
+# wildcard -- WI-M0-, WI-M1-, and every later milestone -- so this keeps
+# counting once a new milestone opens. Anchored at line start so only a
+# row's first cell counts: the same id inside prose or a later cell, as the
+# Deferred table's last column holds, never starts a line with "| WI-M".
 declared_count=$(grep -m1 '^work_items_landed:' "$STATE_FILE" | sed -e 's/^work_items_landed:[[:space:]]*//' -e 's/[[:space:]]*$//')
-actual_count=$(awk '/^\| WI-M0-/ && /\*\*done\*\*/ { n++ } END { print n + 0 }' "$STATE_FILE")
+actual_count=$(awk '/^\| WI-M[0-9]+-/ && /\*\*done\*\*/ { n++ } END { print n + 0 }' "$STATE_FILE")
 if [ -z "$declared_count" ]; then
 	echo "STATE.md: work_items_landed field is missing from the yaml block"
 	status=1
@@ -163,20 +167,29 @@ if [ -n "$path_hits" ]; then
 	status=1
 fi
 
-# --- Check 5: the current branch matches STATE.md's branch field ---
+# --- Check 5a: a non-main current branch matches STATE.md's branch field ---
 # A detached HEAD is a bisect or an old-commit checkout, not a commit landing
-# on the wrong branch, so it is skipped rather than failed. A directory that
-# is not a git repository at all is likewise skipped; git's own stderr is
-# discarded so its absence does not leak into this script's output.
+# on the wrong branch, so it is skipped rather than failed. Arriving on main
+# is a merge landing, not a commit on the wrong branch, so main is skipped
+# too. A directory that is not a git repository at all is likewise skipped;
+# git's own stderr is discarded so its absence does not leak into this output.
 declared_branch=$(grep -m1 '^branch:' "$STATE_FILE" | sed -e 's/^branch:[[:space:]]*//' -e 's/[[:space:]]*$//')
 if [ -z "$declared_branch" ]; then
 	echo "STATE.md: branch field is missing from the yaml block"
 	status=1
 elif current_branch=$(git rev-parse --abbrev-ref HEAD 2> /dev/null); then
-	if [ "$current_branch" != "HEAD" ] && [ "$current_branch" != "$declared_branch" ]; then
+	if [ "$current_branch" != "HEAD" ] && [ "$current_branch" != "main" ] && [ "$current_branch" != "$declared_branch" ]; then
 		echo "STATE.md: branch says '$declared_branch', but the current branch is '$current_branch'"
 		status=1
 	fi
+fi
+
+# --- Check 5b: the declared branch is never "main" itself ---
+# STATE.md naming main as the work branch is the state in which the next
+# Work Item commit lands directly on main, which section 5 forbids.
+if [ "$declared_branch" = "main" ]; then
+	echo "STATE.md: branch field is 'main' -- a Work Item must not be declared as building on main"
+	status=1
 fi
 
 exit $status

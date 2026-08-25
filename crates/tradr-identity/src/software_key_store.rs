@@ -225,8 +225,9 @@ impl KeyStore for SoftwareKeyStore {
     }
 
     fn sign(&self, domain: DomainTag, message: &[u8]) -> Result<Signature, KeyStoreError> {
-        let mut payload = domain.prefix().to_vec();
-        payload.extend_from_slice(message);
+        let payload = domain
+            .payload(message)
+            .map_err(KeyStoreError::DomainSeparation)?;
 
         // RFC 6979 deterministic signing: the nonce comes from the private
         // key and the message, never from `rng`. See docs/05-security.md.

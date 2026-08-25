@@ -11,6 +11,11 @@ cd "$ROOT_DIR" || exit 1
 
 status=0
 
+# Records which files' awk invocation itself failed, so a tool crash is
+# never mistaken for a clean scan (see the check below the awk call).
+AWK_FAIL_FILE=$(mktemp) || exit 1
+trap 'rm -f "$AWK_FAIL_FILE"' EXIT
+
 # --- Validate the allowlist file itself: an empty reason fails every check ---
 if [ -f "$ALLOWLIST" ]; then
 	while IFS='|' read -r a_check a_path a_reason; do
@@ -47,11 +52,14 @@ files=$(find crates packages -type f \( -name '*.rs' -o -name '*.ts' \) \
 	-not -path '*/target/*' \
 	-not -path '*/node_modules/*' \
 	-not -path 'packages/protocol/src/gen/*' \
+	-not -path 'packages/*/dist/*' \
 	-not -path '*/.git/*' 2> /dev/null)
 
 hits=$(printf '%s\n' "$files" | while IFS= read -r f; do
 	[ -n "$f" ] || continue
-	awk -v fname="$f" '
+	# LC_ALL=C: GNU awk in a UTF-8 locale rejects [\200-\377] as an invalid
+	# collating range; under C, every awk compares it as raw bytes.
+	LC_ALL=C awk -v fname="$f" '
 	function extract(line,    i, n, two, rest, p, seg, out) {
 		n = length(line)
 		i = 1
@@ -98,8 +106,15 @@ hits=$(printf '%s\n' "$files" | while IFS= read -r f; do
 			print fname ":" FNR
 		}
 	}
-	' "$f"
+	' "$f" || echo "$f" >> "$AWK_FAIL_FILE"
 done)
+
+if [ -s "$AWK_FAIL_FILE" ]; then
+	while IFS= read -r failed_file; do
+		echo "comment-lang: awk failed to scan '$failed_file'" >&2
+	done < "$AWK_FAIL_FILE"
+	status=1
+fi
 
 # Command substitution runs in a subshell but its stdout is captured back
 # into the parent, so this is where "status" must be decided.

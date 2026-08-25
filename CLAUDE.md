@@ -235,9 +235,24 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 
 ### Branches
 
-- One branch per milestone: `m0-skeleton`, `m1-lan-transfer`
-- Never commit directly to `main`
-- Merge to `main` once the milestone's completion criteria are met
+- **One branch per Work Item**, named for it: `wi-m1-001-mdns-discovery`
+- **One pull request per Work Item**, opened after the review passes and merged when CI is green
+- Never commit directly to `main`, and never push to it. **Branch protection enforces this**, because the rule alone did not: 73 commits landed on `main` before anyone noticed
+- `main` is always green. A milestone is finished when its completion criteria are met, not when a branch merges
+
+**This replaced one branch per milestone at the start of M1.** A milestone branch meant CI could only run on a `push` trigger, one pull request every four weeks, and a branch check that `actions/checkout` skips. Per Work Item, the pull request *is* the gate.
+
+### The pre-commit hook is not optional
+
+**Every commit passes the full local gate first**, and a hook enforces it rather than a habit:
+
+```
+sh ci/run-all.sh && cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+```
+
+It lives in the repository under `.githooks/` with `core.hooksPath` pointing at it, so it is version-controlled and arrives with a clone rather than being set up per machine. **It costs minutes and that is the right price**: the Supervisor commits once per Work Item, after a review has already passed, so the gate runs when there is something worth gating.
+
+**Never `--no-verify`.** A gate that is bypassed once has a known innocent explanation the next time, and that is the occasion it is not innocent.
 
 ### Forbidden
 

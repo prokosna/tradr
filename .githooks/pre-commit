@@ -1,0 +1,44 @@
+#!/bin/sh
+# DCR-036's local gate: every commit passes ci/run-all.sh, cargo fmt,
+# cargo clippy and cargo test, in that order, stopping at the first
+# failure. Enabled per clone via `git config core.hooksPath .githooks`
+# (see README.md) -- git does not turn this on by itself, so a clone
+# that never ran that command gets no protection from this file at all.
+#
+# Runs the full suite rather than only what touches staged files: this
+# fires once per Work Item, after a review has already passed, so
+# completeness is worth more here than speed. The only fast path is
+# skipping entirely when nothing is staged, since there is then nothing
+# for any of the four stages to judge either way.
+set -u
+
+ROOT_DIR=$(git rev-parse --show-toplevel) || exit 1
+cd "$ROOT_DIR" || exit 1
+
+if git diff --cached --quiet; then
+	exit 0
+fi
+
+# CLAUDE.md section 5: never commit directly to main. A detached HEAD
+# reports "HEAD" here, not "main", so it is not refused.
+current_branch=$(git rev-parse --abbrev-ref HEAD 2> /dev/null)
+if [ "$current_branch" = "main" ]; then
+	echo "pre-commit: refusing to commit directly to main" >&2
+	exit 1
+fi
+
+run_stage() {
+	stage_name="$1"
+	shift
+	if ! "$@"; then
+		echo "pre-commit: FAILED at stage: $stage_name" >&2
+		exit 1
+	fi
+}
+
+run_stage "ci/run-all.sh" sh ci/run-all.sh
+run_stage "cargo fmt --check" cargo fmt --check
+run_stage "cargo clippy --workspace --all-targets -- -D warnings" cargo clippy --workspace --all-targets -- -D warnings
+run_stage "cargo test --workspace" cargo test --workspace
+
+exit 0

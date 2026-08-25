@@ -44,6 +44,36 @@ Decisions are recorded in [docs/adr/](docs/adr/).
 
 Implementation is done by a cheap model (the Implementer) and reviewed by an expensive one (the Supervisor). Progress lives in `STATE.md` so that an agent with no context can take over as Supervisor at any moment — see [ADR-0009](docs/adr/0009-supervised-implementation-loop.md).
 
+**Enable the pre-commit hook once per clone.** `core.hooksPath` is a per-clone git config setting; it does not arrive with a `git clone` on its own:
+
+```
+git config core.hooksPath .githooks
+```
+
+This turns on the local gate that CLAUDE.md section 5 describes: `ci/run-all.sh`, `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, then `cargo test --workspace`, in that order, before any commit is created. **`git commit --no-verify` is forbidden** — it is the one way to make a commit that skips this gate, and `ci/hooks-executable.sh` can confirm the hook file is in place and executable, but nothing in the repository can confirm a given clone actually ran the command above.
+
+**Branch protection on `main`** is a GitHub repository setting, not something this repository can turn on itself. Run once, by whoever administers the repository:
+
+```
+gh api -X PUT repos/prokosna/tradr/branches/main/protection --input - <<'EOF'
+{
+  "required_status_checks": {
+    "strict": true,
+    "contexts": ["checks", "rust", "web", "desktop", "android-debug-smoke (aarch64, debug only -- not the release toolchain check)"]
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 0
+  },
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+EOF
+```
+
+That refuses direct pushes to `main` (including the administrator's own), requires a pull request, and requires the checks that actually run on a pull request to pass before merging. `android-release-toolchain` is deliberately absent from `contexts`: it runs only on `schedule` and on `push` to `main` (see `.github/workflows/ci.yml`), never on a pull request, so requiring it would leave every pull request blocked on a check that never runs against it.
+
 ## Setting it up
 
 **Tradr ships with no OAuth credentials.** Every deployment registers its own Google Cloud project, which is what makes each deployment a self-contained trust domain. See [docs/05](docs/05-security.md#oauth-client-configuration) for why.
