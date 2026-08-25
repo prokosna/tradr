@@ -11,8 +11,8 @@ phase: implementing
 current_milestone: M1
 branch: m1-lan-transfer
 implementation_started: true
-work_items_landed: 50
-last_commit: 47fb30f
+work_items_landed: 51
+last_commit: 10e4fa5
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -459,8 +459,9 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M0-014b | **Sign in, and show the account.** The desktop OAuth flow, the Attestation minted and verified, rendered. `SystemClock` arrived with it | **done** -- PASS after one REVISE | Yes |
 | WI-M0-014c | **The frontend could not reach the plugin.** Commands registered on a plugin are addressed `plugin:tradr|<command>`; `App.tsx` invoked the bare names. `ci/invoke-commands.sh` now checks every `invoke` literal against `build.rs`'s `COMMANDS` | **done** -- PASS, no REVISE | Yes |
 | WI-M0-015 | **CI**: five jobs -- the seven `ci/` checks, the Rust gates, the web gates, the desktop build and the Android build. Closes the last of ADR-0001's three withdrawal conditions once it is green | **done** -- PASS, no REVISE | Yes |
+| WI-M0-018 | **DCR-036's instruments**: the `pull_request`-only trigger, the `.githooks/` pre-commit gate under `core.hooksPath`, and the branch-protection rule on `main` the user sets. **Until this lands the new model is a rule with nothing behind it**, which is the condition every broken rule in this repository was in | todo | Yes |
 | WI-M0-017 | **The Mac is told something false about its own key.** Both devices displayed `no Secret Service session available`; on macOS that is not why. There is no Secret Service on macOS at all, and the real reason is that Tradr does not yet use the Keychain, which docs/05 assigns to M4. `backing_for_level` derives the reason from the `StorageLevel` alone, so a file rung always reports the Linux explanation. **`backing()` exists to tell a user the truth about where their key is and why**, and a reason naming a fixable configuration problem in place of an unimplemented platform is the same failure CLAUDE.md section 6 names, arriving as a misstatement rather than an overstatement. Needs a `SoftwareReason` variant and a DCR, since that enum is Layer 1 | todo | Yes |
-| WI-M0-015b | **The Android job costs 41 minutes**, which does not fit a free tier at every-push frequency. Almost certainly four ABIs times a release profile; a routine build should prove the toolchain, not the artifact | todo | |
+| WI-M0-015b | **The Android job costs 41 minutes.** Split into a one-ABI debug smoke build on every change and a four-ABI release build weekly and on `main`, with the SDK, NDK and per-target cargo artifacts cached | **done** -- PASS, no REVISE | |
 | WI-M0-016 | **The two-device exchange, and macOS.** Show this device's Attestation, verify a pasted one through `verify_attestation`, and gate the Secret Service rung to Linux so a MacBook builds | **done** -- PASS, no REVISE | Yes |
 | WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth. **Moved to M2**, which is the milestone named for Android integration: M0's criterion is met without it, and leaving it here would stop a closed milestone on a Google Console only the user can reach | moved to M2 | |
 | WI-M0-010 | **Attestation policy tests, written first.** 22 tests over docs/05 steps 1 and 3 to 6 | **done** — landed with WI-M0-011 | Yes |
