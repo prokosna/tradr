@@ -7,7 +7,7 @@
 use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature as P256Signature, VerifyingKey};
 use std::cell::Cell;
-use tradr_core::{Backing, DomainTag, KeyStore, Rng, RngError};
+use tradr_core::{Backing, DomainTag, KeyStore, Rng, RngError, Separation};
 use tradr_identity::SoftwareKeyStore;
 
 /// A deterministic byte stream, so "same seed, same key" is a testable
@@ -92,10 +92,27 @@ fn identity_of(store: &SoftwareKeyStore) -> tradr_core::PublicIdentity {
     }
 }
 
+// Built from the tag rather than from a literal, so a test cannot agree
+// with a wrong implementation by having been written against the same
+// mistake. The pure half of this is crates/tradr-core/tests/domain_tag.rs.
 fn signed_payload(domain: DomainTag, message: &[u8]) -> Vec<u8> {
-    let mut payload = domain.prefix().to_vec();
-    payload.extend_from_slice(message);
-    payload
+    match domain.payload(message) {
+        Ok(payload) => payload.into_owned(),
+        Err(e) => panic!("payload must succeed for a well-formed message, got {e}"),
+    }
+}
+
+// A message each tag accepts: the four tagged ones take anything, and the
+// two structural ones must arrive already carrying their own preamble.
+fn well_formed_message(domain: DomainTag) -> Vec<u8> {
+    match domain.separation() {
+        Separation::Prepended(_) => b"message".to_vec(),
+        Separation::Required(required) => {
+            let mut message = required.to_vec();
+            message.extend_from_slice(b"the rest of the structure");
+            message
+        }
+    }
 }
 
 // Verifies through `p256` rather than through the crate under test.
@@ -202,20 +219,78 @@ fn generation_gives_up_rather_than_retrying_forever() {
 // --- Signing ------------------------------------------------------------
 
 #[test]
-fn a_signature_verifies_under_its_own_domain_tag() {
-    for domain in [
-        DomainTag::KeyBind,
-        DomainTag::Hello,
-        DomainTag::BrokrChallenge,
-        DomainTag::Revoke,
-    ] {
+fn a_signature_verifies_under_every_one_of_the_six_contexts() {
+    for domain in DomainTag::ALL {
         let s = store(5);
-        let signature = sign(&s, domain, b"message");
+        let message = well_formed_message(*domain);
+        let signature = sign(&s, *domain, &message);
         assert!(
-            verifies(&s, domain, b"message", &signature),
+            verifies(&s, *domain, &message, &signature),
             "{domain:?} signature must verify against identity_pub"
         );
     }
+}
+
+#[test]
+fn a_structural_context_signs_the_message_with_nothing_added() {
+    // A peer checking the certificate reconstructs the TBS bytes and
+    // nothing else, so a store that prepends anything here produces a
+    // signature no peer can verify, surfacing as a handshake that never
+    // completes rather than as anything naming the cause.
+    let s = store(5);
+    let tbs = well_formed_message(DomainTag::CertificateTbs);
+    let signature = sign(&s, DomainTag::CertificateTbs, &tbs);
+
+    let identity = identity_of(&s);
+    let Ok(key) = VerifyingKey::from_sec1_bytes(identity.identity_pub().as_bytes()) else {
+        panic!("identity_pub must be a valid SEC-1 point");
+    };
+    let Ok(parsed) = P256Signature::from_slice(&signature) else {
+        panic!("a signature must be 64 raw bytes");
+    };
+
+    assert!(
+        key.verify(&tbs, &parsed).is_ok(),
+        "the signature must be over the TBS bytes exactly as given"
+    );
+}
+
+#[test]
+fn signing_is_refused_when_a_structural_context_has_no_preamble() {
+    let s = store(5);
+
+    for domain in [DomainTag::CertificateTbs, DomainTag::TlsCertificateVerify] {
+        assert!(
+            s.sign(domain, b"opaque bytes somebody handed me").is_err(),
+            "{domain:?} must refuse a message that carries no separation"
+        );
+    }
+}
+
+#[test]
+fn a_structural_context_refuses_a_tagged_contexts_message() {
+    // What stops the two prefixless contexts from becoming the escape
+    // hatch docs/05 says the closed set exists to prevent.
+    let s = store(5);
+    let mut borrowed = b"tradr-hello-v1".to_vec();
+    borrowed.extend_from_slice(b"a peer's nonce");
+
+    assert!(
+        s.sign(DomainTag::CertificateTbs, &borrowed).is_err(),
+        "a Hello message must not be signable as a certificate"
+    );
+}
+
+#[test]
+fn a_structural_signature_does_not_verify_under_a_tagged_context() {
+    let s = store(5);
+    let tbs = well_formed_message(DomainTag::CertificateTbs);
+    let signature = sign(&s, DomainTag::CertificateTbs, &tbs);
+
+    assert!(
+        !verifies(&s, DomainTag::Hello, &tbs, &signature),
+        "a certificate signature must not verify as a Hello signature"
+    );
 }
 
 #[test]
@@ -236,19 +311,31 @@ fn a_signature_does_not_verify_under_another_domain_tag() {
 
 #[test]
 fn every_domain_tag_produces_a_different_signature_over_one_message() {
+    // Begins with DER's 0x30, so five of the six tags accept it: the four
+    // that prepend, and CertificateTbs. No message reaches all six, since
+    // the two structural tags require first bytes that exclude each other,
+    // and the sixth is asserted to refuse it rather than left out.
+    let message = [0x30u8, 0x82, 0x01, 0x0a, 0x02, 0x03];
     let s = store(5);
     let mut seen = std::collections::HashSet::new();
+
     for domain in [
         DomainTag::KeyBind,
         DomainTag::Hello,
         DomainTag::BrokrChallenge,
         DomainTag::Revoke,
+        DomainTag::CertificateTbs,
     ] {
         assert!(
-            seen.insert(sign(&s, domain, b"same message")),
+            seen.insert(sign(&s, domain, &message)),
             "{domain:?} produced a signature already seen under another tag"
         );
     }
+
+    assert!(
+        s.sign(DomainTag::TlsCertificateVerify, &message).is_err(),
+        "no single message is well formed for both structural tags"
+    );
 }
 
 #[test]

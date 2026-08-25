@@ -27,9 +27,9 @@ pub use device_id::{DEVICE_ID_LEN, DeviceId, DeviceIdError};
 pub use future::BoxFuture;
 pub use item_id::{ITEM_ID_MAX_LEN, ItemId, ItemIdError};
 pub use key_store::{
-    Backing, DomainTag, KeyStore, KeyStoreError, PUBLIC_KEY_POINT_LEN, PublicIdentity,
-    PublicKeyPoint, PublicKeyPointError, SecretStore, SecretStoreError, SharedSecret, Signature,
-    SoftwareReason, StorageLevel,
+    Backing, DomainTag, KeyStore, KeyStoreError, MissingSeparation, PUBLIC_KEY_POINT_LEN,
+    PublicIdentity, PublicKeyPoint, PublicKeyPointError, SecretStore, SecretStoreError, Separation,
+    SharedSecret, Signature, SoftwareReason, StorageLevel,
 };
 pub use rel_path::{REL_PATH_COMPONENT_MAX_LEN, RelPath, RelPathError};
 pub use rng::{Rng, RngError};

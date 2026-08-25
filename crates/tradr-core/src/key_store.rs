@@ -4,6 +4,7 @@
 //! the Secure Enclave cannot be read out, so a trait handing back key
 //! material could only ever be software.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::DeviceId;
@@ -98,6 +99,20 @@ impl PublicIdentity {
     }
 }
 
+/// How a `DomainTag` separates its signed bytes from every other
+/// context's (docs/05-security.md, "Two contexts admit no prefix, and the
+/// structure is checked rather than argued"). Most contexts choose their
+/// own message and get a tag prepended; two sign a structure someone else
+/// fixed and instead require the message to already begin with theirs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Separation {
+    /// Prepended to the message before signing.
+    Prepended(&'static [u8]),
+    /// The message must already begin with these bytes; signing is
+    /// refused when it does not.
+    Required(&'static [u8]),
+}
+
 /// The closed set of contexts an identity-key signature can be over
 /// (docs/05-security.md, "Every signature carries a domain tag"). Closed
 /// rather than a free string: otherwise a Brokr can hand a device an
@@ -115,19 +130,98 @@ pub enum DomainTag {
     BrokrChallenge,
     /// Declares a device revoked.
     Revoke,
+    /// Signs the self-signed TLS certificate's `TBSCertificate`: X.509
+    /// fixes that structure, so no tag can be prepended to it.
+    CertificateTbs,
+    /// Signs TLS 1.3's `CertificateVerify` content, whose preamble RFC
+    /// 8446 fixes, covering both the client and server spellings.
+    TlsCertificateVerify,
 }
 
+// RFC 8446 4.4.3's CertificateVerify preamble: sixty-four 0x20 bytes then
+// "TLS 1.3, ". Built by a const-evaluated loop so the space count is
+// provably right rather than typed out and hand-counted.
+const TLS_CERTIFICATE_VERIFY_SPACES: usize = 64;
+const TLS_CERTIFICATE_VERIFY_SUFFIX: &[u8] = b"TLS 1.3, ";
+const TLS_CERTIFICATE_VERIFY_PREFIX_LEN: usize =
+    TLS_CERTIFICATE_VERIFY_SPACES + TLS_CERTIFICATE_VERIFY_SUFFIX.len();
+const TLS_CERTIFICATE_VERIFY_PREFIX: [u8; TLS_CERTIFICATE_VERIFY_PREFIX_LEN] = {
+    let mut bytes = [0x20u8; TLS_CERTIFICATE_VERIFY_PREFIX_LEN];
+    let mut i = 0;
+    while i < TLS_CERTIFICATE_VERIFY_SUFFIX.len() {
+        bytes[TLS_CERTIFICATE_VERIFY_SPACES + i] = TLS_CERTIFICATE_VERIFY_SUFFIX[i];
+        i += 1;
+    }
+    bytes
+};
+
 impl DomainTag {
-    /// The byte string this tag prepends to the message before signing.
-    pub fn prefix(self) -> &'static [u8] {
+    /// All six contexts, for tests and callers that must check a
+    /// property over the whole closed set rather than over an
+    /// enumeration they wrote out by hand.
+    pub const ALL: &'static [DomainTag] = &[
+        Self::KeyBind,
+        Self::Hello,
+        Self::BrokrChallenge,
+        Self::Revoke,
+        Self::CertificateTbs,
+        Self::TlsCertificateVerify,
+    ];
+
+    /// The separation this tag imposes on a message before signing.
+    pub fn separation(self) -> Separation {
         match self {
-            Self::KeyBind => b"tradr-keybind-v1",
-            Self::Hello => b"tradr-hello-v1",
-            Self::BrokrChallenge => b"tradr-brokr-v1",
-            Self::Revoke => b"tradr-revoke-v1",
+            Self::KeyBind => Separation::Prepended(b"tradr-keybind-v1"),
+            Self::Hello => Separation::Prepended(b"tradr-hello-v1"),
+            Self::BrokrChallenge => Separation::Prepended(b"tradr-brokr-v1"),
+            Self::Revoke => Separation::Prepended(b"tradr-revoke-v1"),
+            Self::CertificateTbs => Separation::Required(&[0x30]),
+            Self::TlsCertificateVerify => Separation::Required(&TLS_CERTIFICATE_VERIFY_PREFIX),
+        }
+    }
+
+    /// Builds the exact bytes `KeyStore::sign` must sign for `message`
+    /// under this tag: `tag || message`, owned, for `Prepended`;
+    /// `message` itself, borrowed, when `Required`'s prefix is already
+    /// present. Refuses a message lacking that prefix, so the policy
+    /// lives here once rather than in every `KeyStore` implementation.
+    pub fn payload(self, message: &[u8]) -> Result<Cow<'_, [u8]>, MissingSeparation> {
+        match self.separation() {
+            Separation::Prepended(tag) => {
+                let mut bytes = Vec::with_capacity(tag.len() + message.len());
+                bytes.extend_from_slice(tag);
+                bytes.extend_from_slice(message);
+                Ok(Cow::Owned(bytes))
+            }
+            Separation::Required(required) => {
+                if message.starts_with(required) {
+                    Ok(Cow::Borrowed(message))
+                } else {
+                    Err(MissingSeparation(self))
+                }
+            }
         }
     }
 }
+
+/// A `DomainTag::payload` call refused a message that did not carry the
+/// tag's required separation. Names the tag that refused; says nothing
+/// about the message, so a refusal cannot leak into a log what it
+/// refused (rule F4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissingSeparation(DomainTag);
+
+impl fmt::Display for MissingSeparation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "message does not carry the separation {:?} requires",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for MissingSeparation {}
 
 /// A signature produced by `KeyStore::sign`, opaque to Layer 1: this crate
 /// neither encodes nor verifies it, only carries the bytes an
@@ -263,12 +357,16 @@ pub enum KeyStoreError {
     /// The underlying platform key store failed; its own error is
     /// preserved.
     Backend(Box<dyn std::error::Error + Send + Sync>),
+    /// `sign` was asked for a signature over a message whose `DomainTag`
+    /// required a separation the message did not carry.
+    DomainSeparation(MissingSeparation),
 }
 
 impl fmt::Display for KeyStoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Backend(e) => write!(f, "key store backend error: {e}"),
+            Self::DomainSeparation(e) => write!(f, "{e}"),
         }
     }
 }
@@ -277,6 +375,7 @@ impl std::error::Error for KeyStoreError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Backend(e) => Some(e.as_ref()),
+            Self::DomainSeparation(e) => Some(e),
         }
     }
 }
@@ -288,9 +387,11 @@ pub trait KeyStore {
     /// The device's public identity: its two public keys and `DeviceId`.
     fn public_identity(&self) -> Result<PublicIdentity, KeyStoreError>;
 
-    /// Signs `message` under `domain`, which supplies the byte string
-    /// prepended before signing so the result cannot be replayed as a
-    /// signature over a different context.
+    /// Signs `message` under `domain`, whose `separation` decides how the
+    /// message is combined with the tag before signing (`DomainTag::
+    /// payload`) so the result cannot be replayed as a signature over a
+    /// different context. Fails when `message` does not carry a
+    /// `Required` separation's prefix.
     fn sign(&self, domain: DomainTag, message: &[u8]) -> Result<Signature, KeyStoreError>;
 
     /// Performs ECDH against a peer's agreement public key, returning the
@@ -308,15 +409,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn domain_tag_prefixes_match_docs_05_literally() {
-        assert_eq!(DomainTag::KeyBind.prefix(), b"tradr-keybind-v1");
-        assert_eq!(DomainTag::Hello.prefix(), b"tradr-hello-v1");
-        assert_eq!(DomainTag::BrokrChallenge.prefix(), b"tradr-brokr-v1");
-        assert_eq!(DomainTag::Revoke.prefix(), b"tradr-revoke-v1");
+    fn domain_tag_separations_match_docs_05_literally() {
+        assert_eq!(
+            DomainTag::KeyBind.separation(),
+            Separation::Prepended(b"tradr-keybind-v1")
+        );
+        assert_eq!(
+            DomainTag::Hello.separation(),
+            Separation::Prepended(b"tradr-hello-v1")
+        );
+        assert_eq!(
+            DomainTag::BrokrChallenge.separation(),
+            Separation::Prepended(b"tradr-brokr-v1")
+        );
+        assert_eq!(
+            DomainTag::Revoke.separation(),
+            Separation::Prepended(b"tradr-revoke-v1")
+        );
     }
 
     #[test]
-    fn no_domain_tag_prefix_is_a_prefix_of_another() {
+    fn no_domain_tag_separation_is_a_prefix_of_another() {
         let tags = [
             DomainTag::KeyBind,
             DomainTag::Hello,
@@ -329,12 +442,13 @@ mod tests {
                 if a == b {
                     continue;
                 }
-                let (pa, pb) = (a.prefix(), b.prefix());
+                let (Separation::Prepended(pa) | Separation::Required(pa)) = a.separation();
+                let (Separation::Prepended(pb) | Separation::Required(pb)) = b.separation();
                 let shorter_len = pa.len().min(pb.len());
                 assert_ne!(
                     &pa[..shorter_len],
                     &pb[..shorter_len],
-                    "{a:?}'s prefix and {b:?}'s prefix share a common prefix"
+                    "{a:?}'s separation and {b:?}'s separation share a common prefix"
                 );
             }
         }
@@ -372,9 +486,10 @@ mod tests {
         }
 
         fn sign(&self, domain: DomainTag, message: &[u8]) -> Result<Signature, KeyStoreError> {
-            let mut bytes = domain.prefix().to_vec();
-            bytes.extend_from_slice(message);
-            Ok(Signature::from_bytes(bytes))
+            let payload = domain
+                .payload(message)
+                .map_err(KeyStoreError::DomainSeparation)?;
+            Ok(Signature::from_bytes(payload.into_owned()))
         }
 
         fn agree(&self, peer_public: &PublicKeyPoint) -> Result<SharedSecret, KeyStoreError> {
