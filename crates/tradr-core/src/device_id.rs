@@ -48,6 +48,17 @@ impl DeviceId {
     pub fn as_bytes(&self) -> &[u8; DEVICE_ID_LEN] {
         &self.0
     }
+
+    /// Derives a `DeviceId` from `digest`'s leading `DEVICE_ID_LEN` bytes.
+    /// `digest` must be BLAKE3 over the 65-byte uncompressed identity
+    /// point (CONTEXT.md, "Device ID"). Hashing is the caller's job
+    /// because Layer 0 has no hash function and may not acquire one.
+    /// Infallible: a fixed-size digest carries no length to get wrong.
+    pub fn from_identity_digest(digest: &[u8; 32]) -> Self {
+        let mut array = [0u8; DEVICE_ID_LEN];
+        array.copy_from_slice(&digest[..DEVICE_ID_LEN]);
+        Self(array)
+    }
 }
 
 impl fmt::Display for DeviceId {
