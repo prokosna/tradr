@@ -611,7 +611,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 
 | # | Content | When | Source |
 |---|---|---|---|
-| DF-19 | **`ci/comment-lang.sh` scans build output.** Its `find` excludes `node_modules`, `target` and `packages/protocol/src/gen`, but not `packages/*/dist`, so generated `.d.ts` files are held to a rule about hand-written comments. Harmless today because the generators emit ASCII; it becomes a false failure the first time one does not, and the fix is one more `-not -path` | With the next work in `ci/` | WI-M1-000 |
+| DF-19 | **`ci/comment-lang.sh` scans build output.** Its `find` excludes `node_modules`, `target` and the generated protobuf output under `packages/protocol`, but not `packages/*/dist`, so generated `.d.ts` files are held to a rule about hand-written comments. Harmless today because the generators emit ASCII; it becomes a false failure the first time one does not, and the fix is one more `-not -path` | With the next work in `ci/` | WI-M1-000 |
 | DF-1 | Desktop drag-out, pulling a peer's file into a file manager. A download button substitutes | After M9 | [docs/08](docs/08-platform-integration.md) |
 | DF-2 | Shell integration: Windows context menu, macOS share menu, Linux `.desktop` | Phase 3 | [docs/08](docs/08-platform-integration.md) |
 | DF-3 | Post-quantum migration. Write an ADR once `rustls` X25519MLKEM768 and hybrid Noise are both stable | Undecided | [docs/05](docs/05-security.md) |
