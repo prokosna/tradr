@@ -1,7 +1,13 @@
 name: CI
 
 on:
+  # DCR-036: one branch and one pull request per Work Item means the
+  # pull_request trigger now runs on every Work Item instead of roughly
+  # once per milestone. push is restricted to main so a branch with an
+  # open pull request does not run every job twice on the same commits.
   push:
+    branches:
+      - main
   pull_request:
   # The full four-ABI release build (WI-M0-015b) does not run on every
   # push; a weekly run is the backstop that still exercises it even when
