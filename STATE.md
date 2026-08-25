@@ -6,14 +6,14 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.**
 
 ```yaml
-last_updated: 2026-08-25
+last_updated: 2026-08-26
 phase: implementing
 current_milestone: M1
-branch: m1-lan-transfer
+branch: wi-m1-000-ci-instruments
 implementation_started: true
 work_items_landed: 52
-last_commit: a16de86
-repo_initialized: true (local only, no remote yet)
+last_commit: bbb9c0b
+repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
 ---
@@ -34,11 +34,18 @@ repo_initialized: true (local only, no remote yet)
 
 ## Next three actions
 
-1. **Read [docs/03](docs/03-discovery-and-transport.md) and [docs/04](docs/04-protocol.md) before cutting anything.** M1 is the largest milestone and the one the product is judged on; the first Work Item is mDNS discovery or the QUIC transport, and which comes first is a decision this file should carry before either is cut.
-2. **`WI-M0-017`**, the false reason shown on macOS. Small, and the kind of thing that never gets done once a milestone moves on.
-3. **The branch-protection rule is the user's to apply**, with the `gh` command in [README.md](README.md). Until it is, `CLAUDE.md` section 5's "never push to `main`" is a rule with nothing behind it -- the state it was in when 73 commits landed there.
+1. **`WI-M1-000b`, cut and not yet dispatched.** `ci/state-sync.sh` Check 2 counts `^| WI-M0-` rows only, so `work_items_landed` stopped tracking landed work the moment M1 opened, and it says so nowhere -- it simply keeps agreeing with itself. Found while committing `WI-M1-000`, which is the third instrument in one night whose failure mode was reporting success.
+2. **`WI-M1-001`**, the Critical Module DCR-037 opens. **Its tests are already written and are the Supervisor's**; the Work Order is drafted and the docs commit goes ahead of it.
+3. **The branch-protection rule is still the user's to apply**, with the `gh` command in [README.md](README.md). `.githooks/pre-commit` now refuses a commit on `main` (WI-M1-000), so the rule finally has something local behind it, but a hook protects the machine that has it and nothing else.
 
-**The next Work Item is not cut, deliberately.** The session that closed M0 ran out of context here, and cutting an M1 Work Item it could not review is the failure this process exists to prevent -- WI-M0-011g's `DISCARD`, and the two Work Items that built a screen nobody pressed a button on, both happened when the reviewing side was thinner than the implementing side.
+**The transport goes before discovery, and that ordering is now decided.** It was the one thing the session that closed M0 said this file should carry before either was cut. Four reasons, in the order they carry weight:
+
+- **A candidate can be supplied by hand and a transport cannot.** docs/03's Static Peer is an address the user typed, needing no discovery at all, so the QUIC work is provable end to end with `tradr-discovery` still empty. The reverse is not true: mDNS with no transport produces a peer list that leads nowhere and nothing about it can be demonstrated.
+- **M1's completion criterion is a file moving and an interrupted transfer resuming.** Both are transport-side. Discovery makes the product pleasant; it is not what the milestone is judged on.
+- **The transport is the first thing other than a pasted string to use the trust root M0 finished.** An Attestation verified against a peer that a certificate already authenticated is the join M0 stopped one step short of.
+- **And the ordering has already paid for itself.** Cutting the certificate work turned up DCR-037 before a line was written. Under the other order it would have surfaced three Work Items later, with `KeyStore` call sites already written against a trait that cannot sign for TLS.
+
+**The Work Item table for M1 is below.** It is a plan and not a promise; every entry after `WI-M1-004` is likely to be re-cut once the transport exists.
 
 **The three most useful things M0 learned, for whoever cuts M1's first Work Item:**
 
@@ -61,6 +68,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M1-000 | PASS | 0 | **Two instruments that reported success while doing nothing**, both found by reading the CI run for M0's own merge rather than by anything in the repository saying so. `ci/comment-lang.sh`'s awk was rejected outright by GNU awk under a UTF-8 locale -- `[\200-\377]` is not a valid collating range there -- and the script printed `passed` once per file it had failed to scan, so **rule A1 had no instrument in CI from the day it was given one**, and the reason it was never seen locally is that this machine has mawk, which accepts it. `ci/state-sync.sh` Check 5 required `STATE.md`'s `branch:` to equal the checked-out branch, which on `main` it can never be, so **every push to `main` was red and `CLAUDE.md` section 5's "main is always green" was already false**. **The Implementer's verification is the part worth keeping**: it did not have GNU awk either, so it installed one in a throwaway Debian container, reproduced the exact CI error against the old script, and confirmed the new one both passes cleanly and still catches an injected non-ASCII comment. I re-ran every claim independently, including a probe repository initialised on `main` rather than `master` -- my first probe defaulted to `master` and silently did not test the case at issue. **The lesson is not about awk.** Both defects are a check whose tool failed being indistinguishable from a check that found nothing, and the fix that generalises is the one applied here: a tool that exits non-zero fails the check that ran it |
 | WI-M0-018 | PASS | 0 | Instruments behind DCR-036, and **the finding is that git fails open here**: a `pre-commit` hook that is not executable is not an error, it is silently skipped with a hint and the commit lands. So the check that matters is not the hook but `ci/hooks-executable.sh` beside it, and the Implementer found this by trying to demonstrate a blocked commit that way and watching it succeed. **I verified the hook blocks by injecting an excuse phrase and watching `git log` stay put** -- and my own probe printed a meaningless exit code, `tail`'s rather than `git commit`'s through a pipe, which is the instrument fault this file has now recorded seven times. The unchanged `git log` is what carries the result. **What remains unenforceable is stated in the script's own header rather than implied away**: whether a clone has run `git config core.hooksPath` is per-clone configuration invisible to the repository, branch protection is a server-side setting nothing here re-asserts, and `--no-verify` is a flag git supports and the README forbids. **The pull request is the real gate; the hook is a convenience** |
 | WI-M0-016 | PASS | 0 | What M0 finishes on, made possible: `verify_attestation` runs all seven steps and had been called from nowhere but its own tests since WI-M0-011g. **The Implementer was honest about the one Definition of Done item it could not meet** -- `cargo check --workspace --target aarch64-apple-darwin` fails in `ring` and `objc2`'s C build scripts for want of a macOS SDK, and it proved with `git stash` that the same failure predates the diff rather than reporting a pass it did not get. It checked the crate the gating is about, which does pass, and noted that `secret-service` compiles for the target anyway, so the change is about correctness rather than compileability. **And it found `ci/invoke-commands.sh` broken two commits after I added it**: growing `COMMANDS` past rustfmt's column limit wraps the array, and the awk parser read the `]` of `&[&str]` as the list's end. **I checked which way it broke rather than assuming** -- it failed closed, reporting every command as absent, so it would have stopped a commit loudly. That is the safe direction and it is still the shape this project keeps meeting: a gate that breaks on a formatting change is a gate someone weakens under time pressure. Its probes stand: a malformed bundle and a bundle whose points do not match the token's nonce both come back as errors, the second as `Attestation(NonceMismatch)`, built from the existing fixtures without touching the off-limits test file |
 | WI-M0-015 | PASS | 0 | The job ADR-0001 has been waiting on since M0 began, open for one reason only: there was no CI. **The Implementer ran all five job sequences for real rather than writing plausible YAML** -- including a full `cargo tauri android build` producing an unsigned APK and an AAB across four ABIs, and a desktop build, both with the OAuth configuration moved aside and the variables unset, which is the state a runner is in. It also deleted the gitignored generated protobuf output and confirmed `pnpm typecheck` and `pnpm lint` regenerate it from nothing. **It flagged a one-word deviation rather than treating it as authorised** -- `--frozen-lockfile` on `pnpm install`, so a drifted lockfile fails loudly -- and it settled the `cargo tauri build` rewriting-`Cargo.toml` question by measurement: it no longer happens, the manifest already carries the rewritten form, so CI does not gate on it. **And it found that one of our checks can never run in CI**: `actions/checkout` leaves a detached HEAD for both push and pull request, and `ci/state-sync.sh`'s branch check skips in that state by design (WI-M0-013b). That check exists because 73 commits landed on `main` unnoticed, and it is now unenforced in the one place that matters most, which is a pre-push hook's job rather than a runner's. Recorded as DF-18 |
@@ -204,7 +212,7 @@ work_items: []
 blocked: []
 ```
 
-**Nothing is in flight and nothing is blocked.** **Each Work Order's gates are scoped to its own area**, because a workspace-wide `cargo clippy` or `sh ci/run-all.sh` cannot pass while another Work Item has uncommitted code in the tree -- that was WI-M0-002b's finding. The workspace-wide run happens at each commit, once the tree holds one Work Item's changes again.
+**Nothing is in flight and nothing is blocked.** `WI-M1-000b` and `WI-M1-001` are cut but not dispatched; `WI-M1-001`'s Supervisor-written tests land with its docs commit, ahead of any Implementer seeing it. **Each Work Order's gates are scoped to its own area**, because a workspace-wide `cargo clippy` or `sh ci/run-all.sh` cannot pass while another Work Item has uncommitted code in the tree -- that was WI-M0-002b's finding. The workspace-wide run happens at each commit, once the tree holds one Work Item's changes again.
 
 **Stage explicit paths for each, `Cargo.lock` included when a manifest moves, and read `git show --stat` afterwards.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
@@ -245,6 +253,7 @@ Consequences already applied: every document is in English, `Coordinator` is now
 | 10 | Whether one device may hold several Google accounts | M6 | User |
 | 11 | Transfer history retention, and the default write limit for a writable Share | M3 | Open |
 | 16 | **Whether a new transport can be added within Change Drill D10's budget.** D10 allows one implementation, one registration and one weight-table entry. But [docs/03](docs/03-discovery-and-transport.md#capability-flags) assigns each transport a fixed capability bit on the wire, so a new transport also needs a `proto/` change — a fourth file, and one in the Adapter layer. Either D10's budget is wrong or capability flags should not enumerate transports | Before M7's BLE work, and before any second transport lands | Supervisor |
+| 18 | **How a transport learns which `DeviceId` it is dialling.** `TransportError::AuthenticationFailed` is documented as "the peer's key did not match the expected `DeviceId`", but `Transport::connect` takes only a `Candidate`, which carries a `TransportId` and an opaque address and nothing else -- **so the error the trait declares cannot be produced by the trait that declares it**. Three options. **A**: `Candidate` carries the `DeviceId` it belongs to, which discovery always knows. **B**: `connect` takes the expectation as a second argument. **C**: no pinning in the transport at all -- the channel reports `peer()` and path selection compares afterwards, closing on a mismatch, which leaks nothing because nothing has been sent, but completes a handshake with an impostor and moves `AuthenticationFailed` out of `TransportError`. **B is the recommendation, and the reason is `ble-gatt` rather than QUIC**: Noise_IK needs the responder's static public key in advance, not a hash of it, so the expectation a transport needs is richer than a `DeviceId` and will grow. Freezing today's shape into `Candidate`, which is what discovery produces and what path selection races, costs more later than an argument does | Before WI-M1-004 | Supervisor |
 
 The one outstanding input is the desktop client secret's value, which WI-M0-008 needs.
 
@@ -409,6 +418,30 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 **Invariant I1 becomes enforced here**: CI's `no-brokr` job is required from M1, and every Tier 0 and Tier 1 feature must work with no Brokr. [ADR-0005](docs/adr/0005-brokr-is-optional.md) becomes a fiction the first time it does not.
 
 **Two things carry over and are not M1 work.** `WI-M0-015b`, the 41-minute Android job, wants doing before M1's push frequency rises. `WI-M0-017`, the Mac being told a Linux-shaped reason its key is in a file, is small and is the kind of thing that never gets done once a milestone moves on.
+
+#### Work Items
+
+**`work_items_landed` in the header does not count these yet.** `ci/state-sync.sh` Check 2 matches `^| WI-M0-` and nothing else, which is `WI-M1-000b`.
+
+| ID | Content | Status | Critical |
+|---|---|---|---|
+| WI-M1-000 | **Two instruments that do not instrument.** `ci/comment-lang.sh`'s awk was rejected by GNU awk under a UTF-8 locale and the script reported `passed` anyway; `ci/state-sync.sh` Check 5 made `main` permanently red | **done** -- PASS, no REVISE | |
+| WI-M1-000b | **Check 2 counts `WI-M0-` rows only**, so `work_items_landed` stopped meaning anything the moment M1 opened, while continuing to agree with itself | todo | |
+| WI-M1-001 | **A `DomainTag` names a separation** (DCR-037). `CertificateTbs` and `TlsCertificateVerify` require a prefix the message already carries instead of prepending one, so the QUIC handshake signs through `KeyStore` and ADR-0011's hardware backing survives. Critical Module, Supervisor tests first | todo | Yes |
+| WI-M1-002 | **The self-signed certificate**: a DER `TBSCertificate` whose SPKI is the identity public key, signed through `KeyStore`, and the SPKI-to-`DeviceId` derivation a verifier needs | todo | Yes |
+| WI-M1-003 | **`rustls` against `KeyStore`**: the external signer, and the certificate verifiers that pin on the peer's SPKI rather than validating a chain. Mutual TLS in both directions | todo | Yes |
+| WI-M1-004 | **`QuicTransport`**: `Transport`, `Incoming` and `SecureChannel` over `quinn`. **Decision 18 must be settled before this is cut** | todo | |
+| WI-M1-005 | Layer 1's `DiscoverySource`, and the peer list that collapses one `DeviceId` arriving from several sources into one peer holding several candidates | todo | |
+| WI-M1-006 | **mDNS**: advertise and browse `_tradr._udp.local` with `mdns-sd`, carrying docs/03's TXT record | todo | |
+| WI-M1-007 | The framing codec, `[u32 len][u8 type][payload]`, bounded by the `max_frame_size` the channel reports | todo | |
+| WI-M1-008 | **The Control plane**: `Hello` and `HelloAck`, the Attestation exchange, and the Trust Tier that falls out of it | todo | Yes |
+| WI-M1-009 | **Chunk resumption.** The module [CLAUDE.md](CLAUDE.md) section 6 says collapses path selection when it is wrong. Critical Module, Supervisor tests first | todo | Yes |
+| WI-M1-010 | **The Data plane**: receiver-driven `ChunkRequest` and `ChunkData`, verified against the BLAKE3 root as chunks arrive | todo | Yes |
+| WI-M1-011 | Partial files and progress: the receiver-assigned ordinal, the SQLite mapping, and the `fsync`-then-record ordering | todo | Yes |
+| WI-M1-012 | Drag and drop, and a file arriving on the other machine | todo | |
+| WI-M1-013 | **CI's `no-brokr` job**, required from M1 (invariant I1) | todo | |
+
+**Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
 
 #### Closed milestone: M0, the skeleton
 
@@ -576,6 +609,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 
 | # | Content | When | Source |
 |---|---|---|---|
+| DF-19 | **`ci/comment-lang.sh` scans build output.** Its `find` excludes `node_modules`, `target` and `packages/protocol/src/gen`, but not `packages/*/dist`, so generated `.d.ts` files are held to a rule about hand-written comments. Harmless today because the generators emit ASCII; it becomes a false failure the first time one does not, and the fix is one more `-not -path` | With the next work in `ci/` | WI-M1-000 |
 | DF-1 | Desktop drag-out, pulling a peer's file into a file manager. A download button substitutes | After M9 | [docs/08](docs/08-platform-integration.md) |
 | DF-2 | Shell integration: Windows context menu, macOS share menu, Linux `.desktop` | Phase 3 | [docs/08](docs/08-platform-integration.md) |
 | DF-3 | Post-quantum migration. Write an ADR once `rustls` X25519MLKEM768 and hybrid Noise are both stable | Undecided | [docs/05](docs/05-security.md) |

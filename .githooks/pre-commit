@@ -19,6 +19,14 @@ if git diff --cached --quiet; then
 	exit 0
 fi
 
+# CLAUDE.md section 5: never commit directly to main. A detached HEAD
+# reports "HEAD" here, not "main", so it is not refused.
+current_branch=$(git rev-parse --abbrev-ref HEAD 2> /dev/null)
+if [ "$current_branch" = "main" ]; then
+	echo "pre-commit: refusing to commit directly to main" >&2
+	exit 1
+fi
+
 run_stage() {
 	stage_name="$1"
 	shift
