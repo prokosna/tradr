@@ -12,7 +12,7 @@ current_milestone: M1
 branch: m1-lan-transfer
 implementation_started: true
 work_items_landed: 52
-last_commit: 89f42ee
+last_commit: a16de86
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -35,8 +35,16 @@ repo_initialized: true (local only, no remote yet)
 ## Next three actions
 
 1. **Read [docs/03](docs/03-discovery-and-transport.md) and [docs/04](docs/04-protocol.md) before cutting anything.** M1 is the largest milestone and the one the product is judged on; the first Work Item is mDNS discovery or the QUIC transport, and which comes first is a decision this file should carry before either is cut.
-2. **`WI-M0-015b`**, the Android CI job at 41 minutes, before M1's push frequency makes it expensive.
-3. **`WI-M0-017`**, the false reason shown on macOS.
+2. **`WI-M0-017`**, the false reason shown on macOS. Small, and the kind of thing that never gets done once a milestone moves on.
+3. **The branch-protection rule is the user's to apply**, with the `gh` command in [README.md](README.md). Until it is, `CLAUDE.md` section 5's "never push to `main`" is a rule with nothing behind it -- the state it was in when 73 commits landed there.
+
+**The next Work Item is not cut, deliberately.** The session that closed M0 ran out of context here, and cutting an M1 Work Item it could not review is the failure this process exists to prevent -- WI-M0-011g's `DISCARD`, and the two Work Items that built a screen nobody pressed a button on, both happened when the reviewing side was thinner than the implementing side.
+
+**The three most useful things M0 learned, for whoever cuts M1's first Work Item:**
+
+- **Three Work Orders in a row had the specification as the defect, not the implementation.** All three described the happy path precisely and left the surrounding state unstated. The Definition of Done sections that caught them named **a state to construct** rather than a property to confirm. M1 is networking, where the surrounding state is far wider than M0's: a peer that vanishes, a path that switches, a transfer stopped partway.
+- **Choosing evidence that cannot be faked leaves the fakeable part unverified**, and that is where the defect will be.
+- **Every rule here with no instrument behind it has been broken at least once**, `main` and rule A5 among them.
 
 #### What M0 left behind, for whoever arrives next
 
