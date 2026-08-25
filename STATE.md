@@ -12,7 +12,7 @@ current_milestone: M1
 branch: wi-m1-002b-identity-certificate
 implementation_started: true
 work_items_landed: 57
-last_commit: bbb9c0b
+last_commit: 458e72e
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
