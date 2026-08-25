@@ -272,9 +272,19 @@ Private keys never leave the device after generation. There is no export functio
 | Android | Android Keystore, attempting `setIsStrongBoxBacked(true)`, falling back to the TEE | Yes — StrongBox or TEE |
 | macOS | Keychain, with Secure Enclave key generation where available | Yes — the Enclave handles P-256, which is what Device Keys use |
 | Windows | CNG with DPAPI; the Platform Crypto Provider where a TPM exists | Yes, with a TPM |
-| Linux | Secret Service over D-Bus, then the kernel keyring, then a `0600` file | No — the last resort is software only |
+| Linux | Secret Service over D-Bus, then a `0600` file | No — the last resort is software only |
 
 **Falling short of hardware backing on Linux is stated plainly.** Settings displays the storage method in use and says so explicitly when it has fallen back to a file. Headless environments without a running Secret Service get a warning.
+
+### Why the kernel keyring is not a rung
+
+The ladder listed the kernel keyring between the Secret Service and the file until it was measured. **A kernel keyring has no backing store**: it is kernel memory, there is no file behind it anywhere, and `persistent_keyring_expiry` bounds even the persistent keyring at three days without surviving a reboot at all.
+
+That makes it **less durable than the rung below it**, which inverts the whole point of an ordered ladder. And the machine where it would be chosen is precisely the one that cannot afford it: the keyring is reached only when no Secret Service answers, which is a headless box, where a reboot would find the keyring empty, the file never written, and the ladder concluding that this device has no key. It would mint a second Device Key on every reboot, losing every link, and nothing would fail.
+
+What it would have bought does not pay for that. Against another process running as the same user — the only attacker a `0600` file in a `0700` directory does not already stop — a keyring is no defence either, since that process can read this one's memory.
+
+Linux therefore has two rungs, and a device with no Secret Service says plainly that its key is in a file.
 
 ### Descending the Linux ladder
 
