@@ -4056,6 +4056,7 @@ dependencies = [
  "tradr-core",
  "tradr-discovery",
  "tradr-identity",
+ "tradr-secrets",
  "tradr-transport",
  "tradr-vfs",
 ]
@@ -4535,6 +4536,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "blake3",
+ "getrandom 0.4.3",
  "hmac",
  "p256",
  "rand 0.8.7",
