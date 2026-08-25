@@ -10,6 +10,32 @@
 <tr>
 <td>
 
+`tradr:allow-attestation-bundle`
+
+</td>
+<td>
+
+Enables the attestation_bundle command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-attestation-bundle`
+
+</td>
+<td>
+
+Denies the attestation_bundle command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-device-identity`
 
 </td>
@@ -81,6 +107,32 @@ Enables the sign_in_status command without any pre-configured scope.
 <td>
 
 Denies the sign_in_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-verify-peer-attestation`
+
+</td>
+<td>
+
+Enables the verify_peer_attestation command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-verify-peer-attestation`
+
+</td>
+<td>
+
+Denies the verify_peer_attestation command without any pre-configured scope.
 
 </td>
 </tr>

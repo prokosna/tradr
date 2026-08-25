@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the attestation_bundle command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-attestation-bundle",
+          "markdownDescription": "Enables the attestation_bundle command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the attestation_bundle command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-attestation-bundle",
+          "markdownDescription": "Denies the attestation_bundle command without any pre-configured scope."
+        },
+        {
           "description": "Enables the device_identity command without any pre-configured scope.",
           "type": "string",
           "const": "allow-device-identity",
@@ -329,6 +341,18 @@
           "type": "string",
           "const": "deny-sign-in-status",
           "markdownDescription": "Denies the sign_in_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the verify_peer_attestation command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-verify-peer-attestation",
+          "markdownDescription": "Enables the verify_peer_attestation command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the verify_peer_attestation command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-verify-peer-attestation",
+          "markdownDescription": "Denies the verify_peer_attestation command without any pre-configured scope."
         }
       ]
     }

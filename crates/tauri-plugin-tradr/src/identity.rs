@@ -8,7 +8,9 @@ use tauri::{AppHandle, Manager, Runtime, State};
 
 use tradr_core::{Backing, KeyStore, PublicIdentity, SecretStore, SoftwareReason, StorageLevel};
 use tradr_identity::{OsRng, SoftwareKeyStore, select_rung};
-use tradr_secrets::{FileStore, SecretServiceStore};
+use tradr_secrets::FileStore;
+#[cfg(target_os = "linux")]
+use tradr_secrets::SecretServiceStore;
 
 /// The slot every rung of the storage ladder uses for the Device Key.
 const DEVICE_KEY_SLOT: &str = "device-key";
@@ -52,12 +54,19 @@ fn open_identity<R: Runtime>(
         .join("keys");
 
     let file_rung = FileStore::new(keys_dir);
+
+    // Secret Service is a Linux D-Bus interface; there is nothing on the
+    // other end of it anywhere else, so the rung exists only there
+    // (docs/05-security.md, "Key storage"). macOS gets the file rung
+    // today; a Keychain rung is M4.
+    #[cfg(target_os = "linux")]
     let secret_service_rung = SecretServiceStore::open();
 
     // A rung that is absent is skipped by never joining the ladder at all
     // (docs/05-security.md, "Descending the Linux ladder"), which is why
     // this pushes conditionally rather than passing a fixed-size array.
     let mut ladder: Vec<&dyn SecretStore> = Vec::with_capacity(2);
+    #[cfg(target_os = "linux")]
     match &secret_service_rung {
         Ok(rung) => ladder.push(rung),
         // One line, so a headless machine without a Secret Service does

@@ -12,6 +12,7 @@ use tauri::{
 
 #[cfg(target_os = "android")]
 mod android;
+mod attestation;
 mod identity;
 mod sign_in;
 
@@ -31,6 +32,8 @@ pub fn init<R: Runtime>(
             identity::device_identity,
             sign_in::sign_in,
             sign_in::sign_in_status,
+            attestation::attestation_bundle,
+            attestation::verify_peer_attestation,
         ])
         .setup(move |app, _api| {
             let state = identity::init_identity_state(app);

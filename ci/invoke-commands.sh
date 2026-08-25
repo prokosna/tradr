@@ -59,7 +59,14 @@ commands=$(awk '
 	BEGIN { in_list = 0 }
 	{
 		line = $0
-		if (!in_list && line ~ /COMMANDS[ \t]*:.*=/) in_list = 1
+		if (!in_list && line ~ /COMMANDS[ \t]*:.*=/) {
+			in_list = 1
+			# Scan only what follows the assignment operator: the type
+			# annotation to its left (e.g. "&[&str]") carries its own "]",
+			# which is not the list literals closing bracket and must
+			# never be read as one on a rustfmt-wrapped declaration.
+			sub(/^[^=]*=/, "", line)
+		}
 		if (in_list) {
 			rest = line
 			while (match(rest, /"[^"]*"/)) {

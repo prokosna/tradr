@@ -54,11 +54,20 @@ pub(crate) struct SignInOutcome {
     tier: String,
 }
 
+// The outcome plus the id_token that earned it, held together so the two
+// can never fall out of sync with each other.
+struct SignedIn {
+    outcome: SignInOutcome,
+    id_token: String,
+}
+
 /// The most recently completed sign-in, plus whether one is running right
 /// now. Kept as managed state, distinct from `IdentityState`, since both
-/// change at runtime while the Device Key does not.
+/// change at runtime while the Device Key does not. Also holds the
+/// `id_token` the flow obtained (WI-M0-016): it is this device's own
+/// Attestation, and a peer needs it to verify this device.
 pub(crate) struct SignInState {
-    outcome: Mutex<Option<SignInOutcome>>,
+    signed_in: Mutex<Option<SignedIn>>,
     in_progress: AtomicBool,
 }
 
@@ -77,7 +86,7 @@ impl SignInState {
     /// Starts idle, with no sign-in on record.
     pub(crate) fn empty() -> Self {
         Self {
-            outcome: Mutex::new(None),
+            signed_in: Mutex::new(None),
             in_progress: AtomicBool::new(false),
         }
     }
@@ -92,16 +101,37 @@ impl SignInState {
             .map(|_| InProgressGuard(&self.in_progress))
     }
 
-    fn set_outcome(&self, outcome: SignInOutcome) {
-        *self.recover() = Some(outcome);
+    fn set_signed_in(&self, outcome: SignInOutcome, id_token: String) {
+        *self.recover() = Some(SignedIn { outcome, id_token });
     }
 
     // A poisoned mutex still holds a usable value; recovering it here
     // keeps a panic in one call from making every later call fail too.
-    fn recover(&self) -> std::sync::MutexGuard<'_, Option<SignInOutcome>> {
-        self.outcome
+    fn recover(&self) -> std::sync::MutexGuard<'_, Option<SignedIn>> {
+        self.signed_in
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The most recently completed sign-in, for `sign_in_status` and for
+    /// `crate::attestation`'s peer verification, which needs this
+    /// device's own account to classify a peer against.
+    pub(crate) fn outcome(&self) -> Option<SignInOutcome> {
+        self.recover().as_ref().map(|s| s.outcome.clone())
+    }
+
+    /// This device's own account, from its own sign-in.
+    pub(crate) fn own_account(&self) -> Option<AccountId> {
+        self.recover()
+            .as_ref()
+            .map(|s| AccountId::new(&s.outcome.issuer, &s.outcome.subject))
+    }
+
+    /// The `id_token` the sign-in flow obtained -- this device's own
+    /// Attestation, kept for `crate::attestation::attestation_bundle` to
+    /// hand to a peer.
+    pub(crate) fn id_token(&self) -> Option<String> {
+        self.recover().as_ref().map(|s| s.id_token.clone())
     }
 }
 
@@ -109,7 +139,7 @@ impl SignInState {
 /// again after a reload without repeating the flow.
 #[tauri::command]
 pub fn sign_in_status(state: State<'_, SignInState>) -> Option<SignInOutcome> {
-    state.recover().clone()
+    state.outcome()
 }
 
 // Runs serve_one_callback with a bound on how long it may block: accept()
@@ -267,7 +297,7 @@ pub async fn sign_in(
         tier: format!("{tier:?}"),
     };
 
-    sign_in_state.set_outcome(outcome.clone());
+    sign_in_state.set_signed_in(outcome.clone(), id_token);
 
     Ok(outcome)
 }

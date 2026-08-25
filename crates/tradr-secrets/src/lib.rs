@@ -5,7 +5,9 @@
 //! the ladder policy; this crate keeps the I/O.
 
 mod file;
+#[cfg(target_os = "linux")]
 mod secret_service;
 
 pub use file::FileStore;
+#[cfg(target_os = "linux")]
 pub use secret_service::SecretServiceStore;
