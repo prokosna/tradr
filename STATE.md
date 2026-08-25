@@ -12,7 +12,7 @@ current_milestone: M0
 branch: m0-skeleton
 implementation_started: true
 work_items_landed: 49
-last_commit: 6fea3e0
+last_commit: 2608e2e
 repo_initialized: true (local only, no remote yet)
 ```
 
@@ -386,11 +386,11 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 **Decision point at the end of M0** — evaluate [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md)'s withdrawal conditions. Failing any of these means switching to Electron with Kotlin.
 
-- [ ] The Tauri 2 Android build passes reliably in CI — **builds and runs here** (WI-M0-004: all four ABIs, correctly signed; WI-M0-004b: installs, launches, and renders the frontend). Unchecked because no CI has run it yet, and CI is where "reliably" gets tested
+- [x] The Tauri 2 Android build passes reliably in CI — **met** by WI-M0-015, whose first real run was green on `m0-skeleton`, building an unsigned APK and an AAB across four ABIs with no OAuth configuration present
 - [x] Bidirectional calls work: Kotlin plugin into Rust, Rust back into Kotlin — **met** by WI-M0-005, both directions on a real emulator with a negative control
 - [x] Android `ACTION_SEND` arrives through the Tauri plugin — **met** by WI-M0-005b, cold start and `onNewIntent`, corroborated by `ActivityTaskManager`'s own launch codes
 
-Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the end of M0.
+**The decision point is closed: [ADR-0015](docs/adr/0015-tauri-2-is-retained-after-m0.md) records that all three conditions are met and Tauri 2 is retained.** Change Drill D9 was walked with it (DCR-035) and the budget holds. **The conditions do not expire** -- the third is about reliability, which one green run does not establish.
 
 #### Work Items
 
@@ -436,6 +436,7 @@ Also walk Change Drill D9 — moving from Tauri to Electron — on paper at the 
 | WI-M0-014b | **Sign in, and show the account.** The desktop OAuth flow, the Attestation minted and verified, rendered. `SystemClock` arrived with it | **done** -- PASS after one REVISE | Yes |
 | WI-M0-014c | **The frontend could not reach the plugin.** Commands registered on a plugin are addressed `plugin:tradr|<command>`; `App.tsx` invoked the bare names. `ci/invoke-commands.sh` now checks every `invoke` literal against `build.rs`'s `COMMANDS` | **done** -- PASS, no REVISE | Yes |
 | WI-M0-015 | **CI**: five jobs -- the seven `ci/` checks, the Rust gates, the web gates, the desktop build and the Android build. Closes the last of ADR-0001's three withdrawal conditions once it is green | **done** -- PASS, no REVISE | Yes |
+| WI-M0-015b | **The Android job costs 41 minutes**, which does not fit a free tier at every-push frequency. Almost certainly four ABIs times a release profile; a routine build should prove the toolchain, not the artifact | todo | |
 | WI-M0-009 | Google OAuth on Android: Custom Tabs with AppAuth | todo | |
 | WI-M0-010 | **Attestation policy tests, written first.** 22 tests over docs/05 steps 1 and 3 to 6 | **done** — landed with WI-M0-011 | Yes |
 | WI-M0-011 | Attestation policy: profile selection, audience set, nonce binding, staleness, `(iss, sub)` tier | **done** — PASS, no REVISE | Yes |
