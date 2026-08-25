@@ -4,8 +4,35 @@ on:
   push:
   pull_request:
 
+env:
+  PNPM_VERSION: "10.20.0"
+  NODE_VERSION: "24"
+  # Pinned to what this workspace's Cargo.toml files already carry
+  # (`features = []`); a mismatched CLI version is the thing most likely
+  # to make `cargo tauri build`/`android build` behave differently here
+  # than it did in local verification.
+  TAURI_CLI_VERSION: "2.11.4"
+
 jobs:
-  lint:
+  # Mechanizes the seven checks in ci/*.sh: comment language and length,
+  # doc visibility, the excuse-phrase grep, the invoke()/COMMANDS cross
+  # check, the layer-dependency scan, and STATE.md/git-history agreement.
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      # ci/state-sync.sh greps `git log` for every DCR-N recorded in
+      # STATE.md; actions/checkout's default fetch-depth of 1 would leave
+      # every one of them looking absent from history.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - run: sh ci/run-all.sh
+
+  # cargo fmt, clippy, the workspace test suite, and a workspace build.
+  # The workspace includes apps/tradr/src-tauri, so even a plain
+  # `cargo build` links against the host WebKitGTK stack on Linux.
+  rust:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,41 +41,147 @@ jobs:
       # and components; this only makes rustup install what it names.
       - run: rustup show
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust
+
+      - name: Install Tauri Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf
+
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo build --locked --workspace
+
+  # tsc and biome over the TypeScript workspace. Both `pnpm typecheck` and
+  # `pnpm lint` run `buf generate` first (packages/protocol/src/gen is
+  # gitignored), so this is also where that code generation is proven to
+  # work from a clean checkout.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - uses: pnpm/action-setup@v4
         with:
-          version: 10.20.0
+          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - run: cargo fmt --check
-      - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm lint
 
-  test:
+  # cargo tauri build, evidence for ADR-0001's first two withdrawal
+  # conditions on this platform and a build-health signal for the app
+  # crate on its own host.
+  desktop:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 10.20.0
+          version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      - run: cargo test --locked --workspace
-      - run: pnpm test
+      - name: Install Tauri Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf
 
-  checks:
+      - name: Cache tauri-cli
+        id: tauri-cli-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: tauri-cli-${{ env.TAURI_CLI_VERSION }}-${{ runner.os }}
+      - name: Install tauri-cli
+        if: steps.tauri-cli-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version ${{ env.TAURI_CLI_VERSION }} --locked
+
+      # No TRADR_OAUTH_CLIENT_IDS / TRADR_OAUTH_CLIENT_SECRET here:
+      # build.rs (DCR-030) emits empty values when both are absent, and a
+      # green build must not depend on repository secrets.
+      - name: cargo tauri build
+        working-directory: apps/tradr/src-tauri
+        run: cargo tauri build
+
+  # cargo tauri android build -- evidence for ADR-0001's third withdrawal
+  # condition, "the Tauri 2 Android build passes reliably in CI", open
+  # for the whole milestone because there was no CI until this job.
+  android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: ci/run-all.sh
+
+      - run: rustup show
+      - run: rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: android
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Gradle 8.14.3, which Tauri scaffolds, cannot read Java 25 class
+      # files ("Unsupported class file major version 69", WI-M0-004), and
+      # the Android Gradle Plugin does not support 25 either. The JDK is
+      # pinned rather than trusting the runner's default.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager --install "platforms;android-36" "platforms;android-35" "build-tools;35.0.0" "ndk;27.3.13750724"
+
+      - name: Cache tauri-cli
+        id: tauri-cli-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: tauri-cli-${{ env.TAURI_CLI_VERSION }}-${{ runner.os }}
+      - name: Install tauri-cli
+        if: steps.tauri-cli-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version ${{ env.TAURI_CLI_VERSION }} --locked
+
+      # Android never receives the OAuth secret at all (DCR-030); the
+      # client ID list is also left unset here, matching the desktop job.
+      - name: cargo tauri android build
+        working-directory: apps/tradr/src-tauri
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/27.3.13750724"
+          cargo tauri android build
