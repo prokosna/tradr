@@ -9,10 +9,10 @@
 last_updated: 2026-08-27
 phase: implementing
 current_milestone: M1
-branch: wi-m1-005-discovery-source
+branch: wi-m1-006-mdns-discovery
 implementation_started: true
 work_items_landed: 66
-last_commit: f4d55ed
+last_commit: f76ff07
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -228,7 +228,7 @@ work_items: []
 blocked: []
 ```
 
-**`WI-M1-005` landed.** Its docs half is `30797b0` (DCR-046) and its implementation half follows in the next commit, per section 5's two-commit rule. Nothing is in flight and nothing is blocked.
+**`WI-M1-005` landed and is on `main`.** Its docs half is `30797b0` (DCR-046) and its implementation half `f64e09d`, the two-commit shape section 5 requires; **PR #16 merged on 2026-08-27 with all five jobs green** and `android-release-toolchain` skipping as designed. Nothing is in flight, nothing is blocked, and no pull request is open. **`WI-M1-006` is cut but not yet dispatched** -- what stands in its way is the open IPv6 scope question recorded under "What WI-M1-006 must build against" below, which only a real dial can answer.
 
 **Two Change Drills became checkable for the first time here, and both hold.** Before this Work Item `tradr-discovery` held no implementation and `DiscoverySource` did not exist, so **D4 had never been walkable at all** -- it budgets "one discovery implementation plus a capability flag" for the ADR-0002 retreat, and there was no discovery implementation to count. It now holds exactly: `grep -rn 'mdns|ble|brokr' crates/tradr-core/src/` returns only doc-comment prose, no enum enumerates sources, so the retreat changes the BLE source and stops advertising `Capabilities::BLE_GATT`, and `tradr-core` is untouched. **The same distinction DCR-035 drew for D9 applies**: a doc comment naming BLE in order to explain why its file is drill-safe is prose, not a dependency. The discovery analogue of D10 -- add a fifth source -- also holds at one implementation declaring its own `SourceId` and one registration, because `SourceId` is an opaque `&'static str` token rather than an enum.
 
@@ -357,6 +357,19 @@ Also worth knowing: **rclone's shared client id is being retired during 2026**, 
 - **`TransportErrorCode` exposes no "is this crypto" predicate.** `u64::from(code)` against `0x100..=0x1ff` is the test, confirmed by construction: `crypto(31)` is `0x11f` and `crypto(42)` is `0x12a`, while `PROTOCOL_VIOLATION` is `0xa`. `TransportErrorCode::crypto(u8)` builds one, so a test can construct the case without a handshake.
 
 **What no probe can answer, and the Work Items still must.** Whether an `Incoming` built on `Endpoint::accept` fits the `&mut self` the trait declares; and ADR-0004's throughput number, which needs two machines rather than loopback and is therefore the user's to start.
+
+#### What WI-M1-006 must build against, checked against mdns-sd 0.21.0 on 2026-08-27
+
+**`mdns-sd` is in no `Cargo.lock` here**, so this was established by fetching 0.21.0 and reading it, not from memory. Six findings, and four of them change what the Work Order has to say.
+
+- **`flume/async` is on by default**, so no runtime bridge is needed. `ServiceDaemon::browse` returns a `flume::Receiver<ServiceEvent>` re-exported from `mdns-sd`, and 0.21.0's `default = ["async", "logging"]` turns on `flume/async`, which is what gives that receiver `recv_async()`. **`DiscoverySource::next_event` can therefore await it directly**: no `spawn_blocking`, and `tradr-discovery` does not need `tokio` for this. A Work Order that assumed a blocking receiver would have specified a bridge that is not needed and a dependency that is not either.
+- **`ServiceEvent` has five variants and is `#[non_exhaustive]`, and only two map to a `DiscoveryEvent`.** `ServiceResolved` becomes `Observed`, `ServiceRemoved` becomes `Lost`, and `SearchStarted`, `ServiceFound` and `SearchStopped` have no counterpart at all. **So `next_event` must loop and await again rather than return**, and the `_` arm that `#[non_exhaustive]` forces must continue that loop too. Returning an error for an event the design simply has no word for would make a source die the first time the daemon says it started searching. This is a filter and not a swallowed error under rule F6, and the Work Order has to say which.
+- **The `ObservationKey` is the fullname, and this is now checked rather than assumed.** `ServiceRemoved(ty_domain, fullname)` and `ResolvedService.fullname` carry the same string, so removal and resolution agree on the key without the source keeping a table to translate between them.
+- **`ResolvedService.addresses` is a `HashSet<ScopedIp>` and the port is separate**, so one resolution yields several candidates and their iteration order is nondeterministic. **`PeerObservation::new` already sorts and deduplicates**, so WI-M1-005's canonicalisation absorbs this exactly; the source must not sort them itself.
+- **The IPv6 trap, and it is the one that would reach production.** `ScopedIp`'s `Display` writes `fe80::1%eth0` with **no brackets**, so the obvious `format!("{addr}:{port}")` produces `fe80::1%eth0:51820` -- ambiguous, unparseable, and **it passes `Candidate::new`**, which rejects only an empty address and a control character by design. The failure would surface inside the QUIC transport at dial time, far from where the string was built. `ScopedIp::to_ip_addr()` composes with `SocketAddr`, whose `Display` does bracket, but it **drops the scope**, and link-local is precisely the case mDNS exists to serve.
+- **`ResolvedService::is_valid()` exists** and reports whether a resolution is ready to use. Worth calling rather than reimplementing.
+
+**One question is left open on purpose.** Whether a link-local candidate keeps its scope as `[fe80::1%eth0]:51820` or as RFC 6874's `[fe80::1%25eth0]:51820` -- the form already sitting in `crates/tradr-core/tests/transport.rs`'s accepted list -- cannot be settled by reading, because `std`'s `SocketAddr` parser handles no scope at all and the answer is whichever form `quinn` will actually dial. **It is resolved by dialling one, which is WI-M1-006's job**, and recording a guess here would be the same mistake as ADR-0004's throughput number being asserted before it was measured.
 
 ### Build environment, Ubuntu 24.04.4 LTS
 
