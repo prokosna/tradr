@@ -68,6 +68,37 @@ It carries the `u8` verbatim in both directions and holds no registry. Which cod
 | **Browse** | Listing, stat, and reading or writing Share Roots | A bidirectional stream per request |
 | **Data** | Chunk payloads | A unidirectional stream per Item, four concurrent by default |
 
+## The type byte
+
+Every code is listed here and nowhere else, and the ranges are by plane.
+
+| Range | Plane | Assigned |
+|---|---|---|
+| `0x00` | — | **Never valid.** A zero byte is what padding, a truncated write and an uninitialised buffer all produce, so it is the one code that must never mean a message |
+| `0x01`-`0x1f` | Control | `0x01` `Hello`, `0x02` `HelloAck`, `0x03` `TransferOffer`, `0x04` `TransferAccept`, `0x05` `TransferReject`, `0x06` `TransferComplete`, `0x07` `TransferAbort`, `0x08` `PathChanged`, `0x09` `KeepAlive`, `0x0a` `ItemComplete`, `0x0b` `TransferProgress` |
+| `0x20`-`0x3f` | Data | `0x20` `ChunkRequest`, `0x21` `ChunkRerequest`, `0x22` `ChunkData`, `0x23` `FlowControl` |
+| `0x40`-`0x5f` | Browse | `0x40` `ListDir`, `0x41` `DirListing`, `0x42` `Stat`, `0x43` `StatResult`, `0x44` `ReadFile`, `0x45` `ReadFileBegin`, `0x46` `WriteFile`, `0x47` `Mkdir`, `0x48` `Delete`, `0x49` `Rename`, `0x4a` `Ack`, `0x4b` `Watch`, `0x4c` `FsEvent` |
+| `0x60`-`0x7f` | — | Reserved for the in-band multiplexing variant the `stream_id` bullet above describes, which `ble-gatt` and `relay` need and the QUIC paths never send |
+| `0x80`-`0xff` | — | Unassigned |
+
+`brokr.proto`'s messages carry no code. They travel on the Brokr's WebSocket, which is not a framed Tradr stream.
+
+### A code is assigned once and never reused
+
+Retiring a message retires its code with it, the way a removed protobuf field becomes `reserved`. A reused code is a peer of an older version decoding new bytes as the message it used to know, and protobuf's own tolerance makes that succeed quietly rather than fail.
+
+### A code names a plane, and the wrong plane is refused rather than ignored
+
+`0x40` `ListDir` arriving on the Control stream is not an unknown message; it is a known one on a stream that does not carry it. **The plane is where authorization lives** — a Browse request is checked against the requester's Trust Tier and the Share's audience before it acts — so accepting one wherever it arrives is how a request reaches the code that serves it without passing the code that guards it. The frame is refused and the stream closes.
+
+**A plane owns its whole range, not merely the codes assigned inside it.** `0x0c` is unassigned and sits in Control's range; on the Browse stream it is refused, not skipped. Reading ownership from the assignments instead would make the answer for a given code change as later versions fill the gaps in, so a device would have to know what a future version assigned in order to decide what to refuse today.
+
+### What "unknown message types are ignored" actually covers
+
+Only an **unassigned** code, and only within the receiving plane's own range. That is the forward compatibility the versioning section promises: a newer peer sending `0x0c` on the Control stream is skipped by an older one, whose extent is known because the frame decoded cleanly.
+
+Three things are outside it and none is skippable: `0x00`, a code belonging to another plane, and a malformed length. The first two are refusals; the third, per the Framing section, is not a frame at all.
+
 ## Session flow
 
 ```
@@ -230,7 +261,7 @@ Remote operations on Share Roots. Every request carries a `share_id`, and the re
 
 - `Hello` carries each side's supported version range; the highest common version wins
 - Protobuf fields are only ever added. Removals become `reserved`
-- Unknown message types are ignored, giving forward compatibility
+- Unknown message types are ignored, giving forward compatibility — but only in the narrow sense [The type byte](#what-unknown-message-types-are-ignored-actually-covers) defines: an unassigned code inside the receiving plane's own range. A code from another plane, `0x00`, and a bad length are each refused
 - A breaking change creates `proto/tradr/v2/`, dispatched by the `Hello` negotiation. The old version stays supported for at least a year
 
 ## Protobuf definitions
