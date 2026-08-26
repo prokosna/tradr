@@ -113,10 +113,11 @@ pub trait SecureChannel: Send + Sync {
     /// mid-transfer and scores it against this.
     fn rtt(&self) -> Duration;
 
-    /// The largest frame this channel can carry, negotiated in `Hello`
-    /// (docs/04): 1 MiB by default, 512 bytes over BLE. Reported by the
-    /// channel rather than looked up from a per-transport table in the
-    /// core, per docs/03's "What the core knows about a transport".
+    /// The largest frame this side will **receive** on this channel: its
+    /// own ceiling, advertised to the peer in `HelloAck` and enforced on
+    /// decode (docs/04). Sending is bounded by the peer's advertised value
+    /// instead. Reported by the channel rather than looked up from a
+    /// per-transport table in the core, per docs/03's "What the core knows".
     fn max_frame_size(&self) -> u32;
 
     /// Opens a bidirectional stream, for the Browse plane's per-request
