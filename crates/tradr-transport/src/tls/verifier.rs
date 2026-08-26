@@ -1,7 +1,8 @@
 //! The two verifiers docs/05-security.md's "Why there are two encryption
-//! layers" describes: the dialling side pins a `DeviceId`, the listening
-//! side accepts any well-formed device certificate and defers welcome to
-//! the Attestation exchange (DCR-040).
+//! layers" describes. The dialling side compares the peer's certificate
+//! against the `DeviceId` it expected, or against nothing when it has no
+//! expectation yet; the listening side never has one and defers welcome
+//! to the Attestation exchange (DCR-040).
 
 use std::fmt;
 
@@ -22,15 +23,15 @@ use crate::tls::peer_device_id;
 const SCHEMES: &[SignatureScheme] = &[SignatureScheme::ECDSA_NISTP256_SHA256];
 
 /// The dialling side (docs/05-security.md, "Only the dialling side
-/// pins"). Compares the peer's certificate against the `DeviceId` this
-/// connection meant to reach.
-pub(crate) struct PinningServerCertVerifier {
-    expected: DeviceId,
+/// pins"). Compares the peer's certificate against `expected` when there
+/// is one to compare against.
+pub(crate) struct ExpectedDeviceServerCertVerifier {
+    expected: Option<DeviceId>,
     algorithms: WebPkiSupportedAlgorithms,
 }
 
-impl PinningServerCertVerifier {
-    pub(crate) fn new(expected: DeviceId, provider: &CryptoProvider) -> Self {
+impl ExpectedDeviceServerCertVerifier {
+    pub(crate) fn new(expected: Option<DeviceId>, provider: &CryptoProvider) -> Self {
         Self {
             expected,
             algorithms: provider.signature_verification_algorithms,
@@ -38,15 +39,15 @@ impl PinningServerCertVerifier {
     }
 }
 
-impl fmt::Debug for PinningServerCertVerifier {
+impl fmt::Debug for ExpectedDeviceServerCertVerifier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PinningServerCertVerifier")
+        f.debug_struct("ExpectedDeviceServerCertVerifier")
             .field("expected", &self.expected)
             .finish()
     }
 }
 
-impl ServerCertVerifier for PinningServerCertVerifier {
+impl ServerCertVerifier for ExpectedDeviceServerCertVerifier {
     fn verify_server_cert(
         &self,
         end_entity: &CertificateDer<'_>,
@@ -67,7 +68,13 @@ impl ServerCertVerifier for PinningServerCertVerifier {
         // than deriving one of its own.
         let seen = peer_device_id(end_entity)
             .map_err(|_| Error::InvalidCertificate(CertificateError::BadEncoding))?;
-        if seen != self.expected {
+        // `None` arises only from `PeerExpectation::Unpinned` and means no
+        // comparison is made, never that any peer is accepted: `seen`
+        // above already had to parse, and the signature checks below
+        // still run.
+        if let Some(expected) = self.expected
+            && seen != expected
+        {
             // This crate's own verdict, not one rustls reached itself,
             // distinguished from a signature failure below.
             return Err(Error::InvalidCertificate(

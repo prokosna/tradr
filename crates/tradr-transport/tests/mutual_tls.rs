@@ -13,8 +13,8 @@ use p256::{PublicKey, SecretKey};
 use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::{ClientConnection, Connection, ServerConnection};
 use tradr_core::{
-    Backing, DeviceId, DomainTag, KeyStore, KeyStoreError, PublicIdentity, PublicKeyPoint,
-    SharedSecret, Signature, SoftwareReason,
+    Backing, DeviceId, DomainTag, KeyStore, KeyStoreError, PeerExpectation, PublicIdentity,
+    PublicKeyPoint, SharedSecret, Signature, SoftwareReason,
 };
 use tradr_transport::certificate::identity_point;
 use tradr_transport::tls::{TlsError, client_config, peer_device_id, server_config};
@@ -154,16 +154,22 @@ fn pump(from: &mut Connection, to: &mut Connection) -> Result<(), rustls::Error>
     Ok(())
 }
 
-// A dialler pinning `expected` against a listener holding `listener`.
+// A dialler carrying `expect` against a listener holding `listener`.
 fn handshake(
     dialler: &Arc<TestKeyStore>,
     listener: &Arc<TestKeyStore>,
-    expected: DeviceId,
+    expect: PeerExpectation,
 ) -> Outcome {
     run_pair(
-        client_config(dialler.clone(), expected).expect("a working store configures"),
+        client_config(dialler.clone(), expect).expect("a working store configures"),
         server_config(listener.clone()).expect("a working store configures"),
     )
+}
+
+// Reads as the old bare-DeviceId helper did, so a test about pinning is
+// not also a test about how an expectation is spelled.
+fn pinning(target: &Arc<TestKeyStore>) -> PeerExpectation {
+    PeerExpectation::Device(target.device_id())
 }
 
 fn run_pair(client: rustls::ClientConfig, server: rustls::ServerConfig) -> Outcome {
@@ -184,7 +190,7 @@ fn two_devices_that_expect_each_other_complete_a_mutual_handshake() {
     let dialler = device(0x11);
     let listener = device(0x22);
 
-    let (client, server) = expect_completed(handshake(&dialler, &listener, listener.device_id()));
+    let (client, server) = expect_completed(handshake(&dialler, &listener, pinning(&listener)));
 
     assert_eq!(
         client.protocol_version(),
@@ -204,7 +210,7 @@ fn each_side_sees_the_other_device_id_and_not_its_own() {
     let dialler = device(0x11);
     let listener = device(0x22);
 
-    let (client, server) = expect_completed(handshake(&dialler, &listener, listener.device_id()));
+    let (client, server) = expect_completed(handshake(&dialler, &listener, pinning(&listener)));
 
     let seen_by_dialler = peer_device_id(&only_certificate(&client)).expect("a valid certificate");
     let seen_by_listener = peer_device_id(&only_certificate(&server)).expect("a valid certificate");
@@ -222,7 +228,7 @@ fn a_dialler_expecting_another_device_is_refused() {
     let listener = device(0x22);
     let someone_else = device(0x33);
 
-    let error = expect_refused(handshake(&dialler, &listener, someone_else.device_id()));
+    let error = expect_refused(handshake(&dialler, &listener, pinning(&someone_else)));
 
     assert!(
         matches!(
@@ -243,7 +249,7 @@ fn a_listener_accepts_a_device_it_has_never_met() {
     let stranger = device(0x55);
     let listener = device(0x22);
 
-    let (_, server) = expect_completed(handshake(&stranger, &listener, listener.device_id()));
+    let (_, server) = expect_completed(handshake(&stranger, &listener, pinning(&listener)));
 
     assert_eq!(
         peer_device_id(&only_certificate(&server)).expect("a valid certificate"),
@@ -264,7 +270,7 @@ fn presenting_another_devices_certificate_without_its_key_is_refused() {
     };
 
     let error = expect_refused(run_pair(
-        client_config(Arc::new(impostor), listener.device_id()).expect("configures"),
+        client_config(Arc::new(impostor), pinning(&listener)).expect("configures"),
         server_config(listener.clone()).expect("configures"),
     ));
 
@@ -323,7 +329,7 @@ fn a_listener_presenting_a_certificate_it_lacks_the_key_for_is_refused() {
     };
 
     let error = expect_refused(run_pair(
-        client_config(device(0x11), victim.device_id()).expect("configures"),
+        client_config(device(0x11), pinning(&victim)).expect("configures"),
         server_config(Arc::new(impostor)).expect("configures"),
     ));
 
@@ -428,7 +434,7 @@ fn the_certificate_a_handshake_presents_is_the_one_build_self_signed_makes() {
     let dialler = device(0x11);
     let listener = device(0x22);
 
-    let (client, _) = expect_completed(handshake(&dialler, &listener, listener.device_id()));
+    let (client, _) = expect_completed(handshake(&dialler, &listener, pinning(&listener)));
 
     let presented = only_certificate(&client);
     assert_eq!(
@@ -466,4 +472,97 @@ impl KeyStore for BrokenKeyStore {
     fn backing(&self) -> Backing {
         Backing::Software(SoftwareReason::PlatformHasNoSecureElement)
     }
+}
+
+#[test]
+fn an_unpinned_dialler_accepts_a_device_it_has_never_met() {
+    // docs/03's Static Peer fills its entry in *on* the first connection,
+    // so at that one moment there is nothing to compare against. The
+    // DeviceId the dialler learns here is what the caller then stores.
+    let dialler = device(0x11);
+    let listener = device(0x22);
+
+    let (client, _) = expect_completed(handshake(&dialler, &listener, PeerExpectation::Unpinned));
+
+    assert_eq!(
+        peer_device_id(&only_certificate(&client)).expect("a valid certificate"),
+        listener.device_id()
+    );
+}
+
+#[test]
+fn an_unpinned_dialler_still_refuses_a_certificate_its_holder_cannot_sign_under() {
+    // The failure this Work Item exists to prevent: `Unpinned` collapsing
+    // into "accept anything". Dropping the comparison must not drop the
+    // CertificateVerify check, and no other test in this file would
+    // notice, because every one of them pins.
+    let impostor = ImpostorKeyStore {
+        certificate_of: device(0x22),
+        signing_as: device(0x77),
+    };
+
+    let error = expect_refused(run_pair(
+        client_config(device(0x11), PeerExpectation::Unpinned).expect("configures"),
+        server_config(Arc::new(impostor)).expect("configures"),
+    ));
+
+    assert!(
+        !matches!(
+            error,
+            rustls::Error::InvalidCertificate(
+                rustls::CertificateError::ApplicationVerificationFailure
+            )
+        ),
+        "an unpinned dialler has no pin to refuse on, so this must be the signature: {error}"
+    );
+}
+
+#[test]
+fn an_identity_expectation_accepts_the_device_it_names() {
+    // `Identity` is `Device` plus the agreement key, and the mistake a
+    // `#[non_exhaustive]` enum invites is a wildcard arm folding it in
+    // with `Unpinned`. This direction catches the fold that accepts.
+    let dialler = device(0x11);
+    let listener = device(0x22);
+    let identity = listener
+        .public_identity()
+        .expect("a working store reports its identity");
+
+    let (client, _) = expect_completed(handshake(
+        &dialler,
+        &listener,
+        PeerExpectation::Identity(identity),
+    ));
+
+    assert_eq!(
+        peer_device_id(&only_certificate(&client)).expect("a valid certificate"),
+        listener.device_id()
+    );
+}
+
+#[test]
+fn an_identity_expectation_naming_another_device_is_refused() {
+    // And this direction catches the fold that lets an impostor through:
+    // an `Identity` treated as `Unpinned` would complete this handshake.
+    let dialler = device(0x11);
+    let listener = device(0x22);
+    let someone_else = device(0x33)
+        .public_identity()
+        .expect("a working store reports its identity");
+
+    let error = expect_refused(handshake(
+        &dialler,
+        &listener,
+        PeerExpectation::Identity(someone_else),
+    ));
+
+    assert!(
+        matches!(
+            error,
+            rustls::Error::InvalidCertificate(
+                rustls::CertificateError::ApplicationVerificationFailure
+            )
+        ),
+        "an Identity expectation must pin exactly as Device does: {error}"
+    );
 }
