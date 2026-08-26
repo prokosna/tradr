@@ -276,6 +276,14 @@ Private keys never leave the device after generation. There is no export functio
 
 **Falling short of hardware backing on Linux is stated plainly.** Settings displays the storage method in use and says so explicitly when it has fallen back to a file. Headless environments without a running Secret Service get a warning.
 
+### A key store is shared, and the implementations pay for it
+
+`KeyStore` is `Send + Sync`. That is a statement about custody rather than a bound added to satisfy a compiler: **one device's key custody is reachable from several threads at once**, and every implementation has to be built for that.
+
+The immediate reason is the TLS stack. `rustls` takes the external signer [ADR-0011](adr/0011-keystore-exposes-operations.md) requires as a signing key that is `Send + Sync`, holds it for the life of a configuration, and signs each `CertificateVerify` from whichever thread is driving that handshake — and one QUIC endpoint drives several at once. A key store usable only from the thread that opened it could not sign a handshake at all, so this is not a preference between two workable shapes.
+
+**The cost lands on the implementations, not on the callers, and that is deliberate.** A Keymint binder handle, a TPM context and a Secure Enclave reference are not all freely shareable, so an implementation that wraps one owns the synchronisation. The alternative is every call site holding a lock around an operation whose thread-safety only the implementation knows, which puts the decision in the one place that cannot make it correctly.
+
 ### A locked Secret Service is a rung that fails, not a rung that is absent
 
 Never unlock a collection to reach a key. An unlock is an interactive prompt, and a prompt with nobody to answer it — a headless box, an ssh session, a login whose desktop has gone — **does not fail, it waits**, measured here as a process that never returns from its own startup. A key store opened during startup must not be able to do that: the window never appears and there is nothing on screen to read.
