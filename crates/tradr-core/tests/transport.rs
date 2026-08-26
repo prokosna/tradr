@@ -8,8 +8,9 @@ use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use tradr_core::{
-    Candidate, CandidateError, DEVICE_ID_LEN, DeviceId, Incoming, RecvStream, SecureChannel,
-    SendStream, Transport, TransportError, TransportId,
+    Candidate, CandidateError, DEVICE_ID_LEN, DeviceId, Incoming, PUBLIC_KEY_POINT_LEN,
+    PeerExpectation, PublicIdentity, PublicKeyPoint, RecvStream, SecureChannel, SendStream,
+    Transport, TransportError, TransportId,
 };
 
 // Every address here is a real shape one of docs/03's five transports
@@ -75,6 +76,33 @@ fn candidate_rejects_every_control_character() {
         Candidate::new(transport, &address),
         Err(CandidateError::ControlCharacter(del))
     );
+}
+
+#[test]
+fn device_id_reflects_the_expectations_variant() {
+    let id = DeviceId::from_bytes(&[1u8; DEVICE_ID_LEN]).expect("16 bytes must construct");
+    assert_eq!(PeerExpectation::Unpinned.device_id(), None);
+    assert_eq!(PeerExpectation::Device(id).device_id(), Some(id));
+
+    let identity_pub =
+        PublicKeyPoint::from_bytes(&[2u8; PUBLIC_KEY_POINT_LEN]).expect("65 bytes must construct");
+    let agreement_pub =
+        PublicKeyPoint::from_bytes(&[3u8; PUBLIC_KEY_POINT_LEN]).expect("65 bytes must construct");
+    let identity = PublicIdentity::new(identity_pub, agreement_pub, id);
+    assert_eq!(
+        PeerExpectation::Identity(identity.clone()).device_id(),
+        Some(identity.device_id())
+    );
+}
+
+#[test]
+fn peer_expectation_equality_distinguishes_variants_and_device_ids() {
+    let a = DeviceId::from_bytes(&[1u8; DEVICE_ID_LEN]).expect("16 bytes must construct");
+    let b = DeviceId::from_bytes(&[2u8; DEVICE_ID_LEN]).expect("16 bytes must construct");
+
+    assert_ne!(PeerExpectation::Unpinned, PeerExpectation::Device(a));
+    assert_ne!(PeerExpectation::Device(a), PeerExpectation::Device(b));
+    assert_eq!(PeerExpectation::Device(a), PeerExpectation::Device(a));
 }
 
 /// A `SecureChannel` double carrying only what these tests inspect: which
@@ -144,6 +172,7 @@ impl Transport for SucceedingTransport {
     fn connect<'a>(
         &'a self,
         _candidate: &'a Candidate,
+        _expect: &'a PeerExpectation,
     ) -> tradr_core::BoxFuture<'a, Result<Box<dyn SecureChannel>, TransportError>> {
         let peer = self.peer;
         let id = self.id;
@@ -169,8 +198,46 @@ impl Transport for FailingTransport {
     fn connect<'a>(
         &'a self,
         _candidate: &'a Candidate,
+        _expect: &'a PeerExpectation,
     ) -> tradr_core::BoxFuture<'a, Result<Box<dyn SecureChannel>, TransportError>> {
         Box::pin(async move { Err(TransportError::Unreachable) })
+    }
+
+    fn listen(&self) -> tradr_core::BoxFuture<'_, Result<Box<dyn Incoming>, TransportError>> {
+        Box::pin(async move { Err(TransportError::Closed) })
+    }
+}
+
+/// An in-memory `Transport` double that honours `expect`, standing in for
+/// docs/03's obligation on `connect`: it refuses with
+/// `TransportError::AuthenticationFailed` when `expect.device_id()` is
+/// `Some` and differs from the peer it would otherwise hand back, and
+/// succeeds when the expectation is `None` or matches.
+struct HonouringTransport {
+    id: TransportId,
+    peer: DeviceId,
+}
+
+impl Transport for HonouringTransport {
+    fn id(&self) -> TransportId {
+        self.id
+    }
+
+    fn connect<'a>(
+        &'a self,
+        _candidate: &'a Candidate,
+        expect: &'a PeerExpectation,
+    ) -> tradr_core::BoxFuture<'a, Result<Box<dyn SecureChannel>, TransportError>> {
+        let peer = self.peer;
+        let id = self.id;
+        let mismatch = expect.device_id().is_some_and(|expected| expected != peer);
+        Box::pin(async move {
+            if mismatch {
+                Err(TransportError::AuthenticationFailed)
+            } else {
+                Ok(Box::new(FakeChannel { peer, id }) as Box<dyn SecureChannel>)
+            }
+        })
     }
 
     fn listen(&self) -> tradr_core::BoxFuture<'_, Result<Box<dyn Incoming>, TransportError>> {
@@ -188,13 +255,14 @@ fn transport_is_dyn_compatible_and_connect_runs_to_completion_without_a_runtime(
     let id = TransportId::new("fake");
     let transport: Box<dyn Transport> = Box::new(SucceedingTransport { id, peer });
     let candidate = Candidate::new(transport.id(), "handle:0x0042").expect("valid address");
+    let expect = PeerExpectation::Unpinned;
 
-    assert_send(transport.connect(&candidate));
+    assert_send(transport.connect(&candidate, &expect));
 
     let waker = Waker::noop();
     let mut cx = Context::from_waker(waker);
 
-    let mut connecting = transport.connect(&candidate);
+    let mut connecting = transport.connect(&candidate, &expect);
     let channel = match connecting.as_mut().poll(&mut cx) {
         Poll::Ready(Ok(channel)) => channel,
         Poll::Ready(Err(e)) => panic!("unexpected error: {e}"),
@@ -223,10 +291,11 @@ fn a_heterogeneous_set_of_transports_races_and_adopts_the_successful_one() {
     let waker = Waker::noop();
     let mut cx = Context::from_waker(waker);
 
+    let expect = PeerExpectation::Unpinned;
     let mut adopted: Option<Box<dyn SecureChannel>> = None;
     for transport in &transports {
         let candidate = Candidate::new(transport.id(), "handle:0x0042").expect("valid address");
-        let mut connecting = transport.connect(&candidate);
+        let mut connecting = transport.connect(&candidate, &expect);
         if let Poll::Ready(Ok(channel)) = connecting.as_mut().poll(&mut cx) {
             adopted = Some(channel);
             break;
@@ -236,4 +305,43 @@ fn a_heterogeneous_set_of_transports_races_and_adopts_the_successful_one() {
     let adopted = adopted.expect("the succeeding transport must have produced a channel");
     assert_eq!(adopted.transport(), succeeding_id);
     assert_eq!(adopted.peer(), peer);
+}
+
+#[test]
+fn a_transport_that_honours_the_expectation_refuses_a_mismatch_and_accepts_the_rest() {
+    let peer = DeviceId::from_bytes(&[4u8; DEVICE_ID_LEN]).expect("16 bytes must construct");
+    let other = DeviceId::from_bytes(&[5u8; DEVICE_ID_LEN]).expect("16 bytes must construct");
+    let id = TransportId::new("honouring");
+    let transport: Box<dyn Transport> = Box::new(HonouringTransport { id, peer });
+    let candidate = Candidate::new(transport.id(), "handle:0x0042").expect("valid address");
+
+    let waker = Waker::noop();
+    let mut cx = Context::from_waker(waker);
+
+    // Unpinned: no prior expectation, so the proven key is accepted.
+    let mut connecting = transport.connect(&candidate, &PeerExpectation::Unpinned);
+    match connecting.as_mut().poll(&mut cx) {
+        Poll::Ready(Ok(channel)) => assert_eq!(channel.peer(), peer),
+        Poll::Ready(Err(e)) => panic!("Unpinned must accept the peer, got error: {e}"),
+        Poll::Pending => panic!("a fake transport must complete on the first poll"),
+    }
+
+    // Device(peer): matches, so it is accepted.
+    let matching = PeerExpectation::Device(peer);
+    let mut connecting = transport.connect(&candidate, &matching);
+    match connecting.as_mut().poll(&mut cx) {
+        Poll::Ready(Ok(channel)) => assert_eq!(channel.peer(), peer),
+        Poll::Ready(Err(e)) => panic!("a matching expectation must accept the peer, got: {e}"),
+        Poll::Pending => panic!("a fake transport must complete on the first poll"),
+    }
+
+    // Device(other): does not match, so it is refused.
+    let mismatched = PeerExpectation::Device(other);
+    let mut connecting = transport.connect(&candidate, &mismatched);
+    match connecting.as_mut().poll(&mut cx) {
+        Poll::Ready(Err(TransportError::AuthenticationFailed)) => {}
+        Poll::Ready(Ok(_)) => panic!("a mismatched expectation must be refused"),
+        Poll::Ready(Err(e)) => panic!("wrong error for a mismatch: {e}"),
+        Poll::Pending => panic!("a fake transport must complete on the first poll"),
+    }
 }

@@ -7,7 +7,9 @@
 use std::fmt;
 
 use crate::channel::{SecureChannel, TransportError, TransportId};
+use crate::device_id::DeviceId;
 use crate::future::BoxFuture;
+use crate::key_store::PublicIdentity;
 
 /// One address a peer might be reachable at, paired with the transport
 /// that produced it. The address is opaque to the core: `192.168.1.42:51820`,
@@ -73,6 +75,41 @@ impl Candidate {
     }
 }
 
+/// What the dialling side already knows about the device it is reaching
+/// for, passed to `Transport::connect` (docs/03, "What a transport is
+/// told about the peer it is dialling"): the three states of identity
+/// knowledge this design has. `#[non_exhaustive]` keeps a later addition
+/// inside Change Drill D10, a variant rather than a change to this trait.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PeerExpectation {
+    /// No prior `DeviceId` to compare against: a Static Peer's first
+    /// connection, whose entry is empty until that connection fills it in.
+    /// The peer still proves possession of the key it presents; only the
+    /// comparison against a prior expectation is absent.
+    Unpinned,
+    /// Refuse unless the key the peer proves possession of derives
+    /// exactly this `DeviceId`.
+    Device(DeviceId),
+    /// As `Device`, keyed by the full identity, and additionally the
+    /// agreement key `Noise_IK` needs before its first message.
+    Identity(PublicIdentity),
+}
+
+impl PeerExpectation {
+    /// The `DeviceId` this expectation names, or `None` when there is no
+    /// prior expectation to compare against. `None` never means a peer
+    /// may be accepted unauthenticated: the peer still proves possession
+    /// of the key it presents in every case.
+    pub fn device_id(&self) -> Option<DeviceId> {
+        match self {
+            Self::Unpinned => None,
+            Self::Device(id) => Some(*id),
+            Self::Identity(identity) => Some(identity.device_id()),
+        }
+    }
+}
+
 /// The listening side of a `Transport`, accepting channels a peer opens.
 /// A device receives as well as sends (docs/03, "Android listening and
 /// wake-up"), so this cannot wait for a later milestone.
@@ -93,13 +130,15 @@ pub trait Transport: Send + Sync {
     /// transport").
     fn id(&self) -> TransportId;
 
-    /// Dials `candidate`, validating its address syntax before use: the
-    /// core only checked that it is non-empty and control-character free.
-    /// Returns an already-secure channel (docs/03, "A transport delivers
-    /// an already-secure channel"); the encryption is this transport's own.
+    /// Dials `candidate`, checking its syntax beyond the core's non-empty,
+    /// control-character-free pass, and returns an already-secure channel
+    /// (docs/03). The peer must prove possession of the key it presents in
+    /// every case; where `expect.device_id()` is `Some` and the proven key
+    /// derives another, refuse with `TransportError::AuthenticationFailed`.
     fn connect<'a>(
         &'a self,
         candidate: &'a Candidate,
+        expect: &'a PeerExpectation,
     ) -> BoxFuture<'a, Result<Box<dyn SecureChannel>, TransportError>>;
 
     /// Begins listening for incoming channels on this transport.
