@@ -140,11 +140,15 @@ Layer 3  Driver    quinn, btleplug, mdns-sd, rustls, SAF, React, Fastify
 | D7. Add iOS | one implementation each of Vfs, KeyStore, BleAdvertiser |
 | D8. Android SAF is superseded by a new API | `vfs/saf/` only |
 | **D9. Move from Tauri to Electron** | **UI, Adapter, and `tauri-plugin-tradr` swapped for an equivalent binding crate. The other five crates untouched** |
-| D10. Add a new Transport | one implementation, one registration, one weight-table entry |
+| D10. Add a new Transport | one implementation, one registration, one weight-table entry, one capability bit. **No trait in `tradr-core` changes** |
 
-**`tradr-core` must never appear in any count.** D9 is a requirement rather than a hypothetical: [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md) records conditions under which Tauri gets dropped, so staying droppable is part of the contract.
+**`tradr-core`'s traits must never appear in any count.** D9 is a requirement rather than a hypothetical: [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md) records conditions under which Tauri gets dropped, so staying droppable is part of the contract.
 
 **D9 reaches one crate, the binding crate, and that is the whole budget.** A composition root has to name some shell, so demanding that `crates/` be untouched entirely was never achievable; confining the shell's name to one crate is what the drill actually buys.
+
+**D10's budget was three files and the count was wrong, in the same way D9's grep was.** [docs/03](docs/03-discovery-and-transport.md#capability-flags) gives every transport a fixed capability bit on the wire, so a new transport has always needed a `proto/` change as well -- a fourth file, and the drill would have failed the first time anyone ran it. A second one was waiting behind it: `Noise_IK` needs the responder's static public key before its first message, so the expectation a transport is dialled with is richer than a `DeviceId` and is Layer 1 vocabulary.
+
+**A drill counts what a change has to rewrite, not what it has to declare.** A capability bit is a reserved value being given a name; a variant added to a `#[non_exhaustive]` vocabulary type is an addition nobody was matching exhaustively on. Neither obliges a single existing line to change. **A trait is the opposite**: every layer above is written against it, so changing one is the ripple the drill exists to forbid. That is what D10 now says, and it is a stronger claim than the file count it replaces, because a budget of three files was satisfiable by moving a decision somewhere the drill was not looking.
 
 **The check is over manifests, not over text.** No `Cargo.toml` under `crates/` but `crates/tauri-plugin-tradr/`'s may name `tauri`, and `ci/layer-deps.sh` enforces exactly that on every run. **A grep over all text is the wrong instrument here and was the stated one until it was walked**: it flags a doc comment that mentions Tauri in order to explain why its file is D9-safe, which is prose about the gate defeating the gate. A dependency is what a swap has to rewrite; a sentence is not.
 
