@@ -9,10 +9,10 @@
 last_updated: 2026-08-26
 phase: implementing
 current_milestone: M1
-branch: design-d10-and-reporting-rule
+branch: wi-m1-000e-state-currency-check
 implementation_started: true
-work_items_landed: 59
-last_commit: 5c7641f
+work_items_landed: 60
+last_commit: 2b081b8
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -36,7 +36,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-1. **Two rules here have no instrument behind them, and CLAUDE.md's own finding is that every such rule has been broken at least once.** `WI-M1-000e` is the smaller: rule 2-5 was written this session with nothing whatever behind it, and its precondition -- `STATE.md` actually being current -- is checkable, since section 5's "a Work Item commit without its `STATE.md` update" is today a prohibition with no gate. The other is a `pre-push` hook: `.githooks/pre-commit` refuses a *commit* made on `main` and **nothing refuses a push to it**, so `git push origin HEAD:main` from any branch still works, which is the exact motion that put 73 commits there. Branch protection cannot cover it -- see below -- so a hook is the only enforcement a private repository can have.
+1. **A `pre-push` hook, the second of the two rules with no instrument.** `WI-M1-000e` closed the first. This one is the older gap: `.githooks/pre-commit` refuses a *commit* made on `main` and **nothing refuses a push to it**, so `git push origin HEAD:main` from any branch still works, which is the exact motion that put 73 commits there. Branch protection cannot cover it -- see below -- so a hook is the only enforcement a private repository can have.
 2. **`WI-M1-004`, `QuicTransport` over `quinn`, and it is unblocked.** Decision 18 is settled and DCR-042 cleared what was behind it, so the Work Order can be cut. It carries **one `tradr-core` change**: `PeerExpectation` as a new Layer 1 type and `Transport::connect` taking it as a second argument. That is a trait change, which D10 forbids *when adding a transport* -- this is the design settling before the first transport exists, not a transport paying for itself, and after `WI-M1-004` the trait is closed to the drill.
 3. **ADR-0004's "To verify" falls due in M1 and nothing else records it**: measure LAN throughput against 35 MB/s, and if it falls short tune GSO, GRO and receive-buffer sizes **before** comparing against TCP. That ordering is the whole point -- QUIC runs in user space and will not match TCP, so a comparison run before the tuning answers a question nobody asked. `WI-M1-004` is the first Work Item that can produce a number at all.
 
@@ -237,6 +237,8 @@ blocked: []
 - **`ADR-0004`'s throughput number falls due here** and nothing else records it. It is the milestone's only measurement.
 
 **The pattern that produced two clean Work Items in a row, stated so it survives this session.** Validate the harness by running it before writing a single assertion; check every constant against the library that will produce it rather than against arithmetic; then mutation-test the delivered implementation during the review, one single-token mutation per named test. **The sweep has found a gap in the Supervisor's own tests on both Work Items it has been run on**, twice on the second, and reading found none of them.
+
+**A review hazard worth naming, because the Supervisor walked into it this session.** An Implementer leaves its work **uncommitted in the working tree** -- that is section 5, and it is the whole handoff. So every git command the Supervisor runs while reviewing is running against unsaved work, and **`git reset --hard` silently destroys it.** It happened here while probing whether `WI-M1-000e`'s new check fired: the reset wiped `ci/state-sync.sh`, the next probe then ran a script that no longer contained the check being tested, and it reported a miss that was purely the probe's own doing. **The check was correct the whole time and was nearly rejected for it.** Two rules follow: reach for `git reset --soft` when undoing a probe commit, and when a review probe reports a failure, **confirm the code under test is still on disk before believing it.**
 
 **Stage explicit paths for each, `Cargo.lock` included when a manifest moves, and read `git show --stat` afterwards.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
@@ -473,7 +475,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 
 **`WI-M1-000d` needs a decision before it is cut, and it is a Supervisor's.** Extending A2 to `ci/*.sh` is not the mechanical change it looks like: `ci/layer-deps.sh`'s header comment runs fifteen lines and `.githooks/pre-commit`'s twelve, and every one of those lines is why a gate exists rather than what it does. Three answers -- compress them and lose the reasoning, move the reasoning into a README beside the scripts that each header points at, or record that A2 does not govern shell scripts and say why. **The second is the only one that keeps the reasoning findable**, but it puts design rationale in a file an Implementer authors, so the move is the Supervisor's and the check extension is the Work Item. The second finding is confirmed: `ci/state-sync.sh` Check 4 skips any inline reference whose leading component is not a real top-level entry, so a typo in the word crates makes a whole path invisible, while a wrong file name *below* a real directory is reported. A token containing a `/` is a path reference and should have to resolve whatever its first component is; a token without one keeps today's rule, which is what holds `KeyStore` and `_tradr._udp.local` out.
-| WI-M1-000e | **The instrument behind rule 2-5.** The reporting half cannot be mechanized -- no check reads a reply -- but its precondition can: `STATE.md` being *current*. `ci/state-sync.sh` checks that `last_commit` exists, that the counts agree and that paths resolve, and **nothing checks that the file was updated at all**, so section 5's "a Work Item commit without its `STATE.md` update" is a prohibition with no gate. A Check 6 comparing `last_updated` against the newest commit's date closes it | todo | |
+| WI-M1-000e | **The instrument behind rule 2-5.** The reporting half cannot be mechanized -- no check reads a reply -- but its precondition can: `STATE.md` being *current*. `ci/state-sync.sh` checks that `last_commit` exists, that the counts agree and that paths resolve, and **nothing checks that the file was updated at all**, so section 5's "a Work Item commit without its `STATE.md` update" is a prohibition with no gate. A Check 6 comparing `last_updated` against the newest commit's date closes it | **done** -- PASS, no REVISE | |
 | WI-M1-001 | **A `DomainTag` names a separation** (DCR-037). `CertificateTbs` and `TlsCertificateVerify` require a prefix the message already carries instead of prepending one, so the QUIC handshake signs through `KeyStore` and ADR-0011's hardware backing survives. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE | Yes |
 | WI-M1-002a | **The `DeviceId` derivation moves to Layer 0.** `DeviceId::from_identity_digest`: the caller hashes, because Layer 0 has no hash function and may not acquire one, and Layer 0 owns which bytes count. Cut out of `WI-M1-002` because the QUIC verifier needs the same derivation and `tradr-transport` may not reach `tradr-identity`. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE | Yes |
 | WI-M1-002b | **The self-signed certificate**: a DER `TBSCertificate` whose SPKI is the identity public key, signed through `KeyStore` under `CertificateTbs`, and the reverse -- reading a peer's identity point back out. DCR-038 settled its name and validity, DCR-039 the two fields DCR-038 left an encoder to invent. Critical Module, Supervisor tests first | **done** -- PASS after one REVISE, and the finding was the Work Order's | Yes |
