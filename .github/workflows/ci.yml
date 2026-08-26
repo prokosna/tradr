@@ -1,20 +1,11 @@
 name: CI
 
 on:
-  # DCR-036: one branch and one pull request per Work Item means the
-  # pull_request trigger now runs on every Work Item instead of roughly
-  # once per milestone. push is restricted to main so a branch with an
-  # open pull request does not run every job twice on the same commits.
-  push:
-    branches:
-      - main
+  # Automated runs trigger only on pull requests to isolate verification
+  # to candidate changes, while workflow_dispatch allows manual runs
+  # for release builds without recurring schedule costs.
   pull_request:
-  # The full four-ABI release build (WI-M0-015b) does not run on every
-  # push; a weekly run is the backstop that still exercises it even when
-  # main goes quiet, so ADR-0001's third condition keeps being checked
-  # rather than only hoped to still hold.
-  schedule:
-    - cron: "0 3 * * 1"
+  workflow_dispatch:
 
 env:
   PNPM_VERSION: "10.20.0"
@@ -164,7 +155,6 @@ jobs:
   android-debug-smoke:
     name: "android-debug-smoke (aarch64, debug only -- not the release toolchain check)"
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
 
@@ -244,12 +234,11 @@ jobs:
   # android-release-toolchain: the real evidence for ADR-0001's third
   # withdrawal condition, "the Tauri 2 Android build passes reliably in
   # CI" -- four ABIs, release profile, matching what a release actually
-  # ships. Run on a schedule and on pushes to main rather than on every
-  # push, since that is where the 41 minutes measured.
+  # ships. Triggered manually via workflow_dispatch to avoid 41-minute runs.
   android-release-toolchain:
     name: "android-release-toolchain (four ABIs, release -- ADR-0001's withdrawal-condition evidence)"
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
 
