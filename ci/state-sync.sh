@@ -192,4 +192,27 @@ if [ "$declared_branch" = "main" ]; then
 	status=1
 fi
 
+# --- Check 6: last_updated is not older than the newest commit ---
+# ISO dates sort correctly as plain strings, so no date arithmetic is
+# needed. This check runs one commit behind at pre-commit time: HEAD is
+# the previous commit when the hook fires, so a same-day commit compares
+# yesterday's last_updated to yesterday and passes -- CI catches it on
+# the next push, where HEAD is the commit itself.
+last_updated=$(grep -m1 '^last_updated:' "$STATE_FILE" | sed -e 's/^last_updated:[[:space:]]*//' -e 's/[[:space:]]*$//')
+if [ -z "$last_updated" ]; then
+	echo "STATE.md: last_updated field is missing from the yaml block"
+	status=1
+elif ! printf '%s' "$last_updated" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+	echo "STATE.md: last_updated '$last_updated' is not a YYYY-MM-DD date"
+	status=1
+elif newest_commit_date=$(git log -1 --format=%cd --date=short 2> /dev/null) && [ -n "$newest_commit_date" ]; then
+	if [ "$last_updated" != "$newest_commit_date" ]; then
+		older=$(printf '%s\n%s\n' "$last_updated" "$newest_commit_date" | sort | sed -n '1p')
+		if [ "$older" = "$last_updated" ]; then
+			echo "STATE.md: last_updated is '$last_updated' but the newest commit is dated '$newest_commit_date' -- STATE.md was not updated to reflect it"
+			status=1
+		fi
+	fi
+fi
+
 exit $status
