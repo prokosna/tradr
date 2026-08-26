@@ -32,7 +32,9 @@ If you are unsure: **you are the Supervisor unless the user handed you an explic
 3. docs/adr/README.md      The list of decisions
 4. The design doc STATE.md points to for the current milestone
 5. git log --oneline -20   What happened after STATE.md's last_updated
-6. Latest CI results
+6. gh pr list --state open A Work Item can be finished, reviewed and pushed
+                           and still not be on main
+7. Latest CI results
 ```
 
 **If step 5 turns up commits newer than `last_updated`, your first job is to reconcile `STATE.md`.** Nothing else starts before that.

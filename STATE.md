@@ -220,6 +220,8 @@ work_items: []
 blocked: []
 ```
 
+**One pull request is open and that is the only loose end: #9, carrying `WI-M1-000e`.** Its review passed and it is pushed; merging it is the Supervisor's call once its last job goes green, and `gh pr view 9 --json state` settles whether that already happened. **A Work Item can be reviewed, committed and pushed and still not be on `main`**, which is why the arrival list now has a step for it.
+
 **Nothing is in flight and nothing is blocked.** `WI-M1-002b` and `WI-M1-003` both landed. **Two devices now complete a mutually authenticated TLS 1.3 handshake against pinned Device Keys, with no CA, no chain and no Brokr** -- in memory rather than over a socket, which is `WI-M1-004`'s job.
 
 **The Work Order was the defect twice more, and the second one is a shape worth naming.** `WI-M1-003` took one stop-and-report plus one REVISE. The stop was `blake3`: it sat in `[dev-dependencies]` because WI-M1-002b's *tests* were the only thing deriving a `DeviceId` in this crate, and the Work Order carried "add no dependency beyond `rustls`" forward without noticing the requirement had moved into production code. **A dev-dependency is invisible to the library an integration test links**, which the Implementer established by compiling it rather than by asserting it. **That is ten Work Order defects in twenty Work Items**, and the last three have each been a different shape: unstated surrounding state, an error type specified from one of its two call sites, and now a dependency declared for a requirement that has since moved.
