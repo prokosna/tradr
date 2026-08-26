@@ -212,6 +212,28 @@ A `SecureChannel` therefore offers the same thing on every path: mutually authen
 - **The class weights above belong to path selection, not to the transports.** A weight is a comparison between transports, so it is a policy of the component doing the comparing. `tradr-transport` holds the table; a transport does not report its own rank
 - **A frame-size limit is the opposite case, and the channel reports it.** [docs/04](04-protocol.md#framing) negotiates `max_frame_size` in `Hello` — 1 MiB by default, 512 bytes over BLE — and that negotiation happens in Layer 1. Either the core carries a per-transport table of limits, which is the table this whole section exists to keep out of it, or the established channel says what it can carry. It says. Unlike a weight, a limit is a property of one path rather than a comparison between several
 
+### What a transport is told about the peer it is dialling
+
+`Transport::connect` takes a second argument beside the candidate: a `PeerExpectation`, which is what the dialling side already knows about the device it is reaching for. Three variants, and they are the three states of identity knowledge this design has rather than a guess at what a transport might want.
+
+| Variant | Where it comes from | What the transport must do with it |
+|---|---|---|
+| `Unpinned` | A Static Peer's **first** connection, whose `expect_device_id` is empty until that connection fills it | Authenticate the peer to whatever key it presents, and report the `DeviceId` that key derives. Refuse a peer that presents no key at all |
+| `Device(DeviceId)` | mDNS, a Brokr, and every Static Peer connection after the first | Refuse unless the key the peer proves possession of derives exactly that `DeviceId` |
+| `Identity(PublicIdentity)` | A peer already known in full, both public keys | As `Device`, and additionally the agreement key `Noise_IK` needs before its first message |
+
+**`Unpinned` is not "unauthenticated", and the distinction is the whole reason the variant can exist.** The peer still proves possession of the key its certificate names, so the channel is mutually authenticated and `SecureChannel::peer` still cannot fail; what is absent is only a *prior* expectation to compare that key against. Trust-on-first-use pinning is then the caller's, above the transport, which is exactly where docs/03's Static Peer already puts it — "the first connection pins it". The account-level question is answered later still, by the Attestation exchange in `Hello` ([docs/04](04-protocol.md#the-three-planes)), which does not consult this argument at all.
+
+**It is an argument to `connect` and not a field on `Candidate`, and three separate facts forced that.**
+
+- **A Static Peer's first connection has no `DeviceId` to put there.** A field would have to be optional on a type where every other reader treats it as known
+- **`Candidate` derives `PartialEq`, `Eq` and `Hash`, and collapsing one `DeviceId` arriving from several sources into one peer is what those derives are for.** A per-attempt field on it would silently make one address two candidates
+- **mDNS carries an 8-byte fingerprint of the agreement key, and `Noise_IK` needs the whole key.** So a candidate could not carry the expectation `ble-gatt` needs even if the first two objections were answered
+
+**The type is `#[non_exhaustive]` and that keeps it inside Change Drill D10.** A fourth state of identity knowledge would be a variant nobody was matching exhaustively on, which rewrites no existing line -- the same reasoning as the reserved capability bit below. **What D10 forbids is changing the trait**, and this argument is added once, before the first transport exists, rather than by a transport paying for itself.
+
+**A transport needing something that is not identity knowledge takes it at construction, not per connect.** A pairing code, a relay token, a Brokr's address: those are configuration of one transport instance, and putting them here would turn a closed domain vocabulary into a bag every transport adds to.
+
 ### Phase 5 is the point
 
 **Refusing to make path selection a one-time decision is the most important thing in this design.**
