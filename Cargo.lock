@@ -4993,6 +4993,7 @@ version = "0.1.0"
 name = "tradr-discovery"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "tradr-core",
 ]
 

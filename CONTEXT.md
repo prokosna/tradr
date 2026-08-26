@@ -23,6 +23,7 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 | **Provider Profile** | Everything verification needs to know about one identity provider: issuer, JWKS URI, client ID set, nonce binding, renewal terms. The only place a provider is named. |
 | **Account ID** | `iss || 0x00 || sub`. The input to every value derived from account identity — never the bare `sub`. |
 | **Fingerprint** | A Device Key encoded as human-readable words, equivalent to a Signal safety number. Used for out-of-band verification. |
+| **Agreement Key Tag** | The first 8 bytes of `BLAKE3(agreement_pub)`, carried as mDNS TXT `pk`. A machine-comparable short hash, and **not** a Fingerprint — it is never shown to a person and never rendered as words. |
 | **Trust Tier** | How much a peer is trusted: `same-account`, `linked`, or `nearby-ephemeral`. |
 | **Link** | A mutually consented relationship between two Accounts. A one-sided invitation never establishes one. |
 | **Link Secret** | 32 bytes shared by both sides of a Link. Identifies linked peers over BLE and proves the link. |

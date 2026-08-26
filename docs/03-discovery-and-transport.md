@@ -35,13 +35,23 @@ Four `DiscoverySource` implementations run concurrently, merging into one peer l
   | Key | Value |
   |---|---|
   | `v` | Protocol major version |
-  | `id` | Device ID, 16 bytes, base64url |
-  | `pk` | Agreement public key fingerprint, first 8 bytes |
+  | `id` | Device ID, 16 bytes, base64url **without padding** — 22 characters |
+  | `pk` | Agreement Key Tag: the first 8 bytes of `BLAKE3(agreement_pub)`, base64url without padding — 11 characters |
   | `n` | Display name, UTF-8, 32 bytes maximum |
   | `p` | Platform: `linux`, `win`, `mac`, `android` |
   | `c` | Capability flags, a bitmask |
 
 - Implemented with `mdns-sd`. On Android, multicast arrives only while a `WifiManager.MulticastLock` is held, acquired on the Kotlin side
+
+**Both encoded values are base64url with no padding**, matching the Attestation nonce in [docs/05](05-security.md#the-attestation) and every base64 already in this codebase. Padding would buy nothing here and costs bytes in a record with a budget.
+
+**The Agreement Key Tag is not the Fingerprint, and this table called it one until DCR-047.** [CONTEXT.md](../CONTEXT.md) defines a Fingerprint as a Device Key rendered as human-readable words, the Signal-safety-number idea, meant for a person to read aloud. The `pk` value is eight raw bytes meant for a machine to compare. Two unrelated things under one word in the vocabulary file that exists to stop exactly that, and the collision is not harmless: an implementer sent to `CONTEXT.md` for "fingerprint" would find a word encoding.
+
+**What the tag is for, and what it is not sufficient for.** It lets a device that already holds a peer's full agreement key confirm cheaply that the key has not changed, without a connection. It cannot carry `PeerExpectation::Identity`, which `Noise_IK` needs, because that needs the whole key and this is eight bytes of a hash of it — the point made under "What a transport is told about the peer it is dialling" below. **Nothing in M1 reads it**; it is advertised so that a peer which does read it is not talking to a device that never emitted it.
+
+**A browsing device must not drop an instance whose `v` it does not recognise.** [docs/04](04-protocol.md#versioning) carries each side's supported range in `Hello` and takes the highest common version, so a version this build cannot speak is a negotiation that has not happened yet, not a peer to hide. Filtering here would make that peer silently invisible, and a peer that never appears is the hardest failure this design has to diagnose.
+
+**A malformed record is skipped, and the source keeps running.** Anyone on the LAN can advertise anything, so a record with a missing key, an `id` that is not 22 base64url characters, or a value carrying a control character is one the source ignores while continuing to browse. That is a filter and not a swallowed error: nothing failed that a caller could act on, and a source that died on the first hostile advertisement would be trivially deniable.
 
 Putting the Device ID in the TXT record exposes device identity to anyone on the LAN. That is accepted: a LAN is already a somewhat trusted space, and concealing identity there would badly hurt how quickly discovery works. **Proximity, where anonymity does matter, is handled differently** — see EIDs below.
 
