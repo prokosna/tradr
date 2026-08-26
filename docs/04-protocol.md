@@ -29,9 +29,36 @@
    BE      msg     protobuf
 ```
 
-- `len` covers `type` and `payload` together, bounded by the `max_frame_size` negotiated in `Hello` — 1 MiB by default, 512 bytes over BLE
+- `len` covers `type` and `payload` together, big-endian, and does not include its own four bytes. It is bounded by the `max_frame_size` negotiated in `Hello` — 1 MiB by default, 512 bytes over BLE. The smallest legal frame is `len == 1`: a type byte with an empty payload
 - `type` selects the message; `payload` is its protobuf encoding
 - On QUIC the control and data planes take separate streams. BLE and relay offer a single stream, so multiplexing is done in-band with a frame variant carrying a `stream_id`
+
+### Which `max_frame_size` bounds which direction
+
+`max_frame_size` is what a side is willing to **receive**, never what it promises to send. Each side puts its own value in `HelloAck`, so the two are independent and routinely differ — a phone reachable over `ble-gatt` and a laptop over `direct-quic` is the ordinary case, not the exception.
+
+| Direction | Bound |
+|---|---|
+| Encoding a frame to send | the peer's advertised `max_frame_size` |
+| Decoding a frame received | this side's own, the value it advertised |
+
+A side advertises what its own `SecureChannel` reports and enforces exactly that on receive. **Before `HelloAck` arrives both bounds are the channel's own value**, which is what makes `Hello` itself framable: the handshake cannot negotiate the limit that carries the handshake.
+
+### A bad length ends the connection
+
+An announced `len` above the receive bound, or a `len` of zero, is **fatal to the stream and never skipped**. A length-prefixed stream has no second way to find a boundary: the bytes after a bad length are of unknown extent, so there is nothing to resynchronize on and every later frame would be read at a shifted offset. The reader reports the failure and the channel closes.
+
+That is a different thing from the forward compatibility below, and the two sit one layer apart. **Ignoring an unknown message type happens after a well-formed frame has been decoded** — its extent is known, so skipping it costs nothing. A malformed length is not a frame at all.
+
+### The length is never trusted for an allocation
+
+A peer announcing `len = 0xffffffff` must cost the receiver nothing. The bound is therefore checked **the moment the four header bytes are in hand**, before a single byte is reserved, and a reader never sizes a buffer from a value the peer sent. Its memory is the bytes it has actually received and no more.
+
+This is the whole of the framing layer's security surface, and it is where an untrusted stream's first four bytes are read.
+
+### The framing layer does not know what a type byte means
+
+It carries the `u8` verbatim in both directions and holds no registry. Which code names which message is the planes' business, settled where the frame is already in hand — which is also where "unknown message types are ignored" is applied. Framing is byte-level, so [Change Drill D5](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) does not reach it: replacing protobuf changes what a payload contains, not how it is delimited.
 
 ## The three planes
 

@@ -47,6 +47,7 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 | **Transfer** | One send operation, containing one or more Items. Its ID is unique across devices. |
 | **Item** | One file within a Transfer, with a relative path, a size, and a Content Hash. |
 | **Chunk** | A fixed-size block of an Item. The unit of transfer, resumption, and verification. |
+| **Frame** | The unit the wire is divided into: `[u32 len][u8 type][payload]`, where `len` counts `type` and `payload` together. A `max_frame_size` is what a side will **receive**, so the two directions of one connection are bounded independently. |
 | **Content Hash** | The BLAKE3 hash of a file's contents. Because BLAKE3 is a tree, per-chunk verification derives from this hash alone. |
 | **Offer** | The sender's proposal, awaiting the receiver's Accept or Reject. |
 | **Resume Offset** | The chunk position the receiver already holds. Carried in the Accept so the transfer picks up mid-stream. |
