@@ -34,6 +34,6 @@ pub use key_store::{
 pub use rel_path::{REL_PATH_COMPONENT_MAX_LEN, RelPath, RelPathError};
 pub use rng::{Rng, RngError};
 pub use transfer_id::{TransferId, TransferIdError};
-pub use transport::{Candidate, CandidateError, Incoming, Transport};
+pub use transport::{Candidate, CandidateError, Incoming, PeerExpectation, Transport};
 pub use trust_tier::{TrustTier, TrustTierError};
 pub use vfs::{DirEntry, EntryKind, Metadata, ReadAt, RootId, Vfs, VfsError, WriteAt};
