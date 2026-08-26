@@ -9,3 +9,4 @@ pub mod v1 {
 }
 
 pub mod framing;
+pub mod message_type;
