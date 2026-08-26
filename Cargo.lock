@@ -5050,7 +5050,9 @@ dependencies = [
  "const-oid",
  "der",
  "p256",
+ "quinn",
  "rustls",
+ "tokio",
  "tradr-core",
  "x509-cert",
 ]

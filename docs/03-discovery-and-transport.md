@@ -234,6 +234,16 @@ A `SecureChannel` therefore offers the same thing on every path: mutually authen
 
 **A transport needing something that is not identity knowledge takes it at construction, not per connect.** A pairing code, a relay token, a Brokr's address: those are configuration of one transport instance, and putting them here would turn a closed domain vocabulary into a bag every transport adds to.
 
+### What a transport can know about a refusal, and what it must not invent
+
+A `Transport` reports `TransportError`, a closed set of six. Mapping a real transport's failures onto it turned out to decide two things the design had not settled, and both were established by running a QUIC handshake rather than by reading a crate's documentation.
+
+**A QUIC peer cannot tell a pin mismatch from a forged signature, and must not pretend it can.** Both arrive as one opaque CRYPTO_ERROR code -- RFC 9000's `0x0100` to `0x01ff` range, carrying a TLS alert number in its low byte -- and the dialling side sees it as a transport error while the listening side sees the same code inside a connection-close frame. **So every code in that range is `AuthenticationFailed`, whichever side reports it.** That is wider than "the peer's key did not match the expected Device ID", and the type says so: the finer distinction is not on the wire, and a transport that invented one would be handing a caller a fact it does not have. What the variant guarantees is the part that matters to a caller — **the peer failed to authenticate, and retrying will not change that**, which is precisely what separates it from `Rejected`.
+
+**`Unreachable` is a local verdict, not the absence of a reply.** Dialling an address where nothing listens does not produce an error: QUIC retries its Initial packets and the future simply stays pending. So `Unreachable` means the dial could not be attempted — an address this transport cannot parse, an endpoint that is shutting down, no common QUIC version — and it is decided before a packet leaves. **The deadline on waiting belongs to Phase 3 above, which already owns a three-second race**, and a transport that invented a second one would compete with it. A transport still sets an idle timeout so a dial into nothing eventually resolves as `TimedOut` rather than never.
+
+**This is also why `Rejected` and `Closed` are separate.** A peer that closes during the handshake with a non-crypto code refused the connection; a peer that closes an established one is `Closed`. A caller retries the first and does not retry the second, and neither is a security event.
+
 ### Phase 5 is the point
 
 **Refusing to make path selection a one-time decision is the most important thing in this design.**
