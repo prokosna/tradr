@@ -51,6 +51,16 @@ The only exception is Critical Module tests (§6).
 
 Skip nothing. If you did skip something, record which and why in `STATE.md`. See §4.
 
+### 2-5. Every report to the user comes from `STATE.md`
+
+**Context is cleared deliberately and often.** A Supervisor that arrives with no memory of the last session has exactly one source, and it is this repository. Anything it reports that it did not read here, it invented.
+
+1. **Open every progress report with the yaml block**: `last_updated`, `current_milestone`, `branch`, `work_items_landed`, `last_commit`, and what the In flight block says. Those values cannot be produced without opening the file, which is the point -- a report carrying them was grounded, and a report without them was not. **This is the same test as probing for the artifact instead of for a package manager's opinion of it.**
+2. **Anything you are about to report that `STATE.md` does not already say, write it there first, in the same turn.** Not afterwards, and not "next time". A finding that exists only in a reply is a finding that ends with the context window, and the reply is the part that does not survive.
+3. **Reconcile before reporting, and say that you did.** §2-1's step 5 stands: commits newer than `last_commit` that `STATE.md` does not account for are the first thing to fix and the first thing to mention. **A confident report from a stale `STATE.md` is worse than no report at all**, because it is indistinguishable from a correct one.
+
+**This is the rule the other rules rest on once context stops being continuous.** §2-2 says the file is updated before anything else because the rest can be broken and recovered from while that cannot. Clearing context makes the claim literal: `STATE.md` is not a record of the work kept alongside it, it is the only place the work survives.
+
 ---
 
 ## 3. Implementer: absolute rules
