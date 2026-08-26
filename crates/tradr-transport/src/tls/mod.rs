@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use rustls::pki_types::CertificateDer;
 use rustls::sign::{CertifiedKey, SigningKey, SingleCertAndKey};
-use tradr_core::{DeviceId, KeyStore, KeyStoreError};
+use tradr_core::{DeviceId, KeyStore, KeyStoreError, PeerExpectation};
 
 use crate::certificate::{self, CertificateError};
 
@@ -16,7 +16,7 @@ mod signer;
 mod verifier;
 
 use signer::KeyStoreSigningKey;
-use verifier::{AnyDeviceClientCertVerifier, PinningServerCertVerifier};
+use verifier::{AnyDeviceClientCertVerifier, ExpectedDeviceServerCertVerifier};
 
 /// An error building a TLS config or reading a peer's `DeviceId`. Never
 /// names the bytes it refused (rule F4): every variant wraps another
@@ -77,14 +77,20 @@ fn certified_key(key_store: Arc<dyn KeyStore>) -> Result<CertifiedKey, TlsError>
     ))
 }
 
-/// The dialling side. Pins `expected`: the peer must present a
-/// certificate whose identity key derives that `DeviceId`.
+/// The dialling side. Where `expect.device_id()` is `Some`, the peer must
+/// present a certificate whose identity key derives that `DeviceId`.
+/// `Unpinned` (docs/05-security.md, "one case with nothing to pin
+/// against") makes no such comparison, but the peer still proves
+/// possession of the key it presents.
 pub fn client_config(
     key_store: Arc<dyn KeyStore>,
-    expected: DeviceId,
+    expect: PeerExpectation,
 ) -> Result<rustls::ClientConfig, TlsError> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let verifier = Arc::new(PinningServerCertVerifier::new(expected, &provider));
+    let verifier = Arc::new(ExpectedDeviceServerCertVerifier::new(
+        expect.device_id(),
+        &provider,
+    ));
     let key = certified_key(key_store)?;
 
     let config = rustls::ClientConfig::builder_with_provider(provider)
