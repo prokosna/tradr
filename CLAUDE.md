@@ -237,7 +237,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 
 - **One branch per Work Item**, named for it: `wi-m1-001-mdns-discovery`
 - **One pull request per Work Item**, opened after the review passes and merged when CI is green
-- Never commit directly to `main`, and never push to it. **Branch protection enforces this**, because the rule alone did not: 73 commits landed on `main` before anyone noticed
+- Never commit directly to `main`, and never push to it. **Nothing on the server enforces this today**, and the rule alone did not: 73 commits landed on `main` before anyone noticed. GitHub offers branch protection and rulesets to a private repository only on a paid plan, and this repository is private, so both the API and the settings page answer `403`. `.githooks/pre-commit` refuses a commit made while `main` is checked out, which is the whole of the local guard -- **it does not refuse a push**, so `git push origin HEAD:main` from any branch is unguarded. **The exit is decision 2 rather than a subscription**: visibility is already settled as public, and going public restores both instruments at no cost
 - `main` is always green. A milestone is finished when its completion criteria are met, not when a branch merges
 
 **This replaced one branch per milestone at the start of M1.** A milestone branch meant CI could only run on a `push` trigger, one pull request every four weeks, and a branch check that `actions/checkout` skips. Per Work Item, the pull request *is* the gate.

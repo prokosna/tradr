@@ -52,7 +52,9 @@ git config core.hooksPath .githooks
 
 This turns on the local gate that CLAUDE.md section 5 describes: `ci/run-all.sh`, `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, then `cargo test --workspace`, in that order, before any commit is created. **`git commit --no-verify` is forbidden** — it is the one way to make a commit that skips this gate, and `ci/hooks-executable.sh` can confirm the hook file is in place and executable, but nothing in the repository can confirm a given clone actually ran the command above.
 
-**Branch protection on `main`** is a GitHub repository setting, not something this repository can turn on itself. Run once, by whoever administers the repository:
+**Branch protection on `main`** is not available on this repository, and that is a fact rather than a step anyone has skipped. GitHub restricts both classic branch protection and rulesets on a **private** repository to a paid plan; the REST API answers `403 Upgrade to GitHub Pro or make this repository public` for both. So the rule in CLAUDE.md section 5 -- never commit to `main`, never push to it -- rests on `.githooks/pre-commit`, which refuses a commit made while `main` is checked out, and on the one-pull-request-per-Work-Item habit. **Neither refuses a push**: `git push origin HEAD:main` from any branch is unguarded.
+
+**Making the repository public turns both back on for free**, and that is already the settled direction -- see decision 2 in [STATE.md](STATE.md). The command below is kept because it is what to run at that moment, not because it works now.
 
 ```
 gh api -X PUT repos/prokosna/tradr/branches/main/protection --input - <<'EOF'
