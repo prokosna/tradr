@@ -7,3 +7,11 @@ publish.workspace = true
 
 [dependencies]
 tradr-core = { path = "../tradr-core" }
+x509-cert = { version = "0.2", default-features = false, features = ["std"] }
+der = "0.7"
+const-oid = { version = "0.9", features = ["db"] }
+p256 = { version = "0.13", features = ["ecdsa"] }
+
+[dev-dependencies]
+p256 = { version = "0.13", features = ["ecdsa", "ecdh"] }
+blake3 = "1"
