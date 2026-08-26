@@ -11,7 +11,10 @@ x509-cert = { version = "0.2", default-features = false, features = ["std"] }
 der = "0.7"
 const-oid = { version = "0.9", features = ["db"] }
 p256 = { version = "0.13", features = ["ecdsa"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+blake3 = "1"
 
 [dev-dependencies]
 p256 = { version = "0.13", features = ["ecdsa", "ecdh"] }
 blake3 = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

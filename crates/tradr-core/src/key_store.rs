@@ -383,7 +383,7 @@ impl std::error::Error for KeyStoreError {
 /// Access to a device's private keys through operations only (ADR-0011).
 /// No method returns key material, and none may be added that could:
 /// that is the entire point of the ADR.
-pub trait KeyStore {
+pub trait KeyStore: Send + Sync {
     /// The device's public identity: its two public keys and `DeviceId`.
     fn public_identity(&self) -> Result<PublicIdentity, KeyStoreError>;
 
