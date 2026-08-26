@@ -8,3 +8,8 @@ publish.workspace = true
 [dependencies]
 tradr-core = { path = "../tradr-core" }
 base64 = "0.22"
+mdns-sd = "0.21"
+flume = "0.12"
+
+[dev-dependencies]
+if-addrs = "0.15"
