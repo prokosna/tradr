@@ -14,13 +14,13 @@ The second is the heavy one. **A design that does not assume agent context is fi
 
 ## Decision
 
-**Split into two roles: a cheap model implements, an expensive one instructs, reviews, and tracks progress. No exceptions.**
+**Split into two roles: a fast/worker model implements, a high-capability reasoning model instructs, reviews, and tracks progress. No exceptions.**
 
 Further, require that **an agent with no context can take over as Supervisor and continue immediately**, and provide `STATE.md` as the mechanism.
 
 | | Supervisor | Implementer |
 |---|---|---|
-| Model | Expensive, Opus 5 and similar | Cheap, Sonnet 5 or Haiku 4.5 |
+| Model | High-capability / Reasoning (e.g. Gemini Pro, Claude Opus, GPT-4o/o1) | Fast / Efficient (e.g. Gemini Flash, Claude Sonnet/Haiku, GPT-4o-mini) |
 | Responsibility | Instruction, review, progress, design decisions, committing | Implementing a Work Item |
 | Edits `docs/` | Yes | No |
 | Edits `STATE.md` | Yes, and must | No |
@@ -41,7 +41,7 @@ Issue `REDESIGN` and re-cut the Work Item instead.
 
 ### Why only Critical Modules get their tests first
 
-Having a cheap model write security-critical code is fine. **Having it define the standard that code is judged against is not.** When the same model writes both the implementation and its tests, the tests get written to match the implementation's mistakes and the mistakes go undetected.
+Having a fast worker model write security-critical code is fine. **Having it define the standard that code is judged against is not.** When the same model writes both the implementation and its tests, the tests get written to match the implementation's mistakes and the mistakes go undetected.
 
 With the Supervisor writing the tests first, a weak implementation is still caught mechanically. The set is boundary enforcement in `tradr-vfs`, Attestation verification in `tradr-identity`, chunk resumption in `tradr-core`, and filename sanitization.
 
@@ -57,7 +57,7 @@ So `git log` and `STATE.md` cannot disagree about landed work. Without that, arr
 
 ## What review looks for
 
-The checklist is in [CLAUDE.md](../../CLAUDE.md) §4. Two items get examined every time.
+The checklist is in [AGENTS.md](../../AGENTS.md) / [CLAUDE.md](../../CLAUDE.md) §4. Two items get examined every time.
 
 ### Excuse comments
 
@@ -86,9 +86,9 @@ Standards always decay, so machines enforce them.
 
 | Mechanism | What it protects |
 |---|---|
-| [CLAUDE.md](../../CLAUDE.md) | Claude Code loads it at session start, so no agent can miss the rules |
-| [.claude/agents/implementer.md](../../.claude/agents/implementer.md) | Fixes the Implementer's model and tools; burns the `docs/` prohibition into its system prompt |
-| [.claude/agents/reviewer.md](../../.claude/agents/reviewer.md) | Restricts the reviewer to read-only tools. **Unable to fix things, it does not fix them** |
+| [AGENTS.md](../../AGENTS.md) / [CLAUDE.md](../../CLAUDE.md) | Coding agents (agy, Claude Code, etc.) load it at session start, so no agent can miss the rules |
+| Agent definitions (`.claude/agents/`, agy configs) | Fixes the Implementer/Reviewer scope and tool boundaries |
+| Read-only review tooling | Restricts the reviewer to read-only tools. **Unable to fix things, it does not fix them** |
 | CI `comment-lang`, `comment-length`, `excuse-grep` | Mechanizes the comment standard |
 | CI `layer-deps` | The clean-architecture dependency direction |
 | CI `no-brokr` | [ADR-0005](0005-brokr-is-optional.md)'s premise |
@@ -97,5 +97,5 @@ Withholding write tools from the reviewer is what works best: "faster to just fi
 
 ## Conditions for withdrawal
 
-- The cheap model's output quality no longer justifying the review round trips. Track the mean number of `REVISE` cycles; consistently above three means raising the Implementer's model
+- The worker model's output quality no longer justifying the review round trips. Track the mean number of `REVISE` cycles; consistently above three means raising the Implementer's model
 - Conversely, a run of unbroken `PASS` verdicts making review meaningless, which would indicate either a lax checklist or Work Items cut too small
