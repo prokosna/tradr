@@ -56,6 +56,9 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 |---|---|
 | **Transport** | What actually moves bytes: `direct-quic`, `wifi-direct`, `holepunch-quic`, `ble-gatt`, or `relay`. |
 | **Candidate** | One way a Peer might be reachable: an address paired with a Transport kind. |
+| **Discovery Source** | One way Peers are found: mDNS, BLE, Static Peer, or a Brokr's presence registry. Four run at once, and each reports what it can currently see rather than a list. |
+| **Peer Observation** | What one Discovery Source currently knows about one Peer: its Candidates, its published name and capabilities, and its Device ID once that source knows it. |
+| **Peer List** | Every Peer Observation from every source, merged so that one Device ID seen by several sources is one Peer holding several Candidates. |
 | **Path Selection** | Racing every Candidate in parallel and taking the first and fastest to establish. Not a one-time decision — it is revisited mid-transfer. |
 | **Static Peer** | A reachable hostname or address the user pinned by hand. How overlay networks such as Tailscale are used without a Brokr. |
 | **Rendezvous** | The Brokr's role in exchanging address candidates between peers. No file bytes pass through. |

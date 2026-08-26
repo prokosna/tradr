@@ -123,6 +123,40 @@ Active only when a Brokr is registered.
 
 Details in [07](07-brokr.md).
 
+### What a Discovery Source reports
+
+**A `DiscoverySource` does not return a list of peers. It reports events.** All four sources are continuous rather than one-shot: mDNS records arrive and expire, a BLE advertisement is seen and stops being seen, a Brokr's WebSocket pushes presence changes, and the Static Peer set changes when the user edits it. A method returning a snapshot would make every source keep one internally anyway, and would lose the one thing a snapshot cannot express — the moment a peer went away.
+
+| Event | Meaning |
+|---|---|
+| `Observed(PeerObservation)` | This source can currently see this peer, and here is everything it knows. **It replaces any earlier observation carrying the same `ObservationId`**, rather than adding a second one |
+| `Lost(ObservationId)` | This source can no longer see that observation. It says nothing about the other three, which may still see the same device |
+
+**An observation is keyed by what its source calls it, not by the Device ID**, and a Static Peer forces that. Its `expect_device_id` is empty until the first connection fills it in, so an entry the user registered by hand is a real, reachable, listable peer with no Device ID at all. A key that a source cannot always supply is not a key.
+
+| `PeerObservation` field | Contents |
+|---|---|
+| `id` | An `ObservationId`: the `SourceId` that produced it, plus a key that is meaningful only to that source. Two sources may use the same key and mean different devices |
+| `device_id` | The Device ID, once this source knows it, and absent until then |
+| `candidates` | Every address this source currently offers for the peer. One observation carries several, because a Static Peer registers several endpoints |
+| `display_name` | The name the peer publishes — the mDNS TXT `n`, at most 32 bytes. Validated the way a candidate address is, never parsed |
+| `capabilities` | The bitmask under Capability flags below |
+
+**Trust on first use needs no operation of its own.** When a Static Peer's first connection fills in `expect_device_id`, its source re-reports the same `ObservationId` with the Device ID now present, and the replacement rule above folds it into whichever peer already holds that Device ID. A separate `identify` call on the peer list would be a second way to change an observation, and therefore a second thing for the two to disagree about.
+
+### The peer list
+
+Every observation from every source, merged. Four rules, and the interesting ones are the last two.
+
+- **Observations sharing a Device ID are one peer.** Every observation whose `device_id` is present joins the peer for that Device ID; every observation without one is a peer by itself, since nothing yet says it is the same device as anything else
+- **A peer's candidate set is the union of its observations' candidates, deduplicated and in a fixed order** — by transport, then by address. `Candidate` derives `Eq` and `Hash` exactly so that this is a set union. The order is not a preference: Phase 3 races all of them at once, and a fixed order is here so that the same inputs produce the same list twice
+- **A peer reports no merged name and no merged capability set.** Two sources can disagree about both, and every rule for reconciling them is a policy — take the newest, take the union, take the most conservative bit by bit — that belongs to whatever is about to act on the answer. So each observation keeps its own, the peer exposes the observations it was built from, and a caller that needs one name picks it and owns that choice
+- **An event is refused if its `ObservationId` names a source other than the one that produced it.** [docs/05](05-security.md#threat-model) does not trust a Brokr, and a Brokr source able to emit an observation labelled `mdns` could replace a LAN peer's candidate set with addresses of its own choosing — the peer list would merge them under a Device ID the Brokr also chose, and path selection would dial them. The list is told which source each event came from and compares it against the event's own claim
+
+**The peer list runs no sources.** Merging touches no clock, no socket and no executor, so it sits with the domain types in `tradr-core` and its tests need none of the three. Driving four sources at once is a `select` over four futures, needs an executor, and belongs with the implementations in `tradr-discovery`.
+
+**It lives in `tradr-core` for a second reason, and that one is not a preference.** Phase 1 of path selection reads a peer's candidates, path selection lives in `tradr-transport`, and `ci/layer-deps.sh` permits an implementation crate only `tradr-core` and `tradr-proto`. A `Peer` declared in `tradr-discovery` is a `Peer` that `tradr-transport` cannot name.
+
 ## Transports
 
 | ID | What it is | Tier | Typical throughput | Where it applies |

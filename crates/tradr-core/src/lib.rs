@@ -2,14 +2,15 @@
 #![deny(missing_docs)]
 //! Layer 0 domain types (`DeviceId`, `TransferId`, `ChunkIndex`,
 //! `TrustTier`) plus the Layer 1 `Clock`, `Rng`, `KeyStore`, `Vfs`,
-//! `SecureChannel` and `Transport` traits. Depends on nothing beyond `std`
-//! (rule B1, invariant I4). Domain types validate bytes another layer
-//! produced; the traits declare operations, implemented only in Layer 3.
+//! `SecureChannel`, `Transport` and `DiscoverySource` traits, plus
+//! `PeerList`'s pure merge (docs/03). Depends on nothing beyond `std`
+//! (rule B1, invariant I4): traits declare operations Layer 3 implements.
 
 mod channel;
 mod chunk_index;
 mod clock;
 mod device_id;
+mod discovery;
 mod future;
 mod item_id;
 mod key_store;
@@ -24,6 +25,11 @@ pub use channel::{RecvStream, SecureChannel, SendStream, TransportError, Transpo
 pub use chunk_index::{ChunkIndex, ChunkIndexError, REFERENCE_CHUNK_SIZE_BYTES};
 pub use clock::{Clock, Monotonic, UnixTime, UnixTimeError};
 pub use device_id::{DEVICE_ID_LEN, DeviceId, DeviceIdError};
+pub use discovery::{
+    Capabilities, DISPLAY_NAME_MAX_LEN, DiscoveryError, DiscoveryEvent, DiscoverySource,
+    DisplayName, DisplayNameError, OBSERVATION_KEY_MAX_LEN, ObservationId, ObservationKey,
+    ObservationKeyError, Peer, PeerList, PeerListError, PeerObservation, SourceId,
+};
 pub use future::BoxFuture;
 pub use item_id::{ITEM_ID_MAX_LEN, ItemId, ItemIdError};
 pub use key_store::{
