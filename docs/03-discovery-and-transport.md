@@ -204,7 +204,7 @@ A `SecureChannel` therefore offers the same thing on every path: mutually authen
 
 ### What the core knows about a transport
 
-**Nothing that changes when a transport is added.** Change Drill D10 budgets one implementation, one registration and one weight-table entry for a new transport, and no drill may reach `tradr-core`. Two things follow, and both are constraints on the `Transport` trait rather than observations about it.
+**No trait that changes when a transport is added.** Change Drill D10 budgets one implementation, one registration, one weight-table entry and one capability bit for a new transport, and forbids any change to a trait in `tradr-core`. **The bit is in the budget rather than outside it**: the flags below enumerate transports deliberately, and naming a reserved value rewrites nothing. Two things follow, and both are constraints on the `Transport` trait rather than observations about it.
 
 - **A transport's identity is an opaque token, not a closed set.** The core carries a `TransportId` it can compare, order and display, and cannot enumerate. An `enum { DirectQuic, WifiDirect, ... }` in the core would make every new transport a core change, which is the one outcome the drill forbids
 - **A candidate address is opaque too.** `192.168.1.42:51820`, `relay://brokr.example/x` and `handle:0x0042` share no structure, and the core has no reason to parse any of them. It collects candidates from discovery and hands each to the transport that produced it
@@ -258,3 +258,5 @@ Carried in advertisements and in `Hello`, so each side knows what the other can 
 | 5 | Has a writable Share |
 | 6 | Currently on a metered link |
 | 7-15 | Reserved |
+
+**Bits 7 to 15 are where a new transport's bit comes from, and that is why they are reserved.** Enumerating transports on the wire is deliberate: a peer declares membership of a closed set rather than naming a transport in a string, so a peer cannot claim a transport that does not exist and a receiver never parses an open-ended value. The cost is that adding a transport touches `proto/`, and [Change Drill D10](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) counts that in its budget instead of pretending it does not happen.

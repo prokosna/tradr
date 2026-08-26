@@ -51,6 +51,16 @@ The only exception is Critical Module tests (§6).
 
 Skip nothing. If you did skip something, record which and why in `STATE.md`. See §4.
 
+### 2-5. Every report to the user comes from `STATE.md`
+
+**Context is cleared deliberately and often.** A Supervisor that arrives with no memory of the last session has exactly one source, and it is this repository. Anything it reports that it did not read here, it invented.
+
+1. **Open every progress report with the yaml block**: `last_updated`, `current_milestone`, `branch`, `work_items_landed`, `last_commit`, and what the In flight block says. Those values cannot be produced without opening the file, which is the point -- a report carrying them was grounded, and a report without them was not. **This is the same test as probing for the artifact instead of for a package manager's opinion of it.**
+2. **Anything you are about to report that `STATE.md` does not already say, write it there first, in the same turn.** Not afterwards, and not "next time". A finding that exists only in a reply is a finding that ends with the context window, and the reply is the part that does not survive.
+3. **Reconcile before reporting, and say that you did.** §2-1's step 5 stands: commits newer than `last_commit` that `STATE.md` does not account for are the first thing to fix and the first thing to mention. **A confident report from a stale `STATE.md` is worse than no report at all**, because it is indistinguishable from a correct one.
+
+**This is the rule the other rules rest on once context stops being continuous.** §2-2 says the file is updated before anything else because the rest can be broken and recovered from while that cannot. Clearing context makes the claim literal: `STATE.md` is not a record of the work kept alongside it, it is the only place the work survives.
+
 ---
 
 ## 3. Implementer: absolute rules
@@ -140,11 +150,15 @@ Layer 3  Driver    quinn, btleplug, mdns-sd, rustls, SAF, React, Fastify
 | D7. Add iOS | one implementation each of Vfs, KeyStore, BleAdvertiser |
 | D8. Android SAF is superseded by a new API | `vfs/saf/` only |
 | **D9. Move from Tauri to Electron** | **UI, Adapter, and `tauri-plugin-tradr` swapped for an equivalent binding crate. The other five crates untouched** |
-| D10. Add a new Transport | one implementation, one registration, one weight-table entry |
+| D10. Add a new Transport | one implementation, one registration, one weight-table entry, one capability bit. **No trait in `tradr-core` changes** |
 
-**`tradr-core` must never appear in any count.** D9 is a requirement rather than a hypothetical: [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md) records conditions under which Tauri gets dropped, so staying droppable is part of the contract.
+**`tradr-core`'s traits must never appear in any count.** D9 is a requirement rather than a hypothetical: [ADR-0001](docs/adr/0001-tauri-2-as-app-shell.md) records conditions under which Tauri gets dropped, so staying droppable is part of the contract.
 
 **D9 reaches one crate, the binding crate, and that is the whole budget.** A composition root has to name some shell, so demanding that `crates/` be untouched entirely was never achievable; confining the shell's name to one crate is what the drill actually buys.
+
+**D10's budget was three files and the count was wrong, in the same way D9's grep was.** [docs/03](docs/03-discovery-and-transport.md#capability-flags) gives every transport a fixed capability bit on the wire, so a new transport has always needed a `proto/` change as well -- a fourth file, and the drill would have failed the first time anyone ran it. A second one was waiting behind it: `Noise_IK` needs the responder's static public key before its first message, so the expectation a transport is dialled with is richer than a `DeviceId` and is Layer 1 vocabulary.
+
+**A drill counts what a change has to rewrite, not what it has to declare.** A capability bit is a reserved value being given a name; a variant added to a `#[non_exhaustive]` vocabulary type is an addition nobody was matching exhaustively on. Neither obliges a single existing line to change. **A trait is the opposite**: every layer above is written against it, so changing one is the ripple the drill exists to forbid. That is what D10 now says, and it is a stronger claim than the file count it replaces, because a budget of three files was satisfiable by moving a decision somewhere the drill was not looking.
 
 **The check is over manifests, not over text.** No `Cargo.toml` under `crates/` but `crates/tauri-plugin-tradr/`'s may name `tauri`, and `ci/layer-deps.sh` enforces exactly that on every run. **A grep over all text is the wrong instrument here and was the stated one until it was walked**: it flags a doc comment that mentions Tauri in order to explain why its file is D9-safe, which is prose about the gate defeating the gate. A dependency is what a swap has to rewrite; a sentence is not.
 

@@ -195,6 +195,12 @@ A new Supervisor reads in this order. Keeping work startable without reading any
 
 **Step 5 matters most.** Always suspect `STATE.md` of being stale. Commits newer than `last_updated` mean it was not updated, and reconciling it is the first job.
 
+### Arriving is half of it; reporting is the other half
+
+A contextless Supervisor does not only *start* from `STATE.md`, it **answers from it**. See [CLAUDE.md](../CLAUDE.md) §2-5, which is the binding form of this. The failure it prevents is specific and it does not announce itself: asked what happened, a Supervisor with an empty context assembles a plausible answer from the diff in front of it and the shape of the question, and that answer is fluent, confident, and partly invented. **Nothing in the reply distinguishes it from one that was read.**
+
+So the report is made checkable instead. It opens with the five yaml fields and the In flight block, which cannot be produced without opening the file, and anything not already in `STATE.md` goes in before it is said rather than after. The second half is what keeps the file complete: a session whose findings reach only the user has written them on the one surface that is about to be erased.
+
 ## The `STATE.md` discipline
 
 **The Supervisor updates `STATE.md` after each review, before anything else.**
