@@ -9,10 +9,10 @@
 last_updated: 2026-08-26
 phase: implementing
 current_milestone: M1
-branch: wi-m1-003-rustls-keystore
+branch: wi-m1-004-quic-transport
 implementation_started: true
 work_items_landed: 59
-last_commit: e75ffcb
+last_commit: 5c7641f
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -229,6 +229,14 @@ blocked: []
 **One check is deliberately untested and must not be mistaken for covered.** Both verifiers refuse a non-empty `intermediates` list, which is correct -- docs/05 has no chain and no CA, so a chain is a peer presenting something this design has no rule for. Reaching it needs a peer that sends one, and this crate's own configs cannot build that; the verifier types are `pub(crate)`, and **making a type public purely so a test can reach it is a worse trade than naming the gap.** If `WI-M1-004` gives `tradr-transport` a way to stand up a hostile peer, this is the first thing to point at it.
 
 **The Supervisor skipped a gate on its own work and an Implementer caught it.** `ci/run-all.sh` was not run after the two tests were added to `mutual_tls.rs`, only `cargo fmt` and `cargo clippy`, and one of the new comments ran to six lines against rule A2's cap of five. The Implementer reported it and refused to edit a test file it is forbidden to touch, which is exactly right on both counts. **CLAUDE.md section 2-4 says run the whole checklist every review, and the checklist covers the Supervisor's own files too.**
+
+**What `WI-M1-004` needs before its Work Order can be written, and none of it is implementation.** Three things, in order:
+
+- **`PeerExpectation` is a `tradr-core` change and therefore the Work Item's first commit, not an aside.** Decision 18 settles the type; what is left is that `Transport::connect` grows a second argument, which every future implementation is written against. **After `WI-M1-004` that trait is closed to Change Drill D10**, so getting the argument's shape right now is cheaper than any later correction.
+- **Tests move from pure functions to sockets, and that is a first here.** `quinn` needs an async runtime -- `tokio`, in practice, which the app already carries through Tauri -- so `tradr-transport` gains its first runtime dependency and its tests their first executor. **Rule E3 forbids waiting on wall-clock time**, and a loopback QUIC test is the first place that rule is hard rather than automatic: a handshake that has not finished yet and a handshake that never will look identical to a sleeping test. Settle how the tests wait before writing one.
+- **`ADR-0004`'s throughput number falls due here** and nothing else records it. It is the milestone's only measurement.
+
+**The pattern that produced two clean Work Items in a row, stated so it survives this session.** Validate the harness by running it before writing a single assertion; check every constant against the library that will produce it rather than against arithmetic; then mutation-test the delivered implementation during the review, one single-token mutation per named test. **The sweep has found a gap in the Supervisor's own tests on both Work Items it has been run on**, twice on the second, and reading found none of them.
 
 **Stage explicit paths for each, `Cargo.lock` included when a manifest moves, and read `git show --stat` afterwards.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
