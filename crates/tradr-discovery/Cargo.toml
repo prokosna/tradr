@@ -7,3 +7,4 @@ publish.workspace = true
 
 [dependencies]
 tradr-core = { path = "../tradr-core" }
+base64 = "0.22"
