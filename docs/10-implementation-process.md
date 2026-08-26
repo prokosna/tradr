@@ -2,7 +2,7 @@
 
 ## Premise
 
-Implementation is done by a **cheap model (the Implementer)** and reviewed by an **expensive one (the Supervisor)**. The split admits no exceptions. The Supervisor writes code only when writing a Critical Module's tests first.
+Implementation is done by a **fast / cost-effective worker model (the Implementer)** and reviewed by a **high-capability reasoning model (the Supervisor)**. The split admits no exceptions. The Supervisor writes code only when writing a Critical Module's tests first.
 
 This document exists so that **an agent with no context can take over as Supervisor and continue working immediately**. [`STATE.md`](../STATE.md) is the mechanism; this document defines how it is used.
 
@@ -10,8 +10,8 @@ This document exists so that **an agent with no context can take over as Supervi
 
 | Role | Model | Responsibility | Forbidden |
 |---|---|---|---|
-| **Supervisor** | Expensive, Opus 5 and similar | Writing work orders, reviewing, updating `STATE.md`, ruling on design changes, writing Critical Module tests, committing | Writing ordinary implementation code |
-| **Implementer** | Cheap, Haiku or Sonnet | Implementing the assigned Work Item | Changing the design, editing `docs/`, editing `STATE.md`, committing |
+| **Supervisor** | High-capability / Reasoning (e.g. Gemini Pro, Claude Opus, GPT-4o/o1) | Writing work orders, reviewing, updating `STATE.md`, ruling on design changes, writing Critical Module tests, committing | Writing ordinary implementation code |
+| **Implementer** | Fast / Efficient (e.g. Gemini Flash, Claude Sonnet/Haiku, GPT-4o-mini) | Implementing the assigned Work Item | Changing the design, editing `docs/`, editing `STATE.md` / `AGENTS.md` / `CLAUDE.md`, committing |
 
 Write access to `docs/` and `STATE.md` is confined to the Supervisor so that design documents cannot quietly change to suit an implementation. **Design belongs to the instruction side, not the implementation side.**
 
@@ -48,7 +48,7 @@ crates/tradr-transport/src/quic/
 
 ### Prohibitions
 - Editing docs/
-- Editing STATE.md
+- Editing STATE.md, AGENTS.md, or CLAUDE.md
 - Committing
 - Anything absent from the definition of done
 ```
@@ -73,7 +73,7 @@ Do not hesitate to issue `REDESIGN`. **Deciding to paper over a design flaw in i
 
 **Run every item, every time.** Never skip. If something was skipped, record it in `STATE.md`.
 
-The authoritative list lives in [CLAUDE.md](../CLAUDE.md) §4, since that is what agents load automatically. What follows expands on the parts that need explaining.
+The authoritative list lives in [CLAUDE.md](../CLAUDE.md) / [AGENTS.md](../AGENTS.md) §4, since that is what agents load automatically. What follows expands on the parts that need explaining.
 
 ### A4 in depth — excuse comments
 
@@ -122,7 +122,7 @@ For these, **the Supervisor writes the tests and the Implementer then writes an 
 | Chunk resumption in `tradr-core` | Breaking it collapses the whole path-selection design | A harness injecting disconnections and path switches |
 | Filename sanitization | Zip slip | The known attack corpus |
 
-**This is not an exception to the split; it is the premise of it.** Having a cheap model write security-critical code is fine. Having it define the standard that code is judged against is not. With tests already in place, a weak implementation still gets caught.
+**This is not an exception to the split; it is the premise of it.** Having a fast worker model write security-critical code is fine. Having it define the standard that code is judged against is not. With tests already in place, a weak implementation still gets caught.
 
 ## Handling design changes
 
@@ -305,7 +305,7 @@ Stated plainly.
 
 | Risk | Response |
 |---|---|
-| A cheap model gets security-critical code wrong | Critical Modules get their tests first |
+| A worker/implementation model gets security-critical code wrong | Critical Modules get their tests first |
 | Review degenerates into mechanical `PASS` | Record checklist results in `STATE.md`; name anything skipped |
 | `STATE.md` falls behind and handover breaks | Arrival step 5 reconciles `last_updated` against `git log` |
 | No DCR is raised and implementation silently departs from the design | Stated in the Work Order's prohibitions; verified against `git log` at each milestone |

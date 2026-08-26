@@ -12,7 +12,7 @@ current_milestone: M1
 branch: wi-m1-004d-quic-transport
 implementation_started: true
 work_items_landed: 63
-last_commit: 3379d14
+last_commit: fa60b80
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -225,7 +225,7 @@ work_items: []
 blocked: []
 ```
 
-**One pull request is open: #12, carrying `WI-M1-004c` and DCR-045's docs commit.** #9, #10 and #11 merged earlier in this session with every job green, so `main` carries `WI-M1-004a` and `WI-M1-004b`. **A Work Item can be reviewed, committed and pushed and still not be on `main`**, which is why the arrival list has a step for it; that step is what found #9 sitting open at the start of this session.
+**No pull request is open.** #9, #10, #11, #12 and #13 all merged during this session with every job green, so `main` carries `WI-M1-004a`, `WI-M1-004b` and `WI-M1-004c`. **A Work Item can be reviewed, committed and pushed and still not be on `main`**, which is why the arrival list has a step for it; that step is what found #9 sitting open at the start of this session.
 
 **`WI-M1-004a`'s single review finding was a sentence in docs/05 that DCR-044 had introduced hours earlier, and it is the eleventh Work Order defect in twenty-one Work Items.** The bullet read "only an absent one may be accepted", meaning *only an absent expectation is accepted without a comparison*; read literally it says only `Unpinned` may ever be accepted, which is the opposite of what pinning is for. The Implementer copied it faithfully onto `Transport::connect`'s doc comment -- **the contract every future transport is written against** -- and rule A2's five-line cap is what compressed it past the point where context rescued it. **The mutation sweep found nothing here**, which is the first time it has come up empty: four single-token mutations, four caught, because the defect was in prose that no test can execute. **Reading is still the only instrument that reaches a doc comment**, and this is the case for keeping it in the review rather than trusting the sweep.
 

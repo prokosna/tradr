@@ -11,7 +11,7 @@ Work on this repository splits into two roles. **Settle which one you are at the
 
 | | **Supervisor** | **Implementer** |
 |---|---|---|
-| Model | Expensive (Opus 5 and similar) | Cheap (Haiku, Sonnet) |
+| Model | High-capability / Reasoning (e.g. Gemini Pro, Claude Opus, GPT-4o/o1) | Fast / Efficient (e.g. Gemini Flash, Claude Sonnet/Haiku, GPT-4o-mini) |
 | Does | Instructs, reviews, tracks progress, decides design | Implements one assigned Work Item |
 | Edits `docs/` | Yes | **No** |
 | Edits `STATE.md` | Yes, and must | **No** |
@@ -68,7 +68,7 @@ Skip nothing. If you did skip something, record which and why in `STATE.md`. See
 ## 3. Implementer: absolute rules
 
 1. **Never edit `docs/`.** Design belongs to the instruction side, not the implementation side.
-2. **Never edit `STATE.md` or `CLAUDE.md`.**
+2. **Never edit `STATE.md`, `CLAUDE.md`, or `AGENTS.md`.**
 3. **Never commit or push.** Leave the work in the tree; the Supervisor commits after a passing review.
 4. **Never change the design on your own.** When implementation reveals a design problem, stop and raise a Design Change Request. See §7.
 5. **Never add anything absent from the Definition of Done.** Helpful extras smuggle in dependencies the design never sanctioned.
@@ -242,7 +242,7 @@ WI-M0-011
 DCR-007                    <- only when applicable
 Verdict: PASS
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Co-Authored-By: AI Assistant <noreply@assistant.ai>
 ```
 
 `type` is one of `feat`, `fix`, `refactor`, `test`, `docs`, `ci`, `chore`.
@@ -293,7 +293,7 @@ For these modules **the Supervisor writes the tests first and the Implementer th
 | Chunk resumption in `tradr-core` | The entire path-selection design collapses |
 | Filename sanitization: `RelPath` and `ItemId` in `tradr-core`, the transforms in `tradr-vfs` | Zip slip |
 
-Having a cheap model write security-critical code is fine. **Having it define the standard that code is judged against is not.**
+Having a fast/worker model write security-critical code is fine. **Having it define the standard that code is judged against is not.**
 
 **The test is whether being wrong produces a named, severe failure that nothing else catches.** Key generation qualifies on both counts: a weak key fails no build, no test and no handshake, and the module that would notice, Attestation verification, is verifying a signature that is perfectly valid.
 
