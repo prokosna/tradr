@@ -9,10 +9,10 @@
 last_updated: 2026-08-26
 phase: implementing
 current_milestone: M1
-branch: wi-m1-004c-quic-streams
+branch: wi-m1-004d-quic-transport
 implementation_started: true
 work_items_landed: 63
-last_commit: e141424
+last_commit: 3379d14
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -225,7 +225,7 @@ work_items: []
 blocked: []
 ```
 
-**No pull request is open.** #9, #10 and #11 all merged during this session with every job green, so `main` carries `WI-M1-004a` and `WI-M1-004b`. **A Work Item can be reviewed, committed and pushed and still not be on `main`**, which is why the arrival list has a step for it; that step is what found #9 sitting open at the start of this session.
+**One pull request is open: #12, carrying `WI-M1-004c` and DCR-045's docs commit.** #9, #10 and #11 merged earlier in this session with every job green, so `main` carries `WI-M1-004a` and `WI-M1-004b`. **A Work Item can be reviewed, committed and pushed and still not be on `main`**, which is why the arrival list has a step for it; that step is what found #9 sitting open at the start of this session.
 
 **`WI-M1-004a`'s single review finding was a sentence in docs/05 that DCR-044 had introduced hours earlier, and it is the eleventh Work Order defect in twenty-one Work Items.** The bullet read "only an absent one may be accepted", meaning *only an absent expectation is accepted without a comparison*; read literally it says only `Unpinned` may ever be accepted, which is the opposite of what pinning is for. The Implementer copied it faithfully onto `Transport::connect`'s doc comment -- **the contract every future transport is written against** -- and rule A2's five-line cap is what compressed it past the point where context rescued it. **The mutation sweep found nothing here**, which is the first time it has come up empty: four single-token mutations, four caught, because the defect was in prose that no test can execute. **Reading is still the only instrument that reaches a doc comment**, and this is the case for keeping it in the review rather than trusting the sweep.
 
@@ -703,6 +703,8 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 
 | # | Content | When | Source |
 |---|---|---|---|
+| DF-21 | **`QuicTransport` accepts only a candidate that parses as a `SocketAddr`; a DNS name is refused as `Unreachable`.** docs/03's Static Peer names `desktop.tail9f3c.ts.net:51820` as a primary example and says resolution is left to the system resolver, so this is a real gap rather than an oversight. **It does not block M1**, whose completion criterion is a file moving over the LAN: mDNS yields addresses, and a Static Peer with a literal IP works. Resolution needs `tokio::net::lookup_host` and a decision about what a test that resolves a name is allowed to depend on, which is why it is not smuggled into `WI-M1-004d` | Before a Static Peer is usable by name, M2 at the latest | Review of WI-M1-004c |
+| DF-22 | **Nothing stops a second `#![allow(...)]` from appearing.** DF-20 is legitimate and recorded, but the only thing that will remove it is a Supervisor remembering to look. `ci/excuse-grep.sh` already greps source for prose that papers over a design problem, and an `allow` attribute is the same act performed in the language rather than in a comment. **An allowlist-backed check over `#[allow]` and `#![allow]` would make DF-20 self-closing**, and every later one visible | After WI-M1-004d closes DF-20 | Review of WI-M1-004c |
 | DF-20 | **`crates/tradr-transport/src/quic/mod.rs` carries `#![allow(dead_code)]`, and it must come out in `WI-M1-004d`.** `WI-M1-004c` delivers the stream wrappers and the `TransportError` mapping with **no caller anywhere**, because `SecureChannel` is all-or-nothing: nothing public can construct a `QuicSendStream` until `QuicTransport` exists. Verified rather than accepted -- removing the attribute produces nine `never used` errors under `-D warnings`. **Rule A4 says a thing that will be fixed later belongs here rather than parked in a comment**, so here it is, and the only instrument that will catch it is the review of `WI-M1-004d`. **The deeper finding is that the Work Item cut caused it**: any split of the QUIC transport that stops short of `QuicTransport` produces a module with no caller, so bottom-up cutting buys reviewability at the price of a suppressed warning | WI-M1-004d | Review of WI-M1-004c |
 | DF-19 | **Resolved by WI-M1-000b.** **`ci/comment-lang.sh` scans build output.** Its `find` excludes `node_modules`, `target` and the generated protobuf output under `packages/protocol`, but not `packages/*/dist`, so generated `.d.ts` files are held to a rule about hand-written comments. Harmless today because the generators emit ASCII; it becomes a false failure the first time one does not, and the fix is one more `-not -path` | With the next work in `ci/` | WI-M1-000 |
 | DF-1 | Desktop drag-out, pulling a peer's file into a file manager. A download button substitutes | After M9 | [docs/08](docs/08-platform-integration.md) |
