@@ -256,6 +256,16 @@ A `SecureChannel` therefore offers the same thing on every path: mutually authen
 - **The class weights above belong to path selection, not to the transports.** A weight is a comparison between transports, so it is a policy of the component doing the comparing. `tradr-transport` holds the table; a transport does not report its own rank
 - **A frame-size limit is the opposite case, and the channel reports it.** [docs/04](04-protocol.md#framing) negotiates `max_frame_size` in `Hello` — 1 MiB by default, 512 bytes over BLE — and that negotiation happens in Layer 1. Either the core carries a per-transport table of limits, which is the table this whole section exists to keep out of it, or the established channel says what it can carry. It says. Unlike a weight, a limit is a property of one path rather than a comparison between several
 
+### A discovery source must emit an address its transport can parse
+
+"Opaque to the core" above says the core does not parse a candidate address. It does not say a source may write whatever it likes: **a candidate no transport can parse is a peer that silently never connects**, and the failure surfaces inside the transport at dial time, far from the source that built the string.
+
+`direct-quic` parses a candidate with `str::parse::<SocketAddr>()` ([DF-21](../STATE.md) records that it resolves no DNS name). Measured against rustc 1.98.0 on 2026-08-27, that parser accepts `192.168.1.42:51820`, `[2001:db8::1]:51820` and `[fe80::1%2]:51820`, and **rejects `[fe80::1%eth0]:51820` and RFC 6874's `[fe80::1%25eth0]:51820`**. So a link-local IPv6 candidate carries the **numeric** interface index, never the interface name.
+
+**This is a trap rather than a detail, because the obvious implementation gets it wrong on one platform only.** `mdns-sd`'s `ScopedIp` has a `Display` that renders the scope as the interface *name* off Windows and as the *index* on Windows, so `format!("[{scoped}]:{port}")` produces an address `direct-quic` refuses on Linux and accepts on Windows — a platform-dependent failure that testing on either one alone would miss. A source reads the index field and formats the address itself.
+
+**The general rule is the part worth keeping.** A library's own `Display` is written for a human reading a log, not for the parser at the other end of this design; where a source converts a library type into a candidate, what it owes is a string the receiving transport accepts, checked against that parser rather than against how the value prints.
+
 ### What a transport is told about the peer it is dialling
 
 `Transport::connect` takes a second argument beside the candidate: a `PeerExpectation`, which is what the dialling side already knows about the device it is reaching for. Three variants, and they are the three states of identity knowledge this design has rather than a guess at what a transport might want.
