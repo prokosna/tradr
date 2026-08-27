@@ -3,7 +3,9 @@
 //! verifying partial-file chunk writes, fsync syncs, and atomic collision renames.
 //! See docs/04-protocol.md and AGENTS.md.
 
-use tauri_plugin_tradr::transfer::{TransferSessionError, receive_file, send_file};
+use tauri_plugin_tradr::transfer::{
+    ReceiveRequest, SendRequest, SessionStreams, TransferSessionError, receive_file, send_file,
+};
 use tradr_core::{
     BoxFuture, ItemId, RecvStream, RelPath, RootId, SendStream, TransferId, TransportError,
 };
@@ -117,35 +119,50 @@ async fn single_chunk_file_transfer_succeeds_end_to_end() {
     std::fs::write(sender_dir.path().join("document.pdf"), &file_content).unwrap();
 
     let (_, hash) = outboard(&file_content);
-    let (mut sender_streams, mut receiver_streams) = memory_stream_pair();
+    let (mut ctrl_sender, mut ctrl_receiver) = memory_stream_pair();
+    let (mut data_sender, mut data_receiver) = memory_stream_pair();
     let transfer_id = sample_transfer();
     let item_id = sample_item();
 
     let dest_rel = RelPath::new("document.pdf").unwrap();
 
-    let sender_task = send_file(
-        &sender_vfs,
-        root_sender,
-        &src_rel,
-        &mut sender_streams.0,
-        &mut sender_streams.1,
+    let mut sender_streams = SessionStreams {
+        control_send: &mut ctrl_sender.0,
+        control_recv: &mut ctrl_sender.1,
+        data_send: &mut data_sender.0,
+        data_recv: &mut data_sender.1,
+    };
+    let mut receiver_streams = SessionStreams {
+        control_send: &mut ctrl_receiver.0,
+        control_recv: &mut ctrl_receiver.1,
+        data_send: &mut data_receiver.0,
+        data_recv: &mut data_receiver.1,
+    };
+
+    let send_req = SendRequest {
+        root: root_sender,
+        rel_path: &src_rel,
         transfer_id,
         item_id,
-        65536,
-    );
+        max_frame_size: 65536,
+    };
 
+    let recv_req = ReceiveRequest {
+        root: root_receiver,
+        dest_rel_path: &dest_rel,
+        total_bytes: file_content.len() as u64,
+        content_hash: &hash,
+        transfer_id,
+        item_id,
+        max_frame_size: 65536,
+    };
+
+    let sender_task = send_file(&sender_vfs, &send_req, &mut sender_streams);
     let receiver_task = receive_file(
         &receiver_vfs,
-        root_receiver,
-        &dest_rel,
-        file_content.len() as u64,
-        &hash,
+        &recv_req,
         &BaoVerifier,
-        &mut receiver_streams.0,
-        &mut receiver_streams.1,
-        transfer_id,
-        item_id,
-        65536,
+        &mut receiver_streams,
     );
 
     let (sender_res, receiver_res) = tokio::try_join!(sender_task, receiver_task).unwrap();
@@ -186,33 +203,48 @@ async fn multi_mebibyte_file_transfer_succeeds_across_multiple_chunks() {
     let dest_rel = RelPath::new("large_video.mp4").unwrap();
 
     let (_, hash) = outboard(&file_content);
-    let (mut sender_streams, mut receiver_streams) = memory_stream_pair();
+    let (mut ctrl_sender, mut ctrl_receiver) = memory_stream_pair();
+    let (mut data_sender, mut data_receiver) = memory_stream_pair();
     let transfer_id = sample_transfer();
     let item_id = sample_item();
 
-    let sender_task = send_file(
-        &sender_vfs,
-        root_sender,
-        &src_rel,
-        &mut sender_streams.0,
-        &mut sender_streams.1,
+    let mut sender_streams = SessionStreams {
+        control_send: &mut ctrl_sender.0,
+        control_recv: &mut ctrl_sender.1,
+        data_send: &mut data_sender.0,
+        data_recv: &mut data_sender.1,
+    };
+    let mut receiver_streams = SessionStreams {
+        control_send: &mut ctrl_receiver.0,
+        control_recv: &mut ctrl_receiver.1,
+        data_send: &mut data_receiver.0,
+        data_recv: &mut data_receiver.1,
+    };
+
+    let send_req = SendRequest {
+        root: root_sender,
+        rel_path: &src_rel,
         transfer_id,
         item_id,
-        1048576 + 4096,
-    );
+        max_frame_size: 1048576 + 4096,
+    };
 
+    let recv_req = ReceiveRequest {
+        root: root_receiver,
+        dest_rel_path: &dest_rel,
+        total_bytes: file_content.len() as u64,
+        content_hash: &hash,
+        transfer_id,
+        item_id,
+        max_frame_size: 2 * 1024 * 1024,
+    };
+
+    let sender_task = send_file(&sender_vfs, &send_req, &mut sender_streams);
     let receiver_task = receive_file(
         &receiver_vfs,
-        root_receiver,
-        &dest_rel,
-        file_content.len() as u64,
-        &hash,
+        &recv_req,
         &BaoVerifier,
-        &mut receiver_streams.0,
-        &mut receiver_streams.1,
-        transfer_id,
-        item_id,
-        2 * 1024 * 1024,
+        &mut receiver_streams,
     );
 
     let (sender_res, receiver_res) = tokio::try_join!(sender_task, receiver_task).unwrap();
@@ -252,33 +284,48 @@ async fn collision_resolution_safely_renames_existing_file() {
     let dest_rel = RelPath::new("photo.jpg").unwrap();
 
     let (_, hash) = outboard(new_content);
-    let (mut sender_streams, mut receiver_streams) = memory_stream_pair();
+    let (mut ctrl_sender, mut ctrl_receiver) = memory_stream_pair();
+    let (mut data_sender, mut data_receiver) = memory_stream_pair();
     let transfer_id = sample_transfer();
     let item_id = sample_item();
 
-    let sender_task = send_file(
-        &sender_vfs,
-        root_sender,
-        &src_rel,
-        &mut sender_streams.0,
-        &mut sender_streams.1,
+    let mut sender_streams = SessionStreams {
+        control_send: &mut ctrl_sender.0,
+        control_recv: &mut ctrl_sender.1,
+        data_send: &mut data_sender.0,
+        data_recv: &mut data_sender.1,
+    };
+    let mut receiver_streams = SessionStreams {
+        control_send: &mut ctrl_receiver.0,
+        control_recv: &mut ctrl_receiver.1,
+        data_send: &mut data_receiver.0,
+        data_recv: &mut data_receiver.1,
+    };
+
+    let send_req = SendRequest {
+        root: root_sender,
+        rel_path: &src_rel,
         transfer_id,
         item_id,
-        65536,
-    );
+        max_frame_size: 65536,
+    };
 
+    let recv_req = ReceiveRequest {
+        root: root_receiver,
+        dest_rel_path: &dest_rel,
+        total_bytes: new_content.len() as u64,
+        content_hash: &hash,
+        transfer_id,
+        item_id,
+        max_frame_size: 65536,
+    };
+
+    let sender_task = send_file(&sender_vfs, &send_req, &mut sender_streams);
     let receiver_task = receive_file(
         &receiver_vfs,
-        root_receiver,
-        &dest_rel,
-        new_content.len() as u64,
-        &hash,
+        &recv_req,
         &BaoVerifier,
-        &mut receiver_streams.0,
-        &mut receiver_streams.1,
-        transfer_id,
-        item_id,
-        65536,
+        &mut receiver_streams,
     );
 
     let (sender_res, receiver_res) = tokio::try_join!(sender_task, receiver_task).unwrap();
@@ -315,29 +362,36 @@ async fn transfer_handles_unexpected_eof_cleanly() {
         .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
         .unwrap();
 
-    let (mut sender_streams, receiver_streams) = memory_stream_pair();
+    let (mut ctrl_sender, ctrl_receiver) = memory_stream_pair();
+    let (mut data_sender, data_receiver) = memory_stream_pair();
     let transfer_id = sample_transfer();
     let item_id = sample_item();
 
     // Close receiver stream immediately
-    drop(receiver_streams.0);
-    drop(receiver_streams.1);
+    drop(ctrl_receiver);
+    drop(data_receiver);
 
     let src_rel = RelPath::new("test.txt").unwrap();
     std::fs::write(sender_dir.path().join("test.txt"), b"some data").unwrap();
 
-    let sender_err = send_file(
-        &sender_vfs,
-        root_sender,
-        &src_rel,
-        &mut sender_streams.0,
-        &mut sender_streams.1,
+    let mut sender_streams = SessionStreams {
+        control_send: &mut ctrl_sender.0,
+        control_recv: &mut ctrl_sender.1,
+        data_send: &mut data_sender.0,
+        data_recv: &mut data_sender.1,
+    };
+
+    let send_req = SendRequest {
+        root: root_sender,
+        rel_path: &src_rel,
         transfer_id,
         item_id,
-        65536,
-    )
-    .await
-    .unwrap_err();
+        max_frame_size: 65536,
+    };
+
+    let sender_err = send_file(&sender_vfs, &send_req, &mut sender_streams)
+        .await
+        .unwrap_err();
 
     assert!(matches!(sender_err, TransferSessionError::StreamClosed));
 }
