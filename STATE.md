@@ -10,10 +10,10 @@
 last_updated: 2026-08-28
 phase: implementing
 current_milestone: M1
-branch: wi-m1-000h-state-split
+branch: wi-m1-023-offer-codec
 implementation_started: true
 work_items_landed: 83
-last_commit: 2de1f5a
+last_commit: 644dbbd
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -37,8 +37,8 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-1. **`WI-M1-023`, the Offer exchange's wire conversion in `tradr-proto`.** `WI-M1-022` gave the five messages native types; nothing can yet build one from a peer's bytes. **This is where an untrusted peer's Offer is first read**, so it is where the hostile cases live -- a `relative_path` that escapes, a `content_hash` of the wrong length, a `size` that disagrees with `total_bytes`, an absent message decoded as a defaulted one. The direct mirror of `WI-M1-008d`, and DCR-058's table is its specification.
-2. **`WI-M1-024`, the listener half of the composition root**, and the place the `TransferAccept::for_offer` question in the In flight block has to be answered. It accepts a channel, handshakes on the Control pair, reads an Offer, answers with an Accept carrying the resume position `ItemResumption` derives from what is on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence.**
+1. **`WI-M1-023`, the Offer exchange's wire conversion in `tradr-proto`, is in flight.** `WI-M1-022` gave the five messages native types; nothing can yet build one from a peer's bytes. **This is where an untrusted peer's Offer is first read**, so it is where the hostile cases live -- a `relative_path` that escapes, a `content_hash` of the wrong length, a `size` that disagrees with `total_bytes`, an absent message decoded as a defaulted one. The direct mirror of `WI-M1-008d`, and DCR-058's table with DCR-059's three additions is its specification.
+2. **`WI-M1-024`, the listener half of the composition root.** It accepts a channel, handshakes on the Control pair, reads an Offer, answers with an Accept carrying the resume position `ItemResumption` derives from what is on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence.** DCR-059 removed the one thing it would have had to invent: an offered item its Accept does not name is declined.
 3. **ADR-0004's "To verify", still the user's to start**: LAN throughput against 35 MB/s, on two machines. Unchanged by the audit and displaced by it.
 
 **`ble-gatt`'s data path stood here as action 2 and is displaced rather than dropped**, and ADR-0016 records it as open: 20.5% overhead on a transport docs/03 limits to 20-100 KB/s. It needs settling before the BLE data path is cut, not while it is being written -- and M7 is where that path is cut, so nothing in M1 waits on it.
@@ -67,11 +67,15 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ## In flight
 
 ```yaml
-work_items: []
+work_items: [WI-M1-023]
 blocked: []
 ```
 
-**`WI-M1-022` left one thing unspecified and the Work Order is where it belongs, not the code.** `TransferAccept::for_offer` refuses an acceptance naming an item the offer does not carry, and **does not require that every offered item is answered.** Neither DCR-058 nor docs/04 says what an omitted item means -- silently declined, or a malformed Accept -- so the Implementer could not have known and did not invent one. **`WI-M1-024` is where it bites**: a listener that reads an Accept has to decide whether to send the items nobody mentioned. Settle it in the Work Order for `WI-M1-023` or `WI-M1-024`, whichever reaches it first.
+**`WI-M1-023` is dispatched to `agy`, Gemini 3.7 Flash -- the first Work Item this project has given to an Implementer other than `sonnet`**, and decision 6 is what it is measuring. It was chosen for the same property that chose the `--locked` Work Item: the Layer 0 constructors already carry every refusal, so the conversion is mechanical, and a codec cannot fail quietly because `tests/hello_wire.rs` is a working template for one hostile test per field. **What is being measured is whether it stops and reports on an impossible instruction, not output quality.** `git rev-parse HEAD` before dispatch was `644dbbd` plus this session's docs commit, per the note in Build environment: `agy` runs outside this session, so section 3's "the Implementer never commits" is held up by the prompt alone and has to be checked afterwards rather than enforced.
+
+**The question `WI-M1-022` left open is closed, and DCR-059 closed it: an offered item a `TransferAccept` does not name is declined.** `TransferAccept::for_offer` was already right not to require an answer per item; what was missing was any statement of what silence meant, so `WI-M1-024`'s listener would have had to invent one. It is now in [docs/04](docs/04-protocol.md#what-reading-a-transferoffer-may-drop-and-what-it-may-not) and `WI-M1-024` inherits it rather than deciding it.
+
+**DCR-059 settled two more things `WI-M1-023` would otherwise have invented**, and both are cases where the wrong answer is the one a reasonable implementation reaches for. `chunk_size` of `0` is refused rather than read as the 1 MiB default -- `control.proto`'s own comment says "1 MiB by default" and proto3 gives an omitted `uint32` a `0`, so the comment actively invites the reinterpretation DCR-058 forbids. And `OfferOrigin` and `RejectReason` become `Option`, `None` for an unspecified or unknown wire value, which is a Layer 0 change inside this Work Item's scope: they decorate, so DCR-058's own rule says they must not refuse, and there was no variant for them to become.
 
 ## Decisions
 
@@ -359,7 +363,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-020 | **Remove `review.txt` from the repository root.** Opened as PR #33 and closed unmerged: the file was taken off `main` by amending `902a60f` into `d1e89ed` instead. Recorded so the number is spent rather than free -- see the reconciliation section above | **withdrawn** -- the work happened, by a route section 5 forbids | |
 | WI-M1-021 | **`ItemComplete` back onto the Control stream, and `classify` onto the receiving side.** F-E and F-F: `send_file` and `receive_file` take the Control stream pair alongside the Data pair, `ItemComplete` is written to and read from Control, and the `Refused(WrongPlane)` guard at `transfer.rs:283` is deleted rather than moved. `receive_file_inner` dispatches through `classify(_, Plane::Data)` so `Ignorable` is skipped and the three refusals stay separate. **The deliverable is the negative tests**: a peer that puts `ItemComplete` on the Data stream is refused, and an unassigned Data-plane code is skipped | **done** -- PASS, no REVISE. F-E and F-F both closed | |
 | WI-M1-022 | **The Offer exchange's vocabulary in `tradr-core`.** `TransferOffer`, `OfferItem`, `TransferAccept`, `ItemAcceptance`, `TransferReject`, and the two enums `OfferOrigin` and `RejectReason`, as Layer 0 data with invariants and no wire type anywhere in them. The direct mirror of `WI-M1-008b`, which is why it is not Critical and `WI-M1-023` is where the hostile cases go | **done** -- PASS after one REVISE, and the finding was a duplicated public accessor | |
-| WI-M1-023 | **The Offer exchange's wire conversion in `tradr-proto`**, between `control.proto`'s five messages and `WI-M1-022`'s native types. **Where an untrusted peer's Offer is first read**, so it is where the hostile cases live: a `relative_path` that escapes, a `content_hash` of the wrong length, a `size` that disagrees with `total_bytes`, an `item_id` repeated. The direct mirror of `WI-M1-008d` | todo | |
+| WI-M1-023 | **The Offer exchange's wire conversion in `tradr-proto`**, between `control.proto`'s five messages and `WI-M1-022`'s native types. **Where an untrusted peer's Offer is first read**, so it is where the hostile cases live: a `relative_path` that escapes, a `content_hash` of the wrong length, a `size` that disagrees with `total_bytes`, an `item_id` repeated. The direct mirror of `WI-M1-008d`. Carries DCR-059's Layer 0 change, `OfferOrigin` and `RejectReason` becoming `Option`. **First Work Item dispatched to `agy`**, which is decision 6's trial | in flight | DCR-059 |
 | WI-M1-024 | **The listener half of the composition root.** A task that accepts a channel from `Incoming`, runs `perform_handshake` on the Control pair, reads a `TransferOffer`, answers with a `TransferAccept` carrying the resume position `ItemResumption` derives from what is already on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence**, which is why it goes before the sending half | todo | |
 | WI-M1-025 | **The sending half and the command surface.** Dial, offer, send; the Tauri commands `lib.rs` does not yet register; the peer list from `MdnsSource` surfaced to the UI; progress events; and the drag-and-drop target that makes M1's first criterion something a user can perform | todo | |
 
