@@ -16,6 +16,7 @@ mod attestation;
 pub mod handshake;
 mod identity;
 mod sign_in;
+pub mod transfer;
 
 use sign_in::OAuthConfig;
 

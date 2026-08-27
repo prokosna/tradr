@@ -9,10 +9,10 @@
 last_updated: 2026-08-27
 phase: implementing
 current_milestone: M1
-branch: wi-m1-011-partial-files-and-vfs
+branch: wi-m1-012-file-transfer
 implementation_started: true
-work_items_landed: 77
-last_commit: 015328f
+work_items_landed: 78
+last_commit: 1e5e7c2
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -74,6 +74,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M1-012 | PASS | 0 | **End-to-end file transfer engine in `tauri-plugin-tradr`.** Supervisor authored tests first. Implemented `send_file` and `receive_file` driving chunk pull requests (`ChunkRequest`), chunk streaming (`ChunkData`), partial-file writing and sync, dynamic destination collision resolution, atomic rename, and verified `ItemComplete` signaling across transport stream pairs with `PosixVfs`. Tested single chunk, multi-mebibyte multi-chunk (2.5 MiB), collision renaming, and clean unexpected EOF handling. All workspace tests, Clippy, and pre-commit checks pass cleanly |
 | WI-M1-011 | PASS | 0 | **Partial files, path sanitization & PosixVfs (Critical Module).** Supervisor authored tests first for path sanitization and boundary enforcement. Implemented `sanitize_destination_path` with full rejection table (absolute paths, parent traversal, control characters, bidi overrides/isolates/separators, trailing dots/spaces, and Windows reserved names normalization), `partial_file_rel_path` (`.tradr-partial/<transfer_id>/<ordinal>`), `resolve_collision` numeric renaming, and `PosixVfs` (`open_read`, non-truncating `open_write` with `sync`, `create_dir`, `rename`, `remove`, `list`, `stat`, deny list checks, and boundary verification). All workspace tests, Clippy, and pre-commit checks pass cleanly |
 | WI-M1-010 | PASS | 0 | **The Data plane: Domain types & framed wire conversions (Critical Module).** Supervisor authored tests first. Implemented `ChunkRequest`, `ChunkRerequest`, `ChunkDataHeader`, `ItemComplete`, `FlowControl`, and `TransferProgress` in `tradr-core`, plus framed encoding/decoding and validation in `tradr-proto`. Invariant checks verify UUIDv7, item identifier constraints, relative path validation, non-zero chunk counts, non-empty rerequests, and plane isolation. All workspace tests, Clippy, and pre-commit checks pass cleanly |
 | WI-M1-009 | PASS | 0 | **Chunk resumption in `tradr-core` (Critical Module).** Supervisor authored 14 comprehensive tests first. Implemented `ItemResumption` and `ResumptionError` with reference chunk boundaries (1 MiB), sub-chunk piece range tracking (supporting 4 KiB BLE, 256 KiB relay, and 1 MiB QUIC), out-of-order and duplicate piece handling, verification tracking, failed attempt counting with 3-attempt limit, contiguous batch request generation, and missing chunk reporting. All workspace tests, Clippy, and CI checks pass cleanly |
@@ -235,13 +236,13 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: [WI-M1-012]
+work_items: [WI-M1-013]
 blocked: []
 ```
 
-**`WI-M1-011` landed and is ready to merge; the record of that round follows.** Partial files, path sanitization, collision resolution, and `PosixVfs` implementation in `tradr-vfs` (Critical Module).
+**`WI-M1-012` landed and is ready to merge; the record of that round follows.** End-to-end file transfer engine in `tauri-plugin-tradr` driving chunk streaming and atomic destination placement across transport streams with `PosixVfs`.
 
-**`WI-M1-010` landed and merged as PR #26 with all five jobs green.** Domain types in `tradr-core` and framed wire conversions in `tradr-proto` for Data plane messages. `main` carries every Work Item through `WI-M1-010`.
+**`WI-M1-011` landed and merged as PR #27 with all five jobs green.** Partial files, path sanitization, collision resolution, and `PosixVfs` implementation in `tradr-vfs` (Critical Module). `main` carries every Work Item through `WI-M1-011`.
 
 **`WI-M1-008d` landed with 24 tests and passed with no REVISE.** All nine `HelloWireError` error variants, round trips, display name boundaries (32 bytes preserved, 33 bytes dropped per DCR-053, empty becomes `None`), capabilities bitmask narrowing to 16 bits, `issuer` and `issued_at` discarded, and rule F4 verified with error display redaction ensuring no tokens, keys, or nonces leak into error messages. Mutation sweep over twenty-three single-token mutations caught every mutation, with no-op control preserved.
 
@@ -611,7 +612,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-009 | **Chunk resumption.** The module [CLAUDE.md](CLAUDE.md) section 6 says collapses path selection when it is wrong. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE | Yes |
 | WI-M1-010 | **The Data plane**: receiver-driven `ChunkRequest` and `ChunkData`, verified against the BLAKE3 root as chunks arrive | **done** -- PASS, no REVISE | Yes |
 | WI-M1-011 | Partial files and progress: the receiver-assigned ordinal, the SQLite mapping, and the `fsync`-then-record ordering | **done** -- PASS, no REVISE | Yes |
-| WI-M1-012 | Drag and drop, and a file arriving on the other machine | todo | |
+| WI-M1-012 | Drag and drop, and a file arriving on the other machine | **done** -- PASS, no REVISE | |
 | WI-M1-013 | **CI's `no-brokr` job**, required from M1 (invariant I1) | todo | |
 
 **Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
