@@ -2,11 +2,12 @@
 # Mechanizes STATE.md's own contract (CLAUDE.md section 2-1's arrival step 5,
 # and the "last_commit was fabricated for most of M0" audit): last_commit
 # must name a real commit, work_items_landed must match the Work Item table,
-# every DCR-N already committed into STATE.md must reach a commit message
-# (one the working tree is only now adding is exempt -- it has no commit yet
-# by construction), every repository path the file references must resolve,
-# a non-main declared branch must match the branch actually checked out, and
-# the declared branch must never be "main" itself. Never writes STATE.md.
+# every DCR-N already committed into STATE.md or RECORD.md appears in a
+# commit message (one the working tree is only now adding is exempt -- it has
+# no commit yet by construction), every DCR number is defined at most once,
+# every repository path referenced resolves, a non-main declared branch
+# matches the branch actually checked out, and the declared branch must never
+# be "main" itself. Never writes STATE.md or RECORD.md.
 set -u
 
 CHECK_NAME=state-sync
@@ -14,6 +15,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 ROOT_DIR=$(dirname "$SCRIPT_DIR")
 ALLOWLIST="$ROOT_DIR/ci/allowlist.txt"
 STATE_FILE="$ROOT_DIR/STATE.md"
+RECORD_FILE="$ROOT_DIR/RECORD.md"
 cd "$ROOT_DIR" || exit 1
 
 status=0
@@ -70,14 +72,28 @@ else
 fi
 
 # --- Check 2: work_items_landed matches the count of Work Item rows marked done ---
-# WI-M0-010 and WI-M0-011 landed in a single commit and hold two rows, so
-# rows are what is counted here, never commits. The milestone number is a
-# wildcard -- WI-M0-, WI-M1-, and every later milestone -- so this keeps
-# counting once a new milestone opens. Anchored at line start so only a
-# row's first cell counts: the same id inside prose or a later cell, as the
-# Deferred table's last column holds, never starts a line with "| WI-M".
+# Section state decides because a Review record row also begins with
+# | WI-M... | and its cause cell is prose that may quote any marker.
+# Splitting on | is unsound because cause cells may contain delimiters.
+# Rows are counted rather than commits because multiple items may land
+# in one commit, with wildcards matching every milestone.
 declared_count=$(grep -m1 '^work_items_landed:' "$STATE_FILE" | sed -e 's/^work_items_landed:[[:space:]]*//' -e 's/[[:space:]]*$//')
-actual_count=$(awk '/^\| WI-M[0-9]+-/ && /\*\*done\*\*/ { n++ } END { print n + 0 }' "$STATE_FILE")
+actual_count=$({
+	cat "$STATE_FILE"
+	[ -f "$RECORD_FILE" ] && cat "$RECORD_FILE"
+} | awk '
+/^#+[ \t]+/ {
+	heading = $0
+	sub(/^#+[ \t]+/, "", heading)
+	sub(/[ \t]+$/, "", heading)
+}
+heading == "Work Items" && /^\| WI-M[0-9]+-/ && /\*\*done\*\*/ {
+	n++
+}
+END {
+	print n + 0
+}
+')
 if [ -z "$declared_count" ]; then
 	echo "STATE.md: work_items_landed field is missing from the yaml block"
 	status=1
@@ -86,25 +102,31 @@ elif [ "$declared_count" != "$actual_count" ]; then
 	status=1
 fi
 
-# --- Check 3: every DCR-N already committed into STATE.md appears in a
-# commit message. A DCR the working tree is only now adding to STATE.md
-# is exempt -- CLAUDE.md section 7 commits a DCR's STATE.md row docs-first,
-# so at the moment this gate runs on that commit the DCR is in STATE.md and
-# in no commit yet, by construction. Committed against no working tree, its
-# HEAD version, is what tells the two cases apart. If HEAD:STATE.md cannot
-# be read at all -- no git repository, or a repository with no commits yet
-# -- there is no way to tell them apart, so the check is skipped rather than
-# guessed at, the same treatment Check 5 gives an unreadable repository.
-dcrs=$(grep -oE 'DCR-[0-9]+' "$STATE_FILE" | sort -u)
+# --- Check 3: every DCR-N already committed appears in a commit message ---
+# A DCR the working tree is only now adding is exempt -- CLAUDE.md section 7
+# commits a DCR's row docs-first, so at the moment this gate runs on that
+# commit the DCR is in the tree and in no commit yet, by construction.
+# Committed against no working tree, its HEAD version, tells the two apart.
+dcrs=$({
+	grep -oE 'DCR-[0-9]+' "$STATE_FILE"
+	[ -f "$RECORD_FILE" ] && grep -oE 'DCR-[0-9]+' "$RECORD_FILE"
+} 2> /dev/null | sort -u)
 
-if committed_state=$(git show HEAD:STATE.md 2> /dev/null); then
-	committed_dcrs=$(printf '%s\n' "$committed_state" | grep -oE 'DCR-[0-9]+' | sort -u)
+if git cat-file -e HEAD 2> /dev/null; then
+	committed_state=$(git show HEAD:STATE.md 2> /dev/null || true)
+	committed_record=$(git show HEAD:RECORD.md 2> /dev/null || true)
+	committed_dcrs=$(printf '%s\n%s\n' "$committed_state" "$committed_record" | grep -oE 'DCR-[0-9]+' | sort -u)
 
 	dcr_hits=$(printf '%s\n' "$dcrs" | while IFS= read -r dcr; do
 		[ -n "$dcr" ] || continue
 		printf '%s\n' "$committed_dcrs" | grep -Fxq "$dcr" || continue
 		if ! git log --oneline --grep="$dcr" -F | grep -q .; then
-			echo "STATE.md: $dcr is mentioned but appears in no commit message"
+			if grep -qF "$dcr" "$STATE_FILE"; then
+				echo "STATE.md: $dcr is mentioned but appears in no commit message"
+			fi
+			if [ -f "$RECORD_FILE" ] && grep -qF "$dcr" "$RECORD_FILE"; then
+				echo "RECORD.md: $dcr is mentioned but appears in no commit message"
+			fi
 		fi
 	done)
 
@@ -114,7 +136,7 @@ if committed_state=$(git show HEAD:STATE.md 2> /dev/null); then
 	fi
 fi
 
-# --- Check 4: every repository path STATE.md references resolves ---
+# --- Check 4: every repository path referenced resolves ---
 # A path shows up two ways: a markdown link, "](docs/05-security.md)", and
 # inline code, "`crates/tradr-core/src/lib.rs`". A reference counts only if
 # its leading path component names a real top-level repository entry, which
@@ -126,41 +148,47 @@ is_top_level() {
 	printf '%s\n' "$top_level_entries" | grep -Fxq "$1"
 }
 
-link_paths=$(grep -oE '\]\([^)]+\)' "$STATE_FILE" \
-	| sed -e 's/^\](//' -e 's/)$//' -e 's/#.*$//' \
-	| grep -vE '^https?://' \
-	| sort -u)
+check_file_paths() {
+	target="$1"
+	rel_label="$2"
 
-link_hits=$(printf '%s\n' "$link_paths" | while IFS= read -r p; do
-	[ -n "$p" ] || continue
-	[ -e "$ROOT_DIR/$p" ] && continue
-	is_allowed "$p" && continue
-	echo "STATE.md: linked path '$p' does not exist"
-done)
+	link_paths=$(grep -oE '\]\([^)]+\)' "$target" \
+		| sed -e 's/^\](//' -e 's/)$//' -e 's/#.*$//' \
+		| grep -vE '^https?://' \
+		| sort -u)
 
-# Inline code spans, skipping fenced ```yaml blocks -- those hold config,
-# not paths, and their ``` delimiters would otherwise mispair as code spans.
-inline_spans=$(awk '
-/^```/ { infence = !infence; next }
-infence { next }
-{
-	n = split($0, parts, "`")
-	for (i = 2; i <= n; i += 2) print parts[i]
+	printf '%s\n' "$link_paths" | while IFS= read -r p; do
+		[ -n "$p" ] || continue
+		[ -e "$ROOT_DIR/$p" ] && continue
+		is_allowed "$p" && continue
+		echo "$rel_label: linked path '$p' does not exist"
+	done
+
+	inline_spans=$(awk '
+	/^```/ { infence = !infence; next }
+	infence { next }
+	{
+		n = split($0, parts, "`")
+		for (i = 2; i <= n; i += 2) print parts[i]
+	}
+	' "$target" | sort -u)
+
+	path_candidates=$(printf '%s\n' "$inline_spans" | grep -E '^[A-Za-z0-9_.][A-Za-z0-9_./-]*$')
+
+	printf '%s\n' "$path_candidates" | while IFS= read -r tok; do
+		[ -n "$tok" ] || continue
+		first=${tok%%/*}
+		is_top_level "$first" || continue
+		[ -e "$ROOT_DIR/$tok" ] && continue
+		is_allowed "$tok" && continue
+		echo "$rel_label: referenced path '$tok' does not exist"
+	done
 }
-' "$STATE_FILE" | sort -u)
 
-path_candidates=$(printf '%s\n' "$inline_spans" | grep -E '^[A-Za-z0-9_.][A-Za-z0-9_./-]*$')
-
-inline_hits=$(printf '%s\n' "$path_candidates" | while IFS= read -r tok; do
-	[ -n "$tok" ] || continue
-	first=${tok%%/*}
-	is_top_level "$first" || continue
-	[ -e "$ROOT_DIR/$tok" ] && continue
-	is_allowed "$tok" && continue
-	echo "STATE.md: referenced path '$tok' does not exist"
-done)
-
-path_hits=$(printf '%s\n%s\n' "$link_hits" "$inline_hits" | sed '/^$/d')
+path_hits=$({
+	check_file_paths "$STATE_FILE" "STATE.md"
+	[ -f "$RECORD_FILE" ] && check_file_paths "$RECORD_FILE" "RECORD.md"
+} | sed '/^$/d')
 
 if [ -n "$path_hits" ]; then
 	printf '%s\n' "$path_hits"
@@ -213,6 +241,55 @@ elif newest_commit_date=$(git log -1 --format=%cd --date=short 2> /dev/null) && 
 			status=1
 		fi
 	fi
+fi
+
+# --- Check 7: STATE.md is at most 98304 bytes (96 KiB) ---
+# STATE.md reached 313 KB unmeasured; rules without instruments get broken.
+# Move closed sections to RECORD.md to pass; never shorten prose. RECORD.md
+# is append-only by design and intentionally has no ceiling.
+STATE_MAX_BYTES=98304
+state_size=$(wc -c < "$STATE_FILE" | tr -d '[:space:]')
+if [ "$state_size" -gt "$STATE_MAX_BYTES" ]; then
+	echo "STATE.md: size is $state_size bytes, exceeding the $STATE_MAX_BYTES byte limit -- move a closed section to RECORD.md, never shorten one"
+	status=1
+fi
+
+# --- Check 8: a DCR number is defined exactly once across both files ---
+# A duplicated DCR number makes Check 3's commit-message guarantee
+# meaningless because a single commit message satisfies both rows, and
+# allows conflicting design decisions to share an identifier silently.
+dcr_duplicate_hits=$({
+	awk '/^\| DCR-[0-9]+ \|/ { split($0, a, "|"); d=a[2]; gsub(/[[:space:]]/, "", d); print "STATE", d }' "$STATE_FILE"
+	[ -f "$RECORD_FILE" ] && awk '/^\| DCR-[0-9]+ \|/ { split($0, a, "|"); d=a[2]; gsub(/[[:space:]]/, "", d); print "RECORD", d }' "$RECORD_FILE"
+} | awk '
+$1 == "STATE" {
+	state_count[$2]++
+	all_dcrs[$2] = 1
+}
+$1 == "RECORD" {
+	record_count[$2]++
+	all_dcrs[$2] = 1
+}
+END {
+	for (d in all_dcrs) {
+		s = state_count[d] + 0
+		r = record_count[d] + 0
+		if (s + r > 1) {
+			if (s > 0 && r > 0) {
+				print d ": defined in both STATE.md and RECORD.md"
+			} else if (s > 1) {
+				print "STATE.md: " d " is defined " s " times"
+			} else if (r > 1) {
+				print "RECORD.md: " d " is defined " r " times"
+			}
+		}
+	}
+}
+' | sort)
+
+if [ -n "$dcr_duplicate_hits" ]; then
+	printf '%s\n' "$dcr_duplicate_hits"
+	status=1
 fi
 
 exit $status
