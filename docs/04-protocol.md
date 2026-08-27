@@ -247,6 +247,16 @@ BLAKE3 is internally a Merkle tree, which yields two properties — see [ADR-000
 
 An `Item` carries `content_hash`, the 32-byte BLAKE3 root, and each `ChunkData` carries the tree path needed to verify it — the `bao` outboard.
 
+### A piece is verified before it is written
+
+**Verification precedes placement, and the order is the whole point of carrying `verify_path` per piece.** A receiver holds `content_hash` from the `Item` and nothing else it can trust; `chunk_index`, `offset_in_chunk` and `payload_len` all arrive from the peer. Checking the piece against `content_hash` at its absolute offset is what turns those three fields from instructions into claims -- so the check happens **before** the bytes reach the partial file, and a piece that fails is re-requested rather than written and corrected later.
+
+Written the other way round, the same code appears to work and defends nothing: the bytes land at a peer-chosen offset first, and the check that would have refused them runs afterwards on a file that already contains them.
+
+**The three fields are bounded before they are used, not after.** `chunk_index` must be below the item's chunk count, `offset_in_chunk` below the 1 MiB reference chunk, and `payload_len` no larger than what remains of the chunk from that offset. A receiver that computes an absolute offset from unchecked values has already lost: the arithmetic ranges over 2^64 and the refusal, wherever it eventually appears, arrives after something has been asked to hold that offset.
+
+**`ItemComplete.verified` is the receiver's finding about bytes it verified itself.** It is not a field the sender may act on as proof of anything, and a receiver that sets it without having verified has told the sender the transfer succeeded on the one channel the sender has no way to check.
+
 ### Verification failure
 
 - A chunk fails: re-request that chunk alone. After three failures, suspect the path and rerun path selection
