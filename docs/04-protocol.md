@@ -173,6 +173,15 @@ A channel authenticates a *Device Key*; a `Hello` claims an *account*. Without c
 
 Check 5 does eventually catch a mismatch, since a relay cannot produce a signature under a key it does not hold. **But it catches it in step 4, after a `HelloAck` granting a Trust Tier has already been sent.** Check 2 moves the refusal to the first cheap operation of the exchange, and makes the tier belong to the device the channel authenticated rather than to whichever device the `Hello` names.
 
+### What step 4 checks besides the signature
+
+Two fields of the peer's `HelloAck` are claims like any other, and both are checked.
+
+- **`negotiated_version` must equal the version we computed.** Negotiation is symmetric — `min` of the maxima against `max` of the minima, over ranges both sides already exchanged — so there is exactly one right answer and both sides have everything needed to reach it. A peer naming a different one is buggy or lying, and the failure it produces otherwise is the worst kind: both sides believe the handshake succeeded and then speak different versions at each other.
+- **`max_frame_size` must be at least 512.** That is the smallest value this protocol defines, the `ble-gatt` bound in the Framing section above. A peer advertising less has not negotiated a small session, it has negotiated an unusable one, and every later send would fail against a limit no legal frame fits inside.
+
+There is no upper bound to check. The peer's value bounds what **we** send, we never send more than we have, and a peer that advertises more than it can receive has only harmed itself.
+
 ### Three rules that are not checks
 
 - **The tier a side enforces is the one it computed.** `HelloAck.assigned_tier` arriving from the peer is what *they* granted *us*: display material, and never an input to our own grant. A peer claiming `TRUST_TIER_SAME_ACCOUNT` for itself is the whole of the attack this forbids.
