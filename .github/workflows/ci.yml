@@ -68,6 +68,33 @@ jobs:
       - run: cargo test --workspace
       - run: cargo build --locked --workspace
 
+  # Enforces Invariant I1 (ADR-0005): Every Tier 0 and Tier 1 feature
+  # must work completely standalone with no Brokr running or configured.
+  no-brokr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust
+
+      - name: Install Tauri Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf
+
+      - name: Run no-brokr Invariant I1 verification
+        run: sh ci/no-brokr.sh
+
   # tsc and biome over the TypeScript workspace. Both `pnpm typecheck` and
   # `pnpm lint` run `buf generate` first (packages/protocol/src/gen is
   # gitignored), so this is also where that code generation is proven to
