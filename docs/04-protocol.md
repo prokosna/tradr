@@ -182,6 +182,20 @@ Two fields of the peer's `HelloAck` are claims like any other, and both are chec
 
 There is no upper bound to check. The peer's value bounds what **we** send, we never send more than we have, and a peer that advertises more than it can receive has only harmed itself.
 
+### What reading a `Hello` may drop, and what it may not
+
+The wire types and the native ones do not agree everywhere, and each disagreement has exactly one safe reading. **A field that decides something fails the handshake; a field that only decorates it never does.**
+
+| Field | Wire | Native | On disagreement |
+|---|---|---|---|
+| `capabilities` | `uint32` | 16 bits | **Narrow, keeping the low 16.** A capability this build cannot represent is one it does not have, which is the same answer it already gives for the reserved bits 7-15 |
+| `display_name` | max 64 bytes | max 32 bytes | **Drop it and carry on.** It is absent-able and purely cosmetic |
+| every key, nonce and version | sized or bounded | sized or bounded | **Refuse.** These decide who the peer is and what is spoken |
+
+**Dropping an over-long `display_name` rather than refusing is the load-bearing half of this.** A name is shown to a person and decides nothing; a peer whose name is four bytes too long for this build is still a peer this build must talk to, and refusing would make a cosmetic mismatch look exactly like an authentication failure. The narrowing of `capabilities` is the same argument in the other direction: unknown bits already mean "not offered", so losing bits 16-31 introduces no new answer.
+
+**Nothing here weakens a check.** A truncated key, a short nonce or a defaulted version range is refused by the native type's own constructor, and the conversion must let it — never pad, never truncate, never substitute a default for an absent message.
+
 ### Three rules that are not checks
 
 - **The tier a side enforces is the one it computed.** `HelloAck.assigned_tier` arriving from the peer is what *they* granted *us*: display material, and never an input to our own grant. A peer claiming `TRUST_TIER_SAME_ACCOUNT` for itself is the whole of the attack this forbids.
