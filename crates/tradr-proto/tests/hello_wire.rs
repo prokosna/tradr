@@ -4,10 +4,13 @@
 //! then one hostile test per thing an untrusted peer can get wrong.
 
 use tradr_core::{Capabilities, DisplayName, PublicKeyPoint, TrustTier};
+use tradr_proto::framing::{FrameDecoder, FrameError, encode_frame};
 use tradr_proto::hello::{
-    HelloWireError, peer_hello_ack_from_wire, peer_hello_ack_to_wire, peer_hello_from_wire,
-    peer_hello_to_wire,
+    HelloFrameError, HelloWireError, decode_hello_ack_frame, decode_hello_frame,
+    encode_hello_ack_frame, encode_hello_frame, peer_hello_ack_from_wire, peer_hello_ack_to_wire,
+    peer_hello_from_wire, peer_hello_to_wire,
 };
+use tradr_proto::message_type::MessageType;
 use tradr_proto::v1;
 
 // A `v1::Hello` where every field is valid, so tests corrupt exactly one
@@ -364,6 +367,167 @@ fn error_display_covers_every_variant_without_leaking() {
         let text = variant.to_string();
         assert!(!text.contains("0xab"));
         assert!(!text.contains("171")); // 0xAB as decimal, in case bytes leaked raw
+        assert!(!text.is_empty());
+    }
+}
+
+// ---- Framed Hello / HelloAck encoding and decoding ----
+
+#[test]
+fn framed_hello_round_trips() {
+    let peer = peer_hello_from_wire(valid_hello()).expect("valid Hello must convert");
+    let framed_bytes = encode_hello_frame(&peer, 65536).expect("encoding must succeed");
+
+    let mut decoder = FrameDecoder::new(65536);
+    decoder.feed(&framed_bytes);
+    let frame = decoder
+        .next_frame()
+        .expect("decoding frame header must succeed")
+        .expect("frame must be complete");
+
+    let decoded = decode_hello_frame(&frame).expect("decoding Hello frame must succeed");
+    assert_eq!(decoded.versions(), peer.versions());
+    assert_eq!(decoded.identity_pub(), peer.identity_pub());
+    assert_eq!(decoded.agreement_pub(), peer.agreement_pub());
+    assert_eq!(decoded.attestation_token(), peer.attestation_token());
+    assert_eq!(decoded.nonce(), peer.nonce());
+    assert_eq!(decoded.capabilities(), peer.capabilities());
+    assert_eq!(decoded.display_name(), peer.display_name());
+}
+
+#[test]
+fn framed_hello_ack_round_trips() {
+    let ack = peer_hello_ack_from_wire(valid_hello_ack()).expect("valid HelloAck must convert");
+    let framed_bytes = encode_hello_ack_frame(&ack, 65536).expect("encoding must succeed");
+
+    let mut decoder = FrameDecoder::new(65536);
+    decoder.feed(&framed_bytes);
+    let frame = decoder
+        .next_frame()
+        .expect("decoding frame header must succeed")
+        .expect("frame must be complete");
+
+    let decoded = decode_hello_ack_frame(&frame).expect("decoding HelloAck frame must succeed");
+    assert_eq!(decoded.negotiated_version(), ack.negotiated_version());
+    assert_eq!(decoded.max_frame_size(), ack.max_frame_size());
+    assert_eq!(decoded.nonce_signature(), ack.nonce_signature());
+    assert_eq!(decoded.assigned_tier(), ack.assigned_tier());
+}
+
+#[test]
+fn decode_hello_frame_with_wrong_type_is_refused() {
+    let ack = peer_hello_ack_from_wire(valid_hello_ack()).expect("valid HelloAck must convert");
+    let framed_bytes = encode_hello_ack_frame(&ack, 65536).expect("encoding must succeed");
+
+    let mut decoder = FrameDecoder::new(65536);
+    decoder.feed(&framed_bytes);
+    let frame = decoder
+        .next_frame()
+        .expect("decoding frame must succeed")
+        .expect("frame must be complete");
+
+    let err = decode_hello_frame(&frame).expect_err("wrong message type must be refused");
+    assert_eq!(
+        err,
+        HelloFrameError::WrongMessageType {
+            expected: MessageType::Hello.code(),
+            got: MessageType::HelloAck.code(),
+        }
+    );
+}
+
+#[test]
+fn decode_hello_ack_frame_with_wrong_type_is_refused() {
+    let peer = peer_hello_from_wire(valid_hello()).expect("valid Hello must convert");
+    let framed_bytes = encode_hello_frame(&peer, 65536).expect("encoding must succeed");
+
+    let mut decoder = FrameDecoder::new(65536);
+    decoder.feed(&framed_bytes);
+    let frame = decoder
+        .next_frame()
+        .expect("decoding frame must succeed")
+        .expect("frame must be complete");
+
+    let err = decode_hello_ack_frame(&frame).expect_err("wrong message type must be refused");
+    assert_eq!(
+        err,
+        HelloFrameError::WrongMessageType {
+            expected: MessageType::HelloAck.code(),
+            got: MessageType::Hello.code(),
+        }
+    );
+}
+
+#[test]
+fn encode_hello_frame_oversized_is_refused() {
+    let peer = peer_hello_from_wire(valid_hello()).expect("valid Hello must convert");
+    let err = encode_hello_frame(&peer, 10).expect_err("oversized Hello must be refused");
+    assert!(matches!(
+        err,
+        HelloFrameError::Framing(FrameError::Oversized { .. })
+    ));
+}
+
+#[test]
+fn encode_hello_ack_frame_oversized_is_refused() {
+    let ack = peer_hello_ack_from_wire(valid_hello_ack()).expect("valid HelloAck must convert");
+    let err = encode_hello_ack_frame(&ack, 10).expect_err("oversized HelloAck must be refused");
+    assert!(matches!(
+        err,
+        HelloFrameError::Framing(FrameError::Oversized { .. })
+    ));
+}
+
+#[test]
+fn decode_hello_frame_corrupted_protobuf_is_refused() {
+    let corrupt_payload = vec![0xFF, 0xFF, 0xFF];
+    let frame_bytes = encode_frame(MessageType::Hello.code(), &corrupt_payload, 65536)
+        .expect("framing raw bytes must succeed");
+
+    let mut decoder = FrameDecoder::new(65536);
+    decoder.feed(&frame_bytes);
+    let frame = decoder
+        .next_frame()
+        .expect("decoding frame must succeed")
+        .expect("frame must be present");
+
+    let err = decode_hello_frame(&frame).expect_err("corrupt protobuf must fail to decode");
+    assert!(matches!(err, HelloFrameError::Decode(_)));
+}
+
+#[test]
+fn decode_hello_frame_missing_fields_is_refused() {
+    let empty_payload = Vec::new();
+    let frame_bytes = encode_frame(MessageType::Hello.code(), &empty_payload, 65536)
+        .expect("framing raw bytes must succeed");
+
+    let mut decoder = FrameDecoder::new(65536);
+    decoder.feed(&frame_bytes);
+    let frame = decoder
+        .next_frame()
+        .expect("decoding frame must succeed")
+        .expect("frame must be present");
+
+    let err =
+        decode_hello_frame(&frame).expect_err("empty Hello wire payload must fail validation");
+    assert!(matches!(
+        err,
+        HelloFrameError::Wire(HelloWireError::InvalidVersionRange(_))
+    ));
+}
+
+#[test]
+fn hello_frame_error_display_covers_all_variants() {
+    let variants = [
+        HelloFrameError::WrongMessageType {
+            expected: 0x01,
+            got: 0x02,
+        },
+        HelloFrameError::Framing(FrameError::Empty),
+        HelloFrameError::Wire(HelloWireError::MissingDevice),
+    ];
+    for variant in variants {
+        let text = variant.to_string();
         assert!(!text.is_empty());
     }
 }
