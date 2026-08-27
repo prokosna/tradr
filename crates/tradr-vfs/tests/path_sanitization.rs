@@ -2,9 +2,10 @@
 //! Critical Module: Filename sanitization and boundary enforcement.
 //! See docs/04-protocol.md and AGENTS.md section 6.
 
-use tradr_core::TransferId;
+use tradr_core::{ItemId, RootId, TransferId};
 use tradr_vfs::{
-    SanitizationError, partial_file_rel_path, resolve_collision, sanitize_destination_path,
+    PosixVfs, SanitizationError, partial_file_rel_path, resolve_collision,
+    sanitize_destination_path,
 };
 
 const VALID_V7: &str = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
@@ -133,37 +134,42 @@ fn strips_trailing_dots_and_spaces() {
 
 #[test]
 fn partial_file_rel_path_constructs_ordinal_location() {
-    let path0 = partial_file_rel_path(sample_transfer(), 0);
+    let item0 = ItemId::new("item_0").unwrap();
+    let path0 = partial_file_rel_path(sample_transfer(), &item0);
     assert_eq!(
         path0.as_str(),
-        ".tradr-partial/017f22e2-79b0-7cc3-98c4-dc0c0c07398f/0"
+        ".tradr-partial/017f22e2-79b0-7cc3-98c4-dc0c0c07398f/item_0"
     );
 
-    let path42 = partial_file_rel_path(sample_transfer(), 42);
+    let item42 = ItemId::new("item_42").unwrap();
+    let path42 = partial_file_rel_path(sample_transfer(), &item42);
     assert_eq!(
         path42.as_str(),
-        ".tradr-partial/017f22e2-79b0-7cc3-98c4-dc0c0c07398f/42"
+        ".tradr-partial/017f22e2-79b0-7cc3-98c4-dc0c0c07398f/item_42"
     );
 }
 
-#[test]
-fn resolve_collision_numbers_existing_files() {
+#[tokio::test]
+async fn resolve_collision_numbers_existing_files() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let base_path = dir.path();
+    let vfs = PosixVfs::new();
+    let root = RootId::new(1);
+    vfs.register_root(root, dir.path().to_path_buf(), false)
+        .expect("register root");
 
     let rel = sanitize_destination_path("photo.jpg").unwrap();
 
     // No file exists yet -> original path returned
-    let res0 = resolve_collision(base_path, &rel);
+    let res0 = resolve_collision(&vfs, root, &rel).await.unwrap();
     assert_eq!(res0.as_str(), "photo.jpg");
 
     // Create photo.jpg
-    std::fs::write(base_path.join("photo.jpg"), b"first").unwrap();
-    let res1 = resolve_collision(base_path, &rel);
+    std::fs::write(dir.path().join("photo.jpg"), b"first").unwrap();
+    let res1 = resolve_collision(&vfs, root, &rel).await.unwrap();
     assert_eq!(res1.as_str(), "photo (2).jpg");
 
     // Create photo (2).jpg
-    std::fs::write(base_path.join("photo (2).jpg"), b"second").unwrap();
-    let res2 = resolve_collision(base_path, &rel);
+    std::fs::write(dir.path().join("photo (2).jpg"), b"second").unwrap();
+    let res2 = resolve_collision(&vfs, root, &rel).await.unwrap();
     assert_eq!(res2.as_str(), "photo (3).jpg");
 }

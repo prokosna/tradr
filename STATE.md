@@ -9,10 +9,10 @@
 last_updated: 2026-08-27
 phase: implementing
 current_milestone: M1
-branch: wi-m1-018-reconcile
+branch: wi-m1-019-review-repairs
 implementation_started: true
-work_items_landed: 79
-last_commit: f40cc38
+work_items_landed: 80
+last_commit: 4079590
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -36,7 +36,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-1. **Nothing from the audit is outstanding.** The next Work Item is M1's own: `WI-M1-005` onward in the table below is still a sketch, and re-cutting the first of them is where this milestone resumes.
+1. **Re-cut the remaining `review.txt` issues.** The audit repairs in `WI-M1-018` fixed the most critical security flaws (BLAKE3 verification, payload bounds, `openat2` boundary enforcement, and `ci/no-brokr.sh`), but several findings from the review were missed: receiver `transfer_id`/`item_id` verification, `MessageType::classify` bypass, duplicated path sanitization violating I5, missing `.tradr-partial` in the deny list, and the broken `failed_attempts` limit. `WI-M1-019` takes these.
 2. **`ble-gatt`'s data path is now a decision rather than an assumption**, and ADR-0016 records it as open: 20.5% overhead on a transport docs/03 limits to 20-100 KB/s. It needs settling before the BLE data path is cut, not while it is being written.
 3. **ADR-0004's "To verify", still the user's to start**: LAN throughput against 35 MB/s, on two machines. Unchanged by the audit and displaced by it.
 
@@ -686,6 +686,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-016 | **`openat2` with `RESOLVE_BENEATH` in `PosixVfs`**, so validation and opening are one operation, with the `openat`/`O_NOFOLLOW` descent as the fallback path; plus step 2's Unicode normalization and the `RelPath` rebuild that follows it. **Carries one finding neither F-C nor `WI-M1-015` covered**: `list` swallows three `Err(_)` into `continue`, against rule F6, so an entry that cannot be stat-ed silently vanishes from a listing. Critical Module, Supervisor tests first | **folded into `WI-M1-018`** | Yes |
 | WI-M1-018 | **The audit's remaining repairs, as one Work Item** (the user's decision, above). The wire half of DCR-055 and `ChunkDataHeader`'s three bounds; verify-before-write in `receive_file` so a piece reaches `write_at` only through `ContentVerifier`; and `openat2` with `RESOLVE_BENEATH` in `PosixVfs` with the Unicode normalization docs/06 step 2 assigns to it. **Closes F-A and F-C together**, which is the whole of what the audit left open. Critical Module throughout, Supervisor tests first | **done** -- PASS, no REVISE. F-A and F-C both closed | Yes |
 | WI-M1-017 | **`ci/no-brokr.sh` rewritten to measure something**: a named Tier 0 and Tier 1 integration test set that fails when it is empty or when a listed test has vanished, run with egress sealed to loopback, and a canary that fails the job when the seal is not in effect | **done** -- PASS after one REVISE, and the finding was the canary's own probe failing open | |
+| WI-M1-019 | **The rest of the `review.txt` repairs.** A-6: Verify `transfer_id` and `item_id` match the session inside `receive_file_inner`. A-7: Remove duplicated `resolve_collision` logic from `transfer.rs` (Invariant I5 violation). A-8: Restore `MessageType::classify` in `transfer.rs`. A-9: Fix hardcoded ordinal `0` in `partial_file_rel_path`, add `.tradr-partial` to `DENY_PATTERNS` in `posix.rs`, enforce 3-attempt limit in `ItemResumption::missing_chunks`/`next_chunk_request`, remove duplicate request loops in `transfer.rs`, and remove `#![allow(clippy::too_many_arguments)]`. | **done** -- PASS, no REVISE | Yes |
 
 **Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
 

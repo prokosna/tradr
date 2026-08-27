@@ -25,6 +25,7 @@ enum PatternPart {
 // below are the whole list and nothing besides. A pattern with more than
 // one part denies only that consecutive run of components (DCR-056).
 const DENY_PATTERNS: &[&[PatternPart]] = &[
+    &[PatternPart::Exact(".tradr-partial")],
     &[PatternPart::Exact(".ssh")],
     &[PatternPart::Exact(".gnupg")],
     &[PatternPart::Exact(".aws")],
@@ -89,6 +90,21 @@ fn is_denied(components: &[&str]) -> bool {
         .any(|pattern| pattern_matches_run(pattern, components))
 }
 
+fn is_partial_staging(components: &[&str]) -> bool {
+    matches!(components.first(), Some(c) if c.eq_ignore_ascii_case(".tradr-partial"))
+}
+
+fn is_denied_for_write(components: &[&str]) -> bool {
+    if is_partial_staging(components) {
+        DENY_PATTERNS
+            .iter()
+            .filter(|p| !matches!(p.first(), Some(PatternPart::Exact(name)) if *name == ".tradr-partial"))
+            .any(|pattern| pattern_matches_run(pattern, components))
+    } else {
+        is_denied(components)
+    }
+}
+
 #[derive(Debug, Clone)]
 struct RootEntry {
     canonical_path: PathBuf,
@@ -119,6 +135,14 @@ fn map_io_err(err: std::io::Error) -> VfsError {
 fn check_deny_list(at: &RelPath) -> Result<(), VfsError> {
     let components: Vec<&str> = at.components().collect();
     if is_denied(&components) {
+        return Err(VfsError::DenyListed);
+    }
+    Ok(())
+}
+
+fn check_deny_list_write(at: &RelPath) -> Result<(), VfsError> {
+    let components: Vec<&str> = at.components().collect();
+    if is_denied_for_write(&components) {
         return Err(VfsError::DenyListed);
     }
     Ok(())
@@ -298,7 +322,7 @@ fn open_write_sync(root: &RootEntry, at: &RelPath) -> Result<std::fs::File, VfsE
     if root.read_only {
         return Err(VfsError::ReadOnly);
     }
-    check_deny_list(at)?;
+    check_deny_list_write(at)?;
     if at.as_str().is_empty() {
         return Err(VfsError::WrongKind);
     }
@@ -340,7 +364,7 @@ fn create_dir_sync(root: &RootEntry, at: &RelPath) -> Result<(), VfsError> {
     if root.read_only {
         return Err(VfsError::ReadOnly);
     }
-    check_deny_list(at)?;
+    check_deny_list_write(at)?;
     if at.as_str().is_empty() {
         return Ok(());
     }
@@ -386,7 +410,7 @@ fn remove_sync(root: &RootEntry, at: &RelPath) -> Result<(), VfsError> {
     if root.read_only {
         return Err(VfsError::ReadOnly);
     }
-    check_deny_list(at)?;
+    check_deny_list_write(at)?;
     if at.as_str().is_empty() {
         return Err(VfsError::WrongKind);
     }
@@ -419,7 +443,7 @@ fn rename_sync(root: &RootEntry, from: &RelPath, to: &RelPath) -> Result<(), Vfs
     if root.read_only {
         return Err(VfsError::ReadOnly);
     }
-    check_deny_list(from)?;
+    check_deny_list_write(from)?;
     check_deny_list(to)?;
     if from.as_str().is_empty() || to.as_str().is_empty() {
         return Err(VfsError::WrongKind);

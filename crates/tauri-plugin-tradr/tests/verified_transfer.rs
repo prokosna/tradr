@@ -326,3 +326,101 @@ fn walkdir(dir: &std::path::Path) -> u64 {
     }
     total
 }
+
+#[tokio::test]
+async fn a_piece_with_wrong_transfer_id_is_refused() {
+    let receiver_dir = tempfile::tempdir().expect("tempdir");
+    let file_content = content(MIB as usize);
+    let (ob, hash) = outboard(&file_content);
+    let honest = slice(&file_content, &ob, 0, MIB).expect("extract");
+
+    let (receiver_vfs, root_receiver) = receiver_root(receiver_dir.path());
+    let (mut hostile, mut receiver_streams) = memory_stream_pair();
+
+    // Construct a header with the WRONG transfer_id
+    let wrong_transfer_id: TransferId = "017f22e2-79b0-7cc3-98c4-dc0c0c07398e".parse().unwrap();
+    let header = ChunkDataHeader::new(
+        wrong_transfer_id,
+        sample_item(),
+        ChunkIndex::new(0),
+        honest.len() as u32,
+        true,
+        0,
+    )
+    .unwrap();
+
+    let frame = encode_chunk_data_header_frame(&header, FRAME_BOUND).unwrap();
+    hostile.0.write_all(&frame).await.unwrap();
+    hostile.0.write_all(&honest).await.unwrap();
+    hostile.0.finish().await.unwrap(); // Close stream to unblock receive_file
+
+    let dest = RelPath::new("photo.raw").expect("relpath");
+    let outcome = receive_file(
+        &receiver_vfs,
+        root_receiver,
+        &dest,
+        file_content.len() as u64,
+        &hash,
+        &BaoVerifier,
+        &mut receiver_streams.0,
+        &mut receiver_streams.1,
+        sample_transfer(), // The session's transfer ID
+        sample_item(),
+        FRAME_BOUND,
+    )
+    .await;
+
+    assert!(
+        outcome.is_err(),
+        "a chunk for a different transfer must be refused"
+    );
+}
+
+#[tokio::test]
+async fn a_piece_with_wrong_item_id_is_refused() {
+    let receiver_dir = tempfile::tempdir().expect("tempdir");
+    let file_content = content(MIB as usize);
+    let (ob, hash) = outboard(&file_content);
+    let honest = slice(&file_content, &ob, 0, MIB).expect("extract");
+
+    let (receiver_vfs, root_receiver) = receiver_root(receiver_dir.path());
+    let (mut hostile, mut receiver_streams) = memory_stream_pair();
+
+    // Construct a header with the WRONG item_id
+    let wrong_item_id = ItemId::new("wrong_item").unwrap();
+    let header = ChunkDataHeader::new(
+        sample_transfer(),
+        wrong_item_id,
+        ChunkIndex::new(0),
+        honest.len() as u32,
+        true,
+        0,
+    )
+    .unwrap();
+
+    let frame = encode_chunk_data_header_frame(&header, FRAME_BOUND).unwrap();
+    hostile.0.write_all(&frame).await.unwrap();
+    hostile.0.write_all(&honest).await.unwrap();
+    hostile.0.finish().await.unwrap();
+
+    let dest = RelPath::new("photo.raw").expect("relpath");
+    let outcome = receive_file(
+        &receiver_vfs,
+        root_receiver,
+        &dest,
+        file_content.len() as u64,
+        &hash,
+        &BaoVerifier,
+        &mut receiver_streams.0,
+        &mut receiver_streams.1,
+        sample_transfer(),
+        sample_item(),
+        FRAME_BOUND,
+    )
+    .await;
+
+    assert!(
+        outcome.is_err(),
+        "a chunk for a different item must be refused"
+    );
+}

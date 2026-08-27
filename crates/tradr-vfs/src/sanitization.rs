@@ -1,8 +1,7 @@
 //! Destination path sanitization and partial file path construction.
 
 use std::fmt;
-use std::path::Path;
-use tradr_core::{RelPath, RelPathError, TransferId};
+use tradr_core::{ItemId, RelPath, RelPathError, RootId, TransferId, Vfs, VfsError};
 use unicode_normalization::UnicodeNormalization;
 
 const WINDOWS_RESERVED: &[&str] = &[
@@ -132,16 +131,22 @@ pub fn sanitize_destination_path(raw_path: &str) -> Result<RelPath, Sanitization
     RelPath::new(&joined).map_err(SanitizationError::from)
 }
 
-/// Returns the relative path for a transfer's partial file given its ordinal index.
-pub fn partial_file_rel_path(transfer_id: TransferId, ordinal: u64) -> RelPath {
-    RelPath::new(&format!(".tradr-partial/{transfer_id}/{ordinal}"))
+/// Returns the relative path for a transfer's partial file given its item id.
+pub fn partial_file_rel_path(transfer_id: TransferId, item_id: &ItemId) -> RelPath {
+    RelPath::new(&format!(".tradr-partial/{transfer_id}/{item_id}"))
         .expect("partial file path must be a valid RelPath")
 }
 
 /// Resolves destination collisions by appending numeric suffixes if the file exists.
-pub fn resolve_collision(root_path: &Path, rel_path: &RelPath) -> RelPath {
-    if !root_path.join(rel_path.as_str()).exists() {
-        return rel_path.clone();
+pub async fn resolve_collision(
+    vfs: &impl Vfs,
+    root: RootId,
+    rel_path: &RelPath,
+) -> Result<RelPath, VfsError> {
+    match vfs.stat(root, rel_path).await {
+        Ok(_) => {}
+        Err(VfsError::NotFound) => return Ok(rel_path.clone()),
+        Err(e) => return Err(e),
     }
 
     let rel_str = rel_path.as_str();
@@ -163,10 +168,13 @@ pub fn resolve_collision(root_path: &Path, rel_path: &RelPath) -> RelPath {
     };
 
     for counter in 2.. {
-        let candidate_rel = format!("{parent_prefix}{stem} ({counter}){ext}");
-        if !root_path.join(&candidate_rel).exists() {
-            return RelPath::new(&candidate_rel)
-                .expect("collision candidate must be a valid RelPath");
+        let candidate_rel_str = format!("{parent_prefix}{stem} ({counter}){ext}");
+        let candidate_rel = RelPath::new(&candidate_rel_str)
+            .map_err(|_| VfsError::Io(std::io::ErrorKind::InvalidInput))?;
+        match vfs.stat(root, &candidate_rel).await {
+            Ok(_) => continue,
+            Err(VfsError::NotFound) => return Ok(candidate_rel),
+            Err(e) => return Err(e),
         }
     }
 

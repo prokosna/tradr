@@ -373,12 +373,12 @@ fn verification_failure_tracking_and_three_attempt_limit() {
     let attempts3 = item.mark_failed(ChunkIndex::new(0)).unwrap();
     assert_eq!(attempts3, 3);
 
-    // Fourth arrival passes verification.
-    item.record_piece(ChunkIndex::new(0), 0, REFERENCE_CHUNK_SIZE_BYTES as u32)
-        .unwrap();
-    item.mark_verified(ChunkIndex::new(0)).unwrap();
-    assert_eq!(item.is_chunk_verified(ChunkIndex::new(0)), Ok(true));
-    assert!(item.is_item_complete());
+    // After 3 failed attempts, the chunk is abandoned. It must not be requested again.
+    assert_eq!(item.next_chunk_request(64), None);
+    assert!(item.missing_chunks().is_empty());
+
+    // The item is not complete, but no chunks are requested.
+    assert!(!item.is_item_complete());
 }
 
 #[test]
@@ -397,4 +397,35 @@ fn missing_chunks_reports_all_unverified_indices() {
         item.missing_chunks(),
         vec![ChunkIndex::new(1), ChunkIndex::new(3)]
     );
+}
+
+#[test]
+fn missing_chunks_and_requests_skip_abandoned_chunks() {
+    let mut item = ItemResumption::new(sample_item(), 5 * REFERENCE_CHUNK_SIZE_BYTES);
+
+    // Chunk 0 fails 3 times
+    for _ in 0..3 {
+        item.mark_failed(ChunkIndex::new(0)).unwrap();
+    }
+
+    // Chunk 1 is verified
+    item.mark_verified(ChunkIndex::new(1)).unwrap();
+
+    // Chunk 2 fails 1 time
+    item.mark_failed(ChunkIndex::new(2)).unwrap();
+
+    // Chunk 3 is unverified, 0 fails
+    // Chunk 4 fails 3 times
+    for _ in 0..3 {
+        item.mark_failed(ChunkIndex::new(4)).unwrap();
+    }
+
+    // Missing chunks should only include 2 and 3, because 0 and 4 are abandoned.
+    assert_eq!(
+        item.missing_chunks(),
+        vec![ChunkIndex::new(2), ChunkIndex::new(3)]
+    );
+
+    // Request should start from 2, as 0 is skipped and 1 is verified.
+    assert_eq!(item.next_chunk_request(4), Some((ChunkIndex::new(2), 2)));
 }
