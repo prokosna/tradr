@@ -287,27 +287,32 @@ impl ItemResumption {
         total
     }
 
+    fn is_chunk_requestable(&self, idx: u64) -> bool {
+        match self.chunks.get(&idx) {
+            Some(s) => !s.verified && s.failed_attempts < 3,
+            None => true,
+        }
+    }
+
     /// Selects the next contiguous batch of unverified chunks to request.
     pub fn next_chunk_request(&self, max_count: u32) -> Option<(ChunkIndex, u32)> {
         if max_count == 0 || self.total_chunks == 0 || self.is_item_complete() {
             return None;
         }
 
-        let mut start_unverified = None;
+        let mut start_requestable = None;
         for idx in 0..self.total_chunks {
-            let is_verified = self.chunks.get(&idx).is_some_and(|s| s.verified);
-            if !is_verified {
-                start_unverified = Some(idx);
+            if self.is_chunk_requestable(idx) {
+                start_requestable = Some(idx);
                 break;
             }
         }
 
-        let from_chunk = start_unverified?;
+        let from_chunk = start_requestable?;
         let mut count = 0u32;
         while count < max_count && (from_chunk + count as u64) < self.total_chunks {
             let idx = from_chunk + count as u64;
-            let is_verified = self.chunks.get(&idx).is_some_and(|s| s.verified);
-            if is_verified {
+            if !self.is_chunk_requestable(idx) {
                 break;
             }
             count += 1;
@@ -328,8 +333,7 @@ impl ItemResumption {
 
         let mut missing = Vec::new();
         for idx in 0..self.total_chunks {
-            let is_verified = self.chunks.get(&idx).is_some_and(|s| s.verified);
-            if !is_verified {
+            if self.is_chunk_requestable(idx) {
                 missing.push(ChunkIndex::new(idx));
             }
         }

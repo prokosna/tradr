@@ -2,7 +2,7 @@
 //! Critical Module: Boundary enforcement in tradr-vfs.
 //! See docs/04-protocol.md, docs/06-shares-and-linking.md, and AGENTS.md section 6.
 
-use tradr_core::{RelPath, RootId, TransferId, Vfs, VfsError};
+use tradr_core::{ItemId, RelPath, RootId, TransferId, Vfs, VfsError};
 use tradr_vfs::{PosixVfs, partial_file_rel_path, sanitize_destination_path};
 
 const VALID_V7: &str = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
@@ -39,6 +39,27 @@ async fn read_only_root_refuses_modifications() {
 }
 
 #[tokio::test]
+async fn partial_directory_is_inaccessible_to_peers() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let vfs = PosixVfs::new();
+    let root = RootId::new(2);
+    vfs.register_root(root, dir.path().to_path_buf(), false)
+        .expect("register root");
+
+    // Create the actual hidden directory
+    std::fs::create_dir_all(dir.path().join(".tradr-partial")).unwrap();
+
+    // A peer tries to access it
+    let rel = RelPath::new(".tradr-partial").expect("relpath");
+
+    // It must be denied by boundary enforcement
+    assert_eq!(
+        vfs.list(root, &rel).await.unwrap_err(),
+        VfsError::DenyListed
+    );
+}
+
+#[tokio::test]
 async fn partial_file_write_sync_and_atomic_rename() {
     let dir = tempfile::tempdir().expect("tempdir");
     let vfs = PosixVfs::new();
@@ -47,7 +68,8 @@ async fn partial_file_write_sync_and_atomic_rename() {
         .expect("register rw root");
 
     let transfer = sample_transfer();
-    let partial_rel = partial_file_rel_path(transfer, 0);
+    let item_id = ItemId::new("item_0").unwrap();
+    let partial_rel = partial_file_rel_path(transfer, &item_id);
 
     // 1. Create partial directory .tradr-partial/<transfer_id>/
     let parent_dir = RelPath::new(&format!(".tradr-partial/{transfer}")).expect("parent rel");

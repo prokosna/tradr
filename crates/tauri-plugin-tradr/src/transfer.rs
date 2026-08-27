@@ -15,7 +15,8 @@ use tradr_proto::data::{
     encode_chunk_request_frame, encode_item_complete_frame,
 };
 use tradr_proto::framing::{Frame, FrameDecoder, FrameError};
-use tradr_proto::message_type::MessageType;
+use tradr_proto::message_type::{Classification, MessageType, Plane, Refusal, classify};
+use tradr_vfs::resolve_collision;
 use tradr_vfs::sanitization::{partial_file_rel_path, sanitize_destination_path};
 
 /// Errors occurring during an end-to-end file transfer session.
@@ -136,7 +137,7 @@ async fn read_frame(
     Ok(frame)
 }
 
-// Appends incremental collision counters to prevent overwriting existing files at destination.
+// Sanitizes destination paths and resolves collisions using VFS.
 async fn resolve_destination_path(
     vfs: &impl Vfs,
     root: RootId,
@@ -144,45 +145,9 @@ async fn resolve_destination_path(
 ) -> Result<RelPath, TransferSessionError> {
     let sanitized = sanitize_destination_path(dest_rel_path.as_str())
         .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
-
-    match vfs.stat(root, &sanitized).await {
-        Ok(_) => {}
-        Err(VfsError::NotFound) => return Ok(sanitized),
-        Err(e) => return Err(TransferSessionError::Vfs(e)),
-    }
-
-    let rel_str = sanitized.as_str();
-    let (parent_prefix, file_name) = match rel_str.rfind('/') {
-        Some(idx) => (&rel_str[..=idx], &rel_str[idx + 1..]),
-        None => ("", rel_str),
-    };
-
-    let (stem, ext) = if file_name.starts_with('.') && !file_name[1..].contains('.') {
-        (file_name, "")
-    } else if let Some(dot_idx) = file_name.rfind('.') {
-        if dot_idx > 0 {
-            (&file_name[..dot_idx], &file_name[dot_idx..])
-        } else {
-            (file_name, "")
-        }
-    } else {
-        (file_name, "")
-    };
-
-    for counter in 2.. {
-        let candidate_rel_str = format!("{parent_prefix}{stem} ({counter}){ext}");
-        let candidate_rel = RelPath::new(&candidate_rel_str)
-            .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
-        match vfs.stat(root, &candidate_rel).await {
-            Ok(_) => continue,
-            Err(VfsError::NotFound) => return Ok(candidate_rel),
-            Err(e) => return Err(TransferSessionError::Vfs(e)),
-        }
-    }
-
-    Err(TransferSessionError::ProtocolViolation(
-        "exhausted candidate collision filenames".to_string(),
-    ))
+    resolve_collision(vfs, root, &sanitized)
+        .await
+        .map_err(TransferSessionError::Vfs)
 }
 
 // Removes abandoned partial files to prevent unverified artifacts remaining on disk.
@@ -199,6 +164,59 @@ async fn cleanup_partial(
     match vfs.remove(root, partial_dir).await {
         Ok(()) | Err(VfsError::NotFound) | Err(VfsError::WrongKind) => {}
         Err(e) => return Err(e),
+    }
+    Ok(())
+}
+
+struct SendSession<'a> {
+    file_content: &'a [u8],
+    outboard_data: &'a [u8],
+    total_bytes: u64,
+    transfer_id: TransferId,
+    item_id: ItemId,
+    max_frame_size: u32,
+}
+
+async fn send_chunk_pieces(
+    session: &SendSession<'_>,
+    chunk_indices: impl Iterator<Item = u64>,
+    send: &mut (impl SendStream + ?Sized),
+) -> Result<(), TransferSessionError> {
+    for c in chunk_indices {
+        let chunk_offset = c.saturating_mul(REFERENCE_CHUNK_SIZE_BYTES);
+        if chunk_offset >= session.total_bytes {
+            continue;
+        }
+        let remaining = session.total_bytes.saturating_sub(chunk_offset);
+        let chunk_len = remaining.min(REFERENCE_CHUNK_SIZE_BYTES);
+
+        let piece_slice = slice(
+            session.file_content,
+            session.outboard_data,
+            chunk_offset,
+            chunk_len,
+        )
+        .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
+
+        let is_last = (chunk_offset + chunk_len) >= session.total_bytes;
+        let header = ChunkDataHeader::new(
+            session.transfer_id,
+            session.item_id,
+            ChunkIndex::new(c),
+            piece_slice.len() as u32,
+            is_last,
+            0,
+        )
+        .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
+
+        let header_frame = encode_chunk_data_header_frame(&header, session.max_frame_size)
+            .map_err(TransferSessionError::Proto)?;
+        send.write_all(&header_frame)
+            .await
+            .map_err(TransferSessionError::from)?;
+        send.write_all(&piece_slice)
+            .await
+            .map_err(TransferSessionError::from)?;
     }
     Ok(())
 }
@@ -235,87 +253,36 @@ pub async fn send_file(
     }
 
     let (outboard_data, _) = outboard(&file_content);
+    let session = SendSession {
+        file_content: &file_content,
+        outboard_data: &outboard_data,
+        total_bytes,
+        transfer_id,
+        item_id,
+        max_frame_size,
+    };
 
     loop {
         let frame = read_frame(recv, max_frame_size).await?;
-        let msg_type = MessageType::ALL
-            .iter()
-            .copied()
-            .find(|m| m.code() == frame.type_code());
-
-        match msg_type {
-            Some(MessageType::ChunkRequest) => {
+        match classify(frame.type_code(), Plane::Data) {
+            Classification::Known(MessageType::ChunkRequest) => {
                 let req =
                     decode_chunk_request_frame(&frame).map_err(TransferSessionError::Proto)?;
-                for c in req.from_chunk().value()..req.from_chunk().value() + req.count() as u64 {
-                    let chunk_offset = c.saturating_mul(REFERENCE_CHUNK_SIZE_BYTES);
-                    if chunk_offset >= total_bytes {
-                        break;
-                    }
-                    let remaining = total_bytes.saturating_sub(chunk_offset);
-                    let chunk_len = remaining.min(REFERENCE_CHUNK_SIZE_BYTES);
-
-                    let piece_slice = slice(&file_content, &outboard_data, chunk_offset, chunk_len)
-                        .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
-
-                    let is_last = (chunk_offset + chunk_len) >= total_bytes;
-                    let header = ChunkDataHeader::new(
-                        transfer_id,
-                        item_id,
-                        ChunkIndex::new(c),
-                        piece_slice.len() as u32,
-                        is_last,
-                        0,
-                    )
-                    .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
-
-                    let header_frame = encode_chunk_data_header_frame(&header, max_frame_size)
-                        .map_err(TransferSessionError::Proto)?;
-                    send.write_all(&header_frame)
-                        .await
-                        .map_err(TransferSessionError::from)?;
-                    send.write_all(&piece_slice)
-                        .await
-                        .map_err(TransferSessionError::from)?;
-                }
+                let from = req.from_chunk().value();
+                let count = req.count() as u64;
+                send_chunk_pieces(&session, from..(from + count), send).await?;
             }
-            Some(MessageType::ChunkRerequest) => {
+            Classification::Known(MessageType::ChunkRerequest) => {
                 let req =
                     decode_chunk_rerequest_frame(&frame).map_err(TransferSessionError::Proto)?;
-                for chunk_idx in req.chunks() {
-                    let c = chunk_idx.value();
-                    let chunk_offset = c.saturating_mul(REFERENCE_CHUNK_SIZE_BYTES);
-                    if chunk_offset >= total_bytes {
-                        continue;
-                    }
-                    let remaining = total_bytes.saturating_sub(chunk_offset);
-                    let chunk_len = remaining.min(REFERENCE_CHUNK_SIZE_BYTES);
-
-                    let piece_slice = slice(&file_content, &outboard_data, chunk_offset, chunk_len)
-                        .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
-
-                    let is_last = (chunk_offset + chunk_len) >= total_bytes;
-                    let header = ChunkDataHeader::new(
-                        transfer_id,
-                        item_id,
-                        ChunkIndex::new(c),
-                        piece_slice.len() as u32,
-                        is_last,
-                        0,
-                    )
-                    .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
-
-                    let header_frame = encode_chunk_data_header_frame(&header, max_frame_size)
-                        .map_err(TransferSessionError::Proto)?;
-                    send.write_all(&header_frame)
-                        .await
-                        .map_err(TransferSessionError::from)?;
-                    send.write_all(&piece_slice)
-                        .await
-                        .map_err(TransferSessionError::from)?;
-                }
+                send_chunk_pieces(&session, req.chunks().iter().map(|idx| idx.value()), send)
+                    .await?;
             }
-            Some(MessageType::ItemComplete) => {
+            Classification::Known(MessageType::FlowControl) => {}
+            Classification::Ignorable => {}
+            Classification::Refused(Refusal::WrongPlane { .. })
+                if frame.type_code() == MessageType::ItemComplete.code() =>
+            {
                 let item_complete =
                     decode_item_complete_frame(&frame).map_err(TransferSessionError::Proto)?;
                 if item_complete.is_verified() {
@@ -324,35 +291,42 @@ pub async fn send_file(
                     return Err(TransferSessionError::VerificationFailed);
                 }
             }
-            Some(MessageType::FlowControl) => {}
-            _ => {
+            Classification::Refused(e) => {
+                return Err(TransferSessionError::ProtocolViolation(e.to_string()));
+            }
+            Classification::Known(other) => {
                 return Err(TransferSessionError::ProtocolViolation(format!(
-                    "unexpected frame type 0x{:02x} during send",
-                    frame.type_code()
+                    "unexpected message on data stream: {other:?}"
                 )));
             }
         }
     }
 }
 
-// Processes incoming chunk streams and verifies cryptographic integrity before disk placement.
-#[allow(clippy::too_many_arguments)]
-async fn receive_file_inner(
-    vfs: &impl Vfs,
+struct ReceiveSession<'a, V: Vfs> {
+    vfs: &'a V,
     root: RootId,
-    dest_rel_path: &RelPath,
+    dest_rel_path: &'a RelPath,
     total_bytes: u64,
-    content_hash: &ContentHash,
-    verifier: &dyn ContentVerifier,
-    send: &mut impl SendStream,
-    recv: &mut impl RecvStream,
+    content_hash: &'a ContentHash,
+    verifier: &'a dyn ContentVerifier,
     transfer_id: TransferId,
     item_id: ItemId,
     max_frame_size: u32,
-    partial_file_rel: &RelPath,
+    partial_file_rel: &'a RelPath,
+}
+
+// Processes incoming chunk streams and verifies cryptographic integrity before disk placement.
+async fn receive_file_inner<V: Vfs>(
+    session: &ReceiveSession<'_, V>,
+    send: &mut impl SendStream,
+    recv: &mut impl RecvStream,
 ) -> Result<RelPath, TransferSessionError> {
-    let mut write_handle = vfs.open_write(root, partial_file_rel).await?;
-    let mut resumption = ItemResumption::new(item_id, total_bytes);
+    let mut write_handle = session
+        .vfs
+        .open_write(session.root, session.partial_file_rel)
+        .await?;
+    let mut resumption = ItemResumption::new(session.item_id, session.total_bytes);
     let total_chunks = resumption.total_chunks();
 
     while !resumption.is_item_complete() {
@@ -361,15 +335,15 @@ async fn receive_file_inner(
             None => break,
         };
 
-        let req = ChunkRequest::new(transfer_id, item_id, from_chunk, count);
-        let req_frame = encode_chunk_request_frame(&req, max_frame_size)
+        let req = ChunkRequest::new(session.transfer_id, session.item_id, from_chunk, count);
+        let req_frame = encode_chunk_request_frame(&req, session.max_frame_size)
             .map_err(TransferSessionError::Proto)?;
         send.write_all(&req_frame)
             .await
             .map_err(TransferSessionError::from)?;
 
         for _ in 0..count {
-            let frame = read_frame(recv, max_frame_size).await?;
+            let frame = read_frame(recv, session.max_frame_size).await?;
             if frame.type_code() != MessageType::ChunkData.code() {
                 return Err(TransferSessionError::ProtocolViolation(format!(
                     "expected ChunkData frame, got type 0x{:02x}",
@@ -380,11 +354,28 @@ async fn receive_file_inner(
             let header =
                 decode_chunk_data_header_frame(&frame).map_err(TransferSessionError::Proto)?;
 
+            if header.transfer_id() != session.transfer_id {
+                return Err(TransferSessionError::ProtocolViolation(format!(
+                    "transfer_id mismatch: expected {}, got {}",
+                    session.transfer_id,
+                    header.transfer_id()
+                )));
+            }
+
+            if header.item_id() != &session.item_id {
+                return Err(TransferSessionError::ProtocolViolation(format!(
+                    "item_id mismatch: expected {}, got {}",
+                    session.item_id,
+                    header.item_id()
+                )));
+            }
+
             // Bounding payload length before buffer allocation prevents memory exhaustion from hostile peers.
             let payload_len = header.payload_len();
-            if payload_len > max_frame_size {
+            if payload_len > session.max_frame_size {
                 return Err(TransferSessionError::ProtocolViolation(format!(
-                    "payload_len {payload_len} exceeds max_frame_size {max_frame_size}"
+                    "payload_len {payload_len} exceeds max_frame_size {}",
+                    session.max_frame_size
                 )));
             }
 
@@ -402,21 +393,22 @@ async fn receive_file_inner(
             let offset = header.chunk_index().value() * REFERENCE_CHUNK_SIZE_BYTES
                 + header.offset_in_chunk() as u64;
 
-            if offset >= total_bytes {
+            if offset >= session.total_bytes {
                 return Err(TransferSessionError::ProtocolViolation(
                     "piece offset is beyond total item length".to_string(),
                 ));
             }
 
             // Computing expected content length locally prevents trusting peer size claims.
-            let remaining_item = total_bytes.saturating_sub(offset);
+            let remaining_item = session.total_bytes.saturating_sub(offset);
             let remaining_chunk =
                 REFERENCE_CHUNK_SIZE_BYTES.saturating_sub(header.offset_in_chunk() as u64);
             let content_len = remaining_item.min(remaining_chunk);
 
             // Verifying before placement prevents unverified bytes from reaching durable storage.
-            let verified_bytes = verifier
-                .verify(content_hash, offset, content_len, &slice_payload)
+            let verified_bytes = session
+                .verifier
+                .verify(session.content_hash, offset, content_len, &slice_payload)
                 .map_err(|_| TransferSessionError::VerificationFailed)?;
 
             write_handle
@@ -453,8 +445,8 @@ async fn receive_file_inner(
 
     let is_verified = resumption.is_item_complete();
     if !is_verified {
-        let item_complete = ItemComplete::new(transfer_id, item_id, false, None);
-        let complete_bytes = encode_item_complete_frame(&item_complete, max_frame_size)
+        let item_complete = ItemComplete::new(session.transfer_id, session.item_id, false, None);
+        let complete_bytes = encode_item_complete_frame(&item_complete, session.max_frame_size)
             .map_err(TransferSessionError::Proto)?;
         send.write_all(&complete_bytes)
             .await
@@ -462,11 +454,20 @@ async fn receive_file_inner(
         return Err(TransferSessionError::VerificationFailed);
     }
 
-    let final_path = resolve_destination_path(vfs, root, dest_rel_path).await?;
-    vfs.rename(root, partial_file_rel, &final_path).await?;
+    let final_path =
+        resolve_destination_path(session.vfs, session.root, session.dest_rel_path).await?;
+    session
+        .vfs
+        .rename(session.root, session.partial_file_rel, &final_path)
+        .await?;
 
-    let item_complete = ItemComplete::new(transfer_id, item_id, true, Some(final_path.clone()));
-    let complete_bytes = encode_item_complete_frame(&item_complete, max_frame_size)
+    let item_complete = ItemComplete::new(
+        session.transfer_id,
+        session.item_id,
+        true,
+        Some(final_path.clone()),
+    );
+    let complete_bytes = encode_item_complete_frame(&item_complete, session.max_frame_size)
         .map_err(TransferSessionError::Proto)?;
     send.write_all(&complete_bytes)
         .await
@@ -494,23 +495,22 @@ pub async fn receive_file(
         .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
     vfs.create_dir(root, &partial_dir).await?;
 
-    let partial_file_rel = partial_file_rel_path(transfer_id, 0);
+    let partial_file_rel = partial_file_rel_path(transfer_id, &item_id);
 
-    let res = receive_file_inner(
+    let session = ReceiveSession {
         vfs,
         root,
         dest_rel_path,
         total_bytes,
         content_hash,
         verifier,
-        send,
-        recv,
         transfer_id,
         item_id,
         max_frame_size,
-        &partial_file_rel,
-    )
-    .await;
+        partial_file_rel: &partial_file_rel,
+    };
+
+    let res = receive_file_inner(&session, send, recv).await;
 
     if res.is_err()
         && let Err(clean_err) = cleanup_partial(vfs, root, &partial_file_rel, &partial_dir).await
