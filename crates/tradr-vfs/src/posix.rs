@@ -1,8 +1,12 @@
 //! POSIX filesystem backend implementing the Layer 1 VFS trait.
 
+use rustix::fd::OwnedFd;
+use rustix::fs::{AtFlags, Dir, FileType, Mode, OFlags, ResolveFlags};
+use rustix::io::Errno;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 use tradr_core::{
     BoxFuture, DirEntry, EntryKind, Metadata, ReadAt, RelPath, RootId, UnixTime, Vfs, VfsError,
@@ -87,9 +91,21 @@ fn is_denied(components: &[&str]) -> bool {
 
 #[derive(Debug, Clone)]
 struct RootEntry {
-    path: PathBuf,
     canonical_path: PathBuf,
     read_only: bool,
+}
+
+static OPENAT2_SUPPORTED: AtomicBool = AtomicBool::new(true);
+
+fn map_rustix_err(err: Errno) -> VfsError {
+    match err {
+        Errno::NOENT => VfsError::NotFound,
+        Errno::XDEV => VfsError::OutsideRoot,
+        Errno::LOOP => VfsError::UnsupportedEntry,
+        Errno::NOTDIR | Errno::ISDIR | Errno::NOTEMPTY | Errno::EXIST => VfsError::WrongKind,
+        Errno::ACCESS | Errno::PERM => VfsError::Io(std::io::ErrorKind::PermissionDenied),
+        other => VfsError::Io(std::io::Error::from(other).kind()),
+    }
 }
 
 fn map_io_err(err: std::io::Error) -> VfsError {
@@ -108,17 +124,15 @@ fn check_deny_list(at: &RelPath) -> Result<(), VfsError> {
     Ok(())
 }
 
-fn check_unsupported(meta: &std::fs::Metadata) -> Result<EntryKind, VfsError> {
-    let ft = meta.file_type();
-    if ft.is_symlink() {
-        return Err(VfsError::UnsupportedEntry);
-    }
-    #[cfg(unix)]
+fn check_stat_kind(stat: &rustix::fs::Stat) -> Result<EntryKind, VfsError> {
+    let ft = FileType::from_raw_mode(stat.st_mode);
+    if ft.is_symlink()
+        || ft.is_fifo()
+        || ft.is_socket()
+        || ft.is_char_device()
+        || ft.is_block_device()
     {
-        use std::os::unix::fs::FileTypeExt;
-        if ft.is_fifo() || ft.is_socket() || ft.is_block_device() || ft.is_char_device() {
-            return Err(VfsError::UnsupportedEntry);
-        }
+        return Err(VfsError::UnsupportedEntry);
     }
     if ft.is_dir() {
         Ok(EntryKind::Directory)
@@ -129,47 +143,389 @@ fn check_unsupported(meta: &std::fs::Metadata) -> Result<EntryKind, VfsError> {
     }
 }
 
-fn resolve_path(root: &RootEntry, at: &RelPath) -> Result<PathBuf, VfsError> {
-    check_deny_list(at)?;
-
-    let target = if at.as_str().is_empty() {
-        root.path.clone()
-    } else {
-        root.path.join(at.as_str())
-    };
-
-    let mut existing = target.clone();
-    while !existing.exists() {
-        if let Some(parent) = existing.parent() {
-            existing = parent.to_path_buf();
-        } else {
-            break;
-        }
-    }
-
-    if existing.exists() {
-        let canonical = existing.canonicalize().map_err(map_io_err)?;
-        if !canonical.starts_with(&root.canonical_path) {
-            return Err(VfsError::OutsideRoot);
-        }
-    }
-
-    if target.exists() {
-        let canonical = target.canonicalize().map_err(map_io_err)?;
-        if !canonical.starts_with(&root.canonical_path) {
-            return Err(VfsError::OutsideRoot);
-        }
-    }
-
-    Ok(target)
+fn open_root_dir(root_entry: &RootEntry) -> Result<OwnedFd, VfsError> {
+    rustix::fs::open(
+        &root_entry.canonical_path,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(map_rustix_err)
 }
 
-fn metadata_to_unix_time(meta: &std::fs::Metadata) -> UnixTime {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| UnixTime::from_secs(d.as_secs() as i64))
-        .unwrap_or_else(|| UnixTime::from_secs(0))
+fn resolve_and_open_fallback(
+    root_fd: &OwnedFd,
+    at: &RelPath,
+    oflags: OFlags,
+    mode: Mode,
+) -> Result<OwnedFd, VfsError> {
+    let components: Vec<&str> = at.components().collect();
+    if components.is_empty() {
+        return rustix::fs::openat(root_fd, ".", oflags | OFlags::CLOEXEC, mode)
+            .map_err(map_rustix_err);
+    }
+
+    let (last, intermediate) = match components.split_last() {
+        Some(pair) => pair,
+        None => return Err(VfsError::NotFound),
+    };
+
+    let mut cur_fd = rustix::fs::openat(
+        root_fd,
+        ".",
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(map_rustix_err)?;
+
+    for comp in intermediate {
+        let next_fd = rustix::fs::openat(
+            &cur_fd,
+            *comp,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(map_rustix_err)?;
+        cur_fd = next_fd;
+    }
+
+    rustix::fs::openat(
+        &cur_fd,
+        *last,
+        oflags | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        mode,
+    )
+    .map_err(map_rustix_err)
+}
+
+fn resolve_and_open_entry(
+    root_fd: &OwnedFd,
+    at: &RelPath,
+    oflags: OFlags,
+    mode: Mode,
+) -> Result<OwnedFd, VfsError> {
+    if at.as_str().is_empty() {
+        return rustix::fs::openat(root_fd, ".", oflags | OFlags::CLOEXEC, mode)
+            .map_err(map_rustix_err);
+    }
+
+    if OPENAT2_SUPPORTED.load(Ordering::Relaxed) {
+        let res = rustix::fs::openat2(
+            root_fd,
+            at.as_str(),
+            oflags | OFlags::CLOEXEC,
+            mode,
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
+        );
+        match res {
+            Ok(fd) => return Ok(fd),
+            Err(Errno::NOSYS) => {
+                OPENAT2_SUPPORTED.store(false, Ordering::Relaxed);
+            }
+            Err(err) => return Err(map_rustix_err(err)),
+        }
+    }
+
+    resolve_and_open_fallback(root_fd, at, oflags, mode)
+}
+
+fn resolve_dir_fd(root_fd: &OwnedFd, components: &[&str]) -> Result<OwnedFd, VfsError> {
+    if components.is_empty() {
+        return rustix::fs::openat(
+            root_fd,
+            ".",
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(map_rustix_err);
+    }
+
+    if OPENAT2_SUPPORTED.load(Ordering::Relaxed) {
+        let subpath = components.join("/");
+        let res = rustix::fs::openat2(
+            root_fd,
+            &subpath,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS,
+        );
+        match res {
+            Ok(fd) => return Ok(fd),
+            Err(Errno::NOSYS) => {
+                OPENAT2_SUPPORTED.store(false, Ordering::Relaxed);
+            }
+            Err(err) => return Err(map_rustix_err(err)),
+        }
+    }
+
+    let mut cur_fd = rustix::fs::openat(
+        root_fd,
+        ".",
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(map_rustix_err)?;
+
+    for comp in components {
+        let next_fd = rustix::fs::openat(
+            &cur_fd,
+            *comp,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(map_rustix_err)?;
+        cur_fd = next_fd;
+    }
+
+    Ok(cur_fd)
+}
+
+fn open_read_sync(root: &RootEntry, at: &RelPath) -> Result<std::fs::File, VfsError> {
+    check_deny_list(at)?;
+    if at.as_str().is_empty() {
+        return Err(VfsError::WrongKind);
+    }
+    let root_fd = open_root_dir(root)?;
+    let fd = resolve_and_open_entry(&root_fd, at, OFlags::RDONLY, Mode::empty())?;
+    let stat = rustix::fs::fstat(&fd).map_err(map_rustix_err)?;
+    let kind = check_stat_kind(&stat)?;
+    if kind != EntryKind::File {
+        return Err(VfsError::WrongKind);
+    }
+    Ok(std::fs::File::from(fd))
+}
+
+fn open_write_sync(root: &RootEntry, at: &RelPath) -> Result<std::fs::File, VfsError> {
+    if root.read_only {
+        return Err(VfsError::ReadOnly);
+    }
+    check_deny_list(at)?;
+    if at.as_str().is_empty() {
+        return Err(VfsError::WrongKind);
+    }
+    let root_fd = open_root_dir(root)?;
+    let fd = resolve_and_open_entry(
+        &root_fd,
+        at,
+        OFlags::RDWR | OFlags::CREATE,
+        Mode::from_raw_mode(0o644),
+    )?;
+    let stat = rustix::fs::fstat(&fd).map_err(map_rustix_err)?;
+    let kind = check_stat_kind(&stat)?;
+    if kind != EntryKind::File {
+        return Err(VfsError::WrongKind);
+    }
+    Ok(std::fs::File::from(fd))
+}
+
+fn stat_sync(root: &RootEntry, at: &RelPath) -> Result<Metadata, VfsError> {
+    check_deny_list(at)?;
+    let root_fd = open_root_dir(root)?;
+    let fd = resolve_and_open_entry(&root_fd, at, OFlags::PATH, Mode::empty())?;
+    let stat = rustix::fs::fstat(&fd).map_err(map_rustix_err)?;
+    let kind = check_stat_kind(&stat)?;
+    let size_bytes = if kind == EntryKind::Directory {
+        0
+    } else {
+        stat.st_size as u64
+    };
+    let modified = UnixTime::from_secs(stat.st_mtime as i64);
+    Ok(Metadata {
+        kind,
+        size_bytes,
+        modified,
+    })
+}
+
+fn create_dir_sync(root: &RootEntry, at: &RelPath) -> Result<(), VfsError> {
+    if root.read_only {
+        return Err(VfsError::ReadOnly);
+    }
+    check_deny_list(at)?;
+    if at.as_str().is_empty() {
+        return Ok(());
+    }
+
+    let root_fd = open_root_dir(root)?;
+    let components: Vec<&str> = at.components().collect();
+    let mut cur_fd = rustix::fs::openat(
+        &root_fd,
+        ".",
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(map_rustix_err)?;
+
+    for comp in components {
+        match rustix::fs::mkdirat(&cur_fd, comp, Mode::from_raw_mode(0o755)) {
+            Ok(()) => {}
+            Err(Errno::EXIST) => {
+                let stat = rustix::fs::statat(&cur_fd, comp, AtFlags::SYMLINK_NOFOLLOW)
+                    .map_err(map_rustix_err)?;
+                let kind = check_stat_kind(&stat)?;
+                if kind != EntryKind::Directory {
+                    return Err(VfsError::WrongKind);
+                }
+            }
+            Err(err) => return Err(map_rustix_err(err)),
+        }
+
+        let next_fd = rustix::fs::openat(
+            &cur_fd,
+            comp,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(map_rustix_err)?;
+        cur_fd = next_fd;
+    }
+
+    Ok(())
+}
+
+fn remove_sync(root: &RootEntry, at: &RelPath) -> Result<(), VfsError> {
+    if root.read_only {
+        return Err(VfsError::ReadOnly);
+    }
+    check_deny_list(at)?;
+    if at.as_str().is_empty() {
+        return Err(VfsError::WrongKind);
+    }
+
+    let root_fd = open_root_dir(root)?;
+    let components: Vec<&str> = at.components().collect();
+    let (target, parent_comps) = match components.split_last() {
+        Some(pair) => pair,
+        None => return Err(VfsError::NotFound),
+    };
+    let parent_fd = resolve_dir_fd(&root_fd, parent_comps)?;
+
+    let stat = rustix::fs::statat(&parent_fd, *target, AtFlags::SYMLINK_NOFOLLOW)
+        .map_err(map_rustix_err)?;
+    let kind = check_stat_kind(&stat)?;
+
+    match kind {
+        EntryKind::Directory => {
+            rustix::fs::unlinkat(&parent_fd, *target, AtFlags::REMOVEDIR)
+                .map_err(map_rustix_err)?;
+        }
+        EntryKind::File => {
+            rustix::fs::unlinkat(&parent_fd, *target, AtFlags::empty()).map_err(map_rustix_err)?;
+        }
+    }
+    Ok(())
+}
+
+fn rename_sync(root: &RootEntry, from: &RelPath, to: &RelPath) -> Result<(), VfsError> {
+    if root.read_only {
+        return Err(VfsError::ReadOnly);
+    }
+    check_deny_list(from)?;
+    check_deny_list(to)?;
+    if from.as_str().is_empty() || to.as_str().is_empty() {
+        return Err(VfsError::WrongKind);
+    }
+
+    let root_fd = open_root_dir(root)?;
+
+    let from_components: Vec<&str> = from.components().collect();
+    let (from_target, from_parent_comps) = match from_components.split_last() {
+        Some(pair) => pair,
+        None => return Err(VfsError::NotFound),
+    };
+    let from_parent_fd = resolve_dir_fd(&root_fd, from_parent_comps)?;
+
+    let from_stat = rustix::fs::statat(&from_parent_fd, *from_target, AtFlags::SYMLINK_NOFOLLOW)
+        .map_err(map_rustix_err)?;
+    let _from_kind = check_stat_kind(&from_stat)?;
+
+    let to_components: Vec<&str> = to.components().collect();
+    let (to_target, to_parent_comps) = match to_components.split_last() {
+        Some(pair) => pair,
+        None => return Err(VfsError::NotFound),
+    };
+
+    if !to_parent_comps.is_empty() {
+        let to_parent_rel = to_parent_comps.join("/");
+        if let Ok(rel) = RelPath::new(&to_parent_rel) {
+            create_dir_sync(root, &rel)?;
+        }
+    }
+
+    let to_parent_fd = resolve_dir_fd(&root_fd, to_parent_comps)?;
+
+    if let Ok(to_stat) = rustix::fs::statat(&to_parent_fd, *to_target, AtFlags::SYMLINK_NOFOLLOW) {
+        check_stat_kind(&to_stat)?;
+    }
+
+    rustix::fs::renameat(&from_parent_fd, *from_target, &to_parent_fd, *to_target)
+        .map_err(map_rustix_err)?;
+    Ok(())
+}
+
+fn list_sync(root: &RootEntry, at: &RelPath) -> Result<Vec<DirEntry>, VfsError> {
+    check_deny_list(at)?;
+    let root_fd = open_root_dir(root)?;
+    let dir_fd = resolve_and_open_entry(
+        &root_fd,
+        at,
+        OFlags::RDONLY | OFlags::DIRECTORY,
+        Mode::empty(),
+    )?;
+    let stat = rustix::fs::fstat(&dir_fd).map_err(map_rustix_err)?;
+    let kind = check_stat_kind(&stat)?;
+    if kind != EntryKind::Directory {
+        return Err(VfsError::WrongKind);
+    }
+
+    let mut dir = Dir::read_from(&dir_fd).map_err(map_rustix_err)?;
+    let mut entries = Vec::new();
+    let parent_components: Vec<&str> = at.components().collect();
+
+    while let Some(entry_res) = dir.read() {
+        let entry = entry_res.map_err(map_rustix_err)?;
+        let name_bytes = entry.file_name().to_bytes();
+        if name_bytes == b"." || name_bytes == b".." {
+            continue;
+        }
+        let name = match std::str::from_utf8(name_bytes) {
+            Ok(s) => s.to_string(),
+            Err(_) => return Err(VfsError::Io(std::io::ErrorKind::InvalidData)),
+        };
+
+        let mut full_components = parent_components.clone();
+        full_components.push(&name);
+        if is_denied(&full_components) {
+            continue;
+        }
+
+        let entry_stat = match rustix::fs::statat(&dir_fd, &name, AtFlags::SYMLINK_NOFOLLOW) {
+            Ok(s) => s,
+            Err(Errno::NOENT) => continue,
+            Err(err) => return Err(map_rustix_err(err)),
+        };
+
+        let entry_kind = match check_stat_kind(&entry_stat) {
+            Ok(k) => k,
+            Err(VfsError::UnsupportedEntry) => continue,
+            Err(err) => return Err(err),
+        };
+
+        let size_bytes = if entry_kind == EntryKind::Directory {
+            0
+        } else {
+            entry_stat.st_size as u64
+        };
+        let modified = UnixTime::from_secs(entry_stat.st_mtime as i64);
+
+        entries.push(DirEntry {
+            name,
+            kind: entry_kind,
+            size_bytes,
+            modified,
+        });
+    }
+
+    Ok(entries)
 }
 
 /// A handle open for positional reads from a POSIX file.
@@ -269,7 +625,6 @@ impl PosixVfs {
         roots.insert(
             root.value(),
             RootEntry {
-                path,
                 canonical_path,
                 read_only,
             },
@@ -292,59 +647,12 @@ impl Vfs for PosixVfs {
         root: RootId,
         at: &'a RelPath,
     ) -> BoxFuture<'a, Result<Vec<DirEntry>, VfsError>> {
+        let at = at.clone();
         Box::pin(async move {
             let root_entry = self.get_root(root)?;
-            let target = resolve_path(&root_entry, at)?;
-
-            let meta = tokio::fs::symlink_metadata(&target)
+            tokio::task::spawn_blocking(move || list_sync(&root_entry, &at))
                 .await
-                .map_err(map_io_err)?;
-            let kind = check_unsupported(&meta)?;
-            if kind != EntryKind::Directory {
-                return Err(VfsError::WrongKind);
-            }
-
-            let mut read_dir = tokio::fs::read_dir(&target).await.map_err(map_io_err)?;
-            let mut entries = Vec::new();
-            let parent_components: Vec<&str> = at.components().collect();
-
-            while let Some(entry) = read_dir.next_entry().await.map_err(map_io_err)? {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                let mut full_components = parent_components.clone();
-                full_components.push(&name);
-                if is_denied(&full_components) {
-                    continue;
-                }
-
-                let entry_meta = match entry.metadata().await {
-                    Ok(m) => m,
-                    Err(_) => continue,
-                };
-                let entry_sym_meta = match tokio::fs::symlink_metadata(entry.path()).await {
-                    Ok(m) => m,
-                    Err(_) => continue,
-                };
-                let entry_kind = match check_unsupported(&entry_sym_meta) {
-                    Ok(k) => k,
-                    Err(_) => continue,
-                };
-
-                let size_bytes = if entry_kind == EntryKind::Directory {
-                    0
-                } else {
-                    entry_meta.len()
-                };
-                let modified = metadata_to_unix_time(&entry_meta);
-
-                entries.push(DirEntry {
-                    name,
-                    kind: entry_kind,
-                    size_bytes,
-                    modified,
-                });
-            }
-
-            Ok(entries)
+                .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?
         })
     }
 
@@ -353,26 +661,12 @@ impl Vfs for PosixVfs {
         root: RootId,
         at: &'a RelPath,
     ) -> BoxFuture<'a, Result<Metadata, VfsError>> {
+        let at = at.clone();
         Box::pin(async move {
             let root_entry = self.get_root(root)?;
-            let target = resolve_path(&root_entry, at)?;
-
-            let meta = tokio::fs::symlink_metadata(&target)
+            tokio::task::spawn_blocking(move || stat_sync(&root_entry, &at))
                 .await
-                .map_err(map_io_err)?;
-            let kind = check_unsupported(&meta)?;
-            let size_bytes = if kind == EntryKind::Directory {
-                0
-            } else {
-                meta.len()
-            };
-            let modified = metadata_to_unix_time(&meta);
-
-            Ok(Metadata {
-                kind,
-                size_bytes,
-                modified,
-            })
+                .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?
         })
     }
 
@@ -381,20 +675,14 @@ impl Vfs for PosixVfs {
         root: RootId,
         at: &'a RelPath,
     ) -> BoxFuture<'a, Result<Box<dyn ReadAt>, VfsError>> {
+        let at = at.clone();
         Box::pin(async move {
             let root_entry = self.get_root(root)?;
-            let target = resolve_path(&root_entry, at)?;
-
-            let meta = tokio::fs::symlink_metadata(&target)
+            let std_file = tokio::task::spawn_blocking(move || open_read_sync(&root_entry, &at))
                 .await
-                .map_err(map_io_err)?;
-            let kind = check_unsupported(&meta)?;
-            if kind != EntryKind::File {
-                return Err(VfsError::WrongKind);
-            }
-
-            let file = tokio::fs::File::open(&target).await.map_err(map_io_err)?;
-            Ok(Box::new(PosixReadHandle::new(file)) as Box<dyn ReadAt>)
+                .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))??;
+            let tokio_file = tokio::fs::File::from_std(std_file);
+            Ok(Box::new(PosixReadHandle::new(tokio_file)) as Box<dyn ReadAt>)
         })
     }
 
@@ -403,25 +691,12 @@ impl Vfs for PosixVfs {
         root: RootId,
         at: &'a RelPath,
     ) -> BoxFuture<'a, Result<(), VfsError>> {
+        let at = at.clone();
         Box::pin(async move {
             let root_entry = self.get_root(root)?;
-            if root_entry.read_only {
-                return Err(VfsError::ReadOnly);
-            }
-            let target = resolve_path(&root_entry, at)?;
-
-            if let Ok(meta) = tokio::fs::symlink_metadata(&target).await {
-                let kind = check_unsupported(&meta)?;
-                if kind == EntryKind::File {
-                    return Err(VfsError::WrongKind);
-                }
-                return Ok(());
-            }
-
-            tokio::fs::create_dir_all(&target)
+            tokio::task::spawn_blocking(move || create_dir_sync(&root_entry, &at))
                 .await
-                .map_err(map_io_err)?;
-            Ok(())
+                .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?
         })
     }
 
@@ -430,36 +705,14 @@ impl Vfs for PosixVfs {
         root: RootId,
         at: &'a RelPath,
     ) -> BoxFuture<'a, Result<Box<dyn WriteAt>, VfsError>> {
+        let at = at.clone();
         Box::pin(async move {
             let root_entry = self.get_root(root)?;
-            if root_entry.read_only {
-                return Err(VfsError::ReadOnly);
-            }
-            let target = resolve_path(&root_entry, at)?;
-
-            if let Ok(meta) = tokio::fs::symlink_metadata(&target).await {
-                let kind = check_unsupported(&meta)?;
-                if kind != EntryKind::File {
-                    return Err(VfsError::WrongKind);
-                }
-            } else if let Some(parent) = target.parent()
-                && !parent.exists()
-            {
-                tokio::fs::create_dir_all(parent)
-                    .await
-                    .map_err(map_io_err)?;
-            }
-
-            let file = tokio::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .truncate(false)
-                .open(&target)
+            let std_file = tokio::task::spawn_blocking(move || open_write_sync(&root_entry, &at))
                 .await
-                .map_err(map_io_err)?;
-
-            Ok(Box::new(PosixWriteHandle::new(file)) as Box<dyn WriteAt>)
+                .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))??;
+            let tokio_file = tokio::fs::File::from_std(std_file);
+            Ok(Box::new(PosixWriteHandle::new(tokio_file)) as Box<dyn WriteAt>)
         })
     }
 
@@ -469,60 +722,23 @@ impl Vfs for PosixVfs {
         from: &'a RelPath,
         to: &'a RelPath,
     ) -> BoxFuture<'a, Result<(), VfsError>> {
+        let from = from.clone();
+        let to = to.clone();
         Box::pin(async move {
             let root_entry = self.get_root(root)?;
-            if root_entry.read_only {
-                return Err(VfsError::ReadOnly);
-            }
-            let from_target = resolve_path(&root_entry, from)?;
-            let to_target = resolve_path(&root_entry, to)?;
-
-            let meta = tokio::fs::symlink_metadata(&from_target)
+            tokio::task::spawn_blocking(move || rename_sync(&root_entry, &from, &to))
                 .await
-                .map_err(map_io_err)?;
-            check_unsupported(&meta)?;
-
-            if let Some(parent) = to_target.parent()
-                && !parent.exists()
-            {
-                tokio::fs::create_dir_all(parent)
-                    .await
-                    .map_err(map_io_err)?;
-            }
-
-            tokio::fs::rename(&from_target, &to_target)
-                .await
-                .map_err(map_io_err)?;
-            Ok(())
+                .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?
         })
     }
 
     fn remove<'a>(&'a self, root: RootId, at: &'a RelPath) -> BoxFuture<'a, Result<(), VfsError>> {
+        let at = at.clone();
         Box::pin(async move {
             let root_entry = self.get_root(root)?;
-            if root_entry.read_only {
-                return Err(VfsError::ReadOnly);
-            }
-            let target = resolve_path(&root_entry, at)?;
-
-            let meta = tokio::fs::symlink_metadata(&target)
+            tokio::task::spawn_blocking(move || remove_sync(&root_entry, &at))
                 .await
-                .map_err(map_io_err)?;
-            let kind = check_unsupported(&meta)?;
-
-            match kind {
-                EntryKind::File => {
-                    tokio::fs::remove_file(&target).await.map_err(map_io_err)?;
-                }
-                EntryKind::Directory => {
-                    let mut read_dir = tokio::fs::read_dir(&target).await.map_err(map_io_err)?;
-                    if read_dir.next_entry().await.map_err(map_io_err)?.is_some() {
-                        return Err(VfsError::WrongKind);
-                    }
-                    tokio::fs::remove_dir(&target).await.map_err(map_io_err)?;
-                }
-            }
-            Ok(())
+                .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?
         })
     }
 }

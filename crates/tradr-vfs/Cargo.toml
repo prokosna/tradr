@@ -8,6 +8,8 @@ publish.workspace = true
 [dependencies]
 tradr-core = { path = "../tradr-core" }
 tokio = { version = "1", features = ["fs", "io-util", "sync"] }
+rustix = { version = "1.1", features = ["fs"] }
+unicode-normalization = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
