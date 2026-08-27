@@ -12,8 +12,8 @@ phase: implementing
 current_milestone: M1
 branch: wi-m1-023-offer-codec
 implementation_started: true
-work_items_landed: 84
-last_commit: ae2b4e0
+work_items_landed: 85
+last_commit: 3799a03
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -373,7 +373,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-021 | **`ItemComplete` back onto the Control stream, and `classify` onto the receiving side.** F-E and F-F: `send_file` and `receive_file` take the Control stream pair alongside the Data pair, `ItemComplete` is written to and read from Control, and the `Refused(WrongPlane)` guard at `transfer.rs:283` is deleted rather than moved. `receive_file_inner` dispatches through `classify(_, Plane::Data)` so `Ignorable` is skipped and the three refusals stay separate. **The deliverable is the negative tests**: a peer that puts `ItemComplete` on the Data stream is refused, and an unassigned Data-plane code is skipped | **done** -- PASS, no REVISE. F-E and F-F both closed | |
 | WI-M1-022 | **The Offer exchange's vocabulary in `tradr-core`.** `TransferOffer`, `OfferItem`, `TransferAccept`, `ItemAcceptance`, `TransferReject`, and the two enums `OfferOrigin` and `RejectReason`, as Layer 0 data with invariants and no wire type anywhere in them. The direct mirror of `WI-M1-008b`, which is why it is not Critical and `WI-M1-023` is where the hostile cases go | **done** -- PASS after one REVISE, and the finding was a duplicated public accessor | |
 | WI-M1-023 | **The Offer exchange's wire conversion in `tradr-proto`**, between `control.proto`'s five messages and `WI-M1-022`'s native types. **Where an untrusted peer's Offer is first read**, so it is where the hostile cases live: a `relative_path` that escapes, a `content_hash` of the wrong length, a `size` that disagrees with `total_bytes`, an `item_id` repeated. The direct mirror of `WI-M1-008d`. Carries DCR-059's Layer 0 change, `OfferOrigin` and `RejectReason` becoming `Option` | **done** -- PASS after two REVISE, both of them gates the Implementer could not run | DCR-059 |
-| WI-M1-024 | **The listener half of the composition root.** A task that accepts a channel from `Incoming`, runs `perform_handshake` on the Control pair, reads a `TransferOffer`, answers with a `TransferAccept` carrying the resume position `ItemResumption` derives from what is already on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence**, which is why it goes before the sending half | todo | |
+| WI-M1-024 | **The listener half of the composition root.** A task that accepts a channel from `Incoming`, runs `perform_handshake` on the Control pair, reads a `TransferOffer`, answers with a `TransferAccept` carrying the resume position `ItemResumption` derives from what is already on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence**, which is why it goes before the sending half | **done** -- PASS after one REVISE, fixing stream polarity and VFS permissions | |
 | WI-M1-025 | **The sending half and the command surface.** Dial, offer, send; the Tauri commands `lib.rs` does not yet register; the peer list from `MdnsSource` surfaced to the UI; progress events; and the drag-and-drop target that makes M1's first criterion something a user can perform | todo | |
 
 **Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
