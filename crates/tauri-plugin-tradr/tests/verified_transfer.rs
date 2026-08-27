@@ -4,7 +4,9 @@
 //! that speaks the wire directly, because a well-behaved `send_file` cannot
 //! produce the frames that matter here.
 
-use tauri_plugin_tradr::transfer::{receive_file, send_file};
+use tauri_plugin_tradr::transfer::{
+    ReceiveRequest, SendRequest, SessionStreams, receive_file, send_file,
+};
 use tradr_core::{
     BoxFuture, ChunkDataHeader, ChunkIndex, ItemId, RecvStream, RelPath, RootId, SendStream,
     TransferId, TransportError,
@@ -157,33 +159,49 @@ async fn a_verified_transfer_arrives_byte_identical() {
     let (receiver_vfs, root_receiver) = receiver_root(receiver_dir.path());
 
     let (_, hash) = outboard(&file_content);
-    let (mut sender_streams, mut receiver_streams) = memory_stream_pair();
+    let (mut ctrl_sender, mut ctrl_receiver) = memory_stream_pair();
+    let (mut data_sender, mut data_receiver) = memory_stream_pair();
     let src = RelPath::new("photo.raw").expect("relpath");
     let dest = RelPath::new("photo.raw").expect("relpath");
 
+    let mut sender_streams = SessionStreams {
+        control_send: &mut ctrl_sender.0,
+        control_recv: &mut ctrl_sender.1,
+        data_send: &mut data_sender.0,
+        data_recv: &mut data_sender.1,
+    };
+    let mut receiver_streams = SessionStreams {
+        control_send: &mut ctrl_receiver.0,
+        control_recv: &mut ctrl_receiver.1,
+        data_send: &mut data_receiver.0,
+        data_recv: &mut data_receiver.1,
+    };
+
+    let send_req = SendRequest {
+        root: root_sender,
+        rel_path: &src,
+        transfer_id: sample_transfer(),
+        item_id: sample_item(),
+        max_frame_size: FRAME_BOUND,
+    };
+
+    let recv_req = ReceiveRequest {
+        root: root_receiver,
+        dest_rel_path: &dest,
+        total_bytes: file_content.len() as u64,
+        content_hash: &hash,
+        transfer_id: sample_transfer(),
+        item_id: sample_item(),
+        max_frame_size: FRAME_BOUND,
+    };
+
     let (sent, received) = tokio::join!(
-        send_file(
-            &sender_vfs,
-            root_sender,
-            &src,
-            &mut sender_streams.0,
-            &mut sender_streams.1,
-            sample_transfer(),
-            sample_item(),
-            FRAME_BOUND,
-        ),
+        send_file(&sender_vfs, &send_req, &mut sender_streams),
         receive_file(
             &receiver_vfs,
-            root_receiver,
-            &dest,
-            file_content.len() as u64,
-            &hash,
+            &recv_req,
             &BaoVerifier,
-            &mut receiver_streams.0,
-            &mut receiver_streams.1,
-            sample_transfer(),
-            sample_item(),
-            FRAME_BOUND,
+            &mut receiver_streams
         )
     );
 
@@ -206,22 +224,33 @@ async fn a_corrupted_piece_leaves_nothing_at_the_destination() {
     tampered[last] ^= 0x01;
 
     let (receiver_vfs, root_receiver) = receiver_root(receiver_dir.path());
-    let (mut hostile, mut receiver_streams) = memory_stream_pair();
-    feed_piece(&mut hostile.0, 0, 0, true, &tampered).await;
+    let (_hostile_ctrl, mut receiver_ctrl) = memory_stream_pair();
+    let (mut hostile_data, mut receiver_data) = memory_stream_pair();
+    feed_piece(&mut hostile_data.0, 0, 0, true, &tampered).await;
+
+    let mut receiver_streams = SessionStreams {
+        control_send: &mut receiver_ctrl.0,
+        control_recv: &mut receiver_ctrl.1,
+        data_send: &mut receiver_data.0,
+        data_recv: &mut receiver_data.1,
+    };
 
     let dest = RelPath::new("photo.raw").expect("relpath");
+    let recv_req = ReceiveRequest {
+        root: root_receiver,
+        dest_rel_path: &dest,
+        total_bytes: file_content.len() as u64,
+        content_hash: &hash,
+        transfer_id: sample_transfer(),
+        item_id: sample_item(),
+        max_frame_size: FRAME_BOUND,
+    };
+
     let outcome = receive_file(
         &receiver_vfs,
-        root_receiver,
-        &dest,
-        file_content.len() as u64,
-        &hash,
+        &recv_req,
         &BaoVerifier,
-        &mut receiver_streams.0,
-        &mut receiver_streams.1,
-        sample_transfer(),
-        sample_item(),
-        FRAME_BOUND,
+        &mut receiver_streams,
     )
     .await;
 
@@ -244,22 +273,33 @@ async fn a_piece_for_another_chunk_is_refused() {
     let borrowed = slice(&file_content, &ob, MIB, MIB).expect("extract");
 
     let (receiver_vfs, root_receiver) = receiver_root(receiver_dir.path());
-    let (mut hostile, mut receiver_streams) = memory_stream_pair();
-    feed_piece(&mut hostile.0, 0, 0, false, &borrowed).await;
+    let (_hostile_ctrl, mut receiver_ctrl) = memory_stream_pair();
+    let (mut hostile_data, mut receiver_data) = memory_stream_pair();
+    feed_piece(&mut hostile_data.0, 0, 0, false, &borrowed).await;
+
+    let mut receiver_streams = SessionStreams {
+        control_send: &mut receiver_ctrl.0,
+        control_recv: &mut receiver_ctrl.1,
+        data_send: &mut receiver_data.0,
+        data_recv: &mut receiver_data.1,
+    };
 
     let dest = RelPath::new("photo.raw").expect("relpath");
+    let recv_req = ReceiveRequest {
+        root: root_receiver,
+        dest_rel_path: &dest,
+        total_bytes: file_content.len() as u64,
+        content_hash: &hash,
+        transfer_id: sample_transfer(),
+        item_id: sample_item(),
+        max_frame_size: FRAME_BOUND,
+    };
+
     let outcome = receive_file(
         &receiver_vfs,
-        root_receiver,
-        &dest,
-        file_content.len() as u64,
-        &hash,
+        &recv_req,
         &BaoVerifier,
-        &mut receiver_streams.0,
-        &mut receiver_streams.1,
-        sample_transfer(),
-        sample_item(),
-        FRAME_BOUND,
+        &mut receiver_streams,
     )
     .await;
 
@@ -278,25 +318,36 @@ async fn a_chunk_index_past_the_item_is_refused_before_anything_is_written() {
     let honest = slice(&file_content, &ob, 0, MIB).expect("extract");
 
     let (receiver_vfs, root_receiver) = receiver_root(receiver_dir.path());
-    let (mut hostile, mut receiver_streams) = memory_stream_pair();
+    let (_hostile_ctrl, mut receiver_ctrl) = memory_stream_pair();
+    let (mut hostile_data, mut receiver_data) = memory_stream_pair();
     // A one-chunk item, and the peer names chunk 4096: the absolute offset
     // is four gigabytes, and computing it before bounding it is what turns
     // a refusal into a sparse file the size of the claim.
-    feed_piece(&mut hostile.0, 4096, 0, true, &honest).await;
+    feed_piece(&mut hostile_data.0, 4096, 0, true, &honest).await;
+
+    let mut receiver_streams = SessionStreams {
+        control_send: &mut receiver_ctrl.0,
+        control_recv: &mut receiver_ctrl.1,
+        data_send: &mut receiver_data.0,
+        data_recv: &mut receiver_data.1,
+    };
 
     let dest = RelPath::new("photo.raw").expect("relpath");
+    let recv_req = ReceiveRequest {
+        root: root_receiver,
+        dest_rel_path: &dest,
+        total_bytes: file_content.len() as u64,
+        content_hash: &hash,
+        transfer_id: sample_transfer(),
+        item_id: sample_item(),
+        max_frame_size: FRAME_BOUND,
+    };
+
     let outcome = receive_file(
         &receiver_vfs,
-        root_receiver,
-        &dest,
-        file_content.len() as u64,
-        &hash,
+        &recv_req,
         &BaoVerifier,
-        &mut receiver_streams.0,
-        &mut receiver_streams.1,
-        sample_transfer(),
-        sample_item(),
-        FRAME_BOUND,
+        &mut receiver_streams,
     )
     .await;
 
@@ -335,7 +386,8 @@ async fn a_piece_with_wrong_transfer_id_is_refused() {
     let honest = slice(&file_content, &ob, 0, MIB).expect("extract");
 
     let (receiver_vfs, root_receiver) = receiver_root(receiver_dir.path());
-    let (mut hostile, mut receiver_streams) = memory_stream_pair();
+    let (_hostile_ctrl, mut receiver_ctrl) = memory_stream_pair();
+    let (mut hostile_data, mut receiver_data) = memory_stream_pair();
 
     // Construct a header with the WRONG transfer_id
     let wrong_transfer_id: TransferId = "017f22e2-79b0-7cc3-98c4-dc0c0c07398e".parse().unwrap();
@@ -350,23 +402,33 @@ async fn a_piece_with_wrong_transfer_id_is_refused() {
     .unwrap();
 
     let frame = encode_chunk_data_header_frame(&header, FRAME_BOUND).unwrap();
-    hostile.0.write_all(&frame).await.unwrap();
-    hostile.0.write_all(&honest).await.unwrap();
-    hostile.0.finish().await.unwrap(); // Close stream to unblock receive_file
+    hostile_data.0.write_all(&frame).await.unwrap();
+    hostile_data.0.write_all(&honest).await.unwrap();
+    hostile_data.0.finish().await.unwrap(); // Close stream to unblock receive_file
+
+    let mut receiver_streams = SessionStreams {
+        control_send: &mut receiver_ctrl.0,
+        control_recv: &mut receiver_ctrl.1,
+        data_send: &mut receiver_data.0,
+        data_recv: &mut receiver_data.1,
+    };
 
     let dest = RelPath::new("photo.raw").expect("relpath");
+    let recv_req = ReceiveRequest {
+        root: root_receiver,
+        dest_rel_path: &dest,
+        total_bytes: file_content.len() as u64,
+        content_hash: &hash,
+        transfer_id: sample_transfer(),
+        item_id: sample_item(),
+        max_frame_size: FRAME_BOUND,
+    };
+
     let outcome = receive_file(
         &receiver_vfs,
-        root_receiver,
-        &dest,
-        file_content.len() as u64,
-        &hash,
+        &recv_req,
         &BaoVerifier,
-        &mut receiver_streams.0,
-        &mut receiver_streams.1,
-        sample_transfer(), // The session's transfer ID
-        sample_item(),
-        FRAME_BOUND,
+        &mut receiver_streams,
     )
     .await;
 
@@ -384,7 +446,8 @@ async fn a_piece_with_wrong_item_id_is_refused() {
     let honest = slice(&file_content, &ob, 0, MIB).expect("extract");
 
     let (receiver_vfs, root_receiver) = receiver_root(receiver_dir.path());
-    let (mut hostile, mut receiver_streams) = memory_stream_pair();
+    let (_hostile_ctrl, mut receiver_ctrl) = memory_stream_pair();
+    let (mut hostile_data, mut receiver_data) = memory_stream_pair();
 
     // Construct a header with the WRONG item_id
     let wrong_item_id = ItemId::new("wrong_item").unwrap();
@@ -399,23 +462,33 @@ async fn a_piece_with_wrong_item_id_is_refused() {
     .unwrap();
 
     let frame = encode_chunk_data_header_frame(&header, FRAME_BOUND).unwrap();
-    hostile.0.write_all(&frame).await.unwrap();
-    hostile.0.write_all(&honest).await.unwrap();
-    hostile.0.finish().await.unwrap();
+    hostile_data.0.write_all(&frame).await.unwrap();
+    hostile_data.0.write_all(&honest).await.unwrap();
+    hostile_data.0.finish().await.unwrap();
+
+    let mut receiver_streams = SessionStreams {
+        control_send: &mut receiver_ctrl.0,
+        control_recv: &mut receiver_ctrl.1,
+        data_send: &mut receiver_data.0,
+        data_recv: &mut receiver_data.1,
+    };
 
     let dest = RelPath::new("photo.raw").expect("relpath");
+    let recv_req = ReceiveRequest {
+        root: root_receiver,
+        dest_rel_path: &dest,
+        total_bytes: file_content.len() as u64,
+        content_hash: &hash,
+        transfer_id: sample_transfer(),
+        item_id: sample_item(),
+        max_frame_size: FRAME_BOUND,
+    };
+
     let outcome = receive_file(
         &receiver_vfs,
-        root_receiver,
-        &dest,
-        file_content.len() as u64,
-        &hash,
+        &recv_req,
         &BaoVerifier,
-        &mut receiver_streams.0,
-        &mut receiver_streams.1,
-        sample_transfer(),
-        sample_item(),
-        FRAME_BOUND,
+        &mut receiver_streams,
     )
     .await;
 
