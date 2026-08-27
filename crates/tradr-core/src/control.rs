@@ -27,6 +27,52 @@ pub enum OfferOrigin {
     Clipboard,
 }
 
+/// An error converting a wire `i32` to an `OfferOrigin`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OfferOriginError {
+    /// The wire value was `OFFER_ORIGIN_UNSPECIFIED` (0).
+    Unspecified,
+    /// The wire value matches no origin `control.proto` defines.
+    Unknown(i32),
+}
+
+impl fmt::Display for OfferOriginError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unspecified => write!(f, "offer origin is unspecified"),
+            Self::Unknown(value) => write!(f, "offer origin wire value {value} matches no origin"),
+        }
+    }
+}
+
+impl std::error::Error for OfferOriginError {}
+
+impl TryFrom<i32> for OfferOrigin {
+    type Error = OfferOriginError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Err(OfferOriginError::Unspecified),
+            1 => Ok(Self::DragDrop),
+            2 => Ok(Self::ShareSheet),
+            3 => Ok(Self::ShareBrowse),
+            4 => Ok(Self::Clipboard),
+            other => Err(OfferOriginError::Unknown(other)),
+        }
+    }
+}
+
+impl From<OfferOrigin> for i32 {
+    fn from(origin: OfferOrigin) -> Self {
+        match origin {
+            OfferOrigin::DragDrop => 1,
+            OfferOrigin::ShareSheet => 2,
+            OfferOrigin::ShareBrowse => 3,
+            OfferOrigin::Clipboard => 4,
+        }
+    }
+}
+
 /// The reason a peer rejected a transfer offer (docs/04, `control.proto`).
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -41,6 +87,54 @@ pub enum RejectReason {
     NotTrusted,
     /// The receiver is currently busy with another transfer.
     Busy,
+}
+
+/// An error converting a wire `i32` to a `RejectReason`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RejectReasonError {
+    /// The wire value was `REJECT_REASON_UNSPECIFIED` (0).
+    Unspecified,
+    /// The wire value matches no reason `control.proto` defines.
+    Unknown(i32),
+}
+
+impl fmt::Display for RejectReasonError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unspecified => write!(f, "reject reason is unspecified"),
+            Self::Unknown(value) => write!(f, "reject reason wire value {value} matches no reason"),
+        }
+    }
+}
+
+impl std::error::Error for RejectReasonError {}
+
+impl TryFrom<i32> for RejectReason {
+    type Error = RejectReasonError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Err(RejectReasonError::Unspecified),
+            1 => Ok(Self::UserDeclined),
+            2 => Ok(Self::NoSpace),
+            3 => Ok(Self::TooLarge),
+            4 => Ok(Self::NotTrusted),
+            5 => Ok(Self::Busy),
+            other => Err(RejectReasonError::Unknown(other)),
+        }
+    }
+}
+
+impl From<RejectReason> for i32 {
+    fn from(reason: RejectReason) -> Self {
+        match reason {
+            RejectReason::UserDeclined => 1,
+            RejectReason::NoSpace => 2,
+            RejectReason::TooLarge => 3,
+            RejectReason::NotTrusted => 4,
+            RejectReason::Busy => 5,
+        }
+    }
 }
 
 /// An error constructing an `OfferItem`.
@@ -158,7 +252,7 @@ pub struct TransferOffer {
     items: Vec<OfferItem>,
     total_bytes: u64,
     sender_label: Option<DisplayName>,
-    origin: OfferOrigin,
+    origin: Option<OfferOrigin>,
 }
 
 impl TransferOffer {
@@ -169,7 +263,7 @@ impl TransferOffer {
         items: Vec<OfferItem>,
         total_bytes: u64,
         sender_label: Option<DisplayName>,
-        origin: OfferOrigin,
+        origin: Option<OfferOrigin>,
     ) -> Result<Self, TransferOfferError> {
         if items.is_empty() {
             return Err(TransferOfferError::NoItems);
@@ -226,8 +320,8 @@ impl TransferOffer {
         self.sender_label.as_ref()
     }
 
-    /// The origin indicating how the transfer was initiated.
-    pub fn origin(&self) -> OfferOrigin {
+    /// The origin indicating how the transfer was initiated, if provided.
+    pub fn origin(&self) -> Option<OfferOrigin> {
         self.origin
     }
 }
@@ -480,13 +574,17 @@ impl TransferAccept {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransferReject {
     transfer_id: TransferId,
-    reason: RejectReason,
+    reason: Option<RejectReason>,
     note: Option<DisplayName>,
 }
 
 impl TransferReject {
     /// Builds a `TransferReject`.
-    pub fn new(transfer_id: TransferId, reason: RejectReason, note: Option<DisplayName>) -> Self {
+    pub fn new(
+        transfer_id: TransferId,
+        reason: Option<RejectReason>,
+        note: Option<DisplayName>,
+    ) -> Self {
         Self {
             transfer_id,
             reason,
@@ -499,8 +597,8 @@ impl TransferReject {
         self.transfer_id
     }
 
-    /// The reason for rejecting the transfer.
-    pub fn reason(&self) -> RejectReason {
+    /// The reason for rejecting the transfer, if provided.
+    pub fn reason(&self) -> Option<RejectReason> {
         self.reason
     }
 

@@ -4,8 +4,9 @@
 
 use tradr_core::{
     ContentHash, DisplayName, ItemAcceptance, ItemAcceptanceError, ItemId, OfferItem,
-    OfferItemError, OfferOrigin, REFERENCE_CHUNK_SIZE_BYTES, RejectReason, RelPath, TransferAccept,
-    TransferAcceptError, TransferId, TransferOffer, TransferOfferError, TransferReject,
+    OfferItemError, OfferOrigin, OfferOriginError, REFERENCE_CHUNK_SIZE_BYTES, RejectReason,
+    RejectReasonError, RelPath, TransferAccept, TransferAcceptError, TransferId, TransferOffer,
+    TransferOfferError, TransferReject,
 };
 
 const VALID_TRANSFER_ID_1: &str = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
@@ -52,6 +53,40 @@ fn offer_origin_variants_match() {
 }
 
 #[test]
+fn offer_origin_wire_values_match_control_proto() {
+    assert_eq!(i32::from(OfferOrigin::DragDrop), 1);
+    assert_eq!(i32::from(OfferOrigin::ShareSheet), 2);
+    assert_eq!(i32::from(OfferOrigin::ShareBrowse), 3);
+    assert_eq!(i32::from(OfferOrigin::Clipboard), 4);
+}
+
+#[test]
+fn offer_origin_try_from_round_trips_every_variant() {
+    for origin in [
+        OfferOrigin::DragDrop,
+        OfferOrigin::ShareSheet,
+        OfferOrigin::ShareBrowse,
+        OfferOrigin::Clipboard,
+    ] {
+        let wire: i32 = origin.into();
+        assert_eq!(OfferOrigin::try_from(wire), Ok(origin));
+    }
+}
+
+#[test]
+fn offer_origin_try_from_rejects_unspecified() {
+    assert_eq!(OfferOrigin::try_from(0), Err(OfferOriginError::Unspecified));
+}
+
+#[test]
+fn offer_origin_try_from_rejects_unknown() {
+    assert_eq!(
+        OfferOrigin::try_from(99),
+        Err(OfferOriginError::Unknown(99))
+    );
+}
+
+#[test]
 fn reject_reason_variants_match() {
     let reasons = [
         RejectReason::UserDeclined,
@@ -64,6 +99,45 @@ fn reject_reason_variants_match() {
         let copy = reason;
         assert_eq!(reason, copy);
     }
+}
+
+#[test]
+fn reject_reason_wire_values_match_control_proto() {
+    assert_eq!(i32::from(RejectReason::UserDeclined), 1);
+    assert_eq!(i32::from(RejectReason::NoSpace), 2);
+    assert_eq!(i32::from(RejectReason::TooLarge), 3);
+    assert_eq!(i32::from(RejectReason::NotTrusted), 4);
+    assert_eq!(i32::from(RejectReason::Busy), 5);
+}
+
+#[test]
+fn reject_reason_try_from_round_trips_every_variant() {
+    for reason in [
+        RejectReason::UserDeclined,
+        RejectReason::NoSpace,
+        RejectReason::TooLarge,
+        RejectReason::NotTrusted,
+        RejectReason::Busy,
+    ] {
+        let wire: i32 = reason.into();
+        assert_eq!(RejectReason::try_from(wire), Ok(reason));
+    }
+}
+
+#[test]
+fn reject_reason_try_from_rejects_unspecified() {
+    assert_eq!(
+        RejectReason::try_from(0),
+        Err(RejectReasonError::Unspecified)
+    );
+}
+
+#[test]
+fn reject_reason_try_from_rejects_unknown() {
+    assert_eq!(
+        RejectReason::try_from(99),
+        Err(RejectReasonError::Unknown(99))
+    );
 }
 
 // --- OfferItem ---
@@ -160,7 +234,7 @@ fn transfer_offer_constructs_and_exposes_fields() {
         vec![item1.clone(), item2.clone()],
         3000,
         Some(sender.clone()),
-        OfferOrigin::DragDrop,
+        Some(OfferOrigin::DragDrop),
     )
     .expect("valid offer");
 
@@ -168,7 +242,7 @@ fn transfer_offer_constructs_and_exposes_fields() {
     assert_eq!(offer.items(), &[item1, item2]);
     assert_eq!(offer.total_bytes(), 3000);
     assert_eq!(offer.sender_label(), Some(&sender));
-    assert_eq!(offer.origin(), OfferOrigin::DragDrop);
+    assert_eq!(offer.origin(), Some(OfferOrigin::DragDrop));
 }
 
 #[test]
@@ -182,16 +256,38 @@ fn transfer_offer_constructs_without_sender_label() {
     )
     .expect("valid");
 
-    let offer = TransferOffer::new(tid, vec![item], 500, None, OfferOrigin::ShareSheet)
+    let offer = TransferOffer::new(tid, vec![item], 500, None, Some(OfferOrigin::ShareSheet))
         .expect("valid offer");
 
     assert_eq!(offer.sender_label(), None);
-    assert_eq!(offer.origin(), OfferOrigin::ShareSheet);
+    assert_eq!(offer.origin(), Some(OfferOrigin::ShareSheet));
+}
+
+#[test]
+fn transfer_offer_constructs_without_origin() {
+    let tid = sample_transfer_id();
+    let item = OfferItem::new(
+        sample_item_id("item_1"),
+        sample_rel_path("file.txt"),
+        500,
+        sample_hash(1),
+    )
+    .expect("valid");
+
+    let offer = TransferOffer::new(tid, vec![item], 500, None, None).expect("valid offer");
+
+    assert_eq!(offer.origin(), None);
 }
 
 #[test]
 fn transfer_offer_refuses_empty_items() {
-    let result = TransferOffer::new(sample_transfer_id(), vec![], 0, None, OfferOrigin::DragDrop);
+    let result = TransferOffer::new(
+        sample_transfer_id(),
+        vec![],
+        0,
+        None,
+        Some(OfferOrigin::DragDrop),
+    );
     assert_eq!(result, Err(TransferOfferError::NoItems));
 }
 
@@ -217,7 +313,7 @@ fn transfer_offer_refuses_duplicate_item_id() {
         vec![item1, item2],
         300,
         None,
-        OfferOrigin::DragDrop,
+        Some(OfferOrigin::DragDrop),
     );
     assert_eq!(
         result,
@@ -242,7 +338,7 @@ fn transfer_offer_refuses_total_bytes_mismatch() {
         vec![item],
         200, // declared 200, but sum is 100
         None,
-        OfferOrigin::Clipboard,
+        Some(OfferOrigin::Clipboard),
     );
     assert_eq!(
         result,
@@ -275,7 +371,7 @@ fn transfer_offer_refuses_total_bytes_overflow() {
         vec![item1, item2],
         u64::MAX,
         None,
-        OfferOrigin::ShareBrowse,
+        Some(OfferOrigin::ShareBrowse),
     );
     assert!(matches!(
         result,
@@ -387,7 +483,7 @@ fn transfer_accept_for_offer_validates_matching_offer() {
         vec![item1, item2],
         4 * REFERENCE_CHUNK_SIZE_BYTES,
         None,
-        OfferOrigin::DragDrop,
+        Some(OfferOrigin::DragDrop),
     )
     .expect("valid offer");
 
@@ -410,7 +506,7 @@ fn transfer_accept_for_offer_refuses_transfer_id_mismatch() {
         sample_hash(1),
     )
     .expect("valid");
-    let offer = TransferOffer::new(tid1, vec![item], 100, None, OfferOrigin::DragDrop)
+    let offer = TransferOffer::new(tid1, vec![item], 100, None, Some(OfferOrigin::DragDrop))
         .expect("valid offer");
 
     let acc = ItemAcceptance::new(sample_item_id("item_1"), true, 0, vec![]).expect("valid");
@@ -432,8 +528,8 @@ fn transfer_accept_for_offer_refuses_unknown_item_id() {
         sample_hash(1),
     )
     .expect("valid");
-    let offer =
-        TransferOffer::new(tid, vec![item], 100, None, OfferOrigin::DragDrop).expect("valid offer");
+    let offer = TransferOffer::new(tid, vec![item], 100, None, Some(OfferOrigin::DragDrop))
+        .expect("valid offer");
 
     let acc = ItemAcceptance::new(sample_item_id("unknown_item"), true, 0, vec![]).expect("valid");
     let accept = TransferAccept::new(tid, vec![acc], None).expect("valid accept");
@@ -461,7 +557,7 @@ fn transfer_accept_for_offer_refuses_resume_chunk_out_of_range() {
         vec![item],
         2 * REFERENCE_CHUNK_SIZE_BYTES,
         None,
-        OfferOrigin::DragDrop,
+        Some(OfferOrigin::DragDrop),
     )
     .expect("valid offer");
 
@@ -494,7 +590,7 @@ fn transfer_accept_for_offer_refuses_have_chunk_out_of_range() {
         vec![item],
         REFERENCE_CHUNK_SIZE_BYTES,
         None,
-        OfferOrigin::DragDrop,
+        Some(OfferOrigin::DragDrop),
     )
     .expect("valid offer");
 
@@ -518,14 +614,23 @@ fn transfer_accept_for_offer_refuses_have_chunk_out_of_range() {
 fn transfer_reject_constructs_and_exposes_fields() {
     let tid = sample_transfer_id();
     let note = sample_display_name("Device out of storage");
-    let reject = TransferReject::new(tid, RejectReason::NoSpace, Some(note.clone()));
+    let reject = TransferReject::new(tid, Some(RejectReason::NoSpace), Some(note.clone()));
 
     assert_eq!(reject.transfer_id(), tid);
-    assert_eq!(reject.reason(), RejectReason::NoSpace);
+    assert_eq!(reject.reason(), Some(RejectReason::NoSpace));
     assert_eq!(reject.note(), Some(&note));
 
-    let reject_no_note = TransferReject::new(tid, RejectReason::UserDeclined, None);
+    let reject_no_note = TransferReject::new(tid, Some(RejectReason::UserDeclined), None);
     assert_eq!(reject_no_note.transfer_id(), tid);
-    assert_eq!(reject_no_note.reason(), RejectReason::UserDeclined);
+    assert_eq!(reject_no_note.reason(), Some(RejectReason::UserDeclined));
     assert_eq!(reject_no_note.note(), None);
+}
+
+#[test]
+fn transfer_reject_constructs_without_reason() {
+    let tid = sample_transfer_id();
+    let reject = TransferReject::new(tid, None, None);
+    assert_eq!(reject.transfer_id(), tid);
+    assert_eq!(reject.reason(), None);
+    assert_eq!(reject.note(), None);
 }
