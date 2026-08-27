@@ -9,10 +9,10 @@
 last_updated: 2026-08-27
 phase: implementing
 current_milestone: M1
-branch: wi-m1-008e-secure-channel-hello
+branch: wi-m1-009-chunk-resumption
 implementation_started: true
-work_items_landed: 74
-last_commit: 7a9ac3e
+work_items_landed: 75
+last_commit: 4f66964
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -74,6 +74,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M1-009 | PASS | 0 | **Chunk resumption in `tradr-core` (Critical Module).** Supervisor authored 14 comprehensive tests first. Implemented `ItemResumption` and `ResumptionError` with reference chunk boundaries (1 MiB), sub-chunk piece range tracking (supporting 4 KiB BLE, 256 KiB relay, and 1 MiB QUIC), out-of-order and duplicate piece handling, verification tracking, failed attempt counting with 3-attempt limit, contiguous batch request generation, and missing chunk reporting. All workspace tests, Clippy, and CI checks pass cleanly |
 | WI-M1-008e | PASS | 0 | **Drove the 4-step Hello exchange over SecureChannel stream pairs with the framing codec in `tauri-plugin-tradr`.** Integrated `tradr-identity` state machine, `tradr-proto` framing and message type codecs, and `tradr-core` stream traits. Integration tests cover full handshake over stream pairs, version mismatch, key-join mismatch, non-Hello frame type rejection, unexpected EOF, and attestation verification failures. Negative testing and F4 credential safety verified. All workspace tests and CI checks pass cleanly |
 | WI-M1-008d | PASS | 0 | **Wire conversion between protobuf and native `PeerHello`/`PeerHelloAck` in `tradr-proto` landed clean.** Twenty-four tests covering round trips, all nine `HelloWireError` error variants, display name boundaries (32 bytes preserved, 33 bytes dropped per DCR-053, empty becomes `None`), capabilities bitmask narrowing to 16 bits, `issuer` and `issued_at` discarded, and rule F4 verified with error display redaction ensuring no tokens, keys, or nonces leak into error messages. Mutation sweep over twenty-three single-token mutations caught every mutation, with no-op control preserved |
 | WI-M1-008c | PASS | 0 | **The first Work Item in this milestone to pass with no REVISE, and the reason is that the tests existed before the implementation did.** Fifteen mutations, fifteen caught, one of them by the compiler: setting `MIN_NEGOTIABLE_FRAME_SIZE` to `0` makes the test's `MIN - 1` underflow in const evaluation, which is a stronger pin than a failing assertion. Inverting the key join, deleting it, hashing the agreement key instead of the identity key, swapping either domain tag, signing our own nonce instead of the peer's, moving the expiry boundary, and **taking the session's tier from the peer's `assigned_tier`** all die against named tests. **The one survivor was the Supervisor's gap, not the Implementer's**: `AttestationRequest`'s `Debug` redaction was specified in the Work Order, implemented correctly, and pinned by nothing -- although the same property *was* tested for `PeerHello` one Work Item earlier. A test was added and the mutation now fails exactly one. **Two more of the Supervisor's own errors were caught by the Implementer rather than by the Supervisor**, which is now three Work Items running: the Work Order claimed 21 tests when the file held 20 (a `grep -c` that counted a summary line), and `cargo fmt --check` was failing on the test file the whole time -- it correctly refused to touch a file it was forbidden to edit and reported both instead, exactly as `WI-M1-003`'s Implementer did. **The delivered `hello.rs` hashes to `59acd495...` against the deleted scaffold's `bcb17872...`**, so section 4's provenance check holds |
@@ -232,13 +233,13 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: [WI-M1-009]
+work_items: [WI-M1-010]
 blocked: []
 ```
 
-**`WI-M1-008e` landed and is ready to merge; the record of that round follows.** Drove the 4-step Hello handshake across `SendStream` and `RecvStream` using the framing codec in `tauri-plugin-tradr`.
+**`WI-M1-009` landed and is ready to merge; the record of that round follows.** Chunk resumption in `tradr-core` (Critical Module) with 14 comprehensive tests written first.
 
-**`WI-M1-008d` landed and merged as PR #23 with all five jobs green.** Its docs half is `757ea81` (DCR-053). `main` carries every Work Item through `WI-M1-008d`.
+**`WI-M1-008e` landed and merged as PR #24 with all five jobs green.** Drove the 4-step Hello handshake across `SendStream` and `RecvStream` using the framing codec in `tauri-plugin-tradr`. `main` carries every Work Item through `WI-M1-008e`.
 
 **`WI-M1-008d` landed with 24 tests and passed with no REVISE.** All nine `HelloWireError` error variants, round trips, display name boundaries (32 bytes preserved, 33 bytes dropped per DCR-053, empty becomes `None`), capabilities bitmask narrowing to 16 bits, `issuer` and `issued_at` discarded, and rule F4 verified with error display redaction ensuring no tokens, keys, or nonces leak into error messages. Mutation sweep over twenty-three single-token mutations caught every mutation, with no-op control preserved.
 
@@ -605,7 +606,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-008c | **The exchange itself, in `tradr-identity`**: the five checks DCR-051 ordered, the `KeyBinding` and nonce signatures, and the Trust Tier settled from a verification outcome handed in rather than fetched. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE, and the only surviving mutation was the Supervisor's missing test | Yes |
 | WI-M1-008d | **The wire conversion in `tradr-proto`**, between `Hello`/`HelloAck` and `008b`'s native types. **Where an untrusted peer's protobuf is first read**, so it is where the hostile cases live: absent fields, wrong-length keys, a nonce that is not 16 bytes. DCR-053 settled the two places the wire and Layer 0 disagree. **Marked Critical when the split was cut and downgraded on inspection** -- see below | **done** -- PASS, no REVISE | |
 | WI-M1-008e | **Driving the exchange over a real `SecureChannel`**, with the framing codec between them. **The first time a frame crosses a socket.** Needs `tradr-identity` and `tradr-proto` together, which `ci/layer-deps.sh` reaches only from the composition root | **done** -- PASS, no REVISE | |
-| WI-M1-009 | **Chunk resumption.** The module [CLAUDE.md](CLAUDE.md) section 6 says collapses path selection when it is wrong. Critical Module, Supervisor tests first | todo | Yes |
+| WI-M1-009 | **Chunk resumption.** The module [CLAUDE.md](CLAUDE.md) section 6 says collapses path selection when it is wrong. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE | Yes |
 | WI-M1-010 | **The Data plane**: receiver-driven `ChunkRequest` and `ChunkData`, verified against the BLAKE3 root as chunks arrive | todo | Yes |
 | WI-M1-011 | Partial files and progress: the receiver-assigned ordinal, the SQLite mapping, and the `fsync`-then-record ordering | todo | Yes |
 | WI-M1-012 | Drag and drop, and a file arriving on the other machine | todo | |

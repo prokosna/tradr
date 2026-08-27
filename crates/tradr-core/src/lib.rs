@@ -16,6 +16,7 @@ mod hello;
 mod item_id;
 mod key_store;
 mod rel_path;
+mod resumption;
 mod rng;
 mod transfer_id;
 mod transport;
@@ -43,6 +44,7 @@ pub use key_store::{
     SharedSecret, Signature, SoftwareReason, StorageLevel,
 };
 pub use rel_path::{REL_PATH_COMPONENT_MAX_LEN, RelPath, RelPathError};
+pub use resumption::{ItemResumption, ResumptionError};
 pub use rng::{Rng, RngError};
 pub use transfer_id::{TransferId, TransferIdError};
 pub use transport::{Candidate, CandidateError, Incoming, PeerExpectation, Transport};
