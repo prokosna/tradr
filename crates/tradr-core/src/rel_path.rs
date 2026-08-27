@@ -152,6 +152,23 @@ impl RelPath {
     pub fn components(&self) -> impl Iterator<Item = &str> {
         self.value.split('/').filter(|c| !c.is_empty())
     }
+
+    /// Returns the relative path as a string slice.
+    pub fn as_str(&self) -> &str {
+        &self.value
+    }
+}
+
+impl AsRef<str> for RelPath {
+    fn as_ref(&self) -> &str {
+        &self.value
+    }
+}
+
+impl AsRef<std::path::Path> for RelPath {
+    fn as_ref(&self) -> &std::path::Path {
+        std::path::Path::new(&self.value)
+    }
 }
 
 impl fmt::Display for RelPath {

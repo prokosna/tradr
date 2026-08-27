@@ -129,6 +129,30 @@ pub trait WriteAt: Send {
     fn sync<'a>(&'a mut self) -> BoxFuture<'a, Result<(), VfsError>>;
 }
 
+impl fmt::Debug for dyn ReadAt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ReadAt")
+    }
+}
+
+impl fmt::Debug for dyn ReadAt + Send {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ReadAt")
+    }
+}
+
+impl fmt::Debug for dyn WriteAt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "WriteAt")
+    }
+}
+
+impl fmt::Debug for dyn WriteAt + Send {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "WriteAt")
+    }
+}
+
 /// The Share Root boundary, exposed as operations rather than paths
 /// (ADR-0014). Every method names its target as a `(root, relative path)`
 /// pair; none returns or accepts an absolute path.
