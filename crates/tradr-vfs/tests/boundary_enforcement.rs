@@ -12,22 +12,6 @@ fn sample_transfer() -> TransferId {
 }
 
 #[tokio::test]
-async fn deny_listed_files_are_refused() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let vfs = PosixVfs::new();
-    let root = RootId::new(1);
-    vfs.register_root(root, dir.path().to_path_buf(), false)
-        .expect("register root");
-
-    let deny_cases = [".git/config", ".ssh/id_rsa", ".env", ".bash_history"];
-    for name in deny_cases {
-        let rel = RelPath::new(name).expect("relpath");
-        let err = vfs.open_read(root, &rel).await.unwrap_err();
-        assert_eq!(err, VfsError::DenyListed);
-    }
-}
-
-#[tokio::test]
 async fn read_only_root_refuses_modifications() {
     let dir = tempfile::tempdir().expect("tempdir");
     let vfs = PosixVfs::new();

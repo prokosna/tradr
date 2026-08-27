@@ -11,7 +11,7 @@ phase: implementing
 current_milestone: M1
 branch: wi-m1-015-deny-list
 implementation_started: true
-work_items_landed: 76
+work_items_landed: 77
 last_commit: b738048
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
@@ -37,7 +37,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ## Next three actions
 
 1. **`WI-M1-014a`**, and then `b` and `c`: content verification end to end. **Until it lands, M1's completion criterion is not met by the code that appears to meet it**: a file arrives and nothing establishes that it is the file that was sent. See F-A.
-2. **`WI-M1-015`**, the documented deny list, and then **`WI-M1-016`**, the `openat2` descent. Both are `tradr-vfs`, both are Critical Module, and F-B is the cheaper and the more exposed of the two.
+2. **`WI-M1-016`**, the `openat2` descent and step 2's normalization. **`WI-M1-015` is done**, so F-B is closed and F-C is what remains in `tradr-vfs`.
 3. **`WI-M1-016`**, the `openat2` descent and step 2's normalization. **`WI-M1-017` is done** and went first rather than last, because it needed no design decision and the other three did.
 
 **The old action 3 stands and is still the user's to start -- ADR-0004's "To verify"**: measure LAN throughput against 35 MB/s, and if it falls short tune GSO, GRO and receive-buffer sizes **before** comparing against TCP. QUIC runs in user space and will not match TCP, so a comparison run before the tuning answers a question nobody asked. **It needs two machines; loopback cannot produce the number.**
@@ -76,6 +76,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M1-015 | PASS | 0 | **docs/06's deny list, all twenty patterns, replacing the five exact strings F-B found.** One `DENY_PATTERNS` table of pattern parts -- exact components, single-`*` globs, and the two multi-component runs -- with one `is_denied` that both `resolve_path` and `list`'s per-entry filter route through, so the list is expressed once and the access path and the listing path cannot drift. `.git` and `.bash_history` are gone from it, per DCR-056. **The glob matcher compares bytes rather than `&str` slices**, which is what keeps a non-ASCII component name from panicking on a char boundary, and the Implementer chose that without being told to. **The seven tests were Supervisor-authored and six of the seven were red before a line was written**, which is section 6 working as intended for once: the contract existed, the Implementer read docs/06 and DCR-056 rather than the old constant, and raised no DCR because there was nothing left ambiguous. E1 verified twice and independently -- the Implementer removed a pattern and confirmed the matching failure, and the review removed a different one and confirmed the same |
 | WI-M1-017 | PASS | 1 | **`ci/no-brokr.sh` given teeth, replacing the job F-D found could not fail.** `ci/tier01-tests.txt` names seven Tier 0/1 integration targets with a reason each; the script refuses to report success when that inventory is empty, names a target that no longer exists, or carries an empty reason. The run happens inside a network namespace sealed to loopback, and **two canaries check the seal from inside** rather than assuming it: the namespace id must differ from the host's, and an egress probe must fail. **The single REVISE was the same defect one layer down and is the finding worth keeping** -- the probe was `if curl ...`, and under `set -e` a command inside an `if` does not abort, so exit 127 from a missing `curl` took the "unreachable, therefore sealed" branch. **A canary that cannot run its own probe was reporting that the seal held.** It now distinguishes curl's 6/7/28 from every other code, and the `readlink` on both sides must be non-empty before the two are compared, closing the same hole where an empty id would have differed from a real one. Verified by breaking each path and running it: four inventory failures, the no-seal-available exit, both canary halves unsealed, a `PATH` with no `curl`, and a stub exiting 7 to confirm a genuine seal still proceeds. **The sealed run itself could not be exercised on the development machine** -- `apparmor_restrict_unprivileged_userns` is 1 and `sudo` wants a password -- and the Implementer reported that rather than weakening the seal to make it pass, which is the right answer and is recorded here because CI is where that half is first proven |
 | WI-M1-013 | **PASS, reversed to REVISE on re-review (F-D)** | 0, then reopened | **CI's `no-brokr` job enforcing Invariant I1 (ADR-0005).** Added `ci/no-brokr.sh` and `no-brokr` job to `.github/workflows/ci.yml`. Scans client crates to ensure no hardcoded Brokr dependencies exist, and runs all workspace integration test suites under a sealed environment with `TRADR_BROKR_URL=http://127.0.0.1:0` and `TRADR_NO_BROKR=1`, guaranteeing standalone Tier 0 (LAN/mDNS/QUIC) and Tier 1 operation. All workspace tests, Clippy, and pre-commit checks pass cleanly |
 | WI-M1-012 | **PASS, reversed to REVISE on re-review (F-A)** | 0, then reopened | **End-to-end file transfer engine in `tauri-plugin-tradr`.** Supervisor authored tests first. Implemented `send_file` and `receive_file` driving chunk pull requests (`ChunkRequest`), chunk streaming (`ChunkData`), partial-file writing and sync, dynamic destination collision resolution, atomic rename, and verified `ItemComplete` signaling across transport stream pairs with `PosixVfs`. Tested single chunk, multi-mebibyte multi-chunk (2.5 MiB), collision renaming, and clean unexpected EOF handling. All workspace tests, Clippy, and pre-commit checks pass cleanly |
@@ -240,7 +241,7 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: [WI-M1-014a, WI-M1-014b, WI-M1-014c, WI-M1-015, WI-M1-016]
+work_items: [WI-M1-014a, WI-M1-014b, WI-M1-014c, WI-M1-016]
 blocked: []
 ```
 
@@ -660,8 +661,8 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-014a | **`ContentVerifier` in `tradr-core` and `tradr-integrity` behind it.** The trait, and DCR-055's slice verification against a `content_hash` at an absolute offset. Pure: no transport, no filesystem, no wire. Critical Module, Supervisor tests first | **next** | Yes |
 | WI-M1-014b | **The wire half of DCR-055**: field 5 reserved in `proto/`, the slice payload in `tradr-proto`, and the three bounds `ChunkDataHeader` never checked -- `chunk_index` below the item's chunk count, `offset_in_chunk` below 1 MiB, `payload_len` no larger than what remains. **Where an untrusted peer's sizes are first read** | **cut** | Yes |
 | WI-M1-014c | **Verify before write, in `receive_file`.** The piece goes to `ContentVerifier` and reaches `write_at` only if it passes; `mark_verified` becomes reachable only from a verification outcome, and `ItemComplete.verified` stops being a constant | **cut** | Yes |
-| WI-M1-015 | **The documented deny list**, patterns and globs, exactly what docs/06 lists and nothing besides -- `.git` served and collapsed rather than refused. Critical Module, Supervisor tests first | **cut** | Yes |
-| WI-M1-016 | **`openat2` with `RESOLVE_BENEATH` in `PosixVfs`**, so validation and opening are one operation, with the `openat`/`O_NOFOLLOW` descent as the fallback path; plus step 2's Unicode normalization and the `RelPath` rebuild that follows it. Critical Module, Supervisor tests first | **cut** | Yes |
+| WI-M1-015 | **The documented deny list**, patterns and globs, exactly what docs/06 lists and nothing besides -- `.git` served and collapsed rather than refused. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE, and DCR-056 is why | Yes |
+| WI-M1-016 | **`openat2` with `RESOLVE_BENEATH` in `PosixVfs`**, so validation and opening are one operation, with the `openat`/`O_NOFOLLOW` descent as the fallback path; plus step 2's Unicode normalization and the `RelPath` rebuild that follows it. **Carries one finding neither F-C nor `WI-M1-015` covered**: `list` swallows three `Err(_)` into `continue`, against rule F6, so an entry that cannot be stat-ed silently vanishes from a listing. Critical Module, Supervisor tests first | **cut** | Yes |
 | WI-M1-017 | **`ci/no-brokr.sh` rewritten to measure something**: a named Tier 0 and Tier 1 integration test set that fails when it is empty or when a listed test has vanished, run with egress sealed to loopback, and a canary that fails the job when the seal is not in effect | **done** -- PASS after one REVISE, and the finding was the canary's own probe failing open | |
 
 **Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
