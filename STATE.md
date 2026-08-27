@@ -68,8 +68,12 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ```yaml
 work_items: []
-blocked: []
+blocked: [ci]
 ```
+
+**CI cannot run at all, and it is billing rather than code.** Every job on PR #37 failed in two seconds with **zero steps executed**, and the annotation on `.github` says it plainly: *"The job was not started because recent account payments have failed or your spending limit needs to be increased."* Nothing was compiled, so nothing about `WI-M1-023` is implicated -- the full local gate, which runs the same commands, passed before the commit. **Until this is cleared no pull request can be merged on a green CI**, which is section 5's rule, and `main`'s "always green" claim is unverifiable rather than false. **This is the user's to fix**, in Billing & plans.
+
+**Decision 2 answers this one too, and that is the second rule it would restore.** GitHub Actions is free for public repositories, so going public clears the spending limit and restores branch protection in the same move -- and visibility is already settled as public. Three rules now wait on the same unexecuted decision: the branch check, the `no checks reported` merge guard, and this.
 
 **The question `WI-M1-022` left open is closed, and DCR-059 closed it: an offered item a `TransferAccept` does not name is declined.** `TransferAccept::for_offer` was already right not to require an answer per item; what was missing was any statement of what silence meant, so `WI-M1-024`'s listener would have had to invent one. It is now in [docs/04](docs/04-protocol.md#what-reading-a-transferoffer-may-drop-and-what-it-may-not) and `WI-M1-024` inherits it rather than deciding it.
 
