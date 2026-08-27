@@ -9,10 +9,10 @@
 last_updated: 2026-08-27
 phase: implementing
 current_milestone: M1
-branch: temp-amend-2
+branch: wi-m1-021-item-complete-plane
 implementation_started: true
 work_items_landed: 80
-last_commit: 4079590
+last_commit: d1e89ed
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -36,9 +36,11 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-1. **Re-cut the remaining audit issues.** The audit repairs in `WI-M1-018` fixed the most critical security flaws (BLAKE3 verification, payload bounds, `openat2` boundary enforcement, and `ci/no-brokr.sh`), but several findings from the review were missed: receiver `transfer_id`/`item_id` verification, `MessageType::classify` bypass, duplicated path sanitization violating I5, missing `.tradr-partial` in the deny list, and the broken `failed_attempts` limit. `WI-M1-019` takes these.
-2. **`ble-gatt`'s data path is now a decision rather than an assumption**, and ADR-0016 records it as open: 20.5% overhead on a transport docs/03 limits to 20-100 KB/s. It needs settling before the BLE data path is cut, not while it is being written.
+1. **`ItemComplete` travels on the Data stream and the refusal that would say so is routed around by hand.** `WI-M1-021` takes it. `MessageType::plane` puts `0x0a` in Control, [docs/04](docs/04-protocol.md#a-code-names-a-plane-and-the-wrong-plane-is-refused-rather-than-ignored) says a known code on a stream that does not carry it is refused and the stream closes, and `crates/tauri-plugin-tradr/src/transfer.rs:283` matches `Classification::Refused(Refusal::WrongPlane { .. })` under a guard that re-admits exactly `ItemComplete`. **The refusal fires, is caught, and is discarded, at the only place in the workspace it ever fires.** See F-E and F-F below.
+2. **`WI-M1-022`, the composition root, is what M1 is actually waiting on.** Every piece of the transfer exists as a library and nothing composes them: `crates/tauri-plugin-tradr/src/lib.rs`'s `generate_handler!` still lists M0's five commands, `apps/tradr/src/App.tsx` still calls only those five, and `send_file`, `receive_file`, `perform_handshake` and `MdnsSource` are reachable from tests and from nowhere else. **M1's completion criterion is a file moving between two devices, and no code path a user can reach starts one.** It is cut after `WI-M1-021` because it has to decide which streams to hand the session engine, and that is the question `WI-M1-021` answers.
 3. **ADR-0004's "To verify", still the user's to start**: LAN throughput against 35 MB/s, on two machines. Unchanged by the audit and displaced by it.
+
+**`ble-gatt`'s data path stood here as action 2 and is displaced rather than dropped**, and ADR-0016 records it as open: 20.5% overhead on a transport docs/03 limits to 20-100 KB/s. It needs settling before the BLE data path is cut, not while it is being written -- and M7 is where that path is cut, so nothing in M1 waits on it.
 
 **The old action 3 stands and is still the user's to start -- ADR-0004's "To verify"**: measure LAN throughput against 35 MB/s, and if it falls short tune GSO, GRO and receive-buffer sizes **before** comparing against TCP. QUIC runs in user space and will not match TCP, so a comparison run before the tuning answers a question nobody asked. **It needs two machines; loopback cannot produce the number.**
 
@@ -244,7 +246,7 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 ## In flight
 
 ```yaml
-work_items: []
+work_items: [WI-M1-021]
 blocked: []
 ```
 
@@ -269,6 +271,40 @@ blocked: []
 **All five are the post-merge audit's repairs and none is blocked; `WI-M1-017` closed the sixth.** DCR-054 and DCR-055 are `WI-M1-014`'s docs halves and both are already committed -- **on `wi-m1-017-no-brokr-teeth` rather than on a branch named for `014`**, deliberately and for DCR-050's reason: a design change is its own commit ahead of its implementation, and `017` is the branch that reached a `PASS` first. Read `git log` for that branch expecting three commits and two Work Item numbers.
 
 **`WI-M1-013` merged as PR #29 with all six jobs green, so `main` carries every Work Item through it and no pull request is open.** The post-merge audit below reopens it, along with `WI-M1-010`, `WI-M1-011` and `WI-M1-012`.
+
+## What happened to `main` after PR #31, reconciled 2026-08-27
+
+**`WI-M1-019` is on `main` and did not arrive the way section 5 says work arrives.** The route is worth writing down because `git log` alone does not show it and the next arriving Supervisor will read `git log`.
+
+- PR #32 (`wi-m1-019-review-repairs`) went green on all six jobs and was squash-merged as `902a60f`. **That commit added `review.txt` to the repository root** -- 166 lines of a previous session's review, in Japanese, committed as a file.
+- PR #33 (`wi-m1-020-remove-review-txt`) was opened to delete it, went green, and **was closed unmerged**.
+- Instead, `902a60f` was amended on a branch called `temp-amend-2` into `d1e89ed` -- the same tree minus `review.txt`, plus a `STATE.md` yaml edit -- and **force-pushed over `main`**.
+
+**Three of section 5's prohibitions are in that sequence and one of them is the one with no instrument.** Rewriting published history with `--amend` is forbidden outright; the push went to `main` directly, which is the exact motion `WI-M1-000f` exists to stop and still nothing refuses; and `branch: temp-amend-2` was left in the yaml, which `ci/state-sync.sh` Check 5a would have caught on any push that was not to `main` -- **Check 5a skips `main`, because arriving on `main` is supposed to mean a merge landed.** The one branch that needs no instrument to be safe is the one this went around every instrument to reach.
+
+**Nothing is proposed to be undone.** `d1e89ed` is published, and un-publishing it means a second force push, which is the same prohibition twice. **The tree is not unverified**: `d1e89ed`'s tree differs from PR #33's green head `02adc04` in `STATE.md` alone, so every line of code on `main` did pass CI, on PR #33's run. What is lost is not correctness, it is the guarantee -- **a green run named a commit that no longer exists**, and only this paragraph connects the two hashes.
+
+**`WI-M1-020` is spent and is not reused.** It named the removal of `review.txt`, which happened by amendment instead, so its row below reads withdrawn rather than done and the next Work Item is `WI-M1-021`. Reusing the number would make PR #33's title point at different work than the table does.
+
+**And `review.txt` is the same defect as the reference implementation section 4 warns about, arriving from the other direction.** A review's own text, checked into the tree an Implementer reads, is the Supervisor's judgement handed to the party being judged. It was removed within three minutes and no Work Item ran against it, so nothing here is contaminated -- **but the instrument that stopped it was a person noticing, which is what every one of the five instruments recorded at the top of this file replaced.**
+
+## Second-order audit, 2026-08-27
+
+**`WI-M1-019` closed A-6 through A-9 and its own subject matter reopens under two of them.** Both findings are in `crates/tauri-plugin-tradr/src/transfer.rs`, both concern the plane rule, and **A-8 named exactly this file and this mechanism** -- "restore `MessageType::classify` in `transfer.rs`" -- so this is not new ground, it is half-finished ground.
+
+### F-E. `ItemComplete` is sent on the Data stream, and the refusal is caught and discarded
+
+`MessageType::plane` puts `0x0a` `ItemComplete` in `Plane::Control` (`crates/tradr-proto/src/message_type.rs:172`), matching [docs/04](docs/04-protocol.md#the-three-planes)'s table. `receive_file_inner` encodes it and writes it to the **Data** stream in both of its exits, at `crates/tauri-plugin-tradr/src/transfer.rs:449` and `:470`. `send_file` reads that stream with `classify(frame.type_code(), Plane::Data)`, correctly receives `Classification::Refused(Refusal::WrongPlane { .. })`, and **matches that arm under a guard admitting exactly `ItemComplete`** (`:283`).
+
+**docs/04 states why the refusal exists in a sentence the guard falsifies**: "The plane is where authorization lives ... so accepting one wherever it arrives is how a request reaches the code that serves it without passing the code that guards it." A `WrongPlane` refusal fires nowhere else in the workspace at run time. **The one place it fires, it is caught, and the message is then acted on as proof the transfer succeeded** -- and docs/04's own note that `ItemComplete.verified` "is the receiver's finding about bytes it verified itself" makes that the most consequential message the sender ever reads.
+
+**This is a `REVISE` and not a `REDESIGN`: the documents are right and the code disagrees with them.** docs/04's Framing section already says the control and data planes take separate streams on QUIC, so the fix is where `ItemComplete` is written, not what the design says about it. It changes the signatures of `send_file` and `receive_file`, which is the reason it goes before the composition root rather than after: `WI-M1-022` has to hand the session engine its streams and would otherwise hand it the wrong ones.
+
+### F-F. The receiving side never calls `classify` at all
+
+`receive_file_inner` compares a raw byte -- `if frame.type_code() != MessageType::ChunkData.code()` (`:347`) -- and returns a protocol violation for everything else. The registry is imported into this file and used on the sending side only.
+
+Two of docs/04's rules are therefore absent in the receive direction. **An unassigned code inside the Data plane's own range is refused where docs/04 says it is skipped**, which is the forward compatibility the versioning section promises and the reason `Classification::Ignorable` exists. And **`0x00` and a wrong-plane code produce the same generic error as an unexpected-but-valid one**, so the three refusals DCR-050 separated are collapsed back into one. `WI-M1-008a` built the registry to be the single place this question is answered; half the transfer path asks it and half does not.
 
 ## Post-merge audit, 2026-08-27
 
@@ -687,6 +723,8 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-018 | **The audit's remaining repairs, as one Work Item** (the user's decision, above). The wire half of DCR-055 and `ChunkDataHeader`'s three bounds; verify-before-write in `receive_file` so a piece reaches `write_at` only through `ContentVerifier`; and `openat2` with `RESOLVE_BENEATH` in `PosixVfs` with the Unicode normalization docs/06 step 2 assigns to it. **Closes F-A and F-C together**, which is the whole of what the audit left open. Critical Module throughout, Supervisor tests first | **done** -- PASS, no REVISE. F-A and F-C both closed | Yes |
 | WI-M1-017 | **`ci/no-brokr.sh` rewritten to measure something**: a named Tier 0 and Tier 1 integration test set that fails when it is empty or when a listed test has vanished, run with egress sealed to loopback, and a canary that fails the job when the seal is not in effect | **done** -- PASS after one REVISE, and the finding was the canary's own probe failing open | |
 | WI-M1-019 | **The rest of the audit repairs.** A-6: Verify `transfer_id` and `item_id` match the session inside `receive_file_inner`. A-7: Remove duplicated `resolve_collision` logic from `transfer.rs` (Invariant I5 violation). A-8: Restore `MessageType::classify` in `transfer.rs`. A-9: Fix hardcoded ordinal `0` in `partial_file_rel_path`, add `.tradr-partial` to `DENY_PATTERNS` in `posix.rs`, enforce 3-attempt limit in `ItemResumption::missing_chunks`/`next_chunk_request`, remove duplicate request loops in `transfer.rs`, and remove `#![allow(clippy::too_many_arguments)]`. | **done** -- PASS, no REVISE | Yes |
+| WI-M1-020 | **Remove `review.txt` from the repository root.** Opened as PR #33 and closed unmerged: the file was taken off `main` by amending `902a60f` into `d1e89ed` instead. Recorded so the number is spent rather than free -- see the reconciliation section above | **withdrawn** -- the work happened, by a route section 5 forbids | |
+| WI-M1-021 | **`ItemComplete` back onto the Control stream, and `classify` onto the receiving side.** F-E and F-F: `send_file` and `receive_file` take the Control stream pair alongside the Data pair, `ItemComplete` is written to and read from Control, and the `Refused(WrongPlane)` guard at `transfer.rs:283` is deleted rather than moved. `receive_file_inner` dispatches through `classify(_, Plane::Data)` so `Ignorable` is skipped and the three refusals stay separate. **The deliverable is the negative tests**: a peer that puts `ItemComplete` on the Data stream is refused, and an unassigned Data-plane code is skipped | in flight | |
 
 **Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
 
