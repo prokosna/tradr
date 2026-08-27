@@ -12,8 +12,8 @@ phase: implementing
 current_milestone: M1
 branch: wi-m1-000h-state-split
 implementation_started: true
-work_items_landed: 82
-last_commit: 47d6f37
+work_items_landed: 83
+last_commit: 2de1f5a
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -38,7 +38,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ## Next three actions
 
 1. **`WI-M1-023`, the Offer exchange's wire conversion in `tradr-proto`.** `WI-M1-022` gave the five messages native types; nothing can yet build one from a peer's bytes. **This is where an untrusted peer's Offer is first read**, so it is where the hostile cases live -- a `relative_path` that escapes, a `content_hash` of the wrong length, a `size` that disagrees with `total_bytes`, an absent message decoded as a defaulted one. The direct mirror of `WI-M1-008d`, and DCR-058's table is its specification.
-2. **`WI-M1-024`, the listener half of the composition root**, and the place the omitted-item question above has to be answered. It accepts a channel, handshakes on the Control pair, reads an Offer, answers with an Accept carrying the resume position `ItemResumption` derives from what is on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence.**
+2. **`WI-M1-024`, the listener half of the composition root**, and the place the `TransferAccept::for_offer` question in the In flight block has to be answered. It accepts a channel, handshakes on the Control pair, reads an Offer, answers with an Accept carrying the resume position `ItemResumption` derives from what is on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence.**
 3. **ADR-0004's "To verify", still the user's to start**: LAN throughput against 35 MB/s, on two machines. Unchanged by the audit and displaced by it.
 
 **`ble-gatt`'s data path stood here as action 2 and is displaced rather than dropped**, and ADR-0016 records it as open: 20.5% overhead on a transport docs/03 limits to 20-100 KB/s. It needs settling before the BLE data path is cut, not while it is being written -- and M7 is where that path is cut, so nothing in M1 waits on it.
@@ -67,7 +67,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ## In flight
 
 ```yaml
-work_items: [WI-M1-000h]
+work_items: []
 blocked: []
 ```
 
@@ -325,6 +325,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-000f | **The `pre-push` hook, the second of the two rules with no instrument.** `.githooks/pre-commit` refuses a commit made on `main`; nothing refuses `git push origin HEAD:main`, which is the exact motion that put 73 commits there. Branch protection answers `403` on a private repository, so a hook is the only enforcement available until decision 2 is executed | todo | |
 | WI-M1-000e | **The instrument behind rule 2-5.** The reporting half cannot be mechanized -- no check reads a reply -- but its precondition can: `STATE.md` being *current*. `ci/state-sync.sh` checks that `last_commit` exists, that the counts agree and that paths resolve, and **nothing checks that the file was updated at all**, so section 5's "a Work Item commit without its `STATE.md` update" is a prohibition with no gate. A Check 6 comparing `last_updated` against the newest commit's date closes it | **done** -- PASS, no REVISE | |
 | WI-M1-000g | **Restrict CI triggers to `pull_request` and `workflow_dispatch`.** Remove push-to-main and scheduled cron triggers so CI only runs on pull requests and manual dispatches | **done** -- PASS, no REVISE | |
+| WI-M1-000h | **`STATE.md` was 313 KB and 90% of it was never read on arrival.** The Review record was 36% and Design changes 20%, both append-only history growing one long row per Work Item forever; what an arriving Supervisor must read before acting measured 31 KB. **Split rather than shortened**, the answer `WI-M1-000d` reached for the same question about `ci/*.sh` headers: the reasoning moves to [RECORD.md](RECORD.md) where it stays findable. Carries the instruments the split needs -- Checks 2, 3 and 4 following the content across, Check 7's 96 KiB ceiling, and Check 8 gating duplicate DCR numbers | **done** -- PASS after one REVISE, and the finding was the Work Order's own path | |
 | WI-M1-001 | **A `DomainTag` names a separation** (DCR-037). `CertificateTbs` and `TlsCertificateVerify` require a prefix the message already carries instead of prepending one, so the QUIC handshake signs through `KeyStore` and ADR-0011's hardware backing survives. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE | Yes |
 | WI-M1-002a | **The `DeviceId` derivation moves to Layer 0.** `DeviceId::from_identity_digest`: the caller hashes, because Layer 0 has no hash function and may not acquire one, and Layer 0 owns which bytes count. Cut out of `WI-M1-002` because the QUIC verifier needs the same derivation and `tradr-transport` may not reach `tradr-identity`. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE | Yes |
 | WI-M1-002b | **The self-signed certificate**: a DER `TBSCertificate` whose SPKI is the identity public key, signed through `KeyStore` under `CertificateTbs`, and the reverse -- reading a peer's identity point back out. DCR-038 settled its name and validity, DCR-039 the two fields DCR-038 left an encoder to invent. Critical Module, Supervisor tests first | **done** -- PASS after one REVISE, and the finding was the Work Order's | Yes |
@@ -357,6 +358,10 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-019 | **The rest of the audit repairs.** A-6: Verify `transfer_id` and `item_id` match the session inside `receive_file_inner`. A-7: Remove duplicated `resolve_collision` logic from `transfer.rs` (Invariant I5 violation). A-8: Restore `MessageType::classify` in `transfer.rs`. A-9: Fix hardcoded ordinal `0` in `partial_file_rel_path`, add `.tradr-partial` to `DENY_PATTERNS` in `posix.rs`, enforce 3-attempt limit in `ItemResumption::missing_chunks`/`next_chunk_request`, remove duplicate request loops in `transfer.rs`, and remove `#![allow(clippy::too_many_arguments)]`. | **done** -- PASS, no REVISE | Yes |
 | WI-M1-020 | **Remove `review.txt` from the repository root.** Opened as PR #33 and closed unmerged: the file was taken off `main` by amending `902a60f` into `d1e89ed` instead. Recorded so the number is spent rather than free -- see the reconciliation section above | **withdrawn** -- the work happened, by a route section 5 forbids | |
 | WI-M1-021 | **`ItemComplete` back onto the Control stream, and `classify` onto the receiving side.** F-E and F-F: `send_file` and `receive_file` take the Control stream pair alongside the Data pair, `ItemComplete` is written to and read from Control, and the `Refused(WrongPlane)` guard at `transfer.rs:283` is deleted rather than moved. `receive_file_inner` dispatches through `classify(_, Plane::Data)` so `Ignorable` is skipped and the three refusals stay separate. **The deliverable is the negative tests**: a peer that puts `ItemComplete` on the Data stream is refused, and an unassigned Data-plane code is skipped | **done** -- PASS, no REVISE. F-E and F-F both closed | |
+| WI-M1-022 | **The Offer exchange's vocabulary in `tradr-core`.** `TransferOffer`, `OfferItem`, `TransferAccept`, `ItemAcceptance`, `TransferReject`, and the two enums `OfferOrigin` and `RejectReason`, as Layer 0 data with invariants and no wire type anywhere in them. The direct mirror of `WI-M1-008b`, which is why it is not Critical and `WI-M1-023` is where the hostile cases go | **done** -- PASS after one REVISE, and the finding was a duplicated public accessor | |
+| WI-M1-023 | **The Offer exchange's wire conversion in `tradr-proto`**, between `control.proto`'s five messages and `WI-M1-022`'s native types. **Where an untrusted peer's Offer is first read**, so it is where the hostile cases live: a `relative_path` that escapes, a `content_hash` of the wrong length, a `size` that disagrees with `total_bytes`, an `item_id` repeated. The direct mirror of `WI-M1-008d` | todo | |
+| WI-M1-024 | **The listener half of the composition root.** A task that accepts a channel from `Incoming`, runs `perform_handshake` on the Control pair, reads a `TransferOffer`, answers with a `TransferAccept` carrying the resume position `ItemResumption` derives from what is already on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence**, which is why it goes before the sending half | todo | |
+| WI-M1-025 | **The sending half and the command surface.** Dial, offer, send; the Tauri commands `lib.rs` does not yet register; the peer list from `MdnsSource` surfaced to the UI; progress events; and the drag-and-drop target that makes M1's first criterion something a user can perform | todo | |
 
 **Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
 

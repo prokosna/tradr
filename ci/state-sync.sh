@@ -72,17 +72,28 @@ else
 fi
 
 # --- Check 2: work_items_landed matches the count of Work Item rows marked done ---
-# WI-M0-010 and WI-M0-011 landed in a single commit and hold two rows, so
-# rows are what is counted here, never commits. The milestone number is a
-# wildcard -- WI-M0-, WI-M1-, and every later milestone -- so this keeps
-# counting once a new milestone opens. Anchored at line start so only a
-# row's first cell counts: the same id inside prose or a later cell, as the
-# Deferred table's last column holds, never starts a line with "| WI-M".
+# Section state decides because a Review record row also begins with
+# | WI-M... | and its cause cell is prose that may quote any marker.
+# Splitting on | is unsound because cause cells may contain delimiters.
+# Rows are counted rather than commits because multiple items may land
+# in one commit, with wildcards matching every milestone.
 declared_count=$(grep -m1 '^work_items_landed:' "$STATE_FILE" | sed -e 's/^work_items_landed:[[:space:]]*//' -e 's/[[:space:]]*$//')
 actual_count=$({
 	cat "$STATE_FILE"
 	[ -f "$RECORD_FILE" ] && cat "$RECORD_FILE"
-} | awk '/^\| WI-M[0-9]+-/ && /\*\*done\*\*/ { n++ } END { print n + 0 }')
+} | awk '
+/^#+[ \t]+/ {
+	heading = $0
+	sub(/^#+[ \t]+/, "", heading)
+	sub(/[ \t]+$/, "", heading)
+}
+heading == "Work Items" && /^\| WI-M[0-9]+-/ && /\*\*done\*\*/ {
+	n++
+}
+END {
+	print n + 0
+}
+')
 if [ -z "$declared_count" ]; then
 	echo "STATE.md: work_items_landed field is missing from the yaml block"
 	status=1
@@ -230,6 +241,17 @@ elif newest_commit_date=$(git log -1 --format=%cd --date=short 2> /dev/null) && 
 			status=1
 		fi
 	fi
+fi
+
+# --- Check 7: STATE.md is at most 98304 bytes (96 KiB) ---
+# STATE.md reached 313 KB unmeasured; rules without instruments get broken.
+# Move closed sections to RECORD.md to pass; never shorten prose. RECORD.md
+# is append-only by design and intentionally has no ceiling.
+STATE_MAX_BYTES=98304
+state_size=$(wc -c < "$STATE_FILE" | tr -d '[:space:]')
+if [ "$state_size" -gt "$STATE_MAX_BYTES" ]; then
+	echo "STATE.md: size is $state_size bytes, exceeding the $STATE_MAX_BYTES byte limit -- move a closed section to RECORD.md, never shorten one"
+	status=1
 fi
 
 # --- Check 8: a DCR number is defined exactly once across both files ---
