@@ -4539,6 +4539,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-plugin",
+ "tempfile",
  "tokio",
  "tradr-core",
  "tradr-discovery",
