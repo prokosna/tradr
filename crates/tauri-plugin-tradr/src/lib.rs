@@ -13,6 +13,7 @@ use tauri::{
 #[cfg(target_os = "android")]
 mod android;
 mod attestation;
+pub mod handshake;
 mod identity;
 mod sign_in;
 

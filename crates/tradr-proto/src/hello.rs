@@ -9,6 +9,10 @@ use tradr_core::{
     VersionRange, VersionRangeError,
 };
 
+use prost::Message;
+
+use crate::framing::{Frame, FrameError, encode_frame};
+use crate::message_type::MessageType;
 use crate::v1;
 
 /// Everything a `peer_hello_from_wire` or `peer_hello_ack_from_wire` call
@@ -187,4 +191,112 @@ pub fn peer_hello_ack_to_wire(ack: &PeerHelloAck) -> v1::HelloAck {
         assigned_tier: i32::from(ack.assigned_tier()),
         visible_shares: Vec::new(),
     }
+}
+
+/// An error encoding or decoding a framed Hello or HelloAck message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HelloFrameError {
+    /// The frame's type byte did not match the expected message type.
+    WrongMessageType {
+        /// The expected type byte.
+        expected: u8,
+        /// The type byte received on the frame.
+        got: u8,
+    },
+    /// Framing could not encode or decode the byte sequence.
+    Framing(FrameError),
+    /// The protobuf payload could not be decoded.
+    Decode(prost::DecodeError),
+    /// The wire message contained invalid fields.
+    Wire(HelloWireError),
+}
+
+impl std::fmt::Display for HelloFrameError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::WrongMessageType { expected, got } => {
+                write!(f, "expected frame type 0x{expected:02x}, got 0x{got:02x}")
+            }
+            Self::Framing(e) => write!(f, "frame error: {e}"),
+            Self::Decode(e) => write!(f, "protobuf decode error: {e}"),
+            Self::Wire(e) => write!(f, "wire validation error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for HelloFrameError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::WrongMessageType { .. } => None,
+            Self::Framing(e) => Some(e),
+            Self::Decode(e) => Some(e),
+            Self::Wire(e) => Some(e),
+        }
+    }
+}
+
+impl From<FrameError> for HelloFrameError {
+    fn from(err: FrameError) -> Self {
+        Self::Framing(err)
+    }
+}
+
+impl From<prost::DecodeError> for HelloFrameError {
+    fn from(err: prost::DecodeError) -> Self {
+        Self::Decode(err)
+    }
+}
+
+impl From<HelloWireError> for HelloFrameError {
+    fn from(err: HelloWireError) -> Self {
+        Self::Wire(err)
+    }
+}
+
+/// Encodes a `PeerHello` to a framed Hello message under `MessageType::Hello`.
+pub fn encode_hello_frame(
+    hello: &PeerHello,
+    max_frame_size: u32,
+) -> Result<Vec<u8>, HelloFrameError> {
+    let wire = peer_hello_to_wire(hello);
+    let payload = wire.encode_to_vec();
+    encode_frame(MessageType::Hello.code(), &payload, max_frame_size)
+        .map_err(HelloFrameError::Framing)
+}
+
+/// Decodes a framed Hello message into a native `PeerHello`.
+pub fn decode_hello_frame(frame: &Frame) -> Result<PeerHello, HelloFrameError> {
+    let expected = MessageType::Hello.code();
+    if frame.type_code() != expected {
+        return Err(HelloFrameError::WrongMessageType {
+            expected,
+            got: frame.type_code(),
+        });
+    }
+    let wire = v1::Hello::decode(frame.payload()).map_err(HelloFrameError::Decode)?;
+    peer_hello_from_wire(wire).map_err(HelloFrameError::Wire)
+}
+
+/// Encodes a `PeerHelloAck` to a framed HelloAck message under `MessageType::HelloAck`.
+pub fn encode_hello_ack_frame(
+    ack: &PeerHelloAck,
+    max_frame_size: u32,
+) -> Result<Vec<u8>, HelloFrameError> {
+    let wire = peer_hello_ack_to_wire(ack);
+    let payload = wire.encode_to_vec();
+    encode_frame(MessageType::HelloAck.code(), &payload, max_frame_size)
+        .map_err(HelloFrameError::Framing)
+}
+
+/// Decodes a framed HelloAck message into a native `PeerHelloAck`.
+pub fn decode_hello_ack_frame(frame: &Frame) -> Result<PeerHelloAck, HelloFrameError> {
+    let expected = MessageType::HelloAck.code();
+    if frame.type_code() != expected {
+        return Err(HelloFrameError::WrongMessageType {
+            expected,
+            got: frame.type_code(),
+        });
+    }
+    let wire = v1::HelloAck::decode(frame.payload()).map_err(HelloFrameError::Decode)?;
+    peer_hello_ack_from_wire(wire).map_err(HelloFrameError::Wire)
 }
