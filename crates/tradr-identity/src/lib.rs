@@ -3,6 +3,7 @@
 
 mod attestation;
 mod google;
+pub mod hello;
 mod id_token;
 mod jwks;
 mod jwks_cache;
