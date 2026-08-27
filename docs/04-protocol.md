@@ -146,6 +146,23 @@ Rather than the sender pushing unilaterally, the receiver asks for chunks with `
 
 The cost is one extra round trip, but `ChunkRequest` batches with `count` — 64 chunks, meaning 64 MiB, by default — so the round-trip frequency is effectively negligible.
 
+### What reading a `TransferOffer` may drop, and what it may not
+
+The same rule the Hello exchange follows, applied to the Offer: **a field that decides something refuses the offer; a field that only decorates it never does.** DCR-058.
+
+| Field | Wire | Native | On disagreement |
+|---|---|---|---|
+| `mime` | `string`, unbounded | **absent** | **Dropped, and not carried at all.** Nothing decides anything from it, and admitting an unbounded peer-supplied string into Layer 0 means inventing a length cap no requirement asks for. It is re-added when something reads it, with the cap its reader needs |
+| `mtime` | `int64` | **absent** | **Dropped**, for the same reason. A displayed timestamp is a decoration; the transfer does not consult it and the receiver stamps what it writes itself |
+| `chunk_size` | `uint32` | fixed at 1 MiB | **Refuse.** [Invariant I6](../CLAUDE.md#8-invariants-that-must-not-break) fixes the reference chunk regardless of transport, and `chunk_index` counts reference chunks. An offer naming another size is refused rather than reinterpreted |
+| `total_bytes` | `uint64` | must equal the sum of `items[].size` | **Refuse.** Two peer-supplied numbers that describe the same thing, and a receiver that trusts the first sizes its progress and its space check against a figure the second contradicts |
+| `sender_label` | `string` | a `DisplayName` | **Drop it and carry on**, exactly as `display_name` does in a `Hello`, and for the same reason: it is shown to a person and decides nothing |
+| `item_id`, `relative_path`, `size`, `content_hash`, `transfer_id` | sized or bounded | sized or bounded | **Refuse.** These decide what is written and where |
+
+**An `items` list that is empty, or that repeats an `item_id`, is refused.** An empty offer asks the receiver to accept nothing, and a repeated id makes `ItemComplete` and every `ChunkRequest` ambiguous about which item they name.
+
+**`ItemAcceptance.resume_chunk` is the only place a Resume Offset travels**, so it is refused when it is not below the item's chunk count -- a receiver claiming to hold more than was offered is describing a different file.
+
 ## The Hello exchange
 
 Both sides send `Hello` at once — neither is the client — so each runs the same four steps against the other. **No step performs I/O.** Verifying the peer's Attestation may need a JWKS fetch, so the exchange hands that out and consumes the result, the way [docs/05](05-security.md#who-runs-the-seven-steps)'s `JwksNeeded` already does.
