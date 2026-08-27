@@ -146,6 +146,45 @@ Rather than the sender pushing unilaterally, the receiver asks for chunks with `
 
 The cost is one extra round trip, but `ChunkRequest` batches with `count` — 64 chunks, meaning 64 MiB, by default — so the round-trip frequency is effectively negligible.
 
+## The Hello exchange
+
+Both sides send `Hello` at once — neither is the client — so each runs the same four steps against the other. **No step performs I/O.** Verifying the peer's Attestation may need a JWKS fetch, so the exchange hands that out and consumes the result, the way [docs/05](05-security.md#who-runs-the-seven-steps)'s `JwksNeeded` already does.
+
+| Step | Given | Produces |
+|---|---|---|
+| 1 | our own facts, and an `Rng` | our `Hello`, carrying a fresh 16-byte nonce |
+| 2 | the peer's `Hello`, the `DeviceId` the channel authenticated, a `Clock` | a refusal, or a request to verify the peer's Attestation |
+| 3 | the resulting Trust Tier | our `HelloAck`, signed over the peer's nonce |
+| 4 | the peer's `HelloAck` | the settled session: their tier, the negotiated version, our send bound |
+
+### What each side checks, and in what order
+
+Cheapest first, so no signature work is spent on a peer that cannot be talked to at all.
+
+1. **Version overlap.** `negotiated = min(ours.max, theirs.max)`, refused when that is below `max(ours.min, theirs.min)`. An integer comparison, so it goes first.
+2. **The key join.** `BLAKE3(theirs.identity_pub)[0..16]` must equal the `DeviceId` the channel already authenticated. One hash, before any signature.
+3. **The `KeyBinding`.** A P-256 signature over `tradr-keybind-v1 || agreement_pub` against `identity_pub`, with `not_after` still in the future.
+4. **The Attestation**, handed out and never performed here. The Trust Tier that comes back is **ours**.
+5. **The peer's nonce signature**, in step 4: P-256 over `tradr-hello-v1 || our nonce` against their `identity_pub`. Over **our** nonce and never theirs — reflecting a peer's own nonce back proves nothing and would let a relay pass carrying no key at all.
+
+### Why the key join earns its place
+
+A channel authenticates a *Device Key*; a `Hello` claims an *account*. Without check 2 the exchange holds two different answers to "who is the peer" — the certificate's and the `Hello`'s — and every later decision has to remember which one it meant.
+
+Check 5 does eventually catch a mismatch, since a relay cannot produce a signature under a key it does not hold. **But it catches it in step 4, after a `HelloAck` granting a Trust Tier has already been sent.** Check 2 moves the refusal to the first cheap operation of the exchange, and makes the tier belong to the device the channel authenticated rather than to whichever device the `Hello` names.
+
+### Three rules that are not checks
+
+- **The tier a side enforces is the one it computed.** `HelloAck.assigned_tier` arriving from the peer is what *they* granted *us*: display material, and never an input to our own grant. A peer claiming `TRUST_TIER_SAME_ACCOUNT` for itself is the whole of the attack this forbids.
+- **`Rejected` is an outcome, not an error.** The exchange completes, the `HelloAck` carries `TRUST_TIER_REJECTED`, and every later request is denied. It is not a transport failure and must not be retried as one.
+- **The nonce is exactly 16 bytes and fresh per connection**, drawn through the `Rng` trait. Reuse makes the peer's signature replayable against a later session.
+
+### A rejected peer's nonce is still signed
+
+The `HelloAck` sent with `TRUST_TIER_REJECTED` carries a real `nonce_signature`.
+
+Withholding it protects nothing. `tradr-hello-v1` exists precisely so that signing an attacker-chosen sixteen bytes is safe — that is what a domain tag is for — and `assigned_tier` in the same message already tells the peer the verdict, so there is nothing left to conceal. What withholding it would buy is a branch through a Critical Module that only hostile peers ever take, which is the branch least likely to be exercised and most likely to be wrong.
+
 ## Chunks and integrity
 
 ### Chunk sizes

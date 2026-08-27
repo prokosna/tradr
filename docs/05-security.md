@@ -242,6 +242,16 @@ Requiring the pair to match also makes cross-issuer confusion impossible by cons
 
 The last two follow necessarily from choosing Google as the root of trust. **Fingerprint verification** exists to mitigate them.
 
+### An Attestation proves an account, never which device is speaking
+
+Every row above is about the token. **None of them ties the token to the connection it arrived on**, and that join is a separate check with its own failure.
+
+A `SecureChannel` has already authenticated a Device Key by the time a `Hello` is read — that is what the pinned certificate in [docs/03](03-discovery-and-transport.md) buys. The `Hello` then claims an account for a device. Those are two different assertions about two possibly different devices, and only comparing them makes it one: `BLAKE3(Hello.device.identity_pub)[0..16]` must equal the `DeviceId` the channel authenticated.
+
+**The table's third row is true and is not this check.** Replaying a stolen Attestation fails because the nonce binds the victim's keys, so the attacker cannot present it *for their own keys*. What the attacker can do is present it unaltered, for the victim's keys, over a channel authenticated as themselves — every signature verifies, because none of them was ever a statement about who is speaking. The signature over `Hello.nonce` catches it in the end, since the attacker cannot sign under a key they do not hold; the key join catches it several steps earlier, before a Trust Tier has been computed or sent.
+
+[docs/04](04-protocol.md#why-the-key-join-earns-its-place) puts it in order among the exchange's other checks.
+
 ## Fingerprint — the option not to trust Google
 
 A Device Key rendered human-readable, equivalent to a Signal safety number.

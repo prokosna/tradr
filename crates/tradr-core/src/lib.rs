@@ -12,6 +12,7 @@ mod clock;
 mod device_id;
 mod discovery;
 mod future;
+mod hello;
 mod item_id;
 mod key_store;
 mod rel_path;
@@ -31,6 +32,10 @@ pub use discovery::{
     ObservationKeyError, Peer, PeerList, PeerListError, PeerObservation, SourceId,
 };
 pub use future::BoxFuture;
+pub use hello::{
+    HELLO_NONCE_LEN, HelloNonce, KeyBinding, NoCommonVersion, PeerHello, PeerHelloAck,
+    VersionRange, VersionRangeError, negotiate_version,
+};
 pub use item_id::{ITEM_ID_MAX_LEN, ItemId, ItemIdError};
 pub use key_store::{
     Backing, DomainTag, KeyStore, KeyStoreError, MissingSeparation, PUBLIC_KEY_POINT_LEN,
