@@ -9,10 +9,10 @@
 last_updated: 2026-08-27
 phase: implementing
 current_milestone: M1
-branch: wi-m1-018-audit-repairs
+branch: wi-m1-018-reconcile
 implementation_started: true
 work_items_landed: 79
-last_commit: b738048
+last_commit: f40cc38
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -36,7 +36,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-1. **Push, and open the pull request.** **All four audit findings are closed and none of it has left this machine.** `main` still carries the four defective Work Items and nothing recording that they are defective, which is the one state this file says is worse than no report at all.
+1. **Nothing from the audit is outstanding.** The next Work Item is M1's own: `WI-M1-005` onward in the table below is still a sketch, and re-cutting the first of them is where this milestone resumes.
 2. **`ble-gatt`'s data path is now a decision rather than an assumption**, and ADR-0016 records it as open: 20.5% overhead on a transport docs/03 limits to 20-100 KB/s. It needs settling before the BLE data path is cut, not while it is being written.
 3. **ADR-0004's "To verify", still the user's to start**: LAN throughput against 35 MB/s, on two machines. Unchanged by the audit and displaced by it.
 
@@ -256,7 +256,9 @@ blocked: []
 
 **One more thing the review had to check rather than accept**: the report said `ci/no-brokr.sh` "exits 0 and skips". It exits 1. Nothing followed from the error, but a Supervisor that had taken it at face value would have recorded that `WI-M1-017` shipped a check that fails open.
 
-**The audit is open as PR #30**, carrying nine commits: four Work Items and five design changes ahead of them.
+**The audit merged as PR #30 with all six jobs green**, carrying ten commits: four Work Items and five design changes ahead of them. `main` now carries every repair and the record of why each was needed.
+
+**`WI-M1-017`'s sealed run was proven in CI and could not be proven anywhere else.** The development machine has `apparmor_restrict_unprivileged_userns` set and a password on `sudo`, so every local run took the "no sealing mechanism available" exit and the Implementer reported that rather than weakening the seal. On the runner the job sealed through `sudo unshare --net`, both canaries passed, and the seven Tier 0/1 targets ran inside the namespace in fifteen seconds -- **which is also the evidence that nothing compiled in there**, since the build step outside it did that work. **A job that had merely gone green would have proven none of this**; the log lines are what prove it, and reading them is the same motion that found F-D.
 
 **The user settled two things on 2026-08-27 and both narrow what follows.**
 
