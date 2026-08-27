@@ -1,6 +1,6 @@
 # ADR-0006: BLAKE3 for content integrity
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0016](0016-bao-verified-streaming-costs-6-percent.md)
 - **Date**: 2026-08-22
 
 ## Context
