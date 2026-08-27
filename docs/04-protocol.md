@@ -247,6 +247,14 @@ BLAKE3 is internally a Merkle tree, which yields two properties — see [ADR-000
 
 An `Item` carries `content_hash`, the 32-byte BLAKE3 root, and each `ChunkData` carries the tree path needed to verify it — the `bao` outboard.
 
+### What a piece carries in order to be verified
+
+**The bytes following a `ChunkData` header are a `bao` slice, not raw content**, covering `[chunk_index * 1 MiB + offset_in_chunk, content_len)`. `payload_len` counts the slice's bytes; the content length is what the decoder yields, and the receiver already knows it from the item's size and the piece's position.
+
+**The field that used to say otherwise is retired.** `ChunkData.verify_path` said "BLAKE3 tree path (bao outboard)" and left the byte layout for an implementation to invent; there was no interpretation of it that did not require rebuilding `bao`'s slice grammar by hand in order to interleave a separate path with a separate payload. **That is the assembly [ADR-0006](adr/0006-blake3-for-content-integrity.md)'s fourth reason exists to refuse**, one layer up from the primitive. A slice is already the shape `bao` extracts and already the shape it verifies, so carrying one invents nothing. Field 5 is reserved and never reused, for the reason a retired type code is.
+
+**The overhead is the one this document already quoted.** A slice is the requested content plus the parent nodes covering it -- a few hundred bytes per 1 MiB piece, roughly 0.03%. Splitting the two apart would have saved nothing; it only moved where the parents were written down.
+
 ### A piece is verified before it is written
 
 **Verification precedes placement, and the order is the whole point of carrying `verify_path` per piece.** A receiver holds `content_hash` from the `Item` and nothing else it can trust; `chunk_index`, `offset_in_chunk` and `payload_len` all arrive from the peer. Checking the piece against `content_hash` at its absolute offset is what turns those three fields from instructions into claims -- so the check happens **before** the bytes reach the partial file, and a piece that fails is re-requested rather than written and corrected later.
