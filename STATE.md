@@ -13,7 +13,7 @@ current_milestone: M1
 branch: wi-m1-023-offer-codec
 implementation_started: true
 work_items_landed: 84
-last_commit: 277c6e8
+last_commit: ae2b4e0
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
