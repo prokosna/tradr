@@ -72,6 +72,17 @@ Even beneath a Share Root, these are neither listed nor accessible.
 id_rsa*  id_ed25519*  id_ecdsa*
 ```
 
+#### How a pattern matches
+
+**A pattern matches a path component, never a path.** `.ssh` denies any component named `.ssh` at any depth beneath the Share Root, which denies both the directory and everything under it in one rule rather than in two.
+
+- **A pattern containing `/` matches a consecutive run of components.** `.config/gcloud` denies `.config/gcloud/` wherever it appears and leaves the rest of `.config/` alone, which is the whole reason it is written with a separator.
+- **`*` matches inside one component and never crosses a separator.** `*.pem` denies `server.pem` and not `pem`; `id_rsa*` denies `id_rsa`, `id_rsa.pub` and `id_rsa_old`; `.env.*` denies `.env.production` and not `my.env.txt`.
+- **Matching is ASCII-case-insensitive.** A deny list that `ID_RSA` walks past is not one, and on a case-insensitive filesystem the two name the same file anyway. The cost of the other direction is that someone with a file called `KEY.PEM` relaxes the list, which is the outcome this section already tells them they may choose.
+- **Denied means neither listed nor reachable.** A listing omits the entry rather than showing one that cannot be opened, and every other operation refuses it. An entry that appears and then fails is a worse answer than one that never appeared: it confirms the file exists.
+
+**`.git`, `node_modules`, `target` and `__pycache__` are not on this list and must not be added to it.** They are collapsed in listings, which is a default about presentation and belongs wherever a listing is rendered. Denying them instead makes a repository unshareable, and the paragraph below already says they remain accessible.
+
 Users may relax this, but the default is conservative. **It is insurance against accidentally sharing an entire home directory, not a reason to consider the result safe.** The Share Root picker states plainly that sharing a home directory directly is a bad idea.
 
 `.gitignore` is not honoured, since it would hide things people meant to share. But `node_modules`, `.git`, `target`, and `__pycache__` are collapsed in listings by default, while remaining accessible.

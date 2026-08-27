@@ -1,10 +1,10 @@
 #!/bin/sh
 # Mechanizes invariant I4, rule B1, and Change Drills D5 and D9: tradr-core
 # depends on nothing, only tradr-proto names prost, only tauri-plugin-tradr
-# names tauri, only tradr-oidc names reqwest (DCR-024), and no
-# implementation crate depends internally on anything but tradr-core and
-# tradr-proto (tauri-plugin-tradr, the composition root, is exempt from
-# that last rule).
+# names tauri, only tradr-oidc names reqwest (DCR-024), only tradr-integrity
+# names bao (Critical Module, ADR-0006), and no implementation crate depends
+# internally on anything but tradr-core and tradr-proto (tauri-plugin-tradr,
+# the composition root, is exempt from that last rule).
 #
 # Scans every Cargo.toml under both crates/ and apps/. The app manifests
 # under apps/ (e.g. apps/tradr/src-tauri) get the same prost/reqwest
@@ -120,6 +120,15 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 			| while IFS= read -r ln; do
 				[ -n "$ln" ] || continue
 				echo "$m:$ln: only tradr-oidc may name reqwest (DCR-024)" >> "$TMP_HITS"
+			done
+	fi
+
+	# Check 3c: bao confinement (Critical Module tradr-integrity, ADR-0006)
+	if [ "$m" != "crates/tradr-integrity/Cargo.toml" ]; then
+		awk '/^[ \t]*"?bao(-[A-Za-z0-9_]+)?"?[ \t]*=/ { print FNR }' "$m" \
+			| while IFS= read -r ln; do
+				[ -n "$ln" ] || continue
+				echo "$m:$ln: only tradr-integrity may name bao (ADR-0006)" >> "$TMP_HITS"
 			done
 	fi
 

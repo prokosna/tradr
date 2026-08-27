@@ -92,6 +92,21 @@ jobs:
             libssl-dev \
             patchelf
 
+      # ci/no-brokr.sh runs the same -p/--test selection sealed to
+      # loopback; matching it here means that run needs no compilation
+      # at all, so nothing inside the seal ever needs to reach crates.io.
+      - name: Build Tier 0/1 test binaries
+        run: |
+          set -eu
+          set --
+          while IFS='|' read -r crate target reason; do
+            crate=$(printf '%s' "$crate" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+            case "$crate" in '' | '#'*) continue ;; esac
+            target=$(printf '%s' "$target" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+            set -- "$@" -p "$crate" --test "$target"
+          done < ci/tier01-tests.txt
+          cargo test --locked --no-run "$@"
+
       - name: Run no-brokr Invariant I1 verification
         run: sh ci/no-brokr.sh
 

@@ -247,6 +247,28 @@ BLAKE3 is internally a Merkle tree, which yields two properties — see [ADR-000
 
 An `Item` carries `content_hash`, the 32-byte BLAKE3 root, and each `ChunkData` carries the tree path needed to verify it — the `bao` outboard.
 
+### What a piece carries in order to be verified
+
+**The bytes following a `ChunkData` header are a `bao` slice, not raw content**, covering `[chunk_index * 1 MiB + offset_in_chunk, content_len)`. `payload_len` counts the slice's bytes; the content length is what the decoder yields, and the receiver already knows it from the item's size and the piece's position.
+
+**The field that used to say otherwise is retired.** `ChunkData.verify_path` said "BLAKE3 tree path (bao outboard)" and left the byte layout for an implementation to invent; there was no interpretation of it that did not require rebuilding `bao`'s slice grammar by hand in order to interleave a separate path with a separate payload. **That is the assembly [ADR-0006](adr/0006-blake3-for-content-integrity.md)'s fourth reason exists to refuse**, one layer up from the primitive. A slice is already the shape `bao` extracts and already the shape it verifies, so carrying one invents nothing. Field 5 is reserved and never reused, for the reason a retired type code is.
+
+**The overhead is not the one [ADR-0006](adr/0006-blake3-for-content-integrity.md) quotes, and the ADR's figure is wrong.** Measured against `bao` 0.13.1: a slice covering a 1 MiB piece is 1,114,184 bytes against 1,048,576 of content -- **65,608 bytes, or 6.26%**, and the same on a 1 GiB item. A 4 KiB `ble-gatt` piece costs 840 bytes, **20.5%**. ADR-0006 says "a few hundred bytes per chunk, roughly 0.03%", which assumed `bao`'s chunk is the 1 MiB reference chunk. **It is 1024 bytes, BLAKE3's own chunk**, so a slice carries every interior parent of the range rather than a path to it -- three orders of magnitude more nodes.
+
+**The decision survives the correction, on a different argument than the one that was made for it.** A path to the subtree really would be a few hundred bytes, and using one means recomputing the 1 MiB subtree hash from its content and checking it against that path. `bao` exposes no such call; `blake3::guts` does. **That is assembling the primitive by hand, one level down from where DCR-055 refused to do it**, and ADR-0006's fourth reason applies to it exactly as written. Sending each item's whole outboard once instead saves nothing at all: for a 1 GiB item it is 67,108,808 bytes, the same 6.4%, paid up front rather than per piece.
+
+**So the cost is real and it is recorded rather than argued away.** 6.26% on the bulk transports is affordable. **20.5% on `ble-gatt` is not obviously affordable** on a transport docs/03 already limits to 20-100 KB/s, and it is the open question this section leaves for whoever cuts the BLE data path.
+
+### A piece is verified before it is written
+
+**Verification precedes placement, and the order is the whole point of carrying `verify_path` per piece.** A receiver holds `content_hash` from the `Item` and nothing else it can trust; `chunk_index`, `offset_in_chunk` and `payload_len` all arrive from the peer. Checking the piece against `content_hash` at its absolute offset is what turns those three fields from instructions into claims -- so the check happens **before** the bytes reach the partial file, and a piece that fails is re-requested rather than written and corrected later.
+
+Written the other way round, the same code appears to work and defends nothing: the bytes land at a peer-chosen offset first, and the check that would have refused them runs afterwards on a file that already contains them.
+
+**The three fields are bounded before they are used, not after.** `chunk_index` must be below the item's chunk count, `offset_in_chunk` below the 1 MiB reference chunk, and `payload_len` no larger than what remains of the chunk from that offset. A receiver that computes an absolute offset from unchecked values has already lost: the arithmetic ranges over 2^64 and the refusal, wherever it eventually appears, arrives after something has been asked to hold that offset.
+
+**`ItemComplete.verified` is the receiver's finding about bytes it verified itself.** It is not a field the sender may act on as proof of anything, and a receiver that sets it without having verified has told the sender the transfer succeeded on the one channel the sender has no way to check.
+
 ### Verification failure
 
 - A chunk fails: re-request that chunk alone. After three failures, suspect the path and rerun path selection

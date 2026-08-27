@@ -3,6 +3,7 @@
 use std::fmt;
 use std::path::Path;
 use tradr_core::{RelPath, RelPathError, TransferId};
+use unicode_normalization::UnicodeNormalization;
 
 const WINDOWS_RESERVED: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
@@ -83,21 +84,23 @@ fn has_drive_prefix(s: &str) -> bool {
 
 /// Sanitizes a raw destination path from a peer according to protocol rules.
 pub fn sanitize_destination_path(raw_path: &str) -> Result<RelPath, SanitizationError> {
-    if raw_path.starts_with('/') || raw_path.starts_with('\\') || has_drive_prefix(raw_path) {
+    let normalized: String = raw_path.nfc().collect();
+    if normalized.starts_with('/') || normalized.starts_with('\\') || has_drive_prefix(&normalized)
+    {
         return Err(SanitizationError::AbsolutePath);
     }
-    if raw_path.chars().any(|c| c.is_control()) {
+    if normalized.chars().any(|c| c.is_control()) {
         return Err(SanitizationError::ControlCharacters);
     }
-    if raw_path.chars().any(is_bidi_override_char) {
+    if normalized.chars().any(is_bidi_override_char) {
         return Err(SanitizationError::BidiOverride);
     }
-    if raw_path.split('/').any(|comp| comp == "..") {
+    if normalized.split('/').any(|comp| comp == "..") {
         return Err(SanitizationError::ParentTraversal);
     }
 
     let mut sanitized_components = Vec::new();
-    for comp in raw_path.split('/') {
+    for comp in normalized.split('/') {
         let trimmed = comp.trim_end_matches(['.', ' ']);
         if trimmed.is_empty() {
             continue;

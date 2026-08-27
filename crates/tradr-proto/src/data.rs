@@ -4,8 +4,9 @@
 
 use prost::Message;
 use tradr_core::{
-    ChunkDataHeader, ChunkIndex, ChunkRequest, ChunkRerequest, FlowControl, ItemComplete, ItemId,
-    ItemIdError, RelPath, RelPathError, TransferId, TransferIdError, TransferProgress,
+    ChunkDataError, ChunkDataHeader, ChunkIndex, ChunkRequest, ChunkRerequest, FlowControl,
+    ItemComplete, ItemId, ItemIdError, RelPath, RelPathError, TransferId, TransferIdError,
+    TransferProgress,
 };
 
 use crate::framing::{Frame, FrameError, encode_frame};
@@ -25,6 +26,9 @@ pub enum TransferWireError {
     ZeroCount,
     /// The chunks list in ChunkRerequest was empty.
     EmptyChunks,
+    /// A `ChunkData` header failed one of the bounds `ChunkDataHeader::new`
+    /// checks before an absolute offset is ever computed from it.
+    InvalidChunkData(ChunkDataError),
 }
 
 impl std::fmt::Display for TransferWireError {
@@ -35,6 +39,7 @@ impl std::fmt::Display for TransferWireError {
             Self::InvalidPath(e) => write!(f, "final_path invalid: {e}"),
             Self::ZeroCount => write!(f, "chunk count must be non-zero"),
             Self::EmptyChunks => write!(f, "chunks list must not be empty"),
+            Self::InvalidChunkData(e) => write!(f, "chunk data header invalid: {e}"),
         }
     }
 }
@@ -46,6 +51,7 @@ impl std::error::Error for TransferWireError {
             Self::InvalidItemId(e) => Some(e),
             Self::InvalidPath(e) => Some(e),
             Self::ZeroCount | Self::EmptyChunks => None,
+            Self::InvalidChunkData(e) => Some(e),
         }
     }
 }
@@ -172,13 +178,15 @@ pub fn chunk_data_header_to_wire(header: &ChunkDataHeader) -> v1::ChunkData {
         item_id: header.item_id().to_string(),
         chunk_index: header.chunk_index().value(),
         payload_len: header.payload_len(),
-        verify_path: header.verify_path().to_vec(),
         last: header.is_last(),
         offset_in_chunk: header.offset_in_chunk(),
     }
 }
 
-/// Validates and converts a wire `ChunkData` header to domain format.
+/// Validates and converts a wire `ChunkData` header to domain format. Routes
+/// through the checked constructor so a hostile header is refused where the
+/// untrusted bytes are read, not later when an absolute offset is computed
+/// from it.
 pub fn chunk_data_header_from_wire(
     message: v1::ChunkData,
 ) -> Result<ChunkDataHeader, TransferWireError> {
@@ -187,15 +195,15 @@ pub fn chunk_data_header_from_wire(
         .parse()
         .map_err(TransferWireError::InvalidTransferId)?;
     let item_id = ItemId::new(&message.item_id).map_err(TransferWireError::InvalidItemId)?;
-    Ok(ChunkDataHeader::new(
+    ChunkDataHeader::new(
         transfer_id,
         item_id,
         ChunkIndex::new(message.chunk_index),
         message.payload_len,
-        message.verify_path,
         message.last,
         message.offset_in_chunk,
-    ))
+    )
+    .map_err(TransferWireError::InvalidChunkData)
 }
 
 /// Converts a domain `ItemComplete` to wire format.

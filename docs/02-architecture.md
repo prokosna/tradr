@@ -121,12 +121,13 @@ tradr/
 |   \-- client-state/           #   State machines for transfer and discovery as the UI sees them
 |
 \-- crates/                     # Rust workspace, Cargo
-    +-- tradr-core/             #   Transfer/Item/Chunk, resumption, integrity
+    +-- tradr-core/             #   Transfer/Item/Chunk, resumption policy, the traits
     +-- tradr-proto/            #   The protobuf codec, and the only crate naming prost
     +-- tradr-identity/         #   Attestation issue and verify, Noise, key policy
     +-- tradr-transport/        #   Five Transport implementations and path selection
     +-- tradr-discovery/        #   mDNS, BLE advertise and scan, static pins, Brokr presence
     +-- tradr-vfs/              #   Share Root boundary enforcement, posix and saf backends
+    +-- tradr-integrity/        #   Verified streaming against a content hash. The only crate naming bao
     +-- tradr-oidc/             #   JWKS fetch, OAuth loopback and token exchange. Speaks HTTP
     +-- tradr-secrets/          #   Where a Device Key is actually held. Speaks D-Bus and the keyring
     \-- tauri-plugin-tradr/     #   Exposes the above as Tauri commands; holds the Kotlin side
@@ -149,6 +150,16 @@ tradr/
 **No Layer 1 trait wraps it.** Nothing in Layer 1 fetches anything: DCR-022 leaves the single `await` in the composition root, so a `JwksSource` trait would be a dispatch point with one implementation and no caller that needs to swap it. What such a trait would buy -- confinement, so that changing the client touches one place -- the crate boundary already buys, and buys checkably: `grep -rl reqwest crates/` must return `crates/tradr-oidc/` and nothing else. `tradr-oidc` therefore exposes plain `async fn`s, and [ADR-0013](adr/0013-layer-1-async-traits-return-boxed-futures.md)'s `BoxFuture` does not reach it.
 
 **`reqwest`, with `rustls-tls` and no default features.** rustls is already in the driver layer for QUIC, so sharing that stack costs nothing new, while `native-tls` would pull OpenSSL into the Linux and Android builds to perform one GET. A blocking client wrapped in `spawn_blocking` was the alternative and buys nothing here, since every caller is already async.
+
+### Where content verification lives
+
+`crates/tradr-integrity/` implements the `ContentVerifier` trait `tradr-core` declares, and nothing else: [ADR-0006](adr/0006-blake3-for-content-integrity.md)'s `bao` verified streaming, checking a piece against an `Item`'s `content_hash` at the absolute offset [docs/04](04-protocol.md#where-a-subdivided-piece-belongs) computes. It is the only crate that may name `bao`, checked the way `prost`, `tauri`, `reqwest` and the D-Bus client are.
+
+**The crate tree said `tradr-core` held integrity, and that was never reachable.** Verifying a piece needs BLAKE3 and the `bao` tree format; [invariant I4](../CLAUDE.md#8-invariants-that-must-not-break) lets `tradr-core` declare no dependency at all, and ADR-0006's fourth reason forbids the other way out -- **not assembling cryptographic primitives by hand is an important discipline**, and a hand-rolled Merkle path is exactly that. So the annotation described a home the rules had already closed.
+
+**The split falls where it fell twice before.** `tradr-core` keeps the policy: `ItemResumption` records that a piece verified, and the trait says what verifying means. `tradr-integrity` keeps the primitive. This is the `tradr-oidc` and `tradr-secrets` argument a third time, and it arrives the same way -- a dependency an implementation crate may not reach through `tradr-core` has to become a crate of its own.
+
+**A trait wraps it, where `tradr-oidc`'s does not.** The reason is that there is a second implementation and the composition root must not choose between them by editing itself: a receiver verifies incrementally as pieces arrive, and a whole-file check after an interrupted transfer resumes is the same question asked over a file already on disk. What that buys over a plain function is a test double, which is how `tradr-core`'s resumption tests state what a failed verification does without hashing anything.
 
 ### Direction of dependency
 

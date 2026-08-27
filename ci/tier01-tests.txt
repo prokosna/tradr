@@ -1,0 +1,24 @@
+# ci/tier01-tests.txt
+#
+# The inventory ci/no-brokr.sh runs, under a network namespace sealed to
+# loopback, to give Invariant I1 (ADR-0005, CLAUDE.md section 8) teeth:
+# every Tier 0 and Tier 1 feature named here must pass with no route to
+# anything but loopback, so no reachable Brokr can be why it passed.
+#
+# One entry per line, three fields separated by "|":
+#   crate       - the crate directory under crates/
+#   test-target - names crates/<crate>/tests/<test-target>.rs
+#   reason      - why the target's subject is Tier 0 or Tier 1 behaviour
+#
+# Blank lines and lines starting with "#" are ignored.
+# An entry whose test target does not exist, or whose reason is empty,
+# makes ci/no-brokr.sh fail: an inventory that has stopped counting must
+# not stay green.
+
+tradr-discovery | mdns | ADR-0005's tier table: Tier 0 requires nothing. MdnsSource and the LAN advertiser this drives are the discovery path a device reaches with no Brokr at all.
+tradr-transport | quic_transport | A real loopback QUIC dial, accept and mutual-TLS-pinned channel is the Tier 0/1 connection a peer makes from a bare address; a Brokr is never on that path.
+tradr-transport | quic_streams | Bidirectional streams over the same real loopback QUIC handshake quic_transport dials; the wire path a transfer runs over opens with no Brokr reachable.
+tauri-plugin-tradr | handshake | perform_handshake drives the 4-step Hello exchange every Tier 0/1 connection completes before any transfer; nothing in it may depend on reaching a Brokr.
+tradr-vfs | boundary_enforcement | Real filesystem reads and writes through PosixVfs are what Tier 0/1 share browsing and receipt rest on. Critical Module, and independent of any Brokr.
+tradr-vfs | path_sanitization | Destination-path sanitization and collision resolution run on every Tier 0/1 write a peer causes; a Brokr plays no part in either.
+tauri-plugin-tradr | file_transfer | The send/receive transfer engine over a real filesystem is Tier 0's headline promise: a transfer completes with nothing but a reachable LAN peer.
