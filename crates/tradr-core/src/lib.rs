@@ -9,6 +9,7 @@
 mod channel;
 mod chunk_index;
 mod clock;
+mod content;
 mod data;
 mod device_id;
 mod discovery;
@@ -27,6 +28,7 @@ mod vfs;
 pub use channel::{RecvStream, SecureChannel, SendStream, TransportError, TransportId};
 pub use chunk_index::{ChunkIndex, ChunkIndexError, REFERENCE_CHUNK_SIZE_BYTES};
 pub use clock::{Clock, Monotonic, UnixTime, UnixTimeError};
+pub use content::{ContentHash, ContentVerifier, VerificationError};
 pub use data::{
     ChunkDataHeader, ChunkRequest, ChunkRerequest, FlowControl, ItemComplete, TransferProgress,
 };

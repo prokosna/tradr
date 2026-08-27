@@ -8,6 +8,7 @@ members = [
     "crates/tradr-transport",
     "crates/tradr-discovery",
     "crates/tradr-vfs",
+    "crates/tradr-integrity",
     "crates/tradr-secrets",
     "crates/tauri-plugin-tradr",
     "apps/tradr/src-tauri",
