@@ -6,13 +6,13 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.**
 
 ```yaml
-last_updated: 2026-08-27
+last_updated: 2026-08-28
 phase: implementing
 current_milestone: M1
 branch: wi-m1-022-transfer-offer
 implementation_started: true
-work_items_landed: 81
-last_commit: 322477d
+work_items_landed: 82
+last_commit: 5c5af26
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -36,8 +36,8 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-1. **The Offer exchange does not exist in code, and it is what M1's second completion criterion rests on.** `WI-M1-022` and `WI-M1-023` take it. See the finding below: `TransferOffer`, `TransferAccept` and `TransferReject` are fully specified in `proto/tradr/v1/control.proto` and have **no native type in `tradr-core` and no conversion in `tradr-proto`**, so `grep -rl TransferOffer crates/` returns the message-type registry and its test and nothing else. **`ItemAcceptance.resume_chunk` is the only place a Resume Offset is ever carried**, so "a transfer interrupted partway resumes" cannot be demonstrated until it is built, however complete `ItemResumption` is.
-2. **`WI-M1-024`, the listener half of the composition root, goes next and not first.** It cannot be written before `WI-M1-023`: `receive_file` needs `total_bytes`, `content_hash` and a destination `RelPath`, and every one of them arrives in an `OfferItem`. What it is waiting for is now a message, not a decision.
+1. **`WI-M1-023`, the Offer exchange's wire conversion in `tradr-proto`.** `WI-M1-022` gave the five messages native types; nothing can yet build one from a peer's bytes. **This is where an untrusted peer's Offer is first read**, so it is where the hostile cases live -- a `relative_path` that escapes, a `content_hash` of the wrong length, a `size` that disagrees with `total_bytes`, an absent message decoded as a defaulted one. The direct mirror of `WI-M1-008d`, and DCR-058's table is its specification.
+2. **`WI-M1-024`, the listener half of the composition root**, and the place the omitted-item question above has to be answered. It accepts a channel, handshakes on the Control pair, reads an Offer, answers with an Accept carrying the resume position `ItemResumption` derives from what is on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence.**
 3. **ADR-0004's "To verify", still the user's to start**: LAN throughput against 35 MB/s, on two machines. Unchanged by the audit and displaced by it.
 
 **`ble-gatt`'s data path stood here as action 2 and is displaced rather than dropped**, and ADR-0016 records it as open: 20.5% overhead on a transport docs/03 limits to 20-100 KB/s. It needs settling before the BLE data path is cut, not while it is being written -- and M7 is where that path is cut, so nothing in M1 waits on it.
@@ -78,8 +78,9 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M1-022 | PASS | 1 | **The Offer exchange has native types at last**, `TransferOffer`, `OfferItem`, `TransferAccept`, `ItemAcceptance` and `TransferReject` in `crates/tradr-core/src/control.rs` with 25 tests, every refusal DCR-058 names reachable from a test that constructs the state producing it. **Seven refusals were mutation-tested rather than read**: breaking each check fails exactly the test that names it and no other. The REVISE was `ItemAcceptance::is_accepted()` duplicating `accepted()` -- identical body, identical doc comment, both public. Four lines, and rule F3 exists for it: two names for one value make every later call site a coin flip, and they cannot diverge without one becoming a lie. **`resume_chunk`'s bound is in `for_offer` and not in `ItemAcceptance::new`**, because an acceptance does not know the item's chunk count -- the same separation `WI-M1-014a`'s trait made when it "deliberately cannot make" a range check |
 | WI-M1-021 | PASS | 0 | **F-E and F-F closed: the plane rule is now enforced in both directions.** `ItemComplete` is written to and read from the Control pair, the `Refused(WrongPlane)` guard is gone rather than relocated, and `receive_file_inner` dispatches every frame through `classify(_, Plane::Data)` so `Ignorable` is skipped and the three refusals stay distinct. `send_file`'s Data loop now ends on end-of-stream and reads Control once, which is deterministic where a `select!` over two streams would not have been: `read_frame` is not cancellation-safe, and cancelling it mid-frame loses the bytes already consumed. `send_file` and `receive_file` take `SendRequest`/`ReceiveRequest` and `SessionStreams` instead of 8 and 11 positional arguments, so **both `#[allow(clippy::too_many_arguments)]` are deleted** -- what `WI-M1-019`'s A-9 asked for at the crate level, now true at the function level too |
-| WI-M1-022 | **The Offer exchange's vocabulary in `tradr-core`.** `TransferOffer`, `OfferItem`, `TransferAccept`, `ItemAcceptance`, `TransferReject`, and the two enums `OfferOrigin` and `RejectReason`, as Layer 0 data with invariants and no wire type anywhere in them. The direct mirror of `WI-M1-008b`, which is why it is not Critical and `WI-M1-023` is where the hostile cases go | in flight | |
+| WI-M1-022 | **The Offer exchange's vocabulary in `tradr-core`.** `TransferOffer`, `OfferItem`, `TransferAccept`, `ItemAcceptance`, `TransferReject`, and the two enums `OfferOrigin` and `RejectReason`, as Layer 0 data with invariants and no wire type anywhere in them. The direct mirror of `WI-M1-008b`, which is why it is not Critical and `WI-M1-023` is where the hostile cases go | **done** -- PASS after one REVISE, and the finding was a duplicated public accessor | |
 | WI-M1-023 | **The Offer exchange's wire conversion in `tradr-proto`**, between `control.proto`'s five messages and `WI-M1-022`'s native types. **Where an untrusted peer's Offer is first read**, so it is where the hostile cases live: a `relative_path` that escapes, a `content_hash` of the wrong length, a `size` that disagrees with `total_bytes`, an `item_id` repeated. The direct mirror of `WI-M1-008d` | todo | |
 | WI-M1-024 | **The listener half of the composition root.** A task that accepts a channel from `Incoming`, runs `perform_handshake` on the Control pair, reads a `TransferOffer`, answers with a `TransferAccept` carrying the resume position `ItemResumption` derives from what is already on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence**, which is why it goes before the sending half | todo | |
 | WI-M1-025 | **The sending half and the command surface.** Dial, offer, send; the Tauri commands `lib.rs` does not yet register; the peer list from `MdnsSource` surfaced to the UI; progress events; and the drag-and-drop target that makes M1's first criterion something a user can perform | todo | |
@@ -254,6 +255,8 @@ Checklist items D (tests) were **not applicable** rather than skipped: WI-M0-001
 work_items: []
 blocked: []
 ```
+
+**`WI-M1-022` left one thing unspecified and the Work Order is where it belongs, not the code.** `TransferAccept::for_offer` refuses an acceptance naming an item the offer does not carry, and **does not require that every offered item is answered.** Neither DCR-058 nor docs/04 says what an omitted item means -- silently declined, or a malformed Accept -- so the Implementer could not have known and did not invent one. **`WI-M1-024` is where it bites**: a listener that reads an Accept has to decide whether to send the items nobody mentioned. Settle it in the Work Order for `WI-M1-023` or `WI-M1-024`, whichever reaches it first.
 
 **`WI-M1-021` closed F-E and F-F and the four negative tests were validated by mutation rather than by report.** Four single-change mutations, each reverting one line of the repair, and each failing exactly the tests that name it: restoring the `WrongPlane` guard fails `item_complete_on_the_data_stream_is_refused` alone; replacing `classify`'s own refusal text with a constant fails the two message-asserting refusal tests and neither other; turning the `Ignorable` arm into an error fails only `an_unassigned_data_plane_code_is_skipped`; and reading the Control stream as `Plane::Data` fails three of the four pre-existing round trips. **That last one is the evidence the move actually happened** -- it is the only mutation that proves `ItemComplete` now arrives on Control rather than merely that the Data stream refuses it.
 

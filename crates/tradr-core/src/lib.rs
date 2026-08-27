@@ -10,6 +10,7 @@ mod channel;
 mod chunk_index;
 mod clock;
 mod content;
+mod control;
 mod data;
 mod device_id;
 mod discovery;
@@ -29,6 +30,10 @@ pub use channel::{RecvStream, SecureChannel, SendStream, TransportError, Transpo
 pub use chunk_index::{ChunkIndex, ChunkIndexError, REFERENCE_CHUNK_SIZE_BYTES};
 pub use clock::{Clock, Monotonic, UnixTime, UnixTimeError};
 pub use content::{ContentHash, ContentVerifier, VerificationError};
+pub use control::{
+    ItemAcceptance, ItemAcceptanceError, OfferItem, OfferItemError, OfferOrigin, RejectReason,
+    TransferAccept, TransferAcceptError, TransferOffer, TransferOfferError, TransferReject,
+};
 pub use data::{
     ChunkDataError, ChunkDataHeader, ChunkRequest, ChunkRerequest, FlowControl, ItemComplete,
     TransferProgress,
