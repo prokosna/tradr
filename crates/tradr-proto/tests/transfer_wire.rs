@@ -65,10 +65,10 @@ fn chunk_data_header_round_trips_through_wire_and_frames() {
         sample_item(),
         ChunkIndex::new(4),
         4096,
-        vec![0xaa, 0xbb, 0xcc, 0xdd],
         true,
         8192,
-    );
+    )
+    .expect("every field is inside its bound");
     let bytes = encode_chunk_data_header_frame(&header, 65536).expect("encoding must succeed");
 
     let mut decoder = FrameDecoder::new(65536);

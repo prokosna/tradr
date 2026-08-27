@@ -4,10 +4,11 @@
 use std::fmt;
 
 use tradr_core::{
-    ChunkDataHeader, ChunkIndex, ChunkRequest, ItemComplete, ItemId, ItemResumption,
-    REFERENCE_CHUNK_SIZE_BYTES, RecvStream, RelPath, RootId, SendStream, TransferId,
-    TransportError, Vfs, VfsError,
+    ChunkDataHeader, ChunkIndex, ChunkRequest, ContentHash, ContentVerifier, ItemComplete, ItemId,
+    ItemResumption, REFERENCE_CHUNK_SIZE_BYTES, RecvStream, RelPath, RootId, SendStream,
+    TransferId, TransportError, Vfs, VfsError,
 };
+use tradr_integrity::{outboard, slice};
 use tradr_proto::data::{
     TransferFrameError, decode_chunk_data_header_frame, decode_chunk_request_frame,
     decode_chunk_rerequest_frame, decode_item_complete_frame, encode_chunk_data_header_frame,
@@ -79,7 +80,7 @@ impl From<VfsError> for TransferSessionError {
     }
 }
 
-// Reads the exact byte count required into buffer without leaving stream offset unaligned.
+// Reading exact byte count prevents unaligned stream offsets on subsequent frames.
 async fn read_exact(
     recv: &mut (impl RecvStream + ?Sized),
     mut buf: &mut [u8],
@@ -97,7 +98,7 @@ async fn read_exact(
     Ok(())
 }
 
-// Decodes a complete framed message from the receive stream using the length prefix.
+// Length prefix is decoded before payload to enforce frame size boundaries.
 async fn read_frame(
     recv: &mut (impl RecvStream + ?Sized),
     max_frame_size: u32,
@@ -135,7 +136,7 @@ async fn read_frame(
     Ok(frame)
 }
 
-// Resolves destination filename collisions using VFS stat queries.
+// Appends incremental collision counters to prevent overwriting existing files at destination.
 async fn resolve_destination_path(
     vfs: &impl Vfs,
     root: RootId,
@@ -184,6 +185,24 @@ async fn resolve_destination_path(
     ))
 }
 
+// Removes abandoned partial files to prevent unverified artifacts remaining on disk.
+async fn cleanup_partial(
+    vfs: &impl Vfs,
+    root: RootId,
+    partial_file_rel: &RelPath,
+    partial_dir: &RelPath,
+) -> Result<(), VfsError> {
+    match vfs.remove(root, partial_file_rel).await {
+        Ok(()) | Err(VfsError::NotFound) => {}
+        Err(e) => return Err(e),
+    }
+    match vfs.remove(root, partial_dir).await {
+        Ok(()) | Err(VfsError::NotFound) | Err(VfsError::WrongKind) => {}
+        Err(e) => return Err(e),
+    }
+    Ok(())
+}
+
 /// Drives the sending side of a file transfer session over connected streams.
 #[allow(clippy::too_many_arguments)]
 pub async fn send_file(
@@ -199,6 +218,23 @@ pub async fn send_file(
     let read_handle = vfs.open_read(root, rel_path).await?;
     let meta = vfs.stat(root, rel_path).await?;
     let total_bytes = meta.size_bytes;
+
+    let mut file_content = vec![0u8; total_bytes as usize];
+    let mut read_bytes = 0;
+    while read_bytes < file_content.len() {
+        let n = read_handle
+            .read_at(read_bytes as u64, &mut file_content[read_bytes..])
+            .await
+            .map_err(TransferSessionError::Vfs)?;
+        if n == 0 {
+            return Err(TransferSessionError::ProtocolViolation(
+                "unexpected EOF while reading local file".to_string(),
+            ));
+        }
+        read_bytes += n;
+    }
+
+    let (outboard_data, _) = outboard(&file_content);
 
     loop {
         let frame = read_frame(recv, max_frame_size).await?;
@@ -217,39 +253,28 @@ pub async fn send_file(
                         break;
                     }
                     let remaining = total_bytes.saturating_sub(chunk_offset);
-                    let chunk_len = (remaining.min(REFERENCE_CHUNK_SIZE_BYTES)) as usize;
+                    let chunk_len = remaining.min(REFERENCE_CHUNK_SIZE_BYTES);
 
-                    let mut payload = vec![0u8; chunk_len];
-                    let mut read_bytes = 0;
-                    while read_bytes < chunk_len {
-                        let n = read_handle
-                            .read_at(chunk_offset + read_bytes as u64, &mut payload[read_bytes..])
-                            .await
-                            .map_err(TransferSessionError::Vfs)?;
-                        if n == 0 {
-                            return Err(TransferSessionError::ProtocolViolation(
-                                "unexpected EOF while reading local file".to_string(),
-                            ));
-                        }
-                        read_bytes += n;
-                    }
+                    let piece_slice = slice(&file_content, &outboard_data, chunk_offset, chunk_len)
+                        .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
 
-                    let is_last = (chunk_offset + chunk_len as u64) >= total_bytes;
+                    let is_last = (chunk_offset + chunk_len) >= total_bytes;
                     let header = ChunkDataHeader::new(
                         transfer_id,
                         item_id,
                         ChunkIndex::new(c),
-                        chunk_len as u32,
-                        Vec::new(),
+                        piece_slice.len() as u32,
                         is_last,
                         0,
-                    );
+                    )
+                    .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
+
                     let header_frame = encode_chunk_data_header_frame(&header, max_frame_size)
                         .map_err(TransferSessionError::Proto)?;
                     send.write_all(&header_frame)
                         .await
                         .map_err(TransferSessionError::from)?;
-                    send.write_all(&payload)
+                    send.write_all(&piece_slice)
                         .await
                         .map_err(TransferSessionError::from)?;
                 }
@@ -264,39 +289,28 @@ pub async fn send_file(
                         continue;
                     }
                     let remaining = total_bytes.saturating_sub(chunk_offset);
-                    let chunk_len = (remaining.min(REFERENCE_CHUNK_SIZE_BYTES)) as usize;
+                    let chunk_len = remaining.min(REFERENCE_CHUNK_SIZE_BYTES);
 
-                    let mut payload = vec![0u8; chunk_len];
-                    let mut read_bytes = 0;
-                    while read_bytes < chunk_len {
-                        let n = read_handle
-                            .read_at(chunk_offset + read_bytes as u64, &mut payload[read_bytes..])
-                            .await
-                            .map_err(TransferSessionError::Vfs)?;
-                        if n == 0 {
-                            return Err(TransferSessionError::ProtocolViolation(
-                                "unexpected EOF while reading local file".to_string(),
-                            ));
-                        }
-                        read_bytes += n;
-                    }
+                    let piece_slice = slice(&file_content, &outboard_data, chunk_offset, chunk_len)
+                        .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
 
-                    let is_last = (chunk_offset + chunk_len as u64) >= total_bytes;
+                    let is_last = (chunk_offset + chunk_len) >= total_bytes;
                     let header = ChunkDataHeader::new(
                         transfer_id,
                         item_id,
                         ChunkIndex::new(c),
-                        chunk_len as u32,
-                        Vec::new(),
+                        piece_slice.len() as u32,
                         is_last,
                         0,
-                    );
+                    )
+                    .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
+
                     let header_frame = encode_chunk_data_header_frame(&header, max_frame_size)
                         .map_err(TransferSessionError::Proto)?;
                     send.write_all(&header_frame)
                         .await
                         .map_err(TransferSessionError::from)?;
-                    send.write_all(&payload)
+                    send.write_all(&piece_slice)
                         .await
                         .map_err(TransferSessionError::from)?;
                 }
@@ -321,27 +335,25 @@ pub async fn send_file(
     }
 }
 
-/// Drives the receiving side of a file transfer session over connected streams.
+// Processes incoming chunk streams and verifies cryptographic integrity before disk placement.
 #[allow(clippy::too_many_arguments)]
-pub async fn receive_file(
+async fn receive_file_inner(
     vfs: &impl Vfs,
     root: RootId,
     dest_rel_path: &RelPath,
     total_bytes: u64,
+    content_hash: &ContentHash,
+    verifier: &dyn ContentVerifier,
     send: &mut impl SendStream,
     recv: &mut impl RecvStream,
     transfer_id: TransferId,
     item_id: ItemId,
     max_frame_size: u32,
+    partial_file_rel: &RelPath,
 ) -> Result<RelPath, TransferSessionError> {
-    let partial_dir = RelPath::new(&format!(".tradr-partial/{transfer_id}"))
-        .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
-    vfs.create_dir(root, &partial_dir).await?;
-
-    let partial_file_rel = partial_file_rel_path(transfer_id, 0);
-    let mut write_handle = vfs.open_write(root, &partial_file_rel).await?;
-
+    let mut write_handle = vfs.open_write(root, partial_file_rel).await?;
     let mut resumption = ItemResumption::new(item_id, total_bytes);
+    let total_chunks = resumption.total_chunks();
 
     while !resumption.is_item_complete() {
         let (from_chunk, count) = match resumption.next_chunk_request(64) {
@@ -367,13 +379,48 @@ pub async fn receive_file(
 
             let header =
                 decode_chunk_data_header_frame(&frame).map_err(TransferSessionError::Proto)?;
-            let mut payload = vec![0u8; header.payload_len() as usize];
-            read_exact(recv, &mut payload).await?;
+
+            // Bounding payload length before buffer allocation prevents memory exhaustion from hostile peers.
+            let payload_len = header.payload_len();
+            if payload_len > max_frame_size {
+                return Err(TransferSessionError::ProtocolViolation(format!(
+                    "payload_len {payload_len} exceeds max_frame_size {max_frame_size}"
+                )));
+            }
+
+            let mut slice_payload = vec![0u8; payload_len as usize];
+            read_exact(recv, &mut slice_payload).await?;
+
+            // Bounding chunk index against total chunks prevents sparse file expansion from huge indices.
+            if header.chunk_index().value() >= total_chunks {
+                return Err(TransferSessionError::ProtocolViolation(format!(
+                    "chunk index {} is out of bounds for item with {total_chunks} chunks",
+                    header.chunk_index().value()
+                )));
+            }
 
             let offset = header.chunk_index().value() * REFERENCE_CHUNK_SIZE_BYTES
                 + header.offset_in_chunk() as u64;
+
+            if offset >= total_bytes {
+                return Err(TransferSessionError::ProtocolViolation(
+                    "piece offset is beyond total item length".to_string(),
+                ));
+            }
+
+            // Computing expected content length locally prevents trusting peer size claims.
+            let remaining_item = total_bytes.saturating_sub(offset);
+            let remaining_chunk =
+                REFERENCE_CHUNK_SIZE_BYTES.saturating_sub(header.offset_in_chunk() as u64);
+            let content_len = remaining_item.min(remaining_chunk);
+
+            // Verifying before placement prevents unverified bytes from reaching durable storage.
+            let verified_bytes = verifier
+                .verify(content_hash, offset, content_len, &slice_payload)
+                .map_err(|_| TransferSessionError::VerificationFailed)?;
+
             write_handle
-                .write_at(offset, &payload)
+                .write_at(offset, &verified_bytes)
                 .await
                 .map_err(TransferSessionError::Vfs)?;
             write_handle
@@ -381,13 +428,15 @@ pub async fn receive_file(
                 .await
                 .map_err(TransferSessionError::Vfs)?;
 
+            // Resumption tracking is updated only after cryptographic proof succeeds.
             let is_chunk_complete = resumption
                 .record_piece(
                     header.chunk_index(),
                     header.offset_in_chunk(),
-                    header.payload_len(),
+                    verified_bytes.len() as u32,
                 )
                 .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
+
             if is_chunk_complete {
                 resumption
                     .mark_verified(header.chunk_index())
@@ -402,8 +451,19 @@ pub async fn receive_file(
 
     drop(write_handle);
 
+    let is_verified = resumption.is_item_complete();
+    if !is_verified {
+        let item_complete = ItemComplete::new(transfer_id, item_id, false, None);
+        let complete_bytes = encode_item_complete_frame(&item_complete, max_frame_size)
+            .map_err(TransferSessionError::Proto)?;
+        send.write_all(&complete_bytes)
+            .await
+            .map_err(TransferSessionError::from)?;
+        return Err(TransferSessionError::VerificationFailed);
+    }
+
     let final_path = resolve_destination_path(vfs, root, dest_rel_path).await?;
-    vfs.rename(root, &partial_file_rel, &final_path).await?;
+    vfs.rename(root, partial_file_rel, &final_path).await?;
 
     let item_complete = ItemComplete::new(transfer_id, item_id, true, Some(final_path.clone()));
     let complete_bytes = encode_item_complete_frame(&item_complete, max_frame_size)
@@ -413,4 +473,53 @@ pub async fn receive_file(
         .map_err(TransferSessionError::from)?;
 
     Ok(final_path)
+}
+
+/// Drives the receiving side of a file transfer session over connected streams.
+#[allow(clippy::too_many_arguments)]
+pub async fn receive_file(
+    vfs: &impl Vfs,
+    root: RootId,
+    dest_rel_path: &RelPath,
+    total_bytes: u64,
+    content_hash: &ContentHash,
+    verifier: &dyn ContentVerifier,
+    send: &mut impl SendStream,
+    recv: &mut impl RecvStream,
+    transfer_id: TransferId,
+    item_id: ItemId,
+    max_frame_size: u32,
+) -> Result<RelPath, TransferSessionError> {
+    let partial_dir = RelPath::new(&format!(".tradr-partial/{transfer_id}"))
+        .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
+    vfs.create_dir(root, &partial_dir).await?;
+
+    let partial_file_rel = partial_file_rel_path(transfer_id, 0);
+
+    let res = receive_file_inner(
+        vfs,
+        root,
+        dest_rel_path,
+        total_bytes,
+        content_hash,
+        verifier,
+        send,
+        recv,
+        transfer_id,
+        item_id,
+        max_frame_size,
+        &partial_file_rel,
+    )
+    .await;
+
+    if res.is_err()
+        && let Err(clean_err) = cleanup_partial(vfs, root, &partial_file_rel, &partial_dir).await
+    {
+        match clean_err {
+            VfsError::NotFound | VfsError::WrongKind => {}
+            other => return Err(TransferSessionError::Vfs(other)),
+        }
+    }
+
+    res
 }

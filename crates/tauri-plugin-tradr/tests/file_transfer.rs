@@ -7,6 +7,7 @@ use tauri_plugin_tradr::transfer::{TransferSessionError, receive_file, send_file
 use tradr_core::{
     BoxFuture, ItemId, RecvStream, RelPath, RootId, SendStream, TransferId, TransportError,
 };
+use tradr_integrity::{BaoVerifier, outboard};
 use tradr_vfs::PosixVfs;
 
 const VALID_V7: &str = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
@@ -115,6 +116,7 @@ async fn single_chunk_file_transfer_succeeds_end_to_end() {
     let file_content = vec![0x42u8; 42 * 1024];
     std::fs::write(sender_dir.path().join("document.pdf"), &file_content).unwrap();
 
+    let (_, hash) = outboard(&file_content);
     let (mut sender_streams, mut receiver_streams) = memory_stream_pair();
     let transfer_id = sample_transfer();
     let item_id = sample_item();
@@ -137,6 +139,8 @@ async fn single_chunk_file_transfer_succeeds_end_to_end() {
         root_receiver,
         &dest_rel,
         file_content.len() as u64,
+        &hash,
+        &BaoVerifier,
         &mut receiver_streams.0,
         &mut receiver_streams.1,
         transfer_id,
@@ -181,6 +185,7 @@ async fn multi_mebibyte_file_transfer_succeeds_across_multiple_chunks() {
     let src_rel = RelPath::new("large_video.mp4").unwrap();
     let dest_rel = RelPath::new("large_video.mp4").unwrap();
 
+    let (_, hash) = outboard(&file_content);
     let (mut sender_streams, mut receiver_streams) = memory_stream_pair();
     let transfer_id = sample_transfer();
     let item_id = sample_item();
@@ -201,11 +206,13 @@ async fn multi_mebibyte_file_transfer_succeeds_across_multiple_chunks() {
         root_receiver,
         &dest_rel,
         file_content.len() as u64,
+        &hash,
+        &BaoVerifier,
         &mut receiver_streams.0,
         &mut receiver_streams.1,
         transfer_id,
         item_id,
-        1048576 + 4096,
+        2 * 1024 * 1024,
     );
 
     let (sender_res, receiver_res) = tokio::try_join!(sender_task, receiver_task).unwrap();
@@ -244,6 +251,7 @@ async fn collision_resolution_safely_renames_existing_file() {
     let src_rel = RelPath::new("photo.jpg").unwrap();
     let dest_rel = RelPath::new("photo.jpg").unwrap();
 
+    let (_, hash) = outboard(new_content);
     let (mut sender_streams, mut receiver_streams) = memory_stream_pair();
     let transfer_id = sample_transfer();
     let item_id = sample_item();
@@ -264,6 +272,8 @@ async fn collision_resolution_safely_renames_existing_file() {
         root_receiver,
         &dest_rel,
         new_content.len() as u64,
+        &hash,
+        &BaoVerifier,
         &mut receiver_streams.0,
         &mut receiver_streams.1,
         transfer_id,

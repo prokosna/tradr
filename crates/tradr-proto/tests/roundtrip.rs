@@ -106,7 +106,6 @@ fn chunk_data_round_trips_with_offset_in_chunk() {
         item_id: "item-7".to_string(),
         chunk_index: 3,
         payload_len: 262_144,
-        verify_path: vec![9; 32],
         last: false,
         offset_in_chunk: 786_432,
     };
@@ -128,7 +127,6 @@ fn chunk_data_zero_offset_in_chunk_costs_nothing_on_the_wire() {
         item_id: "item-7".to_string(),
         chunk_index: 3,
         payload_len: 262_144,
-        verify_path: vec![9; 32],
         last: false,
         offset_in_chunk: 0,
     };
@@ -170,7 +168,6 @@ fn chunk_data_subdivided_pieces_of_one_reference_chunk_are_distinguishable() {
             item_id: "item-7".to_string(),
             chunk_index,
             payload_len: PIECE_SIZE,
-            verify_path: vec![piece_num as u8; 32],
             last: piece_num == 3,
             offset_in_chunk: piece_num * PIECE_SIZE,
         })

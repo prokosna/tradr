@@ -44,16 +44,15 @@ fn chunk_data_header_constructs_and_exposes_subdivision_fields() {
         sample_item(),
         ChunkIndex::new(2),
         4096,
-        vec![1, 2, 3, 4],
         false,
         8192,
-    );
+    )
+    .expect("every field is inside its bound");
 
     assert_eq!(header.transfer_id(), sample_transfer());
     assert_eq!(header.item_id(), &sample_item());
     assert_eq!(header.chunk_index(), ChunkIndex::new(2));
     assert_eq!(header.payload_len(), 4096);
-    assert_eq!(header.verify_path(), &[1, 2, 3, 4]);
     assert!(!header.is_last());
     assert_eq!(header.offset_in_chunk(), 8192);
 }

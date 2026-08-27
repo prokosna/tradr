@@ -4554,6 +4554,7 @@ dependencies = [
  "tradr-core",
  "tradr-discovery",
  "tradr-identity",
+ "tradr-integrity",
  "tradr-oidc",
  "tradr-proto",
  "tradr-secrets",

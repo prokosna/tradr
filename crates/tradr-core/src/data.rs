@@ -2,7 +2,7 @@
 //! Covers chunk requests, rerequests, data stream headers, completion
 //! signals, receiver flow control, and transfer progress metrics.
 
-use crate::{ChunkIndex, ItemId, RelPath, TransferId};
+use crate::{ChunkIndex, ItemId, REFERENCE_CHUNK_SIZE_BYTES, RelPath, TransferId};
 
 /// A pull-based request for a batch of sequential chunks of an Item.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,38 +84,77 @@ impl ChunkRerequest {
     }
 }
 
-/// The protobuf header preceding raw chunk payload bytes on a data stream.
+/// Why a `ChunkDataHeader` could not be constructed. Each variant is one of
+/// the three bounds docs/04 says a receiver must check before an absolute
+/// offset is ever computed from a peer's claim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChunkDataError {
+    /// `offset_in_chunk` was not below `REFERENCE_CHUNK_SIZE_BYTES`.
+    OffsetOutsideReferenceChunk,
+    /// `payload_len` was zero; a bao slice carries an 8-byte length header
+    /// at minimum, so an empty payload cannot be a well-formed slice.
+    EmptyPayload,
+    /// `chunk_index`'s byte offset does not fit in a `u64`.
+    ChunkIndexOverflow,
+}
+
+impl std::fmt::Display for ChunkDataError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OffsetOutsideReferenceChunk => {
+                write!(f, "offset_in_chunk is not inside the reference chunk")
+            }
+            Self::EmptyPayload => write!(f, "payload_len must be non-zero"),
+            Self::ChunkIndexOverflow => write!(f, "chunk_index overflows u64 as a byte offset"),
+        }
+    }
+}
+
+impl std::error::Error for ChunkDataError {}
+
+/// The protobuf header preceding a bao slice on a data stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChunkDataHeader {
     transfer_id: TransferId,
     item_id: ItemId,
     chunk_index: ChunkIndex,
     payload_len: u32,
-    verify_path: Vec<u8>,
     last: bool,
     offset_in_chunk: u32,
 }
 
 impl ChunkDataHeader {
-    /// Creates a new `ChunkDataHeader`.
+    /// Creates a new `ChunkDataHeader`, refusing a peer's claim that fails
+    /// one of the three bounds docs/04 requires be checked before an
+    /// absolute offset is ever computed: `offset_in_chunk` inside the
+    /// reference chunk, a non-zero `payload_len`, and a `chunk_index` whose
+    /// byte offset fits in `u64`.
     pub fn new(
         transfer_id: TransferId,
         item_id: ItemId,
         chunk_index: ChunkIndex,
         payload_len: u32,
-        verify_path: Vec<u8>,
         last: bool,
         offset_in_chunk: u32,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ChunkDataError> {
+        if offset_in_chunk as u64 >= REFERENCE_CHUNK_SIZE_BYTES {
+            return Err(ChunkDataError::OffsetOutsideReferenceChunk);
+        }
+        if payload_len == 0 {
+            return Err(ChunkDataError::EmptyPayload);
+        }
+        chunk_index
+            .byte_offset()
+            .map_err(|_| ChunkDataError::ChunkIndexOverflow)?;
+
+        Ok(Self {
             transfer_id,
             item_id,
             chunk_index,
             payload_len,
-            verify_path,
             last,
             offset_in_chunk,
-        }
+        })
     }
 
     /// The transfer this chunk belongs to.
@@ -133,14 +172,9 @@ impl ChunkDataHeader {
         self.chunk_index
     }
 
-    /// Length of the raw payload following this header in bytes.
+    /// Byte count of the bao slice following this header.
     pub fn payload_len(&self) -> u32 {
         self.payload_len
-    }
-
-    /// The BLAKE3 tree path (bao outboard) for incremental verification.
-    pub fn verify_path(&self) -> &[u8] {
-        &self.verify_path
     }
 
     /// Whether this is the final piece of the item.

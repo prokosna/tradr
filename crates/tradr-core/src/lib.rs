@@ -30,7 +30,8 @@ pub use chunk_index::{ChunkIndex, ChunkIndexError, REFERENCE_CHUNK_SIZE_BYTES};
 pub use clock::{Clock, Monotonic, UnixTime, UnixTimeError};
 pub use content::{ContentHash, ContentVerifier, VerificationError};
 pub use data::{
-    ChunkDataHeader, ChunkRequest, ChunkRerequest, FlowControl, ItemComplete, TransferProgress,
+    ChunkDataError, ChunkDataHeader, ChunkRequest, ChunkRerequest, FlowControl, ItemComplete,
+    TransferProgress,
 };
 pub use device_id::{DEVICE_ID_LEN, DeviceId, DeviceIdError};
 pub use discovery::{

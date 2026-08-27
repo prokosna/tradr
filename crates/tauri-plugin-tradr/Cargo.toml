@@ -20,6 +20,7 @@ tradr-discovery = { path = "../tradr-discovery" }
 tradr-vfs = { path = "../tradr-vfs" }
 tradr-secrets = { path = "../tradr-secrets" }
 tradr-proto = { path = "../tradr-proto" }
+tradr-integrity = { path = "../tradr-integrity" }
 tauri = { version = "2.11", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
