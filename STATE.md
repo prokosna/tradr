@@ -256,6 +256,8 @@ blocked: []
 
 **One more thing the review had to check rather than accept**: the report said `ci/no-brokr.sh` "exits 0 and skips". It exits 1. Nothing followed from the error, but a Supervisor that had taken it at face value would have recorded that `WI-M1-017` shipped a check that fails open.
 
+**The audit is open as PR #30**, carrying nine commits: four Work Items and five design changes ahead of them.
+
 **The user settled two things on 2026-08-27 and both narrow what follows.**
 
 **The whole audit is one Work Item, not six.** Asked whether to split `wi-m1-015-deny-list` into a pull request per Work Item, the answer was to treat the repair of the four merged pull requests as a single unit. **So section 5's one-branch-one-Work-Item rule is satisfied by reading the audit as the Work Item**, rather than deviated from: the branch holds DCR-054, DCR-055, `WI-M1-017`, DCR-056, `WI-M1-015` and `WI-M1-014a` because they are one repair, and `WI-M1-018` folds in everything still outstanding. This is recorded rather than assumed, because the numbering already issued cannot be withdrawn from the table without losing what each round found.
