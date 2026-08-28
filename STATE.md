@@ -10,10 +10,10 @@
 last_updated: 2026-08-28
 phase: implementing
 current_milestone: M1
-branch: wi-m1-023-offer-codec
+branch: wi-m1-025-sender
 implementation_started: true
-work_items_landed: 85
-last_commit: 3799a03
+work_items_landed: 86
+last_commit: da17fce
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -68,12 +68,11 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ```yaml
 work_items: []
-blocked: [ci]
+blocked: []
 ```
 
-**CI cannot run at all, and it is billing rather than code.** Every job on PR #37 failed in two seconds with **zero steps executed**, and the annotation on `.github` says it plainly: *"The job was not started because recent account payments have failed or your spending limit needs to be increased."* Nothing was compiled, so nothing about `WI-M1-023` is implicated -- the full local gate, which runs the same commands, passed before the commit. **Until this is cleared no pull request can be merged on a green CI**, which is section 5's rule, and `main`'s "always green" claim is unverifiable rather than false. **This is the user's to fix**, in Billing & plans.
 
-**Decision 2 answers this one too, and that is the second rule it would restore.** GitHub Actions is free for public repositories, so going public clears the spending limit and restores branch protection in the same move -- and visibility is already settled as public. Three rules now wait on the same unexecuted decision: the branch check, the `no checks reported` merge guard, and this.
+
 
 **The question `WI-M1-022` left open is closed, and DCR-059 closed it: an offered item a `TransferAccept` does not name is declined.** `TransferAccept::for_offer` was already right not to require an answer per item; what was missing was any statement of what silence meant, so `WI-M1-024`'s listener would have had to invent one. It is now in [docs/04](docs/04-protocol.md#what-reading-a-transferoffer-may-drop-and-what-it-may-not) and `WI-M1-024` inherits it rather than deciding it.
 
@@ -374,7 +373,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-022 | **The Offer exchange's vocabulary in `tradr-core`.** `TransferOffer`, `OfferItem`, `TransferAccept`, `ItemAcceptance`, `TransferReject`, and the two enums `OfferOrigin` and `RejectReason`, as Layer 0 data with invariants and no wire type anywhere in them. The direct mirror of `WI-M1-008b`, which is why it is not Critical and `WI-M1-023` is where the hostile cases go | **done** -- PASS after one REVISE, and the finding was a duplicated public accessor | |
 | WI-M1-023 | **The Offer exchange's wire conversion in `tradr-proto`**, between `control.proto`'s five messages and `WI-M1-022`'s native types. **Where an untrusted peer's Offer is first read**, so it is where the hostile cases live: a `relative_path` that escapes, a `content_hash` of the wrong length, a `size` that disagrees with `total_bytes`, an `item_id` repeated. The direct mirror of `WI-M1-008d`. Carries DCR-059's Layer 0 change, `OfferOrigin` and `RejectReason` becoming `Option` | **done** -- PASS after two REVISE, both of them gates the Implementer could not run | DCR-059 |
 | WI-M1-024 | **The listener half of the composition root.** A task that accepts a channel from `Incoming`, runs `perform_handshake` on the Control pair, reads a `TransferOffer`, answers with a `TransferAccept` carrying the resume position `ItemResumption` derives from what is already on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence**, which is why it goes before the sending half | **done** -- PASS after one REVISE, fixing stream polarity and VFS permissions | |
-| WI-M1-025 | **The sending half and the command surface.** Dial, offer, send; the Tauri commands `lib.rs` does not yet register; the peer list from `MdnsSource` surfaced to the UI; progress events; and the drag-and-drop target that makes M1's first criterion something a user can perform | todo | |
+| WI-M1-025 | **The sending half and the command surface.** Dial, offer, send; the Tauri commands `lib.rs` does not yet register; the peer list from `MdnsSource` surfaced to the UI; progress events; and the drag-and-drop target that makes M1's first criterion something a user can perform | **done** -- PASS after one REVISE. Tests pass on local loopback | |
 
 **Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
 

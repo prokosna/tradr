@@ -13,8 +13,10 @@ use tauri::{
 #[cfg(target_os = "android")]
 mod android;
 mod attestation;
+pub mod commands;
 pub mod handshake;
 mod identity;
+pub mod lifecycle;
 pub mod listener;
 mod sign_in;
 pub mod transfer;
@@ -37,15 +39,22 @@ pub fn init<R: Runtime>(
             sign_in::sign_in_status,
             attestation::attestation_bundle,
             attestation::verify_peer_attestation,
+            commands::get_peers,
+            commands::send_files,
         ])
         .setup(move |app, _api| {
-            let state = identity::init_identity_state(app);
-            app.manage(state);
-            app.manage(OAuthConfig {
+            let identity_state = identity::init_identity_state(app);
+            let sign_in_state = sign_in::SignInState::empty();
+            let oauth_config = OAuthConfig {
                 client_ids,
                 client_secret,
-            });
-            app.manage(sign_in::SignInState::empty());
+            };
+
+            lifecycle::init_lifecycle(app, &identity_state, &sign_in_state)?;
+
+            app.manage(identity_state);
+            app.manage(oauth_config);
+            app.manage(sign_in_state);
 
             #[cfg(target_os = "android")]
             android::demonstrate_bidirectional_calls(_api)?;

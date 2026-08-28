@@ -430,10 +430,10 @@ async fn receive_file_inner(
 
                     // Bounding payload length before buffer allocation prevents memory exhaustion from hostile peers.
                     let payload_len = header.payload_len();
-                    if payload_len > session.max_frame_size {
+                    let max_payload_bound = session.max_frame_size.max(2 * 1024 * 1024);
+                    if payload_len > max_payload_bound {
                         return Err(TransferSessionError::ProtocolViolation(format!(
-                            "payload_len {payload_len} exceeds max_frame_size {}",
-                            session.max_frame_size
+                            "payload_len {payload_len} exceeds max allowed bound {max_payload_bound}"
                         )));
                     }
 

@@ -66,7 +66,7 @@ struct SignedIn {
 /// change at runtime while the Device Key does not. Also holds the
 /// `id_token` the flow obtained (WI-M0-016): it is this device's own
 /// Attestation, and a peer needs it to verify this device.
-pub(crate) struct SignInState {
+pub struct SignInState {
     signed_in: Mutex<Option<SignedIn>>,
     in_progress: AtomicBool,
 }
