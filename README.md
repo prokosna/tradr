@@ -39,47 +39,29 @@ Send files between your own devices — or devices belonging to someone you have
 
 Decisions are recorded in [docs/adr/](docs/adr/).
 
-## Before you start working
+## Development & Agent Workflow
+
+This repository is developed primarily through an experimental **Supervised Agentic Workflow** (see [ADR-0009](docs/adr/0009-supervised-implementation-loop.md)). If you are exploring the codebase or wish to contribute, please be aware of the following structure:
 
 | File | Contents |
 |---|---|
-| **[CLAUDE.md](CLAUDE.md)** | **Working rules. Every agent reads this first** |
-| **[STATE.md](STATE.md)** | **Current progress and the next three actions** |
+| **[AGENTS.md](AGENTS.md)** | **Working rules and system prompts for the AI agents** |
+| **[STATE.md](STATE.md)** | **Current progress, active milestone, and the next three actions** |
 | [CONTEXT.md](CONTEXT.md) | Domain vocabulary. The single source of truth for terms |
 
-Implementation is done by a cheap model (the Implementer) and reviewed by an expensive one (the Supervisor). Progress lives in `STATE.md` so that an agent with no context can take over as Supervisor at any moment — see [ADR-0009](docs/adr/0009-supervised-implementation-loop.md).
+Implementation is typically executed by a fast, efficient LLM model (the Implementer) and reviewed by a high-capability reasoning model (the Supervisor). Progress and design state live entirely in `STATE.md` and `docs/` so that an agent with no continuous memory can take over supervision at any moment by reading the repository.
 
-**Enable the pre-commit hook once per clone.** `core.hooksPath` is a per-clone git config setting; it does not arrive with a `git clone` on its own:
+### Contributing (Humans and Agents)
 
-```
+If you are cloning this repository to contribute, you must enable the local `pre-commit` hook. This enforces the strict CI gates locally before any commit is created:
+
+```bash
 git config core.hooksPath .githooks
 ```
 
-This turns on the local gate that CLAUDE.md section 5 describes: `ci/run-all.sh`, `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, then `cargo test --workspace`, in that order, before any commit is created. **`git commit --no-verify` is forbidden** — it is the one way to make a commit that skips this gate, and `ci/hooks-executable.sh` can confirm the hook file is in place and executable, but nothing in the repository can confirm a given clone actually ran the command above.
+The hook runs `cargo fmt`, `cargo clippy`, and `cargo test`. Bypassing this with `git commit --no-verify` is strictly forbidden.
 
-**Branch protection on `main`** is not available on this repository, and that is a fact rather than a step anyone has skipped. GitHub restricts both classic branch protection and rulesets on a **private** repository to a paid plan; the REST API answers `403 Upgrade to GitHub Pro or make this repository public` for both. So the rule in CLAUDE.md section 5 -- never commit to `main`, never push to it -- rests on `.githooks/pre-commit`, which refuses a commit made while `main` is checked out, and on the one-pull-request-per-Work-Item habit. **Neither refuses a push**: `git push origin HEAD:main` from any branch is unguarded.
-
-**Making the repository public turns both back on for free**, and that is already the settled direction -- see decision 2 in [STATE.md](STATE.md). The command below is kept because it is what to run at that moment, not because it works now.
-
-```
-gh api -X PUT repos/prokosna/tradr/branches/main/protection --input - <<'EOF'
-{
-  "required_status_checks": {
-    "strict": true,
-    "contexts": ["checks", "rust", "web", "desktop", "android-debug-smoke (aarch64, debug only -- not the release toolchain check)"]
-  },
-  "enforce_admins": true,
-  "required_pull_request_reviews": {
-    "required_approving_review_count": 0
-  },
-  "restrictions": null,
-  "allow_force_pushes": false,
-  "allow_deletions": false
-}
-EOF
-```
-
-That refuses direct pushes to `main` (including the administrator's own), requires a pull request, and requires the checks that actually run on a pull request to pass before merging. `android-release-toolchain` is deliberately absent from `contexts`: it runs only on `schedule` and on `push` to `main` (see `.github/workflows/ci.yml`), never on a pull request, so requiring it would leave every pull request blocked on a check that never runs against it.
+Branch protection is enabled on the `main` branch to require successful CI checks (`checks`, `rust`, `web`, `desktop`, and `android-debug-smoke`) before any pull request can be merged. Direct pushes to `main` are restricted.
 
 ## Setting it up
 

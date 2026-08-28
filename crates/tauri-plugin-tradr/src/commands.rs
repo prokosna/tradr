@@ -26,7 +26,7 @@ use crate::handshake::{HandshakeParams, perform_handshake};
 use crate::identity::IdentityState;
 use crate::lifecycle::downloads_root_id;
 use crate::sign_in::SignInState;
-use crate::transfer::{SendRequest, SessionStreams, send_file};
+use crate::transfer::{SendRequest, SessionStreams, send_file_with_progress};
 
 /// Discovered peer representation for the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +39,23 @@ pub struct PeerInfo {
     pub addresses: Vec<String>,
     /// Advertised capability bitmask.
     pub capabilities: u16,
+}
+
+/// Progress payload emitted during file transfer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransferProgressPayload {
+    /// The UUID of the transfer session.
+    pub transfer_id: String,
+    /// The item identifier.
+    pub item_id: String,
+    /// The filename or relative path.
+    pub rel_path: String,
+    /// Number of bytes transferred so far for this item.
+    pub bytes_transferred: u64,
+    /// Total bytes of this item.
+    pub total_bytes: u64,
+    /// Current transfer status: "starting", "transferring", "completed", "failed".
+    pub status: String,
 }
 
 // Bounded length and payload check protects against malicious frame allocations.
@@ -125,8 +142,9 @@ pub(crate) fn generate_transfer_id(rng: &dyn Rng) -> Result<TransferId, String> 
     s.parse::<TransferId>().map_err(|e| e.to_string())
 }
 
-/// Executes the sending side of a file transfer session over an open secure channel.
-pub async fn execute_send_files(
+/// Executes the sending side of a file transfer session over an open secure channel with progress callbacks.
+#[allow(clippy::too_many_arguments)]
+pub async fn execute_send_files_with_progress<F>(
     channel: &dyn SecureChannel,
     vfs: &PosixVfs,
     root: RootId,
@@ -134,7 +152,11 @@ pub async fn execute_send_files(
     identity: &PublicIdentity,
     key_store: &(dyn KeyStore + Sync),
     attestation_token: String,
-) -> Result<Vec<String>, String> {
+    mut on_progress: F,
+) -> Result<Vec<String>, String>
+where
+    F: FnMut(TransferProgressPayload) + Send,
+{
     if file_names.is_empty() {
         return Err("no files provided for transfer".to_string());
     }
@@ -241,6 +263,15 @@ pub async fn execute_send_files(
             .find(|i| i.item_id() == item_acc.item_id())
             .ok_or_else(|| format!("accepted item {} not found in offer", item_acc.item_id()))?;
 
+        on_progress(TransferProgressPayload {
+            transfer_id: transfer_id.to_string(),
+            item_id: offer_item.item_id().to_string(),
+            rel_path: offer_item.rel_path().to_string(),
+            bytes_transferred: 0,
+            total_bytes: offer_item.size(),
+            status: "starting".to_string(),
+        });
+
         let (mut data_send, mut data_recv) = channel
             .open_bi()
             .await
@@ -268,16 +299,70 @@ pub async fn execute_send_files(
             data_recv: data_recv.as_mut(),
         };
 
-        let ok = send_file(vfs, &send_req, &mut streams)
-            .await
-            .map_err(|e| format!("failed sending {}: {e}", offer_item.rel_path()))?;
+        let t_id_str = transfer_id.to_string();
+        let i_id_str = offer_item.item_id().to_string();
+        let r_path_str = offer_item.rel_path().to_string();
+
+        let ok = send_file_with_progress(vfs, &send_req, &mut streams, |bytes_done, total_b| {
+            on_progress(TransferProgressPayload {
+                transfer_id: t_id_str.clone(),
+                item_id: i_id_str.clone(),
+                rel_path: r_path_str.clone(),
+                bytes_transferred: bytes_done,
+                total_bytes: total_b,
+                status: "transferring".to_string(),
+            });
+        })
+        .await
+        .map_err(|e| {
+            on_progress(TransferProgressPayload {
+                transfer_id: t_id_str.clone(),
+                item_id: i_id_str.clone(),
+                rel_path: r_path_str.clone(),
+                bytes_transferred: 0,
+                total_bytes: offer_item.size(),
+                status: "failed".to_string(),
+            });
+            format!("failed sending {}: {e}", offer_item.rel_path())
+        })?;
 
         if ok {
+            on_progress(TransferProgressPayload {
+                transfer_id: t_id_str,
+                item_id: i_id_str,
+                rel_path: r_path_str,
+                bytes_transferred: offer_item.size(),
+                total_bytes: offer_item.size(),
+                status: "completed".to_string(),
+            });
             sent.push(offer_item.rel_path().to_string());
         }
     }
 
     Ok(sent)
+}
+
+/// Executes the sending side of a file transfer session over an open secure channel.
+pub async fn execute_send_files(
+    channel: &dyn SecureChannel,
+    vfs: &PosixVfs,
+    root: RootId,
+    file_names: &[String],
+    identity: &PublicIdentity,
+    key_store: &(dyn KeyStore + Sync),
+    attestation_token: String,
+) -> Result<Vec<String>, String> {
+    execute_send_files_with_progress(
+        channel,
+        vfs,
+        root,
+        file_names,
+        identity,
+        key_store,
+        attestation_token,
+        |_| {},
+    )
+    .await
 }
 
 /// Polls discovered peers from mDNS and returns the current active list.
@@ -333,7 +418,8 @@ pub async fn get_peers(
 /// Dials a discovered peer, negotiates a transfer offer, and transmits the selected files.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub async fn send_files(
+pub async fn send_files<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     peer_id: String,
     files: Vec<String>,
     identity_state: State<'_, IdentityState>,
@@ -385,7 +471,8 @@ pub async fn send_files(
     let key_store = identity_state.key_store()?;
     let attestation_token = sign_in_state.id_token().unwrap_or_default();
 
-    execute_send_files(
+    let app_handle = app.clone();
+    execute_send_files_with_progress(
         channel.as_ref(),
         vfs.as_ref(),
         downloads_root_id(),
@@ -393,6 +480,10 @@ pub async fn send_files(
         &public_identity,
         key_store.as_ref(),
         attestation_token,
+        move |progress| {
+            use tauri::Emitter;
+            let _ = app_handle.emit("transfer-progress", &progress);
+        },
     )
     .await
 }

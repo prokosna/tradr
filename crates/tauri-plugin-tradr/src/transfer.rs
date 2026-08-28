@@ -205,11 +205,15 @@ struct SendSession<'a> {
     max_frame_size: u32,
 }
 
-async fn send_chunk_pieces(
+async fn send_chunk_pieces<F>(
     session: &SendSession<'_>,
     chunk_indices: impl Iterator<Item = u64>,
     send: &mut (impl SendStream + ?Sized),
-) -> Result<(), TransferSessionError> {
+    mut on_progress: F,
+) -> Result<(), TransferSessionError>
+where
+    F: FnMut(u64, u64) + Send,
+{
     for c in chunk_indices {
         let chunk_offset = c.saturating_mul(REFERENCE_CHUNK_SIZE_BYTES);
         if chunk_offset >= session.total_bytes {
@@ -245,16 +249,23 @@ async fn send_chunk_pieces(
         send.write_all(&piece_slice)
             .await
             .map_err(TransferSessionError::from)?;
+
+        let bytes_done = (chunk_offset + chunk_len).min(session.total_bytes);
+        on_progress(bytes_done, session.total_bytes);
     }
     Ok(())
 }
 
-/// Drives the sending side of a file transfer session over connected streams.
-pub async fn send_file(
+/// Drives the sending side of a file transfer session over connected streams, reporting progress.
+pub async fn send_file_with_progress<F>(
     vfs: &impl Vfs,
     request: &SendRequest<'_>,
     streams: &mut SessionStreams<'_>,
-) -> Result<bool, TransferSessionError> {
+    mut on_progress: F,
+) -> Result<bool, TransferSessionError>
+where
+    F: FnMut(u64, u64) + Send,
+{
     let read_handle = vfs.open_read(request.root, request.rel_path).await?;
     let meta = vfs.stat(request.root, request.rel_path).await?;
     let total_bytes = meta.size_bytes;
@@ -296,7 +307,13 @@ pub async fn send_file(
                     decode_chunk_request_frame(&frame).map_err(TransferSessionError::Proto)?;
                 let from = req.from_chunk().value();
                 let count = req.count() as u64;
-                send_chunk_pieces(&session, from..(from + count), streams.data_send).await?;
+                send_chunk_pieces(
+                    &session,
+                    from..(from + count),
+                    streams.data_send,
+                    &mut on_progress,
+                )
+                .await?;
             }
             Classification::Known(MessageType::ChunkRerequest) => {
                 let req =
@@ -305,6 +322,7 @@ pub async fn send_file(
                     &session,
                     req.chunks().iter().map(|idx| idx.value()),
                     streams.data_send,
+                    &mut on_progress,
                 )
                 .await?;
             }
@@ -340,6 +358,15 @@ pub async fn send_file(
             "unexpected unassigned message on control stream".to_string(),
         )),
     }
+}
+
+/// Drives the sending side of a file transfer session over connected streams.
+pub async fn send_file(
+    vfs: &impl Vfs,
+    request: &SendRequest<'_>,
+    streams: &mut SessionStreams<'_>,
+) -> Result<bool, TransferSessionError> {
+    send_file_with_progress(vfs, request, streams, |_, _| {}).await
 }
 
 struct ReceiveSession<'a, V: Vfs> {
