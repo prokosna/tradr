@@ -10,10 +10,10 @@
 last_updated: 2026-08-28
 phase: implementing
 current_milestone: M1
-branch: wi-m1-027-vfs-macos
+branch: wi-m1-028-macos-ci
 implementation_started: true
-work_items_landed: 88
-last_commit: 9fa31ff
+work_items_landed: 89
+last_commit: 17f1dae
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -382,6 +382,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-025 | **The sending half and the command surface.** Dial, offer, send; the Tauri commands `lib.rs` does not yet register; the peer list from `MdnsSource` surfaced to the UI; progress events; and the drag-and-drop target that makes M1's first criterion something a user can perform | **done** -- PASS after one REVISE. Tests pass on local loopback | |
 | WI-M1-026 | **The UI surface and M1 completion.** The frontend React code invoking `get_peers` and `send_files`; progress events hooked into the UI; and a drag-and-drop target over the main window | **done** -- PASS. React tests and Rust pass cleanly | |
 | WI-M1-027 | **macOS build fix in `PosixVfs`.** `openat2` and `ResolveFlags` conditionally compiled for `target_os = "linux"` with `cfg`, and `rt` feature added to `tokio` to enable `spawn_blocking`. | **done** -- PASS | |
+| WI-M1-028 | **macOS CI workflow and `OFlags::PATH` fix.** Replaced `OFlags::PATH` with `resolve_dir_fd` and `statat` to avoid macOS build failures, and added a macOS build job to `.github/workflows/ci.yml`. | **done** -- PASS | |
 
 **Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
 

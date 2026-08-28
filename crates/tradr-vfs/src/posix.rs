@@ -351,8 +351,17 @@ fn open_write_sync(root: &RootEntry, at: &RelPath) -> Result<std::fs::File, VfsE
 fn stat_sync(root: &RootEntry, at: &RelPath) -> Result<Metadata, VfsError> {
     check_deny_list(at)?;
     let root_fd = open_root_dir(root)?;
-    let fd = resolve_and_open_entry(&root_fd, at, OFlags::PATH, Mode::empty())?;
-    let stat = rustix::fs::fstat(&fd).map_err(map_rustix_err)?;
+
+    let components: Vec<&str> = at.components().collect();
+    let stat = if components.is_empty() {
+        rustix::fs::fstat(&root_fd).map_err(map_rustix_err)?
+    } else {
+        let (target, parent_comps) = components.split_last().unwrap();
+        let parent_fd = resolve_dir_fd(&root_fd, parent_comps)?;
+        rustix::fs::statat(&parent_fd, *target, AtFlags::SYMLINK_NOFOLLOW)
+            .map_err(map_rustix_err)?
+    };
+
     let kind = check_stat_kind(&stat)?;
     let size_bytes = if kind == EntryKind::Directory {
         0

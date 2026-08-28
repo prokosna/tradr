@@ -189,6 +189,46 @@ jobs:
         working-directory: apps/tradr/src-tauri
         run: cargo tauri build
 
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Cache tauri-cli
+        id: tauri-cli-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: tauri-cli-${{ env.TAURI_CLI_VERSION }}-${{ runner.os }}
+      - name: Install tauri-cli
+        run: |
+          installed_version="$(cargo-tauri --version 2>/dev/null | awk '{print $2}' || true)"
+          if [ "$installed_version" = "${{ env.TAURI_CLI_VERSION }}" ]; then
+            echo "cargo-tauri ${{ env.TAURI_CLI_VERSION }} already present, skipping install"
+          else
+            cargo install tauri-cli --version ${{ env.TAURI_CLI_VERSION }} --locked --force
+          fi
+
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - name: cargo tauri build
+        working-directory: apps/tradr/src-tauri
+        run: cargo tauri build
+
   # WI-M0-015b: this job measured 41 minutes (four ABIs, release, every
   # push). Local measurement found ABI count and release optimization
   # dominate the cost, not NDK/SDK fetch or Gradle assembly. Split below:
