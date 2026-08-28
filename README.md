@@ -1,5 +1,10 @@
 # Tradr
 
+> [!WARNING]
+> **This repository is an experimental project for agent-driven development.**
+> It is being built entirely by AI agents under the supervision of a human user, to test and refine workflows for autonomous software development. **It is not yet a completed product and is not ready for practical or production use.**
+
+
 Cross-device file exchange for Linux, Windows, macOS, and Android. Quick Share, without the vendor lock-in.
 
 Send files between your own devices — or devices belonging to someone you have explicitly linked with — over LAN, proximity, or the open internet, end-to-end encrypted throughout.
