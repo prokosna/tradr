@@ -62,6 +62,58 @@ Denies the device_identity command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-get-peers`
+
+</td>
+<td>
+
+Enables the get_peers command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-get-peers`
+
+</td>
+<td>
+
+Denies the get_peers command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-send-files`
+
+</td>
+<td>
+
+Enables the send_files command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-send-files`
+
+</td>
+<td>
+
+Denies the send_files command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-sign-in`
 
 </td>

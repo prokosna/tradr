@@ -6,6 +6,8 @@ const COMMANDS: &[&str] = &[
     "sign_in_status",
     "attestation_bundle",
     "verify_peer_attestation",
+    "get_peers",
+    "send_files",
 ];
 
 fn main() {

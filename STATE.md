@@ -12,7 +12,7 @@ phase: implementing
 current_milestone: M1
 branch: wi-m1-026-ui
 implementation_started: true
-work_items_landed: 86
+work_items_landed: 87
 last_commit: fad263f
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
@@ -37,15 +37,15 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-1. **`WI-M1-026`, the UI surface and M1 completion.** The frontend React code invoking `get_peers` and `send_files`; progress events hooked into the UI; and a drag-and-drop target over the main window. This completes M1.
-2. **ADR-0004's "To verify", still the user's to start**: LAN throughput against 35 MB/s, on two machines. Unchanged by the audit and displaced by it.
+1. **ADR-0004's "To verify", still the user's to start**: LAN throughput against 35 MB/s, on two machines. Unchanged by the audit and displaced by it.
+2. (Begin M2 setup or next feature block based on roadmap)
 
 **`ble-gatt`'s data path stood here as action 2 and is displaced rather than dropped**, and ADR-0016 records it as open: 20.5% overhead on a transport docs/03 limits to 20-100 KB/s. It needs settling before the BLE data path is cut, not while it is being written -- and M7 is where that path is cut, so nothing in M1 waits on it.
 
 ## In flight
 
 ```yaml
-work_items: [WI-M1-026]
+work_items: []
 blocked: []
 ```
 
@@ -380,7 +380,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-023 | **The Offer exchange's wire conversion in `tradr-proto`**, between `control.proto`'s five messages and `WI-M1-022`'s native types. **Where an untrusted peer's Offer is first read**, so it is where the hostile cases live: a `relative_path` that escapes, a `content_hash` of the wrong length, a `size` that disagrees with `total_bytes`, an `item_id` repeated. The direct mirror of `WI-M1-008d`. Carries DCR-059's Layer 0 change, `OfferOrigin` and `RejectReason` becoming `Option` | **done** -- PASS after two REVISE, both of them gates the Implementer could not run | DCR-059 |
 | WI-M1-024 | **The listener half of the composition root.** A task that accepts a channel from `Incoming`, runs `perform_handshake` on the Control pair, reads a `TransferOffer`, answers with a `TransferAccept` carrying the resume position `ItemResumption` derives from what is already on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence**, which is why it goes before the sending half | **done** -- PASS after one REVISE, fixing stream polarity and VFS permissions | |
 | WI-M1-025 | **The sending half and the command surface.** Dial, offer, send; the Tauri commands `lib.rs` does not yet register; the peer list from `MdnsSource` surfaced to the UI; progress events; and the drag-and-drop target that makes M1's first criterion something a user can perform | **done** -- PASS after one REVISE. Tests pass on local loopback | |
-| WI-M1-026 | **The UI surface and M1 completion.** The frontend React code invoking `get_peers` and `send_files`; progress events hooked into the UI; and a drag-and-drop target over the main window | in-progress | |
+| WI-M1-026 | **The UI surface and M1 completion.** The frontend React code invoking `get_peers` and `send_files`; progress events hooked into the UI; and a drag-and-drop target over the main window | **done** -- PASS. React tests and Rust pass cleanly | |
 
 **Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
 
