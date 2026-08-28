@@ -3,6 +3,8 @@
 //! is the one barrier no hermetic test reaches. Run with
 //! `cargo test -p tradr-secrets --test secret_service -- --ignored`.
 
+#![cfg(target_os = "linux")]
+
 use tradr_core::{SecretStore, StorageLevel};
 use tradr_secrets::SecretServiceStore;
 
