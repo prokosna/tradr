@@ -1,11 +1,14 @@
 //! POSIX filesystem backend implementing the Layer 1 VFS trait.
 
 use rustix::fd::OwnedFd;
-use rustix::fs::{AtFlags, Dir, FileType, Mode, OFlags, ResolveFlags};
+#[cfg(target_os = "linux")]
+use rustix::fs::ResolveFlags;
+use rustix::fs::{AtFlags, Dir, FileType, Mode, OFlags};
 use rustix::io::Errno;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::RwLock;
+#[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 use tradr_core::{
@@ -112,6 +115,7 @@ struct RootEntry {
     read_only: bool,
 }
 
+#[cfg(target_os = "linux")]
 static OPENAT2_SUPPORTED: AtomicBool = AtomicBool::new(true);
 
 fn map_rustix_err(err: Errno) -> VfsError {
@@ -233,6 +237,7 @@ fn resolve_and_open_entry(
             .map_err(map_rustix_err);
     }
 
+    #[cfg(target_os = "linux")]
     if OPENAT2_SUPPORTED.load(Ordering::Relaxed) {
         let res = rustix::fs::openat2(
             root_fd,
@@ -264,6 +269,7 @@ fn resolve_dir_fd(root_fd: &OwnedFd, components: &[&str]) -> Result<OwnedFd, Vfs
         .map_err(map_rustix_err);
     }
 
+    #[cfg(target_os = "linux")]
     if OPENAT2_SUPPORTED.load(Ordering::Relaxed) {
         let subpath = components.join("/");
         let res = rustix::fs::openat2(
@@ -345,8 +351,17 @@ fn open_write_sync(root: &RootEntry, at: &RelPath) -> Result<std::fs::File, VfsE
 fn stat_sync(root: &RootEntry, at: &RelPath) -> Result<Metadata, VfsError> {
     check_deny_list(at)?;
     let root_fd = open_root_dir(root)?;
-    let fd = resolve_and_open_entry(&root_fd, at, OFlags::PATH, Mode::empty())?;
-    let stat = rustix::fs::fstat(&fd).map_err(map_rustix_err)?;
+
+    let components: Vec<&str> = at.components().collect();
+    let stat = if components.is_empty() {
+        rustix::fs::fstat(&root_fd).map_err(map_rustix_err)?
+    } else {
+        let (target, parent_comps) = components.split_last().unwrap();
+        let parent_fd = resolve_dir_fd(&root_fd, parent_comps)?;
+        rustix::fs::statat(&parent_fd, *target, AtFlags::SYMLINK_NOFOLLOW)
+            .map_err(map_rustix_err)?
+    };
+
     let kind = check_stat_kind(&stat)?;
     let size_bytes = if kind == EntryKind::Directory {
         0
