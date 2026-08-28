@@ -4,21 +4,24 @@
 
 use std::fmt;
 use std::future::Future;
+use std::sync::Arc;
 
 use tradr_core::{
-    Capabilities, ChunkIndex, Clock, ContentVerifier, Incoming, ItemAcceptance,
+    Capabilities, ChunkIndex, Clock, ContentVerifier, DomainTag, Incoming, ItemAcceptance,
     ItemAcceptanceError, ItemResumption, KeyBinding, KeyStore, OfferItem, PublicIdentity,
     REFERENCE_CHUNK_SIZE_BYTES, RecvStream, RelPath, Rng, RootId, SecureChannel, TransferAccept,
-    TransferAcceptError, TransferId, TransferOffer, TransportError, TrustTier, VersionRange, Vfs,
-    VfsError,
+    TransferAcceptError, TransferId, TransferOffer, TransportError, TrustTier, UnixTime,
+    VersionRange, Vfs, VfsError,
 };
 use tradr_identity::hello::AttestationRequest;
+use tradr_identity::{OsRng, SystemClock};
+use tradr_integrity::BaoVerifier;
 use tradr_proto::control::{
     OfferFrameError, decode_transfer_offer_frame, encode_transfer_accept_frame,
 };
 use tradr_proto::framing::{Frame, FrameDecoder, FrameError};
 use tradr_proto::message_type::{Classification, MessageType, Plane, classify};
-use tradr_vfs::partial_file_rel_path;
+use tradr_vfs::{PosixVfs, partial_file_rel_path};
 
 use crate::handshake::{HandshakeError, HandshakeParams, perform_handshake};
 use crate::transfer::{ReceiveRequest, SessionStreams, TransferSessionError, receive_file};
@@ -252,10 +255,10 @@ pub async fn handle_incoming_channel<V, F, Fut>(
     channel: &dyn SecureChannel,
     vfs: &V,
     params: ListenerParams<'_>,
-    key_store: &dyn KeyStore,
-    rng: &dyn Rng,
-    clock: &dyn Clock,
-    verifier: &dyn ContentVerifier,
+    key_store: &(dyn KeyStore + Sync),
+    rng: &(dyn Rng + Sync),
+    clock: &(dyn Clock + Sync),
+    verifier: &(dyn ContentVerifier + Sync),
     verify_attestation: F,
     item_filter: Option<&(dyn Fn(&OfferItem) -> bool + Send + Sync)>,
 ) -> Result<Vec<RelPath>, ListenerError>
@@ -375,10 +378,10 @@ pub async fn accept_and_handle_transfer<V, F, Fut>(
     incoming: &mut (impl Incoming + ?Sized),
     vfs: &V,
     params: ListenerParams<'_>,
-    key_store: &dyn KeyStore,
-    rng: &dyn Rng,
-    clock: &dyn Clock,
-    verifier: &dyn ContentVerifier,
+    key_store: &(dyn KeyStore + Sync),
+    rng: &(dyn Rng + Sync),
+    clock: &(dyn Clock + Sync),
+    verifier: &(dyn ContentVerifier + Sync),
     verify_attestation: F,
     item_filter: Option<&(dyn Fn(&OfferItem) -> bool + Send + Sync)>,
 ) -> Result<Vec<RelPath>, ListenerError>
@@ -439,4 +442,46 @@ where
         )
         .await?;
     }
+}
+
+/// Runs the listener loop for incoming transfers on an `Incoming` stream.
+pub async fn run_listener(
+    mut incoming: Box<dyn Incoming>,
+    vfs: Arc<PosixVfs>,
+    key_store: Arc<dyn KeyStore>,
+    identity: PublicIdentity,
+    attestation_token: String,
+    root: RootId,
+) -> Result<(), ListenerError> {
+    let clock = SystemClock;
+    let not_after = UnixTime::from_secs(clock.now().as_secs() + 30 * 24 * 3600);
+    let keybind_sig = key_store
+        .sign(DomainTag::KeyBind, identity.agreement_pub().as_bytes())
+        .map_err(HandshakeError::KeyStore)?;
+    let key_binding = KeyBinding::new(identity.agreement_pub().clone(), keybind_sig, not_after);
+
+    let versions = VersionRange::new(1, 1)
+        .map_err(|_| ListenerError::ProtocolViolation("invalid version range".to_string()))?;
+
+    let params = ListenerParams {
+        root,
+        our_identity: &identity,
+        our_attestation_token: attestation_token,
+        our_key_binding: key_binding,
+        our_versions: versions,
+        our_capabilities: Capabilities::DIRECT_QUIC,
+    };
+
+    listen_for_transfers(
+        incoming.as_mut(),
+        vfs.as_ref(),
+        params,
+        key_store.as_ref(),
+        &OsRng,
+        &SystemClock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+    )
+    .await
 }

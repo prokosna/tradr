@@ -117,9 +117,9 @@ pub async fn perform_handshake<F, Fut>(
     send_stream: &mut dyn SendStream,
     recv_stream: &mut dyn RecvStream,
     params: HandshakeParams<'_>,
-    key_store: &dyn KeyStore,
-    rng: &dyn Rng,
-    clock: &dyn Clock,
+    key_store: &(dyn KeyStore + Sync),
+    rng: &(dyn Rng + Sync),
+    clock: &(dyn Clock + Sync),
     verify_attestation: F,
 ) -> Result<Session, HandshakeError>
 where

@@ -3,6 +3,8 @@
 //! does: every piece of key custody existed already, but nothing had
 //! ever called any of it.
 
+use std::sync::Arc;
+
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime, State};
 
@@ -27,16 +29,29 @@ pub struct DeviceIdentitySnapshot {
 
 /// The outcome of opening the key store at startup, kept as managed state
 /// so a failure here can be shown in a window instead of aborting `setup`
-/// and leaving no window at all. Carries the `PublicIdentity` alongside the
-/// snapshot so `sign_in` can compute the Attestation nonce (WI-M0-014b)
-/// without opening the key store a second time.
-pub struct IdentityState(Result<(DeviceIdentitySnapshot, PublicIdentity), String>);
+/// and leaving no window at all. Carries the `PublicIdentity` and `KeyStore`
+/// alongside the snapshot so `sign_in` can compute the Attestation nonce
+/// and transports can bind without opening the key store a second time.
+pub struct IdentityState(
+    Result<(DeviceIdentitySnapshot, PublicIdentity, Arc<dyn KeyStore>), String>,
+);
 
 impl IdentityState {
     /// The device's own `PublicIdentity`, as opened once at startup. Used
     /// by `sign_in` to compute the Attestation nonce.
     pub fn public_identity(&self) -> Result<PublicIdentity, String> {
-        self.0.clone().map(|(_, identity)| identity)
+        self.0
+            .as_ref()
+            .map(|(_, identity, _)| identity.clone())
+            .map_err(|e| e.clone())
+    }
+
+    /// The device's opened key store, passed to transports for TLS and handshakes.
+    pub fn key_store(&self) -> Result<Arc<dyn KeyStore>, String> {
+        self.0
+            .as_ref()
+            .map(|(_, _, store)| store.clone())
+            .map_err(|e| e.clone())
     }
 }
 
@@ -46,7 +61,7 @@ impl IdentityState {
 // becomes the Err side of the returned Result.
 fn open_identity<R: Runtime>(
     app: &AppHandle<R>,
-) -> Result<(DeviceIdentitySnapshot, PublicIdentity), String> {
+) -> Result<(DeviceIdentitySnapshot, PublicIdentity, Arc<dyn KeyStore>), String> {
     let keys_dir = app
         .path()
         .app_data_dir()
@@ -90,7 +105,8 @@ fn open_identity<R: Runtime>(
         storage: storage_level_name(rung.level()).to_string(),
     };
 
-    Ok((snapshot, identity))
+    let key_store: Arc<dyn KeyStore> = Arc::new(key_store);
+    Ok((snapshot, identity, key_store))
 }
 
 // Splits a Backing into the two fields the frontend renders separately:
@@ -127,7 +143,7 @@ fn storage_level_name(level: StorageLevel) -> &'static str {
 pub fn init_identity_state<R: Runtime>(app: &AppHandle<R>) -> IdentityState {
     let outcome = open_identity(app);
     match &outcome {
-        Ok((snapshot, _)) => println!(
+        Ok((snapshot, _, _)) => println!(
             "device-identity: device_id={} backing={}",
             snapshot.device_id, snapshot.backing
         ),
@@ -141,5 +157,9 @@ pub fn init_identity_state<R: Runtime>(app: &AppHandle<R>) -> IdentityState {
 /// show even when the key store could not be opened.
 #[tauri::command]
 pub fn device_identity(state: State<'_, IdentityState>) -> Result<DeviceIdentitySnapshot, String> {
-    state.0.clone().map(|(snapshot, _)| snapshot)
+    state
+        .0
+        .as_ref()
+        .map(|(snapshot, _, _)| snapshot.clone())
+        .map_err(|e| e.clone())
 }

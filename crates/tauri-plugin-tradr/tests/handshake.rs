@@ -1,7 +1,7 @@
 //! Integration tests for `perform_handshake` driving the 4-step Hello exchange
 //! over connected SendStream and RecvStream pairs.
 
-use std::cell::Cell;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use tauri_plugin_tradr::handshake::{HandshakeError, HandshakeParams, perform_handshake};
@@ -19,13 +19,13 @@ use tradr_proto::message_type::MessageType;
 // ---- Test doubles --------------------------------------------------------
 
 struct SeededRng {
-    state: Cell<u64>,
+    state: AtomicU64,
 }
 
 impl SeededRng {
     fn new(seed: u64) -> Self {
         Self {
-            state: Cell::new(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1),
+            state: AtomicU64::new(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1),
         }
     }
 }
@@ -33,11 +33,11 @@ impl SeededRng {
 impl Rng for SeededRng {
     fn fill_bytes(&self, buf: &mut [u8]) -> Result<(), RngError> {
         for slot in buf.iter_mut() {
-            let mut x = self.state.get();
+            let mut x = self.state.load(Ordering::Relaxed);
             x ^= x << 13;
             x ^= x >> 7;
             x ^= x << 17;
-            self.state.set(x);
+            self.state.store(x, Ordering::Relaxed);
             *slot = (x >> 24) as u8;
         }
         Ok(())
