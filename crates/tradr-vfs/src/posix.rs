@@ -91,7 +91,8 @@ fn is_denied(components: &[&str]) -> bool {
 }
 
 fn is_partial_staging(components: &[&str]) -> bool {
-    matches!(components.first(), Some(c) if c.eq_ignore_ascii_case(".tradr-partial"))
+    components.len() > 1
+        && matches!(components.first(), Some(c) if c.eq_ignore_ascii_case(".tradr-partial"))
 }
 
 fn is_denied_for_write(components: &[&str]) -> bool {
@@ -134,7 +135,7 @@ fn map_io_err(err: std::io::Error) -> VfsError {
 
 fn check_deny_list(at: &RelPath) -> Result<(), VfsError> {
     let components: Vec<&str> = at.components().collect();
-    if is_denied(&components) {
+    if is_denied_for_write(&components) {
         return Err(VfsError::DenyListed);
     }
     Ok(())

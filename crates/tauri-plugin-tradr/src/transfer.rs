@@ -367,6 +367,28 @@ async fn receive_file_inner(
     let mut resumption = ItemResumption::new(session.item_id, session.total_bytes);
     let total_chunks = resumption.total_chunks();
 
+    // Deriving existing verified chunks on disk skips re-requesting already fsynced data.
+    if let Ok(meta) = session
+        .vfs
+        .stat(session.root, session.partial_file_rel)
+        .await
+    {
+        let full_chunks = (meta.size_bytes / REFERENCE_CHUNK_SIZE_BYTES).min(total_chunks);
+        for idx in 0..full_chunks {
+            if let Ok(chunk_sz) = resumption.chunk_size(ChunkIndex::new(idx)) {
+                let _ = resumption.record_piece(ChunkIndex::new(idx), 0, chunk_sz);
+                let _ = resumption.mark_verified(ChunkIndex::new(idx));
+            }
+        }
+        if full_chunks < total_chunks && meta.size_bytes >= session.total_bytes {
+            let last_idx = total_chunks.saturating_sub(1);
+            if let Ok(chunk_sz) = resumption.chunk_size(ChunkIndex::new(last_idx)) {
+                let _ = resumption.record_piece(ChunkIndex::new(last_idx), 0, chunk_sz);
+                let _ = resumption.mark_verified(ChunkIndex::new(last_idx));
+            }
+        }
+    }
+
     while !resumption.is_item_complete() {
         let (from_chunk, count) = match resumption.next_chunk_request(64) {
             Some(req) => req,

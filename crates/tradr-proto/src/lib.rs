@@ -8,11 +8,19 @@ pub mod v1 {
     include!(concat!(env!("OUT_DIR"), "/tradr.v1.rs"));
 }
 
+pub mod control;
 pub mod data;
 pub mod framing;
 pub mod hello;
 pub mod message_type;
 
+pub use control::{
+    OfferFrameError, OfferWireError, decode_transfer_accept_frame, decode_transfer_offer_frame,
+    decode_transfer_reject_frame, encode_transfer_accept_frame, encode_transfer_offer_frame,
+    encode_transfer_reject_frame, transfer_accept_from_wire, transfer_accept_to_wire,
+    transfer_offer_from_wire, transfer_offer_to_wire, transfer_reject_from_wire,
+    transfer_reject_to_wire,
+};
 pub use data::{
     TransferFrameError, TransferWireError, chunk_data_header_from_wire, chunk_data_header_to_wire,
     chunk_request_from_wire, chunk_request_to_wire, chunk_rerequest_from_wire,
