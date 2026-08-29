@@ -10,6 +10,8 @@ const COMMANDS: &[&str] = &[
     "send_files",
     "publish_sharing_shortcuts",
     "pick_share_root",
+    "request_permissions",
+    "check_permissions",
 ];
 
 fn main() {

@@ -37,8 +37,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-1. **Cut WI-M2-006**: Android Staged Permission Requests
-2. **Cut WI-M2-007**: Android Accept and Decline from Notification
+1. **Cut WI-M2-007**: Android Accept and Decline from Notification
 2. (Open)
 3. (Open)
 
@@ -292,6 +291,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M2-003 | Android Sharing Shortcuts | **done** | |
 | WI-M2-004 | Android SAF Directory Picker and Persistable Permission | **done** | |
 | WI-M2-005 | Android SAF Vfs Implementation (Rust) | **done** | |
+| WI-M2-006 | Android Staged Permission Requests | **done** | |
 
 
 ## Deferred

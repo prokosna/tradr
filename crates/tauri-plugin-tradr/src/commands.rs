@@ -535,3 +535,68 @@ pub async fn pick_share_root<R: tauri::Runtime>(
         Ok(None)
     }
 }
+
+/// Permission response mapping alias or name to granted state.
+pub type PermissionResponse = std::collections::HashMap<String, PermissionState>;
+
+/// Request argument specifying which permissions to request.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestPermissionsArgs {
+    /// Optional list of permission names or aliases to request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<Vec<String>>,
+}
+
+/// State of a requested permission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PermissionState {
+    /// Permission is granted.
+    Granted,
+    /// Permission is denied.
+    Denied,
+    /// Permission needs to be prompted.
+    Prompt,
+    /// Permission prompt with rationale explanation.
+    PromptWithRationale,
+}
+
+/// Requests specified permissions or all plugin permissions on mobile, or returns granted on desktop.
+#[tauri::command]
+pub async fn request_permissions<R: tauri::Runtime>(
+    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+    permissions: Option<Vec<String>>,
+) -> Result<PermissionResponse, String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        let handle_state = app
+            .try_state::<crate::android::AndroidPluginHandle<R>>()
+            .ok_or_else(|| "android plugin handle not found".to_string())?;
+        crate::mobile::request_permissions(&handle_state.0, permissions).await
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        crate::desktop::request_permissions(permissions).await
+    }
+}
+
+/// Checks current status of plugin permissions without prompting the user.
+#[tauri::command]
+pub async fn check_permissions<R: tauri::Runtime>(
+    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+) -> Result<PermissionResponse, String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        let handle_state = app
+            .try_state::<crate::android::AndroidPluginHandle<R>>()
+            .ok_or_else(|| "android plugin handle not found".to_string())?;
+        crate::mobile::check_permissions(&handle_state.0).await
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        crate::desktop::check_permissions().await
+    }
+}
