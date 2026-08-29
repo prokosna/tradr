@@ -88,6 +88,32 @@ Denies the get_peers command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-pick-share-root`
+
+</td>
+<td>
+
+Enables the pick_share_root command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-pick-share-root`
+
+</td>
+<td>
+
+Denies the pick_share_root command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-publish-sharing-shortcuts`
 
 </td>

@@ -6,9 +6,11 @@ import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.activity.result.ActivityResult
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
+import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -54,12 +56,52 @@ class PublishSharingShortcutsArgs {
 
 // WI-M0-005 proves both ADR-0001 call directions with Rust; WI-M0-005b adds
 // the ACTION_SEND intent channel; WI-M2-002 adds file caching and FD interop;
-// WI-M2-003 publishes discovered peers as dynamic sharing shortcuts.
+// WI-M2-003 publishes discovered peers as dynamic sharing shortcuts;
+// WI-M2-004 adds SAF directory picker and persistable permission.
 @TauriPlugin
 class TradrPlugin(private val activity: Activity) : Plugin(activity) {
 
     // Holds the channel Rust opens once at startup so share intents can be forwarded.
     private var shareChannel: Channel? = null
+
+    // Launches the platform document tree picker for selecting a directory share root.
+    @Command
+    fun pickShareRoot(invoke: Invoke) {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+        }
+        startActivityForResult(invoke, intent, "onPickShareRootResult")
+    }
+
+    // Handles document tree picker results and persists URI permissions.
+    @ActivityCallback
+    fun onPickShareRootResult(invoke: Invoke, result: ActivityResult) {
+        if (result.resultCode == Activity.RESULT_OK) {
+            val uri = result.data?.data
+            if (uri != null) {
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                try {
+                    activity.contentResolver.takePersistableUriPermission(uri, takeFlags)
+                    val response = JSObject()
+                    response.put("uri", uri.toString())
+                    invoke.resolve(response)
+                } catch (e: Exception) {
+                    invoke.reject("Failed to take persistable URI permission: ${e.message}")
+                }
+            } else {
+                val response = JSObject()
+                response.put("uri", JSONObject.NULL)
+                invoke.resolve(response)
+            }
+        } else {
+            val response = JSObject()
+            response.put("uri", JSONObject.NULL)
+            invoke.resolve(response)
+        }
+    }
 
     // Direction 1, Rust calls into Kotlin: the transform and the device model both
     // only exist on this side, so Rust's printed line proves this method ran.

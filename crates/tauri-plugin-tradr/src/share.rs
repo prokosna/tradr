@@ -1,4 +1,4 @@
-//! Shared file definitions for platform intent payloads (WI-M2-002, WI-M2-003).
+//! Shared file definitions for platform intent payloads (WI-M2-002, WI-M2-003, WI-M2-004).
 
 use serde::{Deserialize, Serialize};
 
@@ -47,4 +47,13 @@ pub struct PeerShortcut {
     /// The peer's platform, if known.
     #[serde(default)]
     pub platform: Option<String>,
+}
+
+/// Result payload from picking a share root directory on Android SAF.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PickShareRootResponse {
+    /// The SAF `content://` URI string of the picked directory, or None if cancelled.
+    #[serde(default)]
+    pub uri: Option<String>,
 }

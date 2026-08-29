@@ -43,6 +43,7 @@ pub fn init<R: Runtime>(
             commands::get_peers,
             commands::send_files,
             commands::publish_sharing_shortcuts,
+            commands::pick_share_root,
         ])
         .setup(move |app, _api| {
             let identity_state = identity::init_identity_state(app);
