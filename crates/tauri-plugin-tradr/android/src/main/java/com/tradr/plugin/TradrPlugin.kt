@@ -12,6 +12,7 @@ import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import org.json.JSONArray
 
 // Only affects when logcat shows the push; Rust never blocks waiting for it.
 private const val CHANNEL_PUSH_DELAY_MS = 1500L
@@ -33,12 +34,11 @@ class InitShareChannelArgs {
 }
 
 // WI-M0-005 proves both ADR-0001 call directions with Rust; WI-M0-005b adds
-// the ACTION_SEND intent channel.
+// the ACTION_SEND intent channel; WI-M2-002 adds file caching and FD interop.
 @TauriPlugin
 class TradrPlugin(private val activity: Activity) : Plugin(activity) {
 
-    // WI-M0-005b: holds the channel Rust opens once at startup, so a share
-    // intent has somewhere to go however it arrives.
+    // Holds the channel Rust opens once at startup so share intents can be forwarded.
     private var shareChannel: Channel? = null
 
     // Direction 1, Rust calls into Kotlin: the transform and the device model both
@@ -69,9 +69,7 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    // WI-M0-005b: Rust calls this once at startup. The activity's launch intent
-    // is already set by the time this runs, so checking it here catches a cold
-    // start; onNewIntent below catches the singleTask case afterward.
+    // Rust calls this once at startup to register the intent receiving channel.
     @Command
     fun initShareChannel(invoke: Invoke) {
         val args = invoke.parseArgs(InitShareChannelArgs::class.java)
@@ -80,24 +78,45 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
         forwardIfShareIntent(activity.intent)
     }
 
-    // singleTask means an intent arriving while the activity is already running
-    // comes through here instead of a fresh onCreate.
+    // singleTask delivers incoming intents to existing activity instances here.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         forwardIfShareIntent(intent)
     }
 
-    // Pushes an ACTION_SEND intent's action, MIME type and EXTRA_TEXT to Rust.
-    // Anything else, including a null intent, is left alone.
+    // Pushes share intent details and cached/detached files to Rust.
     private fun forwardIfShareIntent(intent: Intent?) {
         val channel = shareChannel ?: return
-        if (intent == null || intent.action != Intent.ACTION_SEND) {
+        if (intent == null) {
             return
         }
+
+        val jsonStr = intent.getStringExtra(EXTRA_SHARED_FILES_JSON)
+        val filesArray = JSONArray()
+        if (jsonStr != null) {
+            val parsedArray = JSONArray(jsonStr)
+            for (i in 0 until parsedArray.length()) {
+                filesArray.put(parsedArray.getJSONObject(i))
+            }
+        } else if (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            val processed = ShareIntentProcessor.processIntent(
+                activity,
+                activity.contentResolver,
+                activity.cacheDir,
+                intent
+            )
+            for (file in processed) {
+                filesArray.put(file.toJson())
+            }
+        } else if (intent.action != ACTION_SHARED_FILES) {
+            return
+        }
+
         val payload = JSObject()
-        payload.put("action", intent.action)
+        payload.put("action", intent.action ?: ACTION_SHARED_FILES)
         payload.put("mimeType", intent.type)
         payload.put("extraText", intent.getStringExtra(Intent.EXTRA_TEXT))
+        payload.put("files", filesArray)
         channel.send(payload)
     }
 }
