@@ -88,6 +88,32 @@ Denies the get_peers command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-publish-sharing-shortcuts`
+
+</td>
+<td>
+
+Enables the publish_sharing_shortcuts command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-publish-sharing-shortcuts`
+
+</td>
+<td>
+
+Denies the publish_sharing_shortcuts command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-send-files`
 
 </td>

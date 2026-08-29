@@ -42,6 +42,7 @@ pub fn init<R: Runtime>(
             attestation::verify_peer_attestation,
             commands::get_peers,
             commands::send_files,
+            commands::publish_sharing_shortcuts,
         ])
         .setup(move |app, _api| {
             let identity_state = identity::init_identity_state(app);
@@ -58,7 +59,10 @@ pub fn init<R: Runtime>(
             app.manage(sign_in_state);
 
             #[cfg(target_os = "android")]
-            android::demonstrate_bidirectional_calls(_api)?;
+            {
+                let handle = android::demonstrate_bidirectional_calls(_api)?;
+                app.manage(android::AndroidPluginHandle(handle));
+            }
             Ok(())
         })
         .build()

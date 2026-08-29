@@ -18,6 +18,7 @@ private const val TAG = "ShareTargetActivity"
 private const val LARGE_FILE_THRESHOLD_BYTES = 50L * 1024L * 1024L
 const val EXTRA_SHARED_FILES_JSON = "com.tradr.plugin.EXTRA_SHARED_FILES_JSON"
 const val ACTION_SHARED_FILES = "com.tradr.plugin.ACTION_SHARED_FILES"
+const val EXTRA_TARGET_DEVICE = "com.tradr.plugin.EXTRA_TARGET_DEVICE"
 
 data class SharedFileEntry(
     val name: String,
@@ -265,6 +266,9 @@ class ShareTargetActivity : Activity() {
             if (intent.hasExtra(Intent.EXTRA_TEXT)) {
                 putExtra(Intent.EXTRA_TEXT, intent.getStringExtra(Intent.EXTRA_TEXT))
             }
+            if (intent.hasExtra(EXTRA_TARGET_DEVICE)) {
+                putExtra(EXTRA_TARGET_DEVICE, intent.getStringExtra(EXTRA_TARGET_DEVICE))
+            }
         }
         if (launchIntent != null) {
             startActivity(launchIntent)
@@ -278,6 +282,9 @@ class ShareTargetActivity : Activity() {
                     putExtra(EXTRA_SHARED_FILES_JSON, jsonString)
                     if (intent.hasExtra(Intent.EXTRA_TEXT)) {
                         putExtra(Intent.EXTRA_TEXT, intent.getStringExtra(Intent.EXTRA_TEXT))
+                    }
+                    if (intent.hasExtra(EXTRA_TARGET_DEVICE)) {
+                        putExtra(EXTRA_TARGET_DEVICE, intent.getStringExtra(EXTRA_TARGET_DEVICE))
                     }
                 }
                 startActivity(fallbackIntent)

@@ -331,6 +331,18 @@
           "markdownDescription": "Denies the get_peers command without any pre-configured scope."
         },
         {
+          "description": "Enables the publish_sharing_shortcuts command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-publish-sharing-shortcuts",
+          "markdownDescription": "Enables the publish_sharing_shortcuts command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the publish_sharing_shortcuts command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-publish-sharing-shortcuts",
+          "markdownDescription": "Denies the publish_sharing_shortcuts command without any pre-configured scope."
+        },
+        {
           "description": "Enables the send_files command without any pre-configured scope.",
           "type": "string",
           "const": "allow-send-files",

@@ -492,3 +492,24 @@ pub async fn send_files<R: tauri::Runtime>(
     )
     .await
 }
+
+/// Publishes dynamic sharing shortcuts to the platform share sheet.
+#[tauri::command]
+pub async fn publish_sharing_shortcuts<R: tauri::Runtime>(
+    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+    #[allow(unused_variables)] peers: Vec<crate::share::PeerShortcut>,
+) -> Result<(), String> {
+    if peers.is_empty() {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        if let Some(handle_state) = app.try_state::<crate::android::AndroidPluginHandle<R>>() {
+            crate::android::publish_sharing_shortcuts(&handle_state.0, peers)?;
+        }
+    }
+
+    Ok(())
+}

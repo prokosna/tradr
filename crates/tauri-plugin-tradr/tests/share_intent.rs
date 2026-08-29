@@ -120,3 +120,40 @@ fn serialize_round_trip_shared_file_payload() {
     let deserialized: SharedFilePayload = serde_json::from_str(&serialized).expect("deserialize");
     assert_eq!(payload, deserialized);
 }
+
+#[test]
+fn deserialize_share_intent_with_target_device() {
+    let json = r#"{
+        "action": "android.intent.action.SEND",
+        "mimeType": "image/png",
+        "extraText": null,
+        "targetDevice": "0123456789abcdef0123456789abcdef",
+        "files": []
+    }"#;
+
+    let parsed: ShareIntent = serde_json::from_str(json).expect("valid share intent");
+    assert_eq!(
+        parsed.target_device.as_deref(),
+        Some("0123456789abcdef0123456789abcdef")
+    );
+}
+
+#[test]
+fn serialize_round_trip_peer_shortcut() {
+    use tauri_plugin_tradr::share::PeerShortcut;
+
+    let shortcut = PeerShortcut {
+        device_id: "0123456789abcdef0123456789abcdef".to_string(),
+        display_name: "Pixel 9 Pro".to_string(),
+        platform: Some("android".to_string()),
+    };
+
+    let serialized = serde_json::to_string(&shortcut).expect("serialize");
+    let deserialized: PeerShortcut = serde_json::from_str(&serialized).expect("deserialize");
+    assert_eq!(shortcut, deserialized);
+
+    let json_val: serde_json::Value = serde_json::from_str(&serialized).expect("json val");
+    assert_eq!(json_val["deviceId"], "0123456789abcdef0123456789abcdef");
+    assert_eq!(json_val["displayName"], "Pixel 9 Pro");
+    assert_eq!(json_val["platform"], "android");
+}

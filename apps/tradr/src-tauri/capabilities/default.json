@@ -11,6 +11,7 @@
 		"tradr:allow-attestation-bundle",
 		"tradr:allow-verify-peer-attestation",
 		"tradr:allow-get-peers",
-		"tradr:allow-send-files"
+		"tradr:allow-send-files",
+		"tradr:allow-publish-sharing-shortcuts"
 	]
 }
