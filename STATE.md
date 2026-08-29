@@ -7,13 +7,13 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.**
 
 ```yaml
-last_updated: 2026-08-28
+last_updated: 2026-08-29
 phase: implementing
 current_milestone: M1
-branch: wi-m1-028-macos-ci
+branch: wi-m1-029-quic-runtime
 implementation_started: true
-work_items_landed: 89
-last_commit: 17f1dae
+work_items_landed: 90
+last_commit: 64312d3
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -383,6 +383,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-026 | **The UI surface and M1 completion.** The frontend React code invoking `get_peers` and `send_files`; progress events hooked into the UI; and a drag-and-drop target over the main window | **done** -- PASS. React tests and Rust pass cleanly | |
 | WI-M1-027 | **macOS build fix in `PosixVfs`.** `openat2` and `ResolveFlags` conditionally compiled for `target_os = "linux"` with `cfg`, and `rt` feature added to `tokio` to enable `spawn_blocking`. | **done** -- PASS | |
 | WI-M1-028 | **macOS CI workflow and `OFlags::PATH` fix.** Replaced `OFlags::PATH` with `resolve_dir_fd` and `statat` to avoid macOS build failures, and added a macOS build job to `.github/workflows/ci.yml`. | **done** -- PASS | |
+| WI-M1-029 | **Fix QUIC transport initialization outside tokio runtime.** `quinn::Endpoint::server` fails with "no async runtime found" because Tauri `setup` hook is synchronous. Wrap `QuicTransport::new` in `tauri::async_runtime::block_on` in `lifecycle.rs`. Also modify `QuicTransportError::Io` to wrap `std::io::Error` instead of `ErrorKind` to preserve error messages like "invalid TLS config" or "no async runtime found". | **done** -- PASS | |
 
 **Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
 

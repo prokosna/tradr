@@ -32,14 +32,14 @@ pub enum QuicTransportError {
     Tls(TlsError),
     /// The local UDP socket could not be bound, or the TLS config could
     /// not be converted into quinn's own representation.
-    Io(std::io::ErrorKind),
+    Io(std::io::Error),
 }
 
 impl fmt::Display for QuicTransportError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Tls(e) => write!(f, "tls configuration error: {e}"),
-            Self::Io(kind) => write!(f, "quic transport io error: {kind}"),
+            Self::Io(e) => write!(f, "quic transport io error: {e}"),
         }
     }
 }
@@ -48,7 +48,7 @@ impl std::error::Error for QuicTransportError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Tls(e) => Some(e),
-            Self::Io(_) => None,
+            Self::Io(e) => Some(e),
         }
     }
 }
@@ -70,11 +70,15 @@ impl QuicTransport {
         // Unreachable in practice: `rustls_config` is always restricted to
         // TLS 1.3 (see `tls::server_config`), which is exactly what this
         // conversion requires. Handled rather than `expect`ed (rule F5).
-        let quic_crypto = QuicServerConfig::try_from(rustls_config)
-            .map_err(|_| QuicTransportError::Io(std::io::ErrorKind::InvalidData))?;
+        let quic_crypto = QuicServerConfig::try_from(rustls_config).map_err(|_| {
+            QuicTransportError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid TLS config",
+            ))
+        })?;
         let server_config = quinn::ServerConfig::with_crypto(Arc::new(quic_crypto));
-        let endpoint = quinn::Endpoint::server(server_config, bind)
-            .map_err(|e| QuicTransportError::Io(e.kind()))?;
+        let endpoint =
+            quinn::Endpoint::server(server_config, bind).map_err(QuicTransportError::Io)?;
         Ok(Self {
             key_store,
             endpoint,
