@@ -17,6 +17,21 @@ type IdentityLoadState =
 	| { status: "loaded"; snapshot: DeviceIdentitySnapshot }
 	| { status: "error"; message: string };
 
+interface SharedFilePayload {
+	name: string;
+	size: number;
+	cachePath: string | null;
+	fd: number | null;
+}
+interface ShareIntent {
+	action: string;
+	mimeType: string | null;
+	extraText: string | null;
+	targetDevice: string | null;
+	transferId: string | null;
+	files: SharedFilePayload[];
+}
+
 // Mirrors the Rust struct crates/tauri-plugin-tradr/src/sign_in.rs
 // returns from `sign_in` and `sign_in_status`.
 interface SignInOutcome {
@@ -86,19 +101,24 @@ type SendState =
 
 // Main UI surface for discovery, transfer staging, and attestation verification.
 export function App() {
-	const [identity, setIdentity] = useState<IdentityLoadState>({ status: "loading" });
+	const [identity, setIdentity] = useState<IdentityLoadState>({
+		status: "loading",
+	});
 	const [signIn, setSignIn] = useState<SignInUiState>({ status: "signed_out" });
 	const [bundle, setBundle] = useState<BundleLoadState>({ status: "idle" });
 	const [peerInput, setPeerInput] = useState("");
-	const [peerVerify, setPeerVerify] = useState<PeerVerifyState>({ status: "idle" });
+	const [peerVerify, setPeerVerify] = useState<PeerVerifyState>({
+		status: "idle",
+	});
 
 	const [peers, setPeers] = useState<PeerInfo[]>([]);
 	const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
 	const [stagedFiles, setStagedFiles] = useState<string[]>([]);
 	const [isDragging, setIsDragging] = useState(false);
 	const [sendState, setSendState] = useState<SendState>({ status: "idle" });
-	const [progress, setProgress] = useState<TransferProgressPayload | null>(null);
-
+	const [progress, setProgress] = useState<TransferProgressPayload | null>(
+		null,
+	);
 
 	const refreshPeers = useCallback(() => {
 		invoke<PeerInfo[]>("plugin:tradr|get_peers")
@@ -128,20 +148,65 @@ export function App() {
 		);
 
 		// Restores an active sign-in session across webview reloads.
-		invoke<SignInOutcome | null>("plugin:tradr|sign_in_status").then((outcome) => {
-			if (outcome) {
-				setSignIn({ status: "signed_in", outcome });
-			}
-		});
+		invoke<SignInOutcome | null>("plugin:tradr|sign_in_status").then(
+			(outcome) => {
+				if (outcome) {
+					setSignIn({ status: "signed_in", outcome });
+				}
+			},
+		);
 
 		let unlistenProgress: UnlistenFn | undefined;
 		let unlistenDragDrop: UnlistenFn | undefined;
+		let unlistenShareIntent: UnlistenFn | undefined;
 
 		// Subscribes to transfer progress emitted by the composition root.
 		listen<TransferProgressPayload>("transfer-progress", (event) => {
 			setProgress(event.payload);
 		}).then((unlisten) => {
 			unlistenProgress = unlisten;
+		});
+
+		// Subscribes to share intents emitted by Android platform integration.
+		listen<ShareIntent>("share-intent", async (event) => {
+			const intent = event.payload;
+			if (intent.files && intent.files.length > 0) {
+				let targetPeer = intent.targetDevice || null;
+				if (!targetPeer) {
+					try {
+						const currentPeers = await invoke<PeerInfo[]>(
+							"plugin:tradr|get_peers",
+						);
+						if (currentPeers.length > 0) {
+							targetPeer = currentPeers[0]?.device_id || null;
+						}
+					} catch (e) {
+						console.error("Failed to get peers for share intent", e);
+					}
+				}
+				if (targetPeer) {
+					const filePaths = intent.files.map((f) => f.cachePath || f.name);
+					setSendState({ status: "sending" });
+					invoke<string[]>("plugin:tradr|send_files", {
+						peerId: targetPeer,
+						files: filePaths,
+					})
+						.then((sentFiles) => {
+							setSendState({ status: "success", sentFiles });
+						})
+						.catch((e) => {
+							console.error("Failed to send files from share intent", e);
+							setSendState({ status: "error", message: String(e) });
+						});
+				} else {
+					setSendState({
+						status: "error",
+						message: "No peers available to auto-send to.",
+					});
+				}
+			}
+		}).then((unlisten) => {
+			unlistenShareIntent = unlisten;
 		});
 
 		// Subscribes to native window drag-and-drop events from Tauri.
@@ -175,6 +240,9 @@ export function App() {
 			if (unlistenDragDrop) {
 				unlistenDragDrop();
 			}
+			if (unlistenShareIntent) {
+				unlistenShareIntent();
+			}
 		};
 	}, []);
 
@@ -196,7 +264,9 @@ export function App() {
 
 	const verifyPeer = () => {
 		setPeerVerify({ status: "verifying" });
-		invoke<VerifiedPeer>("plugin:tradr|verify_peer_attestation", { bundle: peerInput }).then(
+		invoke<VerifiedPeer>("plugin:tradr|verify_peer_attestation", {
+			bundle: peerInput,
+		}).then(
 			(peer) => setPeerVerify({ status: "verified", peer }),
 			(error) => setPeerVerify({ status: "error", message: String(error) }),
 		);
@@ -261,13 +331,15 @@ export function App() {
 
 			<h1>Tradr</h1>
 			{identity.status === "loading" && <p>Loading device identity...</p>}
-			{identity.status === "error" && <p>Could not open the key store: {identity.message}</p>}
+			{identity.status === "error" && (
+				<p>Could not open the key store: {identity.message}</p>
+			)}
 			{identity.status === "loaded" && (
 				<p>
 					This device is {identity.snapshot.device_id}. Its key is held in{" "}
 					{identity.snapshot.backing}
-					{identity.snapshot.reason ? ` (${identity.snapshot.reason})` : ""}, at the{" "}
-					{identity.snapshot.storage} storage level.
+					{identity.snapshot.reason ? ` (${identity.snapshot.reason})` : ""}, at
+					the {identity.snapshot.storage} storage level.
 				</p>
 			)}
 
@@ -292,7 +364,13 @@ export function App() {
 				</p>
 			)}
 
-			<section style={{ marginTop: "1.5rem", borderTop: "1px solid #ccc", paddingTop: "1rem" }}>
+			<section
+				style={{
+					marginTop: "1.5rem",
+					borderTop: "1px solid #ccc",
+					paddingTop: "1rem",
+				}}
+			>
 				<h2>Discovered Peers</h2>
 				<button type="button" onClick={refreshPeers}>
 					Refresh Peers
@@ -308,7 +386,9 @@ export function App() {
 									margin: "0.5rem 0",
 									padding: "0.5rem",
 									border:
-										selectedPeerId === peer.device_id ? "2px solid #0078d4" : "1px solid #ddd",
+										selectedPeerId === peer.device_id
+											? "2px solid #0078d4"
+											: "1px solid #ddd",
 									borderRadius: "4px",
 									cursor: "pointer",
 								}}
@@ -329,12 +409,24 @@ export function App() {
 										style={{ marginRight: "0.5rem" }}
 									/>
 									<strong>{peer.display_name || peer.device_id}</strong>
-									<span style={{ fontSize: "0.85em", color: "#666", marginLeft: "0.5rem" }}>
+									<span
+										style={{
+											fontSize: "0.85em",
+											color: "#666",
+											marginLeft: "0.5rem",
+										}}
+									>
 										({peer.device_id.slice(0, 8)}...)
 									</span>
 								</label>
 								{peer.addresses.length > 0 && (
-									<p style={{ margin: "0.25rem 0 0 1.5rem", fontSize: "0.8em", color: "#666" }}>
+									<p
+										style={{
+											margin: "0.25rem 0 0 1.5rem",
+											fontSize: "0.8em",
+											color: "#666",
+										}}
+									>
 										Addresses: {peer.addresses.join(", ")}
 									</p>
 								)}
@@ -344,7 +436,13 @@ export function App() {
 				)}
 			</section>
 
-			<section style={{ marginTop: "1.5rem", borderTop: "1px solid #ccc", paddingTop: "1rem" }}>
+			<section
+				style={{
+					marginTop: "1.5rem",
+					borderTop: "1px solid #ccc",
+					paddingTop: "1rem",
+				}}
+			>
 				<h2>Send Files (Drag and Drop)</h2>
 				<div
 					style={{
@@ -355,7 +453,9 @@ export function App() {
 						backgroundColor: "#fafafa",
 					}}
 				>
-					<p>Drag and drop files anywhere into the window, or choose files below.</p>
+					<p>
+						Drag and drop files anywhere into the window, or choose files below.
+					</p>
 					<input
 						type="file"
 						multiple
@@ -383,7 +483,9 @@ export function App() {
 							disabled={!selectedPeerId || sendState.status === "sending"}
 							style={{ marginRight: "0.5rem" }}
 						>
-							{sendState.status === "sending" ? "Sending..." : "Send to Selected Peer"}
+							{sendState.status === "sending"
+								? "Sending..."
+								: "Send to Selected Peer"}
 						</button>
 						<button
 							type="button"
@@ -427,7 +529,9 @@ export function App() {
 						<p style={{ fontSize: "0.85em", color: "#666" }}>
 							{progress.bytes_transferred} / {progress.total_bytes} bytes (
 							{progress.total_bytes > 0
-								? Math.round((progress.bytes_transferred / progress.total_bytes) * 100)
+								? Math.round(
+										(progress.bytes_transferred / progress.total_bytes) * 100,
+									)
 								: 0}
 							%)
 						</p>
@@ -437,7 +541,11 @@ export function App() {
 
 			{signIn.status === "signed_in" && (
 				<section
-					style={{ marginTop: "1.5rem", borderTop: "1px solid #ccc", paddingTop: "1rem" }}
+					style={{
+						marginTop: "1.5rem",
+						borderTop: "1px solid #ccc",
+						paddingTop: "1rem",
+					}}
 				>
 					<h2>This device's Attestation</h2>
 					<p>Copy this to a peer, and paste theirs into the box below.</p>
@@ -445,14 +553,27 @@ export function App() {
 						Show this device's Attestation
 					</button>
 					{bundle.status === "loading" && <p>Loading...</p>}
-					{bundle.status === "error" && <p>Could not build the bundle: {bundle.message}</p>}
+					{bundle.status === "error" && (
+						<p>Could not build the bundle: {bundle.message}</p>
+					)}
 					{bundle.status === "loaded" && (
-						<textarea readOnly rows={6} cols={80} value={JSON.stringify(bundle.bundle)} />
+						<textarea
+							readOnly
+							rows={6}
+							cols={80}
+							value={JSON.stringify(bundle.bundle)}
+						/>
 					)}
 				</section>
 			)}
 
-			<section style={{ marginTop: "1.5rem", borderTop: "1px solid #ccc", paddingTop: "1rem" }}>
+			<section
+				style={{
+					marginTop: "1.5rem",
+					borderTop: "1px solid #ccc",
+					paddingTop: "1rem",
+				}}
+			>
 				<h2>Verify a peer's Attestation</h2>
 				<textarea
 					rows={6}
@@ -462,12 +583,18 @@ export function App() {
 					onChange={(event) => setPeerInput(event.target.value)}
 				/>
 				<div>
-					<button type="button" onClick={verifyPeer} disabled={peerVerify.status === "verifying"}>
+					<button
+						type="button"
+						onClick={verifyPeer}
+						disabled={peerVerify.status === "verifying"}
+					>
 						Verify
 					</button>
 				</div>
 				{peerVerify.status === "verifying" && <p>Verifying...</p>}
-				{peerVerify.status === "error" && <p>Could not verify: {peerVerify.message}</p>}
+				{peerVerify.status === "error" && (
+					<p>Could not verify: {peerVerify.message}</p>
+				)}
 				{peerVerify.status === "verified" && (
 					<p>
 						Peer is {peerVerify.peer.account} ({peerVerify.peer.tier}).

@@ -293,6 +293,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M2-005 | Android SAF Vfs Implementation (Rust) | **done** | |
 | WI-M2-006 | Android Staged Permission Requests | **done** | |
 | WI-M2-007 | Android Accept and Decline from Notification | **done** | |
+| WI-M2-008 | Android frontend: listen to share-intent and auto-send to PC | **done** | |
 
 
 ## Deferred

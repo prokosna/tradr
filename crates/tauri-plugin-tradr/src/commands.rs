@@ -198,15 +198,34 @@ where
     let transfer_id = generate_transfer_id(&OsRng)?;
     let mut offer_items = Vec::with_capacity(file_names.len());
 
+    let mut actual_roots = std::collections::HashMap::new();
     for (idx, name) in file_names.iter().enumerate() {
-        let rel_path =
-            RelPath::new(name).map_err(|e| format!("invalid relative path '{name}': {e}"))?;
+        let (actual_root, rel_path) = if name.starts_with('/') {
+            let path = std::path::Path::new(name);
+            let parent = path.parent().unwrap_or(path);
+            let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+            let r = RelPath::new(&file_name)
+                .map_err(|e| format!("invalid filename '{file_name}': {e}"))?;
+
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            name.hash(&mut hasher);
+            let temp_root = tradr_core::RootId::new(hasher.finish());
+
+            vfs.register_root(temp_root, parent.to_path_buf(), true)
+                .map_err(|e| format!("failed to register temp root for '{name}': {e}"))?;
+            (temp_root, r)
+        } else {
+            let r =
+                RelPath::new(name).map_err(|e| format!("invalid relative path '{name}': {e}"))?;
+            (root, r)
+        };
         let meta = vfs
-            .stat(root, &rel_path)
+            .stat(actual_root, &rel_path)
             .await
             .map_err(|e| format!("failed to stat '{name}': {e}"))?;
         let read_handle = vfs
-            .open_read(root, &rel_path)
+            .open_read(actual_root, &rel_path)
             .await
             .map_err(|e| format!("failed to open '{name}': {e}"))?;
 
@@ -226,6 +245,7 @@ where
         let (_, hash) = outboard(&content);
         let item_id = ItemId::new(&format!("item_{}", idx + 1))
             .map_err(|e| format!("invalid item id: {e}"))?;
+        actual_roots.insert(item_id, actual_root);
         let offer_item = OfferItem::new(item_id, rel_path, meta.size_bytes, hash)
             .map_err(|e| format!("invalid offer item: {e}"))?;
         offer_items.push(offer_item);
@@ -284,8 +304,12 @@ where
             .await
             .map_err(|e| format!("failed to initialize data stream: {e}"))?;
 
+        let actual_root = actual_roots
+            .get(offer_item.item_id())
+            .copied()
+            .unwrap_or(root);
         let send_req = SendRequest {
-            root,
+            root: actual_root,
             rel_path: offer_item.rel_path(),
             transfer_id,
             item_id: *offer_item.item_id(),
