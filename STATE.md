@@ -37,7 +37,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-1. (Open)
+1. Verify M2 completion criterion on real device after WI-M2-009
 2. (Open)
 3. (Open)
 
@@ -294,6 +294,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M2-006 | Android Staged Permission Requests | **done** | |
 | WI-M2-007 | Android Accept and Decline from Notification | **done** | |
 | WI-M2-008 | Android frontend: listen to share-intent and auto-send to PC | **done** | |
+| WI-M2-009 | Fix `send_files` Android cache path and file picker handling | **done** | |
 
 
 ## Deferred
