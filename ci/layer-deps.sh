@@ -1,18 +1,6 @@
 #!/bin/sh
-# Mechanizes invariant I4, rule B1, and Change Drills D5 and D9: tradr-core
-# depends on nothing, only tradr-proto names prost, only tauri-plugin-tradr
-# names tauri, only tradr-oidc names reqwest (DCR-024), only tradr-integrity
-# names bao (Critical Module, ADR-0006), and no implementation crate depends
-# internally on anything but tradr-core and tradr-proto (tauri-plugin-tradr,
-# the composition root, is exempt from that last rule).
-#
-# Scans every Cargo.toml under both crates/ and apps/. The app manifests
-# under apps/ (e.g. apps/tradr/src-tauri) get the same prost/reqwest
-# confinement as crates/, are exempted from the tauri confinement (an app
-# is allowed to name tauri), and are held to a stricter internal-dependency
-# rule than crates/: tauri-plugin-tradr is their only permitted path
-# dependency, with no composition-root exemption, since the app reaches
-# every implementation crate through that plugin rather than directly.
+# Mechanizes invariant I4, rule B1, and Change Drills D5 and D9 across
+# manifests in crates/ and apps/. See ci/README.md for layer rules and rationale.
 set -u
 
 CHECK_NAME=layer-deps
@@ -132,12 +120,9 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 			done
 	fi
 
-	# Check 4: an implementation crate may depend internally only on
-	# tradr-core and tradr-proto; tauri-plugin-tradr, the composition
-	# root, is exempt and may wire up every implementation. A manifest
-	# under apps/ is not the composition root, only its consumer: its
-	# sole permitted internal dependency is tauri-plugin-tradr itself,
-	# with no exemption.
+	# Check 4: implementation crates may depend internally only on
+	# tradr-core and tradr-proto (tauri-plugin-tradr is exempt).
+	# App manifests may depend internally only on tauri-plugin-tradr.
 	if [ "$m" != "crates/tauri-plugin-tradr/Cargo.toml" ]; then
 		case "$m" in
 			apps/*)

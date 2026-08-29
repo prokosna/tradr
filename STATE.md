@@ -10,10 +10,10 @@
 last_updated: 2026-08-29
 phase: implementing
 current_milestone: M1
-branch: wi-m1-000f-pre-push-hook
+branch: wi-m1-000d-ci-rules
 implementation_started: true
-work_items_landed: 94
-last_commit: 5ca06ed
+work_items_landed: 96
+last_commit: 2eb80ff
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -45,7 +45,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ## In flight
 
 ```yaml
-work_items: [WI-M1-000f]
+work_items: [WI-M1-000d]
 blocked: []
 ```
 
@@ -327,7 +327,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-000 | **Two instruments that do not instrument.** `ci/comment-lang.sh`'s awk was rejected by GNU awk under a UTF-8 locale and the script reported `passed` anyway; `ci/state-sync.sh` Check 5 made `main` permanently red | **done** -- PASS, no REVISE | |
 | WI-M1-000b | **Check 2 counted `WI-M0-` rows only**, so `work_items_landed` stopped meaning anything the moment M1 opened, while continuing to agree with itself. Also `comment-lang` scanning `packages/*/dist` | **done** -- PASS, no REVISE | |
 | WI-M1-000c | **The tauri-cli install asked a cache whether a binary exists.** `Swatinem/rust-cache` restores `~/.cargo/bin` too, so the dedicated cache step reporting a miss did not mean `cargo-tauri` was absent, and `cargo install` walked into a file already there. Every desktop and Android job failed on a warm cache, which is why the first run of a branch passed and the second did not | **done** -- PASS, no REVISE | |
-| WI-M1-000d | **Two findings from tonight with no instrument behind them.** Rule A2 has never covered `ci/*.sh` -- those scripts scan `crates` and `packages` for `.rs` and `.ts` -- and the files have drifted well past five lines, `state-sync`'s Check 3 comment to nine. And Check 4 skips any reference whose **first** path component is missing, so a typo in a top-level name is not merely unchecked, it is invisible: only a wrong path *below* a real directory is ever reported | todo | |
+| WI-M1-000d | **Two findings from tonight with no instrument behind them.** Rule A2 has never covered `ci/*.sh` -- those scripts scan `crates` and `packages` for `.rs` and `.ts` -- and the files have drifted well past five lines, `state-sync`'s Check 3 comment to nine. And Check 4 skips any reference whose **first** path component is missing, so a typo in a top-level name is not merely unchecked, it is invisible: only a wrong path *below* a real directory is ever reported | **done** -- PASS | |
 
 **`WI-M1-000d` needs a decision before it is cut, and it is a Supervisor's.** Extending A2 to `ci/*.sh` is not the mechanical change it looks like: `ci/layer-deps.sh`'s header comment runs fifteen lines and `.githooks/pre-commit`'s twelve, and every one of those lines is why a gate exists rather than what it does. Three answers -- compress them and lose the reasoning, move the reasoning into a README beside the scripts that each header points at, or record that A2 does not govern shell scripts and say why. **The second is the only one that keeps the reasoning findable**, but it puts design rationale in a file an Implementer authors, so the move is the Supervisor's and the check extension is the Work Item. The second finding is confirmed: `ci/state-sync.sh` Check 4 skips any inline reference whose leading component is not a real top-level entry, so a typo in the word crates makes a whole path invisible, while a wrong file name *below* a real directory is reported. A token containing a `/` is a path reference and should have to resolve whatever its first component is; a token without one keeps today's rule, which is what holds `KeyStore` and `_tradr._udp.local` out.
 | WI-M1-000f | **The `pre-push` hook, the second of the two rules with no instrument.** `.githooks/pre-commit` refuses a commit made on `main`; nothing refuses `git push origin HEAD:main`, which is the exact motion that put 73 commits there. Branch protection answers `403` on a private repository, so a hook is the only enforcement available until decision 2 is executed | **done** -- PASS | |

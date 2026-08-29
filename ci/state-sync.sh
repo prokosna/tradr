@@ -1,13 +1,6 @@
 #!/bin/sh
-# Mechanizes STATE.md's own contract (CLAUDE.md section 2-1's arrival step 5,
-# and the "last_commit was fabricated for most of M0" audit): last_commit
-# must name a real commit, work_items_landed must match the Work Item table,
-# every DCR-N already committed into STATE.md or RECORD.md appears in a
-# commit message (one the working tree is only now adding is exempt -- it has
-# no commit yet by construction), every DCR number is defined at most once,
-# every repository path referenced resolves, a non-main declared branch
-# matches the branch actually checked out, and the declared branch must never
-# be "main" itself. Never writes STATE.md or RECORD.md.
+# Mechanizes STATE.md's contract: validates commits, DCRs, path references,
+# landed counts, and branch state. See ci/README.md for details.
 set -u
 
 CHECK_NAME=state-sync
@@ -71,12 +64,10 @@ else
 	fi
 fi
 
-# --- Check 2: work_items_landed matches the count of Work Item rows marked done ---
-# Section state decides because a Review record row also begins with
-# | WI-M... | and its cause cell is prose that may quote any marker.
-# Splitting on | is unsound because cause cells may contain delimiters.
+# --- Check 2: work_items_landed matches count of rows marked done ---
+# Section heading decides context to avoid matching review cause cells.
 # Rows are counted rather than commits because multiple items may land
-# in one commit, with wildcards matching every milestone.
+# in one commit.
 declared_count=$(grep -m1 '^work_items_landed:' "$STATE_FILE" | sed -e 's/^work_items_landed:[[:space:]]*//' -e 's/[[:space:]]*$//')
 actual_count=$({
 	cat "$STATE_FILE"
@@ -137,11 +128,8 @@ if git cat-file -e HEAD 2> /dev/null; then
 fi
 
 # --- Check 4: every repository path referenced resolves ---
-# A path shows up two ways: a markdown link, "](docs/05-security.md)", and
-# inline code, "`crates/tradr-core/src/lib.rs`". A reference counts only if
-# its leading path component names a real top-level repository entry, which
-# is what keeps a shell command like "grep -ril tauri crates/" or an
-# unrelated identifier like "KeyStore" from being read as a path at all.
+# Markdown links and inline code paths must resolve in the repository.
+# Single tokens without slashes are checked only if naming a top-level entry.
 top_level_entries=$(ls -A "$ROOT_DIR")
 
 is_top_level() {
@@ -177,8 +165,13 @@ check_file_paths() {
 
 	printf '%s\n' "$path_candidates" | while IFS= read -r tok; do
 		[ -n "$tok" ] || continue
-		first=${tok%%/*}
-		is_top_level "$first" || continue
+		case "$tok" in
+			*/*) ;;
+			*)
+				first=${tok%%/*}
+				is_top_level "$first" || continue
+				;;
+		esac
 		[ -e "$ROOT_DIR/$tok" ] && continue
 		is_allowed "$tok" && continue
 		echo "$rel_label: referenced path '$tok' does not exist"
@@ -195,12 +188,9 @@ if [ -n "$path_hits" ]; then
 	status=1
 fi
 
-# --- Check 5a: a non-main current branch matches STATE.md's branch field ---
-# A detached HEAD is a bisect or an old-commit checkout, not a commit landing
-# on the wrong branch, so it is skipped rather than failed. Arriving on main
-# is a merge landing, not a commit on the wrong branch, so main is skipped
-# too. A directory that is not a git repository at all is likewise skipped;
-# git's own stderr is discarded so its absence does not leak into this output.
+# --- Check 5a: a non-main current branch matches STATE.md branch field ---
+# Detached HEAD and main are skipped; git errors are discarded if not
+# in a git repository.
 declared_branch=$(grep -m1 '^branch:' "$STATE_FILE" | sed -e 's/^branch:[[:space:]]*//' -e 's/[[:space:]]*$//')
 if [ -z "$declared_branch" ]; then
 	echo "STATE.md: branch field is missing from the yaml block"
@@ -221,11 +211,8 @@ if [ "$declared_branch" = "main" ]; then
 fi
 
 # --- Check 6: last_updated is not older than the newest commit ---
-# ISO dates sort correctly as plain strings, so no date arithmetic is
-# needed. This check runs one commit behind at pre-commit time: HEAD is
-# the previous commit when the hook fires, so a same-day commit compares
-# yesterday's last_updated to yesterday and passes -- CI catches it on
-# the next push, where HEAD is the commit itself.
+# Compares ISO dates lexicographically. At pre-commit time HEAD is
+# the parent commit; CI push check validates with HEAD as the commit.
 last_updated=$(grep -m1 '^last_updated:' "$STATE_FILE" | sed -e 's/^last_updated:[[:space:]]*//' -e 's/[[:space:]]*$//')
 if [ -z "$last_updated" ]; then
 	echo "STATE.md: last_updated field is missing from the yaml block"

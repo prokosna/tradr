@@ -44,10 +44,13 @@ is_allowed() {
 	return 1
 }
 
-files=$(find crates packages -type f \( -name '*.rs' -o -name '*.ts' \) \
+files=$(find crates packages ci .githooks -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.sh' -o -path '.githooks/*' \) \
 	-not -path '*/target/*' \
 	-not -path '*/node_modules/*' \
 	-not -path 'packages/protocol/src/gen/*' \
+	-not -path 'packages/*/dist/*' \
+	-not -path '*.md' \
+	-not -path '*.txt' \
 	-not -path '*/.git/*' 2> /dev/null)
 
 hits=$(printf '%s\n' "$files" | while IFS= read -r f; do
@@ -55,7 +58,7 @@ hits=$(printf '%s\n' "$files" | while IFS= read -r f; do
 	awk -v fname="$f" '
 	function flush_run(target) {
 		if (run_len >= 6)
-			print target ":" run_start ": run of " run_len " consecutive // comment lines through line " (run_start + run_len - 1)
+			print target ":" run_start ": run of " run_len " consecutive " (is_sh ? "#" : "//") " comment lines through line " (run_start + run_len - 1)
 		run_len = 0
 	}
 	function flush_block(target) {
@@ -64,10 +67,27 @@ hits=$(printf '%s\n' "$files" | while IFS= read -r f; do
 		block_len = 0
 		in_block = 0
 	}
+	FNR == 1 {
+		is_sh = (fname ~ /(\.sh$|^\.githooks\/)/)
+		run_len = 0
+		block_len = 0
+		in_block = 0
+	}
 	{
 		line = $0
 		trimmed = line
 		sub(/^[ \t]+/, "", trimmed)
+
+		if (is_sh) {
+			if (FNR == 1 && trimmed ~ /^#!/) next
+			if (trimmed ~ /^#/) {
+				if (run_len == 0) run_start = FNR
+				run_len++
+				next
+			}
+			flush_run(fname)
+			next
+		}
 
 		if (in_block) {
 			block_len++

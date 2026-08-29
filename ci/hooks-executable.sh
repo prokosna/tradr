@@ -1,12 +1,6 @@
 #!/bin/sh
-# DCR-036: .githooks/pre-commit is version-controlled so it arrives with a
-# clone, but git file modes are not always preserved by every checkout path
-# (a zip download, some CI checkout actions), and a non-executable hook is
-# silently never run by git -- no error, no warning, just skipped. This is
-# the part a repository can mechanically verify. Whether a given clone has
-# actually pointed core.hooksPath at .githooks is a per-clone git config
-# setting; nothing under version control can observe that, and this check
-# does not claim to.
+# DCR-036: verifies .githooks/pre-commit is executable.
+# See ci/README.md for details.
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
