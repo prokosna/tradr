@@ -4,10 +4,12 @@
 
 use serde::{Deserialize, Serialize};
 use tauri::{
-    Runtime,
+    Emitter, Runtime,
     ipc::Channel,
     plugin::{PluginApi, PluginHandle},
 };
+
+use crate::share::ShareIntent;
 
 const PLUGIN_PACKAGE: &str = "com.tradr.plugin";
 const PLUGIN_CLASS: &str = "TradrPlugin";
@@ -52,16 +54,6 @@ struct InitShareChannelRequest {
     channel: Channel<serde_json::Value>,
 }
 
-/// What Kotlin pushes each time the activity receives an `ACTION_SEND` intent:
-/// its action, its declared MIME type, and the `EXTRA_TEXT` payload.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ShareIntent {
-    action: String,
-    mime_type: Option<String>,
-    extra_text: Option<String>,
-}
-
 /// Runs both ADR-0001 call directions once and prints what each side proves.
 pub fn demonstrate_bidirectional_calls<R: Runtime, C: serde::de::DeserializeOwned>(
     api: PluginApi<R, C>,
@@ -100,14 +92,24 @@ pub fn demonstrate_bidirectional_calls<R: Runtime, C: serde::de::DeserializeOwne
     // activity receives an ACTION_SEND intent, whether at cold start or through
     // onNewIntent while already running. Nothing printed here can be produced
     // without a real intent arriving from outside the app.
-    let share_channel = Channel::new(|body| {
+    let app_handle = api.app().clone();
+    let share_channel = Channel::new(move |body| {
         let share: ShareIntent = body.deserialize()?;
         println!(
-            "WI-M0-005b share-intent: action={} mime_type={} extra_text={}",
+            "WI-M0-005b share-intent: action={} mime_type={} extra_text={} files_count={}",
             share.action,
             share.mime_type.as_deref().unwrap_or("<none>"),
-            share.extra_text.as_deref().unwrap_or("<none>")
+            share.extra_text.as_deref().unwrap_or("<none>"),
+            share.files.len()
         );
+        for file in &share.files {
+            println!(
+                "shared file: name={} size={} cache_path={:?} fd={:?}",
+                file.name, file.size, file.cache_path, file.fd
+            );
+        }
+        let _ = app_handle.emit("share-intent", &share);
+        let _ = app_handle.emit("shared-files", &share.files);
         Ok(())
     });
     handle.run_mobile_plugin::<()>(

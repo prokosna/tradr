@@ -18,6 +18,7 @@ pub mod handshake;
 mod identity;
 pub mod lifecycle;
 pub mod listener;
+pub mod share;
 mod sign_in;
 pub mod transfer;
 
