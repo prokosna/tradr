@@ -1,11 +1,6 @@
 #!/bin/sh
-# Mechanizes CLAUDE.md rule A5: a doc comment (///) immediately above a
-# private free function fails, naming the file and the line the /// run
-# starts on. "Immediately above" ignores any #[...] attribute lines in
-# between. A function is private when its declaration line has no `pub`
-# before `fn`. Enum variants, struct fields and trait method requirements
-# (declarations ending in `;` rather than `{`) are never flagged. Scoped to
-# every *.rs file under crates/ and apps/, excluding target/ and gen/.
+# Mechanizes rule A5: fails on a doc comment (///) immediately above a
+# private free function in *.rs files under crates/ and apps/.
 set -u
 
 CHECK_NAME=doc-visibility

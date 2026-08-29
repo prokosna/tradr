@@ -48,11 +48,13 @@ is_allowed() {
 	return 1
 }
 
-files=$(find crates packages -type f \( -name '*.rs' -o -name '*.ts' \) \
+files=$(find crates packages ci .githooks -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.sh' -o -path '.githooks/*' \) \
 	-not -path '*/target/*' \
 	-not -path '*/node_modules/*' \
 	-not -path 'packages/protocol/src/gen/*' \
 	-not -path 'packages/*/dist/*' \
+	-not -path '*.md' \
+	-not -path '*.txt' \
 	-not -path '*/.git/*' 2> /dev/null)
 
 hits=$(printf '%s\n' "$files" | while IFS= read -r f; do
@@ -99,9 +101,14 @@ hits=$(printf '%s\n' "$files" | while IFS= read -r f; do
 		}
 		return out
 	}
-	FNR == 1 { in_block = 0 }
+	function extract_sh(line,    p) {
+		p = index(line, "#")
+		if (p > 0) return substr(line, p)
+		return ""
+	}
+	FNR == 1 { in_block = 0; is_sh = (fname ~ /(\.sh$|^\.githooks\/)/) }
 	{
-		c = extract($0)
+		c = is_sh ? extract_sh($0) : extract($0)
 		if (c != "" && match(c, /[\200-\377]/)) {
 			print fname ":" FNR
 		}

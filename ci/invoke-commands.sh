@@ -1,11 +1,6 @@
 #!/bin/sh
-# Mechanizes WI-M0-014c: a frontend invoke() call names the plugin command
-# by string alone, so a typo compiles perfectly and only fails at runtime.
-# Reads every invoke("...") and invoke<...>("...") string literal under
-# apps/tradr/src/ and requires each to be of the form
-# plugin:<plugin>|<command>, where <command> appears in the COMMANDS list
-# in crates/tauri-plugin-tradr/build.rs. Runs one way only: a command in
-# COMMANDS that the frontend never calls is not a violation.
+# Mechanizes WI-M0-014c: checks frontend invoke() calls against the plugin
+# COMMANDS list in crates/tauri-plugin-tradr/build.rs. See ci/README.md.
 set -u
 
 CHECK_NAME=invoke-commands

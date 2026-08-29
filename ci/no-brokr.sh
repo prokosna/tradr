@@ -1,9 +1,6 @@
 #!/bin/sh
-# Enforces Invariant I1 (ADR-0005, CLAUDE.md section 8) by running every
-# test in ci/tier01-tests.txt inside a network namespace sealed to
-# loopback: nothing in it can dial a Brokr, reachable or not, so a pass
-# here is evidence Tier 0/1 needs none. See ci/tier01-tests.txt for what
-# is covered and why.
+# Enforces Invariant I1 by running Tier 0/1 tests inside a sealed network
+# namespace. See ci/README.md and ci/tier01-tests.txt.
 set -eu
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
