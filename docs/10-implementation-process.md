@@ -195,11 +195,36 @@ A new Supervisor reads in this order. Keeping work startable without reading any
 
 **Step 5 matters most.** Always suspect `STATE.md` of being stale. Commits newer than `last_updated` mean it was not updated, and reconciling it is the first job.
 
+### The yaml header — what is in it and what was removed (DCR-060)
+
+`STATE.md` carries a minimal yaml block. Three fields were removed by DCR-060 (`branch`, `work_items_landed`, `last_commit`) because they are derived values whose only source of truth is the repository itself. Declaring them in `STATE.md` caused a merge conflict on every pair of Work Items that landed simultaneously — every branch set them to different values on adjacent lines, making auto-merge impossible regardless of whether the changes were logically independent.
+
+**Their equivalents are one command each:**
+
+```sh
+# branch — the branch currently checked out
+git rev-parse --abbrev-ref HEAD
+
+# work_items_landed — count of done Work Item rows
+{ cat STATE.md; cat RECORD.md; } | awk '
+  /^#+[ \t]+/ { h=$0; sub(/^#+[ \t]+/,"",h) }
+  h == "Work Items" && /^\| WI-M[0-9]+-/ && /\*\*done\*\*/ { n++ }
+  END { print n+0 }'
+
+# last_commit — the newest commit on this branch
+git log --oneline -1
+
+# commits newer than last_updated (the reconciliation probe)
+git log --oneline --after="$(grep -m1 '^last_updated:' STATE.md | sed 's/last_updated: //')"
+```
+
+**AGENTS.md §2-5 still requires that a progress report opens with `branch`, `work_items_landed`, and `last_commit`.** Run the commands above and include their output. The probe is the same as before: a report that carries these values was grounded in the repository; one that does not was not.
+
 ### Arriving is half of it; reporting is the other half
 
-A contextless Supervisor does not only *start* from `STATE.md`, it **answers from it**. See [CLAUDE.md](../CLAUDE.md) §2-5, which is the binding form of this. The failure it prevents is specific and it does not announce itself: asked what happened, a Supervisor with an empty context assembles a plausible answer from the diff in front of it and the shape of the question, and that answer is fluent, confident, and partly invented. **Nothing in the reply distinguishes it from one that was read.**
+A contextless Supervisor does not only *start* from `STATE.md`, it **answers from it**. See [AGENTS.md](../AGENTS.md) §2-5, which is the binding form of this. The failure it prevents is specific and it does not announce itself: asked what happened, a Supervisor with an empty context assembles a plausible answer from the diff in front of it and the shape of the question, and that answer is fluent, confident, and partly invented. **Nothing in the reply distinguishes it from one that was read.**
 
-So the report is made checkable instead. It opens with the five yaml fields and the In flight block, which cannot be produced without opening the file, and anything not already in `STATE.md` goes in before it is said rather than after. The second half is what keeps the file complete: a session whose findings reach only the user has written them on the one surface that is about to be erased.
+So the report is made checkable instead. It opens with `last_updated` and `current_milestone` from the yaml block, plus the three values produced by the commands above, plus the In flight section. Anything not already in `STATE.md` goes in before it is said rather than after. The second half is what keeps the file complete: a session whose findings reach only the user has written them on the one surface that is about to be erased.
 
 ## The `STATE.md` discipline
 

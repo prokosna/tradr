@@ -1,6 +1,6 @@
 #!/bin/sh
 # Mechanizes STATE.md's contract: validates commits, DCRs, path references,
-# landed counts, and branch state. See ci/README.md for details.
+# and branch state. See ci/README.md for details.
 set -u
 
 CHECK_NAME=state-sync
@@ -51,47 +51,6 @@ if [ ! -f "$STATE_FILE" ]; then
 	exit 1
 fi
 
-# --- Check 1: last_commit names a commit that exists in this repository ---
-last_commit_line=$(grep -m1 '^last_commit:' "$STATE_FILE")
-if [ -z "$last_commit_line" ]; then
-	echo "STATE.md: last_commit field is missing from the yaml block"
-	status=1
-else
-	hash=$(printf '%s' "$last_commit_line" | sed -e 's/^last_commit:[[:space:]]*//' -e 's/[[:space:]]*$//')
-	if [ -z "$hash" ] || ! git cat-file -e "${hash}^{commit}" 2> /dev/null; then
-		echo "STATE.md: last_commit '$hash' does not name a commit in this repository"
-		status=1
-	fi
-fi
-
-# --- Check 2: work_items_landed matches count of rows marked done ---
-# Section heading decides context to avoid matching review cause cells.
-# Rows are counted rather than commits because multiple items may land
-# in one commit.
-declared_count=$(grep -m1 '^work_items_landed:' "$STATE_FILE" | sed -e 's/^work_items_landed:[[:space:]]*//' -e 's/[[:space:]]*$//')
-actual_count=$({
-	cat "$STATE_FILE"
-	[ -f "$RECORD_FILE" ] && cat "$RECORD_FILE"
-} | awk '
-/^#+[ \t]+/ {
-	heading = $0
-	sub(/^#+[ \t]+/, "", heading)
-	sub(/[ \t]+$/, "", heading)
-}
-heading == "Work Items" && /^\| WI-M[0-9]+-/ && /\*\*done\*\*/ {
-	n++
-}
-END {
-	print n + 0
-}
-')
-if [ -z "$declared_count" ]; then
-	echo "STATE.md: work_items_landed field is missing from the yaml block"
-	status=1
-elif [ "$declared_count" != "$actual_count" ]; then
-	echo "STATE.md: work_items_landed says $declared_count, but $actual_count Work Item rows are marked **done**"
-	status=1
-fi
 
 # --- Check 3: every DCR-N already committed appears in a commit message ---
 # A DCR the working tree is only now adding is exempt -- CLAUDE.md section 7
@@ -188,26 +147,15 @@ if [ -n "$path_hits" ]; then
 	status=1
 fi
 
-# --- Check 5a: a non-main current branch matches STATE.md branch field ---
-# Detached HEAD and main are skipped; git errors are discarded if not
-# in a git repository.
-declared_branch=$(grep -m1 '^branch:' "$STATE_FILE" | sed -e 's/^branch:[[:space:]]*//' -e 's/[[:space:]]*$//')
-if [ -z "$declared_branch" ]; then
-	echo "STATE.md: branch field is missing from the yaml block"
-	status=1
-elif current_branch=$(git rev-parse --abbrev-ref HEAD 2> /dev/null); then
-	if [ "$current_branch" != "HEAD" ] && [ "$current_branch" != "main" ] && [ "$current_branch" != "$declared_branch" ]; then
-		echo "STATE.md: branch says '$declared_branch', but the current branch is '$current_branch'"
+# --- Check 5: the current branch must not be main ---
+# A commit on main means a Work Item landed without a pull request,
+# which section 5 forbids. Detached HEAD (bisect, old-commit checkout)
+# is skipped. git errors are discarded if not in a git repository.
+if current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); then
+	if [ "$current_branch" != "HEAD" ] && [ "$current_branch" = "main" ]; then
+		echo "STATE.md: current branch is 'main' -- Work Items must not land directly on main"
 		status=1
 	fi
-fi
-
-# --- Check 5b: the declared branch is never "main" itself ---
-# STATE.md naming main as the work branch is the state in which the next
-# Work Item commit lands directly on main, which section 5 forbids.
-if [ "$declared_branch" = "main" ]; then
-	echo "STATE.md: branch field is 'main' -- a Work Item must not be declared as building on main"
-	status=1
 fi
 
 # --- Check 6: last_updated is not older than the newest commit ---

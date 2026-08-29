@@ -1,19 +1,15 @@
 # STATE
 
 > **Only the Supervisor edits this file.** Update it after each review, before anything else.
-> **`last_commit` is the commit this file was reconciled against, not `HEAD`.** A commit cannot name its own hash inside itself, so whenever the newest commit is the one that edited this file, the field lags it by exactly one and `git log <last_commit>..HEAD` shows that commit. That is correct and expected; **`last_commit == HEAD` is not an invariant and must not be "fixed"**. `ci/state-sync.sh` checks that the hash exists, which is the property that matters.
->**Everything a session needs after it has arrived is in [RECORD.md](RECORD.md)**, its peer at the repository root: the Review record, the Design Changes register, closed milestones, and findings whose repairs have landed. `ci/state-sync.sh` reads both files, so moving a section there does not take it out of any check. **When this file grows past its ceiling, the answer is to move a closed section across, never to shorten one.**
+> **Everything a session needs after it has arrived is in [RECORD.md](RECORD.md)**, its peer at the repository root: the Review record, the Design Changes register, closed milestones, and findings whose repairs have landed. `ci/state-sync.sh` reads both files, so moving a section there does not take it out of any check. **When this file grows past its ceiling, the answer is to move a closed section across, never to shorten one.**
 > An arriving Supervisor reads this first, then runs `git log --oneline -20` to see what happened after `last_updated`.
-> **Commits newer than `last_updated` mean the first job is reconciling this file.**
+> **Commits newer than `last_updated` mean the first job is reconciling this file.** `branch`, `work_items_landed`, and `last_commit` are no longer declared here — see [docs/10](docs/10-implementation-process.md#the-yaml-header--what-is-in-it-and-what-was-removed-dcr-060) for the one-command equivalents.
 
 ```yaml
 last_updated: 2026-08-29
 phase: implementing
 current_milestone: M1
-branch: wi-m1-000h-cleanup
 implementation_started: true
-work_items_landed: 97
-last_commit: 6b04c73
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -44,10 +40,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-```yaml
-work_items: []
-blocked: []
-```
+(none)
 
 **The old action 3 stands and is still the user's to start -- ADR-0004's "To verify"**: measure LAN throughput against 35 MB/s, and if it falls short tune GSO, GRO and receive-buffer sizes **before** comparing against TCP. QUIC runs in user space and will not match TCP, so a comparison run before the tuning answers a question nobody asked. **It needs two machines; loopback cannot produce the number.**
 
@@ -333,6 +326,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-000e | **The instrument behind rule 2-5.** The reporting half cannot be mechanized -- no check reads a reply -- but its precondition can: `STATE.md` being *current*. `ci/state-sync.sh` checks that `last_commit` exists, that the counts agree and that paths resolve, and **nothing checks that the file was updated at all**, so section 5's "a Work Item commit without its `STATE.md` update" is a prohibition with no gate. A Check 6 comparing `last_updated` against the newest commit's date closes it | **done** -- PASS, no REVISE | |
 | WI-M1-000g | **Restrict CI triggers to `pull_request` and `workflow_dispatch`.** Remove push-to-main and scheduled cron triggers so CI only runs on pull requests and manual dispatches | **done** -- PASS, no REVISE | |
 | WI-M1-000h | **`STATE.md` was 313 KB and 90% of it was never read on arrival.** The Review record was 36% and Design changes 20%, both append-only history growing one long row per Work Item forever; what an arriving Supervisor must read before acting measured 31 KB. **Split rather than shortened**, the answer `WI-M1-000d` reached for the same question about `ci/*.sh` headers: the reasoning moves to [RECORD.md](RECORD.md) where it stays findable. Carries the instruments the split needs -- Checks 2, 3 and 4 following the content across, Check 7's 96 KiB ceiling, and Check 8 gating duplicate DCR numbers | **done** -- PASS after one REVISE, and the finding was the Work Order's own path | |
+| WI-M1-000i | **Remove volatile yaml fields from STATE.md** (DCR-060). `branch`, `work_items_landed`, and `last_commit` caused a conflict on every pair of simultaneous PRs. All three are derived values available in one command each; declaring them in a shared file that every WI edits is what made auto-merge impossible. Adapt `ci/state-sync.sh` accordingly: remove Checks 1 and 2, adapt Check 5a/5b to not require a declared branch | **done** -- PASS | |
 | WI-M1-001 | **A `DomainTag` names a separation** (DCR-037). `CertificateTbs` and `TlsCertificateVerify` require a prefix the message already carries instead of prepending one, so the QUIC handshake signs through `KeyStore` and ADR-0011's hardware backing survives. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE | Yes |
 | WI-M1-002a | **The `DeviceId` derivation moves to Layer 0.** `DeviceId::from_identity_digest`: the caller hashes, because Layer 0 has no hash function and may not acquire one, and Layer 0 owns which bytes count. Cut out of `WI-M1-002` because the QUIC verifier needs the same derivation and `tradr-transport` may not reach `tradr-identity`. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE | Yes |
 | WI-M1-002b | **The self-signed certificate**: a DER `TBSCertificate` whose SPKI is the identity public key, signed through `KeyStore` under `CertificateTbs`, and the reverse -- reading a peer's identity point back out. DCR-038 settled its name and validity, DCR-039 the two fields DCR-038 left an encoder to invent. Critical Module, Supervisor tests first | **done** -- PASS after one REVISE, and the finding was the Work Order's | Yes |
