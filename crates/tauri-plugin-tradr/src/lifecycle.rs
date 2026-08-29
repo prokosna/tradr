@@ -73,6 +73,18 @@ pub fn init_lifecycle<R: Runtime>(
 
     let daemon = ServiceDaemon::new().map_err(|e| format!("failed to start mdns daemon: {e}"))?;
 
+    let predicate = mdns_sd::IfPredicate::new(|i| {
+        let n = &i.name;
+        n.starts_with("veth")
+            || n.starts_with("br-")
+            || n.starts_with("docker")
+            || n.starts_with("vnet")
+            || n.starts_with("virbr")
+    });
+    daemon
+        .disable_interface(mdns_sd::IfKind::Predicate(predicate))
+        .map_err(|e| format!("failed to filter mdns interfaces: {e}"))?;
+
     let agreement_hash = blake3::hash(public_identity.agreement_pub().as_bytes());
     let mut agreement_key_tag = [0u8; AGREEMENT_KEY_TAG_LEN];
     agreement_key_tag.copy_from_slice(&agreement_hash.as_bytes()[..AGREEMENT_KEY_TAG_LEN]);
