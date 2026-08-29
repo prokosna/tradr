@@ -3,4 +3,6 @@
     <style name="Theme.tradr" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <!-- Customize your theme here. -->
     </style>
+
+    <style name="Theme.Tradr.Dialog" parent="Theme.AppCompat.Dialog" />
 </resources>
