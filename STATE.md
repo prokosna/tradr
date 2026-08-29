@@ -12,7 +12,7 @@ phase: implementing
 current_milestone: M1
 branch: wi-m1-000h-cleanup
 implementation_started: true
-work_items_landed: 95
+work_items_landed: 97
 last_commit: 5ca06ed
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
@@ -69,16 +69,6 @@ blocked: []
 - **Three Work Orders in a row had the specification as the defect, not the implementation.** All three described the happy path precisely and left the surrounding state unstated. The Definition of Done sections that caught them named **a state to construct** rather than a property to confirm. M1 is networking, where the surrounding state is far wider than M0's: a peer that vanishes, a path that switches, a transfer stopped partway.
 - **Choosing evidence that cannot be faked leaves the fakeable part unverified**, and that is where the defect will be.
 - **Every rule here with no instrument behind it has been broken at least once**, `main` and rule A5 among them.
-
-## In flight
-
-```yaml
-work_items: []
-blocked: []
-```
-
-
-
 
 **The question `WI-M1-022` left open is closed, and DCR-059 closed it: an offered item a `TransferAccept` does not name is declined.** `TransferAccept::for_offer` was already right not to require an answer per item; what was missing was any statement of what silence meant, so `WI-M1-024`'s listener would have had to invent one. It is now in [docs/04](docs/04-protocol.md#what-reading-a-transferoffer-may-drop-and-what-it-may-not) and `WI-M1-024` inherits it rather than deciding it.
 
@@ -337,9 +327,9 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-000 | **Two instruments that do not instrument.** `ci/comment-lang.sh`'s awk was rejected by GNU awk under a UTF-8 locale and the script reported `passed` anyway; `ci/state-sync.sh` Check 5 made `main` permanently red | **done** -- PASS, no REVISE | |
 | WI-M1-000b | **Check 2 counted `WI-M0-` rows only**, so `work_items_landed` stopped meaning anything the moment M1 opened, while continuing to agree with itself. Also `comment-lang` scanning `packages/*/dist` | **done** -- PASS, no REVISE | |
 | WI-M1-000c | **The tauri-cli install asked a cache whether a binary exists.** `Swatinem/rust-cache` restores `~/.cargo/bin` too, so the dedicated cache step reporting a miss did not mean `cargo-tauri` was absent, and `cargo install` walked into a file already there. Every desktop and Android job failed on a warm cache, which is why the first run of a branch passed and the second did not | **done** -- PASS, no REVISE | |
-| WI-M1-000d | **Two findings from tonight with no instrument behind them.** Rule A2 has never covered `ci/*.sh` -- those scripts scan `crates` and `packages` for `.rs` and `.ts` -- and the files have drifted well past five lines, `state-sync`'s Check 3 comment to nine. And Check 4 skips any reference whose **first** path component is missing, so a typo in a top-level name is not merely unchecked, it is invisible: only a wrong path *below* a real directory is ever reported | todo | |
-| WI-M1-000h | **Accidentally committed garbage files.** PR 39 (`WI-M1-026`) mistakenly committed `job.log`, `jobs.json`, `no_brokr.log`, `run_log.txt`, and old `WI-M1-*.md` files to the root. These are not part of the source tree and clutter the working directory. A chore commit deletes them | **done** -- PASS | |
-| WI-M1-000f | **The `pre-push` hook, the second of the two rules with no instrument.** `.githooks/pre-commit` refuses a commit made on `main`; nothing refuses `git push origin HEAD:main`, which is the exact motion that put 73 commits there. Branch protection answers `403` on a private repository, so a hook is the only enforcement available until decision 2 is executed | todo | |
+| WI-M1-000d | **Two findings from tonight with no instrument behind them.** Rule A2 has never covered `ci/*.sh` -- those scripts scan `crates` and `packages` for `.rs` and `.ts` -- and the files have drifted well past five lines, `state-sync`'s Check 3 comment to nine. And Check 4 skips any reference whose **first** path component is missing, so a typo in a top-level name is not merely unchecked, it is invisible: only a wrong path *below* a real directory is ever reported | **done** -- PASS | |
+| WI-M1-000h-cleanup | **Accidentally committed garbage files.** PR 39 (`WI-M1-026`) mistakenly committed `job.log`, `jobs.json`, `no_brokr.log`, `run_log.txt`, and old `WI-M1-*.md` files to the root. These are not part of the source tree and clutter the working directory. A chore commit deletes them | **done** -- PASS | |
+| WI-M1-000f | **The `pre-push` hook, the second of the two rules with no instrument.** `.githooks/pre-commit` refuses a commit made on `main`; nothing refuses `git push origin HEAD:main`, which is the exact motion that put 73 commits there. Branch protection answers `403` on a private repository, so a hook is the only enforcement available until decision 2 is executed | **done** -- PASS | |
 | WI-M1-000e | **The instrument behind rule 2-5.** The reporting half cannot be mechanized -- no check reads a reply -- but its precondition can: `STATE.md` being *current*. `ci/state-sync.sh` checks that `last_commit` exists, that the counts agree and that paths resolve, and **nothing checks that the file was updated at all**, so section 5's "a Work Item commit without its `STATE.md` update" is a prohibition with no gate. A Check 6 comparing `last_updated` against the newest commit's date closes it | **done** -- PASS, no REVISE | |
 | WI-M1-000g | **Restrict CI triggers to `pull_request` and `workflow_dispatch`.** Remove push-to-main and scheduled cron triggers so CI only runs on pull requests and manual dispatches | **done** -- PASS, no REVISE | |
 | WI-M1-000h | **`STATE.md` was 313 KB and 90% of it was never read on arrival.** The Review record was 36% and Design changes 20%, both append-only history growing one long row per Work Item forever; what an arriving Supervisor must read before acting measured 31 KB. **Split rather than shortened**, the answer `WI-M1-000d` reached for the same question about `ci/*.sh` headers: the reasoning moves to [RECORD.md](RECORD.md) where it stays findable. Carries the instruments the split needs -- Checks 2, 3 and 4 following the content across, Check 7's 96 KiB ceiling, and Check 8 gating duplicate DCR numbers | **done** -- PASS after one REVISE, and the finding was the Work Order's own path | |
