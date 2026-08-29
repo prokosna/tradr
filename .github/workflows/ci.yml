@@ -164,23 +164,10 @@ jobs:
             libssl-dev \
             patchelf
 
-      - name: Cache tauri-cli
-        id: tauri-cli-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/cargo-tauri
-          key: tauri-cli-${{ env.TAURI_CLI_VERSION }}-${{ runner.os }}
       - name: Install tauri-cli
-        run: |
-          # Swatinem/rust-cache restores ~/.cargo/bin too, so the cache
-          # step above reporting a miss does not mean cargo-tauri is
-          # absent -- check the binary itself, not that step's report.
-          installed_version="$(cargo-tauri --version 2>/dev/null | awk '{print $2}' || true)"
-          if [ "$installed_version" = "${{ env.TAURI_CLI_VERSION }}" ]; then
-            echo "cargo-tauri ${{ env.TAURI_CLI_VERSION }} already present, skipping install"
-          else
-            cargo install tauri-cli --version ${{ env.TAURI_CLI_VERSION }} --locked --force
-          fi
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
 
       # No TRADR_OAUTH_CLIENT_IDS / TRADR_OAUTH_CLIENT_SECRET here:
       # build.rs (DCR-030) emits empty values when both are absent, and a
@@ -208,20 +195,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      - name: Cache tauri-cli
-        id: tauri-cli-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/cargo-tauri
-          key: tauri-cli-${{ env.TAURI_CLI_VERSION }}-${{ runner.os }}
       - name: Install tauri-cli
-        run: |
-          installed_version="$(cargo-tauri --version 2>/dev/null | awk '{print $2}' || true)"
-          if [ "$installed_version" = "${{ env.TAURI_CLI_VERSION }}" ]; then
-            echo "cargo-tauri ${{ env.TAURI_CLI_VERSION }} already present, skipping install"
-          else
-            cargo install tauri-cli --version ${{ env.TAURI_CLI_VERSION }} --locked --force
-          fi
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
 
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -284,23 +261,10 @@ jobs:
         if: steps.android-sdk-cache.outputs.cache-hit != 'true'
         run: sdkmanager --install "platforms;android-36" "platforms;android-35" "build-tools;${{ env.ANDROID_BUILD_TOOLS_VERSION }}" "ndk;${{ env.ANDROID_NDK_VERSION }}"
 
-      - name: Cache tauri-cli
-        id: tauri-cli-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/cargo-tauri
-          key: tauri-cli-${{ env.TAURI_CLI_VERSION }}-${{ runner.os }}
       - name: Install tauri-cli
-        run: |
-          # Swatinem/rust-cache restores ~/.cargo/bin too, so the cache
-          # step above reporting a miss does not mean cargo-tauri is
-          # absent -- check the binary itself, not that step's report.
-          installed_version="$(cargo-tauri --version 2>/dev/null | awk '{print $2}' || true)"
-          if [ "$installed_version" = "${{ env.TAURI_CLI_VERSION }}" ]; then
-            echo "cargo-tauri ${{ env.TAURI_CLI_VERSION }} already present, skipping install"
-          else
-            cargo install tauri-cli --version ${{ env.TAURI_CLI_VERSION }} --locked --force
-          fi
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
 
       # Android never receives the OAuth secret at all (DCR-030); the
       # client ID list is also left unset here, matching the desktop job.
@@ -368,23 +332,10 @@ jobs:
         if: steps.android-sdk-cache.outputs.cache-hit != 'true'
         run: sdkmanager --install "platforms;android-36" "platforms;android-35" "build-tools;${{ env.ANDROID_BUILD_TOOLS_VERSION }}" "ndk;${{ env.ANDROID_NDK_VERSION }}"
 
-      - name: Cache tauri-cli
-        id: tauri-cli-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/cargo-tauri
-          key: tauri-cli-${{ env.TAURI_CLI_VERSION }}-${{ runner.os }}
       - name: Install tauri-cli
-        run: |
-          # Swatinem/rust-cache restores ~/.cargo/bin too, so the cache
-          # step above reporting a miss does not mean cargo-tauri is
-          # absent -- check the binary itself, not that step's report.
-          installed_version="$(cargo-tauri --version 2>/dev/null | awk '{print $2}' || true)"
-          if [ "$installed_version" = "${{ env.TAURI_CLI_VERSION }}" ]; then
-            echo "cargo-tauri ${{ env.TAURI_CLI_VERSION }} already present, skipping install"
-          else
-            cargo install tauri-cli --version ${{ env.TAURI_CLI_VERSION }} --locked --force
-          fi
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
 
       # Android never receives the OAuth secret at all (DCR-030); the
       # client ID list is also left unset here, matching the desktop job.

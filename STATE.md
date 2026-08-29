@@ -10,10 +10,10 @@
 last_updated: 2026-08-29
 phase: implementing
 current_milestone: M1
-branch: wi-m1-031-graceful-close
+branch: wi-m1-033-fast-tauri-cli
 implementation_started: true
-work_items_landed: 92
-last_commit: 8bf1b71
+work_items_landed: 94
+last_commit: 91ea543
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -386,6 +386,8 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-029 | **Fix QUIC transport initialization outside tokio runtime.** `quinn::Endpoint::server` fails with "no async runtime found" because Tauri `setup` hook is synchronous. Wrap `QuicTransport::new` in `tauri::async_runtime::block_on` in `lifecycle.rs`. Also modify `QuicTransportError::Io` to wrap `std::io::Error` instead of `ErrorKind` to preserve error messages like "invalid TLS config" or "no async runtime found". | **done** -- PASS | |
 | WI-M1-030 | **Filter Docker and virtual bridge interfaces in `mdns-sd`.** A host with Docker/Libvirt creates hundreds of `veth` and `br-` interfaces. `mdns-sd` tries to join the multicast group on all of them, which hits Linux's `igmp_max_memberships` limit (default 20), preventing it from joining the physical LAN interface and receiving external mDNS packets. Add `mdns_sd::IfPredicate` to `ServiceDaemon::new` in `lifecycle.rs` to filter out `veth`, `br-`, `docker`, `vnet`, and `virbr`. | **done** -- PASS | |
 | WI-M1-031 | **Graceful stream closure in `listener.rs` and `commands.rs`.** Dropping a `quinn::SendStream` without calling `finish().await` aborts the stream (sends `RESET_STREAM`). This causes the sender to receive a stream reset before it can read the `ItemComplete` message, resulting in `TransferSessionError::StreamClosed` ("stream closed unexpectedly"). Add `control_send.finish().await` before returning in `handle_incoming_channel` and `execute_send_files_with_progress`. | **done** -- PASS | |
+| WI-M1-032 | **Remove and ignore work order files.** `work_order_m1_029.md` was accidentally committed. Removed it and added `work_order*.md` to `.gitignore`. | **done** -- PASS | |
+| WI-M1-033 | **Optimize CI tauri-cli install.** `cargo install tauri-cli` takes 7+ minutes in GitHub Actions. Replace manual cargo install and custom cache steps with `taiki-e/install-action@v2` across all workflows to download precompiled binaries instantly. Also fixed a flaky test in os_rng.rs that failed the pre-commit hook (1-byte length test was failing 1/256 times). | **done** -- PASS | |
 
 **Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
 
