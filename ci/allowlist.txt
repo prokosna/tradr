@@ -19,7 +19,39 @@
 # Example:
 # excuse-grep | crates/tradr-vfs/src/openat.rs | The kernel constant is literally named RESOLVE_NO_MAGICLINKS
 
+state-sync | ../escape | Path traversal test input named in VFS review prose
+state-sync | .aws/ | AWS credentials directory named in credential boundary prose
+state-sync | .config/gcloud | Google Cloud configuration directory named in credential boundary prose
+state-sync | .config/gcloud/ | Google Cloud configuration directory named in credential boundary prose
+state-sync | .docker/config.json | Docker config file named in credential boundary prose
+state-sync | .gnupg/ | GnuPG directory named in credential boundary prose
+state-sync | .kube/ | Kubernetes config directory named in credential boundary prose
+state-sync | .ssh/id_rsa | SSH key path named in credential boundary prose
+state-sync | .tradr-partial/ | Temporary transfer directory name discussed in VFS resumption prose
+state-sync | Swatinem/rust-cache | GitHub Actions action name cited in CI discussion
+state-sync | actions/checkout | GitHub Actions action name cited in CI discussion
 state-sync | apps/brokr | Shorthand for the app that arrives at M8; no directory exists yet
 state-sync | apps/tradr/gen/android/ | DCR-010: named as the wrong location the layout used to claim, not a real path
+state-sync | cmdline-tools/latest | Android SDK component cited in CI discussion
+state-sync | dist/ | Build output directory shorthand cited in prose
 state-sync | docs/02 | Shorthand for docs/02-architecture.md, used without the filename in prose
+state-sync | flume/async | Cargo crate feature path cited in dependency prose
+state-sync | gen/ | Generated code directory shorthand cited in M0 review prose
+state-sync | gen/android | Generated Android output directory cited in M0 review prose
+state-sync | gen/android/ | DCR-010: named as the wrong location the layout used to claim, not a real path
+state-sync | ndk/27.3.13750724 | Android NDK version path cited in CI discussion
 state-sync | proto/watari/v1/ | Records the pre-rename path name in a sentence about the rename to proto/tradr/v1/, per DCR-007
+state-sync | quic/ | QUIC module directory shorthand cited in M0 transport prose
+state-sync | refs/original | Git internal reference namespace cited in history prose
+state-sync | src-tauri/Cargo.toml | Relative path to Tauri app manifest cited in M0 review prose
+state-sync | src/ | Crate source directory shorthand cited in review prose
+state-sync | src/discovery.rs | Relative crate source file path cited in M0 review prose
+state-sync | src/framing.rs | Relative crate source file path cited in M0 review prose
+state-sync | src/quic/mod.rs | Relative crate source file path cited in M0 review prose
+state-sync | tests/ | Crate test directory shorthand cited in review prose
+state-sync | tests/hello_exchange.rs | Relative crate test file path cited in M0 review prose
+state-sync | tests/live_desktop_flow.rs | Relative crate test file path cited in M0 review prose
+state-sync | tests/offer_wire.rs | Relative crate test file path cited in M0 review prose
+state-sync | tests/quic_transport.rs | Relative crate test file path cited in M0 review prose
+state-sync | tests/verified_streaming.rs | Relative crate test file path cited in M0 review prose
+state-sync | tests/verified_transfer.rs | Relative crate test file path cited in M0 review prose
