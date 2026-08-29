@@ -31,12 +31,14 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 **The first bulk transport (`direct-quic`) is complete.** `QuicTransport`, `QuicIncoming` and `QuicChannel` wrap `quinn` behind `tradr-core`'s traits with mutual TLS and Device ID verification.
 
+**ADR-0004's throughput requirement is verified.** On 2026-08-29, the user ran the test on two real machines and confirmed that the LAN throughput reaches the 35 MB/s target with no issues. GSO/GRO tuning is not needed.
+
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
 ## Next three actions
 
-1. **ADR-0004's "To verify", still the user's to start**: LAN throughput against 35 MB/s, on two machines.
-2. **Cut WI-M2-001**: Android integration (e.g., ACTION_SEND / share sheet) or SAF.
+1. **Cut WI-M2-001**: Android integration (e.g., ACTION_SEND / share sheet) or SAF.
+2. (Open)
 3. (Open)
 
 ## In flight
@@ -46,30 +48,6 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **The old action 3 stands and is still the user's to start -- ADR-0004's "To verify"**: measure LAN throughput against 35 MB/s, and if it falls short tune GSO, GRO and receive-buffer sizes **before** comparing against TCP. QUIC runs in user space and will not match TCP, so a comparison run before the tuning answers a question nobody asked. **It needs two machines; loopback cannot produce the number.**
 
 **`WI-M1-000f`, the `pre-push` hook, stood here as action 1 and has been moved into the Work Item table rather than dropped.** It is the second of the two rules with no instrument: `.githooks/pre-commit` refuses a *commit* made on `main` and **nothing refuses a push to it**, so `git push origin HEAD:main` from any branch still works, which is the exact motion that put 73 commits there. Branch protection cannot cover it -- see decision 2 below -- so a hook is the only enforcement a private repository can have. It is displaced rather than deprioritised: the transport is what M1 is judged on.
-
-**Every pull request this project has opened is resolved and `main` is green on every job.** #3, #4 and #5 merged, #1 and #2 were closed, and #9 merged on 2026-08-26. The `tauri-cli` defect that made `main` red between the first and the last is fixed and on `main`, which is what the row for `WI-M1-000c` predicted would unblock the rest.
-
-**The transport goes before discovery, and that ordering is now decided.** It was the one thing the session that closed M0 said this file should carry before either was cut. Four reasons, in the order they carry weight:
-
-- **A candidate can be supplied by hand and a transport cannot.** docs/03's Static Peer is an address the user typed, needing no discovery at all, so the QUIC work is provable end to end with `tradr-discovery` still empty. The reverse is not true: mDNS with no transport produces a peer list that leads nowhere and nothing about it can be demonstrated.
-- **M1's completion criterion is a file moving and an interrupted transfer resuming.** Both are transport-side. Discovery makes the product pleasant; it is not what the milestone is judged on.
-- **The transport is the first thing other than a pasted string to use the trust root M0 finished.** An Attestation verified against a peer that a certificate already authenticated is the join M0 stopped one step short of.
-- **And the ordering has already paid for itself.** Cutting the certificate work turned up a design change before a line was written. Under the other order it would have surfaced three Work Items later, with `KeyStore` call sites already written against a trait that cannot sign for TLS.
-
-**The Work Item table for M1 is below.** It is a plan and not a promise; every entry after `WI-M1-004` is likely to be re-cut once the transport exists.
-
-**The three most useful things M0 learned, for whoever cuts M1's first Work Item:**
-
-- **Three Work Orders in a row had the specification as the defect, not the implementation.** All three described the happy path precisely and left the surrounding state unstated. The Definition of Done sections that caught them named **a state to construct** rather than a property to confirm. M1 is networking, where the surrounding state is far wider than M0's: a peer that vanishes, a path that switches, a transfer stopped partway.
-- **Choosing evidence that cannot be faked leaves the fakeable part unverified**, and that is where the defect will be.
-- **Every rule here with no instrument behind it has been broken at least once**, `main` and rule A5 among them.
-
-**The question `WI-M1-022` left open is closed, and DCR-059 closed it: an offered item a `TransferAccept` does not name is declined.** `TransferAccept::for_offer` was already right not to require an answer per item; what was missing was any statement of what silence meant, so `WI-M1-024`'s listener would have had to invent one. It is now in [docs/04](docs/04-protocol.md#what-reading-a-transferoffer-may-drop-and-what-it-may-not) and `WI-M1-024` inherits it rather than deciding it.
-
-**DCR-059 settled two more things `WI-M1-023` would otherwise have invented**, and both are cases where the wrong answer is the one a reasonable implementation reaches for. `chunk_size` of `0` is refused rather than read as the 1 MiB default -- `control.proto`'s own comment says "1 MiB by default" and proto3 gives an omitted `uint32` a `0`, so the comment actively invites the reinterpretation DCR-058 forbids. And `OfferOrigin` and `RejectReason` became `Option`, `None` for an unspecified or unknown wire value: they decorate, so DCR-058's own rule says they must not refuse, and there was no variant for them to become. **Both were settled before the Work Item was cut**, which is the whole of what section 7's ordering asks for, and DCR-058 was settled the same way before `WI-M1-022`.
-
-**`WI-M1-023`'s two REVISE rounds were caused by its own Work Order and by nothing else.** It told the Implementer it had no shell and to report the gates as NOT RUN, on the strength of a Build environment paragraph that was stale; `agy` runs `cargo` unprompted, as a probe now shows. All three findings -- an unresolved `fmt::Result`, eleven rustfmt violations, three unused imports -- would have been caught by the Implementer had the Work Order not disabled the instrument. **That is the ninth time here that the Work Order was the defect rather than the implementation, and the first where the Supervisor turned off the check that would have prevented it.** The Supervisor also ran `cargo fmt --all` rather than dispatch a third whitespace round, recorded because section 2-3 is the rule it brushes against: running the project's formatter authors no line and decides nothing, where writing the fix would have done both.
-
 ## Decisions
 
 **Settled decisions are in [RECORD.md](RECORD.md).** What is here is what is still open.
