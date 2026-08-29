@@ -178,7 +178,7 @@ export function App() {
 							"plugin:tradr|get_peers",
 						);
 						if (currentPeers.length > 0) {
-							targetPeer = currentPeers[0]?.device_id;
+							targetPeer = currentPeers[0]?.device_id || null;
 						}
 					} catch (e) {
 						console.error("Failed to get peers for share intent", e);
