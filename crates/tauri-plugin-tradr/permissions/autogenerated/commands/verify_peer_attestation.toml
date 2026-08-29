@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-verify-peer-attestation"
+description = "Enables the verify_peer_attestation command without any pre-configured scope."
+commands.allow = ["verify_peer_attestation"]
+
+[[permission]]
+identifier = "deny-verify-peer-attestation"
+description = "Denies the verify_peer_attestation command without any pre-configured scope."
+commands.deny = ["verify_peer_attestation"]

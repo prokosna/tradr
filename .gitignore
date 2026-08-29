@@ -1,0 +1,59 @@
+# Rust
+/target/
+**/target/
+Cargo.lock.orig
+
+# Node
+node_modules/
+dist/
+.pnpm-store/
+*.tsbuildinfo
+
+# Tauri
+/apps/tradr/src-tauri/target/
+/apps/tradr/src-tauri/gen/android/app/build/
+/apps/tradr/src-tauri/gen/android/.gradle/
+/apps/tradr/gen/apple/
+
+# Generated from proto
+/packages/protocol/src/gen/
+/crates/*/src/gen/
+
+# Brokr runtime data
+/apps/brokr/data/
+*.db
+*.db-journal
+*.db-wal
+
+# Secrets. Never commit any of these
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+google-services.json
+fcm.json
+# Raw OAuth client downloads. The values they carry belong in committed
+# config, not in Google's file dropped wherever it landed.
+client_secret_*.json
+join-token
+.env
+.env.*
+!.env.example
+# Baked into the build by apps/tradr/src-tauri/build.rs (DCR-030)
+.tradr-deployment.env
+!.tradr-deployment.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Claude Code local overrides
+.claude/settings.local.json
+work_order*.md

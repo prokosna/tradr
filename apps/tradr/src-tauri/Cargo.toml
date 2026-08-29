@@ -1,0 +1,19 @@
+[package]
+name = "tradr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Static + cdylib + rlib is the shape Tauri's mobile entry point needs;
+# desktop only uses one of the three at a time.
+[lib]
+name = "tradr_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+tauri = { version = "2.11", features = [] }
+tauri-plugin-tradr = { path = "../../../crates/tauri-plugin-tradr" }

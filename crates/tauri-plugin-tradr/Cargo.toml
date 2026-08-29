@@ -1,0 +1,34 @@
+[package]
+name = "tauri-plugin-tradr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+# Lets apps/tradr/src-tauri's build.rs discover this crate's Android Gradle module
+# through the DEP_*_ANDROID_LIBRARY_PATH env var Cargo derives from `links`.
+links = "tauri-plugin-tradr"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tradr-core = { path = "../tradr-core" }
+tradr-identity = { path = "../tradr-identity" }
+tradr-oidc = { path = "../tradr-oidc" }
+tradr-transport = { path = "../tradr-transport" }
+tradr-discovery = { path = "../tradr-discovery" }
+tradr-vfs = { path = "../tradr-vfs" }
+tradr-secrets = { path = "../tradr-secrets" }
+tradr-proto = { path = "../tradr-proto" }
+tradr-integrity = { path = "../tradr-integrity" }
+tauri = { version = "2.11", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+open = "5"
+mdns-sd = "0.21"
+blake3 = "1"
+base64 = "0.22"
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+
+[dev-dependencies]
+tempfile = "3"
