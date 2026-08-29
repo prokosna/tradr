@@ -52,10 +52,18 @@ fn every_length_up_to_sixty_five_is_filled() {
 
     for len in 1..=65usize {
         let mut a = vec![0u8; len];
-        let mut b = vec![0u8; len];
         rng.fill_bytes(&mut a).expect("the os source should answer");
-        rng.fill_bytes(&mut b).expect("the os source should answer");
-        assert_ne!(a, b, "two draws of {len} bytes were identical");
+
+        let mut matched_all = true;
+        for _ in 0..10 {
+            let mut b = vec![0u8; len];
+            rng.fill_bytes(&mut b).expect("the os source should answer");
+            if a != b {
+                matched_all = false;
+                break;
+            }
+        }
+        assert!(!matched_all, "ten draws of {len} bytes were identical");
     }
 }
 
