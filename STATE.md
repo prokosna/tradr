@@ -8,7 +8,7 @@
 ```yaml
 last_updated: 2026-08-29
 phase: implementing
-current_milestone: M1
+current_milestone: M2
 implementation_started: true
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
@@ -19,7 +19,9 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 > **Everything below this line is derivable from somewhere else, so it is not written here.** What exists is the Work Item table. How many crates there are is `ls crates/`. Which rules hold is `ci/run-all.sh`. **A prose inventory in this spot has now gone stale four times, the last time while carrying a warning that said it goes stale** -- so the inventory is gone rather than corrected a fifth time, and what remains is the two things nothing else records.
 
-**M1 is under way. Nothing is blocked, and nothing is in flight unless the In flight block below says so.**
+**M2 is under way. Nothing is blocked, and nothing is in flight unless the In flight block below says so.**
+
+**M1's completion criterion is met.** A file moved between two devices over the LAN and an interrupted transfer resumed (WI-M1-026).
 
 **Six Work Items landed on 2026-08-26 and five of them were instruments, not product.** That was not the plan for the session and it is the finding: reading CI for M0's own merge showed `ci/comment-lang.sh` printing `passed` once per file its awk had refused to run, and `ci/state-sync.sh` making `main` permanently red. Pulling that thread found three more of the same shape -- a count that had stopped counting, a scan reading build output, and an install asking a cache whether a binary exists. **Every one of them reported success while measuring nothing**, and none was found by review; all five were found by reading a CI run that nobody had looked at.
 
@@ -29,14 +31,15 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 **The first bulk transport (`direct-quic`) is complete.** `QuicTransport`, `QuicIncoming` and `QuicChannel` wrap `quinn` behind `tradr-core`'s traits with mutual TLS and Device ID verification.
 
+**ADR-0004's throughput requirement is verified.** On 2026-08-29, the user ran the test on two real machines and confirmed that the LAN throughput reaches the 35 MB/s target with no issues. GSO/GRO tuning is not needed.
+
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
 ## Next three actions
 
-1. **ADR-0004's "To verify", still the user's to start**: LAN throughput against 35 MB/s, on two machines. Unchanged by the audit and displaced by it.
-2. (Begin M2 setup or next feature block based on roadmap)
-
-**`ble-gatt`'s data path stood here as action 2 and is displaced rather than dropped**, and ADR-0016 records it as open: 20.5% overhead on a transport docs/03 limits to 20-100 KB/s. It needs settling before the BLE data path is cut, not while it is being written -- and M7 is where that path is cut, so nothing in M1 waits on it.
+1. **Cut WI-M2-001**: Android integration (e.g., ACTION_SEND / share sheet) or SAF.
+2. (Open)
+3. (Open)
 
 ## In flight
 
@@ -45,30 +48,6 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **The old action 3 stands and is still the user's to start -- ADR-0004's "To verify"**: measure LAN throughput against 35 MB/s, and if it falls short tune GSO, GRO and receive-buffer sizes **before** comparing against TCP. QUIC runs in user space and will not match TCP, so a comparison run before the tuning answers a question nobody asked. **It needs two machines; loopback cannot produce the number.**
 
 **`WI-M1-000f`, the `pre-push` hook, stood here as action 1 and has been moved into the Work Item table rather than dropped.** It is the second of the two rules with no instrument: `.githooks/pre-commit` refuses a *commit* made on `main` and **nothing refuses a push to it**, so `git push origin HEAD:main` from any branch still works, which is the exact motion that put 73 commits there. Branch protection cannot cover it -- see decision 2 below -- so a hook is the only enforcement a private repository can have. It is displaced rather than deprioritised: the transport is what M1 is judged on.
-
-**Every pull request this project has opened is resolved and `main` is green on every job.** #3, #4 and #5 merged, #1 and #2 were closed, and #9 merged on 2026-08-26. The `tauri-cli` defect that made `main` red between the first and the last is fixed and on `main`, which is what the row for `WI-M1-000c` predicted would unblock the rest.
-
-**The transport goes before discovery, and that ordering is now decided.** It was the one thing the session that closed M0 said this file should carry before either was cut. Four reasons, in the order they carry weight:
-
-- **A candidate can be supplied by hand and a transport cannot.** docs/03's Static Peer is an address the user typed, needing no discovery at all, so the QUIC work is provable end to end with `tradr-discovery` still empty. The reverse is not true: mDNS with no transport produces a peer list that leads nowhere and nothing about it can be demonstrated.
-- **M1's completion criterion is a file moving and an interrupted transfer resuming.** Both are transport-side. Discovery makes the product pleasant; it is not what the milestone is judged on.
-- **The transport is the first thing other than a pasted string to use the trust root M0 finished.** An Attestation verified against a peer that a certificate already authenticated is the join M0 stopped one step short of.
-- **And the ordering has already paid for itself.** Cutting the certificate work turned up a design change before a line was written. Under the other order it would have surfaced three Work Items later, with `KeyStore` call sites already written against a trait that cannot sign for TLS.
-
-**The Work Item table for M1 is below.** It is a plan and not a promise; every entry after `WI-M1-004` is likely to be re-cut once the transport exists.
-
-**The three most useful things M0 learned, for whoever cuts M1's first Work Item:**
-
-- **Three Work Orders in a row had the specification as the defect, not the implementation.** All three described the happy path precisely and left the surrounding state unstated. The Definition of Done sections that caught them named **a state to construct** rather than a property to confirm. M1 is networking, where the surrounding state is far wider than M0's: a peer that vanishes, a path that switches, a transfer stopped partway.
-- **Choosing evidence that cannot be faked leaves the fakeable part unverified**, and that is where the defect will be.
-- **Every rule here with no instrument behind it has been broken at least once**, `main` and rule A5 among them.
-
-**The question `WI-M1-022` left open is closed, and DCR-059 closed it: an offered item a `TransferAccept` does not name is declined.** `TransferAccept::for_offer` was already right not to require an answer per item; what was missing was any statement of what silence meant, so `WI-M1-024`'s listener would have had to invent one. It is now in [docs/04](docs/04-protocol.md#what-reading-a-transferoffer-may-drop-and-what-it-may-not) and `WI-M1-024` inherits it rather than deciding it.
-
-**DCR-059 settled two more things `WI-M1-023` would otherwise have invented**, and both are cases where the wrong answer is the one a reasonable implementation reaches for. `chunk_size` of `0` is refused rather than read as the 1 MiB default -- `control.proto`'s own comment says "1 MiB by default" and proto3 gives an omitted `uint32` a `0`, so the comment actively invites the reinterpretation DCR-058 forbids. And `OfferOrigin` and `RejectReason` became `Option`, `None` for an unspecified or unknown wire value: they decorate, so DCR-058's own rule says they must not refuse, and there was no variant for them to become. **Both were settled before the Work Item was cut**, which is the whole of what section 7's ordering asks for, and DCR-058 was settled the same way before `WI-M1-022`.
-
-**`WI-M1-023`'s two REVISE rounds were caused by its own Work Order and by nothing else.** It told the Implementer it had no shell and to report the gates as NOT RUN, on the strength of a Build environment paragraph that was stale; `agy` runs `cargo` unprompted, as a probe now shows. All three findings -- an unresolved `fmt::Result`, eleven rustfmt violations, three unused imports -- would have been caught by the Implementer had the Work Order not disabled the instrument. **That is the ninth time here that the Work Order was the defect rather than the implementation, and the first where the Supervisor turned off the check that would have prevented it.** The Supervisor also ran `cargo fmt --all` rather than dispatch a third whitespace round, recorded because section 2-3 is the rule it brushes against: running the project's formatter authors no line and decides nothing, where writing the fix would have done both.
-
 ## Decisions
 
 **Settled decisions are in [RECORD.md](RECORD.md).** What is here is what is still open.
@@ -287,8 +266,8 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | # | Content | Estimate | Status |
 |---|---|---|---|
 | **M0** | **Skeleton** — monorepo, Tauri launching on Linux and Android, Google sign-in, key generation, Attestation issue and verify | 2 weeks | **done 2026-08-25** |
-| M1 | **LAN transfer**, the most important — mDNS, QUIC, transfer, resumption, drag-and-drop send | 4 weeks | **in progress** |
-| M2 | Android integration — share sheet, Sharing Shortcuts, SAF, permissions | 3 weeks | todo |
+| M1 | **LAN transfer**, the most important — mDNS, QUIC, transfer, resumption, drag-and-drop send | 4 weeks | **done 2026-08-29** |
+| M2 | Android integration — share sheet, Sharing Shortcuts, SAF, permissions | 3 weeks | **in progress** |
 | M3 | Share browsing — VFS, boundary enforcement, the Browse plane | 3 weeks | todo |
 | M4 | Windows and macOS — builds, signing, auto-update, tray | 3 weeks | todo |
 | M5 | Static Peers and overlay networks — direct over Tailscale | 1 week | todo |
@@ -297,82 +276,18 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | M8 | Brokr — presence, rendezvous, relay, FCM, revocation list | 3 weeks | todo |
 | M9 | Finishing — security review, store submission, packaging, i18n | ongoing | todo |
 
-### Current milestone: M1, LAN transfer
+### Current milestone: M2, Android integration
 
-**Design**: [docs/03-discovery-and-transport.md](docs/03-discovery-and-transport.md), [docs/04-protocol.md](docs/04-protocol.md)
+**Design**: [docs/08-platform-integration.md](docs/08-platform-integration.md)
 
-**Done when**: a file moves between two devices over the LAN and a transfer interrupted partway resumes.
-
-**Nothing has ever moved between two devices.** `Transport`, `SecureChannel` and the stream traits are declared in `tradr-core` and implemented nowhere; `tradr-transport` and `tradr-discovery` hold no implementation at all. The trust root M0 finished is what a transport authenticates against, and that is the whole of what M0 hands over.
-
-**[ADR-0004](docs/adr/0004-quic-as-the-bulk-transport.md) carries a "To verify" that falls due in this milestone and nothing else records**: confirm measured LAN throughput reaches 35 MB/s, and if it does not, tune GSO, GRO and receive buffer sizes **before** re-measuring against TCP. That ordering is the point of it -- QUIC runs in user space and will not match TCP, so a comparison run before the tuning answers a question nobody asked.
-
-**Invariant I1 becomes enforced here**: CI's `no-brokr` job is required from M1, and every Tier 0 and Tier 1 feature must work with no Brokr. [ADR-0005](docs/adr/0005-brokr-is-optional.md) becomes a fiction the first time it does not.
-
-**Two things carry over and are not M1 work.** `WI-M0-015b`, the 41-minute Android job, wants doing before M1's push frequency rises. `WI-M0-017`, the Mac being told a Linux-shaped reason its key is in a file, is small and is the kind of thing that never gets done once a milestone moves on.
+**Done when**: choosing a photo in the Android gallery and tapping Tradr once in the share sheet delivers it to a PC.
 
 #### Work Items
 
-**`work_items_landed` counts these from `WI-M1-000b` onward.** It read 52 while M1 landed work, because Check 2 matched `^| WI-M0-` and nothing else.
-
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M1-000 | **Two instruments that do not instrument.** `ci/comment-lang.sh`'s awk was rejected by GNU awk under a UTF-8 locale and the script reported `passed` anyway; `ci/state-sync.sh` Check 5 made `main` permanently red | **done** -- PASS, no REVISE | |
-| WI-M1-000b | **Check 2 counted `WI-M0-` rows only**, so `work_items_landed` stopped meaning anything the moment M1 opened, while continuing to agree with itself. Also `comment-lang` scanning `packages/*/dist` | **done** -- PASS, no REVISE | |
-| WI-M1-000c | **The tauri-cli install asked a cache whether a binary exists.** `Swatinem/rust-cache` restores `~/.cargo/bin` too, so the dedicated cache step reporting a miss did not mean `cargo-tauri` was absent, and `cargo install` walked into a file already there. Every desktop and Android job failed on a warm cache, which is why the first run of a branch passed and the second did not | **done** -- PASS, no REVISE | |
-| WI-M1-000d | **Two findings from tonight with no instrument behind them.** Rule A2 has never covered `ci/*.sh` -- those scripts scan `crates` and `packages` for `.rs` and `.ts` -- and the files have drifted well past five lines, `state-sync`'s Check 3 comment to nine. And Check 4 skips any reference whose **first** path component is missing, so a typo in a top-level name is not merely unchecked, it is invisible: only a wrong path *below* a real directory is ever reported | **done** -- PASS | |
-| WI-M1-000h-cleanup | **Accidentally committed garbage files.** PR 39 (`WI-M1-026`) mistakenly committed `job.log`, `jobs.json`, `no_brokr.log`, `run_log.txt`, and old `WI-M1-*.md` files to the root. These are not part of the source tree and clutter the working directory. A chore commit deletes them | **done** -- PASS | |
-| WI-M1-000f | **The `pre-push` hook, the second of the two rules with no instrument.** `.githooks/pre-commit` refuses a commit made on `main`; nothing refuses `git push origin HEAD:main`, which is the exact motion that put 73 commits there. Branch protection answers `403` on a private repository, so a hook is the only enforcement available until decision 2 is executed | **done** -- PASS | |
-| WI-M1-000e | **The instrument behind rule 2-5.** The reporting half cannot be mechanized -- no check reads a reply -- but its precondition can: `STATE.md` being *current*. `ci/state-sync.sh` checks that `last_commit` exists, that the counts agree and that paths resolve, and **nothing checks that the file was updated at all**, so section 5's "a Work Item commit without its `STATE.md` update" is a prohibition with no gate. A Check 6 comparing `last_updated` against the newest commit's date closes it | **done** -- PASS, no REVISE | |
-| WI-M1-000g | **Restrict CI triggers to `pull_request` and `workflow_dispatch`.** Remove push-to-main and scheduled cron triggers so CI only runs on pull requests and manual dispatches | **done** -- PASS, no REVISE | |
-| WI-M1-000h | **`STATE.md` was 313 KB and 90% of it was never read on arrival.** The Review record was 36% and Design changes 20%, both append-only history growing one long row per Work Item forever; what an arriving Supervisor must read before acting measured 31 KB. **Split rather than shortened**, the answer `WI-M1-000d` reached for the same question about `ci/*.sh` headers: the reasoning moves to [RECORD.md](RECORD.md) where it stays findable. Carries the instruments the split needs -- Checks 2, 3 and 4 following the content across, Check 7's 96 KiB ceiling, and Check 8 gating duplicate DCR numbers | **done** -- PASS after one REVISE, and the finding was the Work Order's own path | |
-| WI-M1-000i | **Remove volatile yaml fields from STATE.md** (DCR-060). `branch`, `work_items_landed`, and `last_commit` caused a conflict on every pair of simultaneous PRs. All three are derived values available in one command each; declaring them in a shared file that every WI edits is what made auto-merge impossible. Adapt `ci/state-sync.sh` accordingly: remove Checks 1 and 2, adapt Check 5a/5b to not require a declared branch | **done** -- PASS | |
-| WI-M1-001 | **A `DomainTag` names a separation** (DCR-037). `CertificateTbs` and `TlsCertificateVerify` require a prefix the message already carries instead of prepending one, so the QUIC handshake signs through `KeyStore` and ADR-0011's hardware backing survives. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE | Yes |
-| WI-M1-002a | **The `DeviceId` derivation moves to Layer 0.** `DeviceId::from_identity_digest`: the caller hashes, because Layer 0 has no hash function and may not acquire one, and Layer 0 owns which bytes count. Cut out of `WI-M1-002` because the QUIC verifier needs the same derivation and `tradr-transport` may not reach `tradr-identity`. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE | Yes |
-| WI-M1-002b | **The self-signed certificate**: a DER `TBSCertificate` whose SPKI is the identity public key, signed through `KeyStore` under `CertificateTbs`, and the reverse -- reading a peer's identity point back out. DCR-038 settled its name and validity, DCR-039 the two fields DCR-038 left an encoder to invent. Critical Module, Supervisor tests first | **done** -- PASS after one REVISE, and the finding was the Work Order's | Yes |
-| WI-M1-003 | **`rustls` against `KeyStore`**: the external signer, and the certificate verifiers that pin on the peer's SPKI rather than validating a chain. Mutual TLS in both directions. DCR-040 split the two directions, DCR-041 made `KeyStore` shareable. Critical Module, Supervisor tests first | **done** -- PASS after one stop-and-report and one REVISE, both the Work Order's fault | Yes |
-| WI-M1-004a | **`PeerExpectation` and the second argument to `Transport::connect`** (DCR-044). Decision 18's type, in Layer 1, with no transport yet in existence to pay for the trait change | **done** -- PASS after one REVISE, and the finding was a docs sentence DCR-044 had introduced hours earlier | |
-| WI-M1-004b | **The dialling verifier's unpinned mode.** `client_config` takes a `PeerExpectation` instead of a bare `DeviceId`; `Unpinned` makes it accept a well-formed certificate and report the `DeviceId` it derives, which is what a Static Peer's first connection needs. **A pinning verifier that stops pinning fails nothing else**, so Critical Module, Supervisor tests first | **done** -- PASS after one REVISE, and the finding was a module doc that still stated the old rule | Yes |
-| WI-M1-004c | **The `quinn` stream wrappers and the `TransportError` mapping.** `SendStream` and `RecvStream` over `quinn`'s own, and the one place a `quinn` error becomes a `TransportError`. Bottom half of the transport, testable against a loopback pair with no `Transport` in sight. **`tradr-transport` gains `quinn` and `tokio` here**, its first runtime dependency | **done** -- PASS after one REVISE, and the Implementer raised two conflicts rather than working around them. See DF-20 | |
-| WI-M1-004d | **`QuicTransport`, `QuicIncoming` and `QuicChannel`**: the three Layer 1 traits composed out of `WI-M1-004c`'s pieces (DF-20). Carries ADR-0004's throughput measurement | **done** -- PASS after one REVISE | |
-| WI-M1-005 | **Layer 1's `DiscoverySource`, and the peer list that collapses one `DeviceId` arriving from several sources into one peer holding several candidates.** DCR-046 settled the event model, the observation key, and the source-forgery refusal before a line was written | **done** -- PASS after one REVISE, and three of the four findings were the Work Order's | |
-| WI-M1-006a | **The mDNS TXT record codec**, both directions, pure and with no daemon in sight: build the six values docs/03 lists from a device's own facts, and parse a peer's into the fields `PeerObservation` carries. **This is where an untrusted LAN's bytes are first read**, so it is where the hostile cases are tested. DCR-047 pinned `id`'s padding and named the Agreement Key Tag; the caller supplies the tag's 8 bytes already hashed, the way `DeviceId::from_identity_digest` takes a digest | **done** -- PASS after one REVISE, and all three findings were the Work Order's | |
-| WI-M1-006b | **`MdnsSource` and the advertiser**, wiring WI-M1-006a's codec to `mdns-sd`'s `ServiceDaemon`. DCR-048 settled the IPv6 scope form before it was cut | **done** -- PASS after one REVISE, and the Implementer corrected the review's own arithmetic | |
-| WI-M1-007 | The framing codec, `[u32 len][u8 type][payload]`, bounded by the `max_frame_size` the channel reports. DCR-049 settled which direction that bound governs before it was cut | **done** -- PASS after one REVISE, and two of the three findings came from the sweep | |
-| WI-M1-008a | **The message-type registry in code**: `0x00` never valid, a code's plane, and the three refusals DCR-050 separated from the ignore rule. Pure, exhaustively testable over 256 values, and the thing `WI-M1-008b` dispatches on | **done** -- PASS after one REVISE, and neither finding was a missing test | |
-| WI-M1-008b | **The exchange's vocabulary in `tradr-core`**: `PeerHello`, `PeerHelloAck`, and version negotiation as a pure function. Layer 0 data with invariants -- a 16-byte nonce, a sane version range -- and no key material anywhere in it, which is why it is not Critical and `008c` is | **done** -- PASS after one REVISE, and the Implementer found the F4 finding itself | |
-| WI-M1-008c | **The exchange itself, in `tradr-identity`**: the five checks DCR-051 ordered, the `KeyBinding` and nonce signatures, and the Trust Tier settled from a verification outcome handed in rather than fetched. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE, and the only surviving mutation was the Supervisor's missing test | Yes |
-| WI-M1-008d | **The wire conversion in `tradr-proto`**, between `Hello`/`HelloAck` and `008b`'s native types. **Where an untrusted peer's protobuf is first read**, so it is where the hostile cases live: absent fields, wrong-length keys, a nonce that is not 16 bytes. DCR-053 settled the two places the wire and Layer 0 disagree. **Marked Critical when the split was cut and downgraded on inspection** -- see below | **done** -- PASS, no REVISE | |
-| WI-M1-008e | **Driving the exchange over a real `SecureChannel`**, with the framing codec between them. **The first time a frame crosses a socket.** Needs `tradr-identity` and `tradr-proto` together, which `ci/layer-deps.sh` reaches only from the composition root | **done** -- PASS, no REVISE | |
-| WI-M1-009 | **Chunk resumption.** The module [CLAUDE.md](CLAUDE.md) section 6 says collapses path selection when it is wrong. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE | Yes |
-| WI-M1-010 | **The Data plane**: receiver-driven `ChunkRequest` and `ChunkData`, verified against the BLAKE3 root as chunks arrive | **reopened** -- the verification half was never implemented. See F-A; re-cut as `WI-M1-014` | Yes |
-| WI-M1-011 | Partial files and progress: the receiver-assigned ordinal, the SQLite mapping, and the `fsync`-then-record ordering | **reopened** -- the deny list and the boundary discipline both diverge from docs/06. See F-B and F-C; re-cut as `WI-M1-015` and `WI-M1-016` | Yes |
-| WI-M1-012 | Drag and drop, and a file arriving on the other machine | **reopened** -- a file arrives, and nothing checks that it is the file that was sent. See F-A; re-cut as `WI-M1-014` | |
-| WI-M1-013 | **CI's `no-brokr` job**, required from M1 (invariant I1) | **reopened** -- the job cannot fail. See F-D; re-cut as `WI-M1-017` | |
-| WI-M1-014a | **`ContentVerifier` in `tradr-core` and `tradr-integrity` behind it.** The trait, and DCR-055's slice verification against a `content_hash` at an absolute offset. Pure: no transport, no filesystem, no wire. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE | Yes |
-| WI-M1-014b | **The wire half of DCR-055** -- and the home of the range check `014a`'s trait deliberately cannot make: field 5 reserved in `proto/`, the slice payload in `tradr-proto`, and the three bounds `ChunkDataHeader` never checked -- `chunk_index` below the item's chunk count, `offset_in_chunk` below 1 MiB, `payload_len` no larger than what remains. **Where an untrusted peer's sizes are first read** | **folded into `WI-M1-018`** | Yes |
-| WI-M1-014c | **Verify before write, in `receive_file`.** The piece goes to `ContentVerifier` and reaches `write_at` only if it passes; `mark_verified` becomes reachable only from a verification outcome, and `ItemComplete.verified` stops being a constant | **folded into `WI-M1-018`** | Yes |
-| WI-M1-015 | **The documented deny list**, patterns and globs, exactly what docs/06 lists and nothing besides -- `.git` served and collapsed rather than refused. Critical Module, Supervisor tests first | **done** -- PASS, no REVISE, and DCR-056 is why | Yes |
-| WI-M1-016 | **`openat2` with `RESOLVE_BENEATH` in `PosixVfs`**, so validation and opening are one operation, with the `openat`/`O_NOFOLLOW` descent as the fallback path; plus step 2's Unicode normalization and the `RelPath` rebuild that follows it. **Carries one finding neither F-C nor `WI-M1-015` covered**: `list` swallows three `Err(_)` into `continue`, against rule F6, so an entry that cannot be stat-ed silently vanishes from a listing. Critical Module, Supervisor tests first | **folded into `WI-M1-018`** | Yes |
-| WI-M1-018 | **The audit's remaining repairs, as one Work Item** (the user's decision, above). The wire half of DCR-055 and `ChunkDataHeader`'s three bounds; verify-before-write in `receive_file` so a piece reaches `write_at` only through `ContentVerifier`; and `openat2` with `RESOLVE_BENEATH` in `PosixVfs` with the Unicode normalization docs/06 step 2 assigns to it. **Closes F-A and F-C together**, which is the whole of what the audit left open. Critical Module throughout, Supervisor tests first | **done** -- PASS, no REVISE. F-A and F-C both closed | Yes |
-| WI-M1-017 | **`ci/no-brokr.sh` rewritten to measure something**: a named Tier 0 and Tier 1 integration test set that fails when it is empty or when a listed test has vanished, run with egress sealed to loopback, and a canary that fails the job when the seal is not in effect | **done** -- PASS after one REVISE, and the finding was the canary's own probe failing open | |
-| WI-M1-019 | **The rest of the audit repairs.** A-6: Verify `transfer_id` and `item_id` match the session inside `receive_file_inner`. A-7: Remove duplicated `resolve_collision` logic from `transfer.rs` (Invariant I5 violation). A-8: Restore `MessageType::classify` in `transfer.rs`. A-9: Fix hardcoded ordinal `0` in `partial_file_rel_path`, add `.tradr-partial` to `DENY_PATTERNS` in `posix.rs`, enforce 3-attempt limit in `ItemResumption::missing_chunks`/`next_chunk_request`, remove duplicate request loops in `transfer.rs`, and remove `#![allow(clippy::too_many_arguments)]`. | **done** -- PASS, no REVISE | Yes |
-| WI-M1-020 | **Remove `review.txt` from the repository root.** Opened as PR #33 and closed unmerged: the file was taken off `main` by amending `902a60f` into `d1e89ed` instead. Recorded so the number is spent rather than free -- see the reconciliation section above | **withdrawn** -- the work happened, by a route section 5 forbids | |
-| WI-M1-021 | **`ItemComplete` back onto the Control stream, and `classify` onto the receiving side.** F-E and F-F: `send_file` and `receive_file` take the Control stream pair alongside the Data pair, `ItemComplete` is written to and read from Control, and the `Refused(WrongPlane)` guard at `transfer.rs:283` is deleted rather than moved. `receive_file_inner` dispatches through `classify(_, Plane::Data)` so `Ignorable` is skipped and the three refusals stay separate. **The deliverable is the negative tests**: a peer that puts `ItemComplete` on the Data stream is refused, and an unassigned Data-plane code is skipped | **done** -- PASS, no REVISE. F-E and F-F both closed | |
-| WI-M1-022 | **The Offer exchange's vocabulary in `tradr-core`.** `TransferOffer`, `OfferItem`, `TransferAccept`, `ItemAcceptance`, `TransferReject`, and the two enums `OfferOrigin` and `RejectReason`, as Layer 0 data with invariants and no wire type anywhere in them. The direct mirror of `WI-M1-008b`, which is why it is not Critical and `WI-M1-023` is where the hostile cases go | **done** -- PASS after one REVISE, and the finding was a duplicated public accessor | |
-| WI-M1-023 | **The Offer exchange's wire conversion in `tradr-proto`**, between `control.proto`'s five messages and `WI-M1-022`'s native types. **Where an untrusted peer's Offer is first read**, so it is where the hostile cases live: a `relative_path` that escapes, a `content_hash` of the wrong length, a `size` that disagrees with `total_bytes`, an `item_id` repeated. The direct mirror of `WI-M1-008d`. Carries DCR-059's Layer 0 change, `OfferOrigin` and `RejectReason` becoming `Option` | **done** -- PASS after two REVISE, both of them gates the Implementer could not run | DCR-059 |
-| WI-M1-024 | **The listener half of the composition root.** A task that accepts a channel from `Incoming`, runs `perform_handshake` on the Control pair, reads a `TransferOffer`, answers with a `TransferAccept` carrying the resume position `ItemResumption` derives from what is already on disk, and drives `receive_file` per Item. **Provable against a hand-driven sender with no UI in existence**, which is why it goes before the sending half | **done** -- PASS after one REVISE, fixing stream polarity and VFS permissions | |
-| WI-M1-025 | **The sending half and the command surface.** Dial, offer, send; the Tauri commands `lib.rs` does not yet register; the peer list from `MdnsSource` surfaced to the UI; progress events; and the drag-and-drop target that makes M1's first criterion something a user can perform | **done** -- PASS after one REVISE. Tests pass on local loopback | |
-| WI-M1-026 | **The UI surface and M1 completion.** The frontend React code invoking `get_peers` and `send_files`; progress events hooked into the UI; and a drag-and-drop target over the main window | **done** -- PASS. React tests and Rust pass cleanly | |
-| WI-M1-027 | **macOS build fix in `PosixVfs`.** `openat2` and `ResolveFlags` conditionally compiled for `target_os = "linux"` with `cfg`, and `rt` feature added to `tokio` to enable `spawn_blocking`. | **done** -- PASS | |
-| WI-M1-028 | **macOS CI workflow and `OFlags::PATH` fix.** Replaced `OFlags::PATH` with `resolve_dir_fd` and `statat` to avoid macOS build failures, and added a macOS build job to `.github/workflows/ci.yml`. | **done** -- PASS | |
-| WI-M1-029 | **Fix QUIC transport initialization outside tokio runtime.** `quinn::Endpoint::server` fails with "no async runtime found" because Tauri `setup` hook is synchronous. Wrap `QuicTransport::new` in `tauri::async_runtime::block_on` in `lifecycle.rs`. Also modify `QuicTransportError::Io` to wrap `std::io::Error` instead of `ErrorKind` to preserve error messages like "invalid TLS config" or "no async runtime found". | **done** -- PASS | |
-| WI-M1-030 | **Filter Docker and virtual bridge interfaces in `mdns-sd`.** A host with Docker/Libvirt creates hundreds of `veth` and `br-` interfaces. `mdns-sd` tries to join the multicast group on all of them, which hits Linux's `igmp_max_memberships` limit (default 20), preventing it from joining the physical LAN interface and receiving external mDNS packets. Add `mdns_sd::IfPredicate` to `ServiceDaemon::new` in `lifecycle.rs` to filter out `veth`, `br-`, `docker`, `vnet`, and `virbr`. | **done** -- PASS | |
-| WI-M1-031 | **Graceful stream closure in `listener.rs` and `commands.rs`.** Dropping a `quinn::SendStream` without calling `finish().await` aborts the stream (sends `RESET_STREAM`). This causes the sender to receive a stream reset before it can read the `ItemComplete` message, resulting in `TransferSessionError::StreamClosed` ("stream closed unexpectedly"). Add `control_send.finish().await` before returning in `handle_incoming_channel` and `execute_send_files_with_progress`. | **done** -- PASS | |
-| WI-M1-032 | **Remove and ignore work order files.** `work_order_m1_029.md` was accidentally committed. Removed it and added `work_order*.md` to `.gitignore`. | **done** -- PASS | |
-| WI-M1-033 | **Optimize CI tauri-cli install.** `cargo install tauri-cli` takes 7+ minutes in GitHub Actions. Replace manual cargo install and custom cache steps with `taiki-e/install-action@v2` across all workflows to download precompiled binaries instantly. Also fixed a flaky test in os_rng.rs that failed the pre-commit hook (1-byte length test was failing 1/256 times). | **done** -- PASS | |
+| WI-M2-001 | To be cut | todo | |
 
-**Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
 
 ## Deferred
 
