@@ -10,10 +10,10 @@
 last_updated: 2026-08-29
 phase: implementing
 current_milestone: M1
-branch: wi-m1-029-quic-runtime
+branch: wi-m1-030-mdns-filter
 implementation_started: true
-work_items_landed: 90
-last_commit: 64312d3
+work_items_landed: 91
+last_commit: ca52f93
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -384,6 +384,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-027 | **macOS build fix in `PosixVfs`.** `openat2` and `ResolveFlags` conditionally compiled for `target_os = "linux"` with `cfg`, and `rt` feature added to `tokio` to enable `spawn_blocking`. | **done** -- PASS | |
 | WI-M1-028 | **macOS CI workflow and `OFlags::PATH` fix.** Replaced `OFlags::PATH` with `resolve_dir_fd` and `statat` to avoid macOS build failures, and added a macOS build job to `.github/workflows/ci.yml`. | **done** -- PASS | |
 | WI-M1-029 | **Fix QUIC transport initialization outside tokio runtime.** `quinn::Endpoint::server` fails with "no async runtime found" because Tauri `setup` hook is synchronous. Wrap `QuicTransport::new` in `tauri::async_runtime::block_on` in `lifecycle.rs`. Also modify `QuicTransportError::Io` to wrap `std::io::Error` instead of `ErrorKind` to preserve error messages like "invalid TLS config" or "no async runtime found". | **done** -- PASS | |
+| WI-M1-030 | **Filter Docker and virtual bridge interfaces in `mdns-sd`.** A host with Docker/Libvirt creates hundreds of `veth` and `br-` interfaces. `mdns-sd` tries to join the multicast group on all of them, which hits Linux's `igmp_max_memberships` limit (default 20), preventing it from joining the physical LAN interface and receiving external mDNS packets. Add `mdns_sd::IfPredicate` to `ServiceDaemon::new` in `lifecycle.rs` to filter out `veth`, `br-`, `docker`, `vnet`, and `virbr`. | **done** -- PASS | |
 
 **Everything from `WI-M1-005` down is a sketch.** It is here so the shape of the milestone is visible, not because those Work Orders are written.
 
