@@ -10,10 +10,10 @@
 last_updated: 2026-08-29
 phase: implementing
 current_milestone: M1
-branch: wi-m1-033-fast-tauri-cli
+branch: wi-m1-032-cleanup-work-orders
 implementation_started: true
 work_items_landed: 94
-last_commit: 91ea543
+last_commit: 64cd9b0
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
