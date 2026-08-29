@@ -8,6 +8,7 @@ const COMMANDS: &[&str] = &[
     "verify_peer_attestation",
     "get_peers",
     "send_files",
+    "publish_sharing_shortcuts",
 ];
 
 fn main() {

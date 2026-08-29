@@ -1,10 +1,14 @@
 package com.tradr.plugin
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.drawable.IconCompat
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -13,9 +17,12 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import org.json.JSONArray
+import org.json.JSONObject
 
 // Only affects when logcat shows the push; Rust never blocks waiting for it.
 private const val CHANNEL_PUSH_DELAY_MS = 1500L
+private const val SHORTCUT_CATEGORY_SEND = "com.tradr.category.SEND"
+private const val MAX_SHARING_SHORTCUTS = 5
 
 @InvokeArg
 class GreetArgs {
@@ -33,8 +40,21 @@ class InitShareChannelArgs {
     var channel: Channel? = null
 }
 
+@InvokeArg
+class PeerShortcutDto {
+    var deviceId: String = ""
+    var displayName: String = ""
+    var platform: String? = null
+}
+
+@InvokeArg
+class PublishSharingShortcutsArgs {
+    var peers: List<PeerShortcutDto> = emptyList()
+}
+
 // WI-M0-005 proves both ADR-0001 call directions with Rust; WI-M0-005b adds
-// the ACTION_SEND intent channel; WI-M2-002 adds file caching and FD interop.
+// the ACTION_SEND intent channel; WI-M2-002 adds file caching and FD interop;
+// WI-M2-003 publishes discovered peers as dynamic sharing shortcuts.
 @TauriPlugin
 class TradrPlugin(private val activity: Activity) : Plugin(activity) {
 
@@ -78,6 +98,62 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
         forwardIfShareIntent(activity.intent)
     }
 
+    // Android limits dynamic shortcuts per activity, so we cap entries to the top recent peers.
+    @Command
+    fun publishSharingShortcuts(invoke: Invoke) {
+        val peersList = mutableListOf<PeerShortcutDto>()
+        try {
+            val args = invoke.parseArgs(PublishSharingShortcutsArgs::class.java)
+            peersList.addAll(args.peers)
+        } catch (_: Exception) {
+            try {
+                val rawObj = JSONObject(invoke.getRawArgs())
+                val peersArray = rawObj.optJSONArray("peers")
+                if (peersArray != null) {
+                    for (i in 0 until peersArray.length()) {
+                        val item = peersArray.optJSONObject(i) ?: continue
+                        val dto = PeerShortcutDto().apply {
+                            deviceId = item.optString("deviceId", "")
+                            displayName = item.optString("displayName", "")
+                            platform = if (item.has("platform") && !item.isNull("platform")) item.optString("platform") else null
+                        }
+                        if (dto.deviceId.isNotEmpty()) {
+                            peersList.add(dto)
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        val maxAllowed = ShortcutManagerCompat.getMaxShortcutCountPerActivity(activity).coerceAtMost(MAX_SHARING_SHORTCUTS)
+        val limit = if (maxAllowed > 0) maxAllowed else MAX_SHARING_SHORTCUTS
+        val limitedPeers = peersList.filter { it.deviceId.isNotEmpty() }.take(limit)
+
+        for (peer in limitedPeers) {
+            val shortcutIntent = Intent(activity, ShareTargetActivity::class.java).apply {
+                action = Intent.ACTION_SEND
+                putExtra(EXTRA_TARGET_DEVICE, peer.deviceId)
+            }
+            val label = if (peer.displayName.isNotEmpty()) peer.displayName else peer.deviceId
+            val shortcut = ShortcutInfoCompat.Builder(activity, "peer:${peer.deviceId}")
+                .setShortLabel(label)
+                .setIcon(IconCompat.createWithResource(activity, iconFor(activity, peer.platform)))
+                .setCategories(setOf(SHORTCUT_CATEGORY_SEND))
+                .setLongLived(true)
+                .setIntent(shortcutIntent)
+                .build()
+            ShortcutManagerCompat.pushDynamicShortcut(activity, shortcut)
+        }
+
+        invoke.resolve()
+    }
+
+    private fun iconFor(context: Context, platform: String?): Int {
+        val appIcon = context.applicationInfo.icon
+        return if (appIcon != 0) appIcon else android.R.drawable.ic_menu_share
+    }
+
     // singleTask delivers incoming intents to existing activity instances here.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -116,6 +192,11 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
         payload.put("action", intent.action ?: ACTION_SHARED_FILES)
         payload.put("mimeType", intent.type)
         payload.put("extraText", intent.getStringExtra(Intent.EXTRA_TEXT))
+        if (intent.hasExtra(EXTRA_TARGET_DEVICE)) {
+            payload.put("targetDevice", intent.getStringExtra(EXTRA_TARGET_DEVICE))
+        } else {
+            payload.put("targetDevice", JSONObject.NULL)
+        }
         payload.put("files", filesArray)
         channel.send(payload)
     }

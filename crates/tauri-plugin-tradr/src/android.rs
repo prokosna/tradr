@@ -9,7 +9,7 @@ use tauri::{
     plugin::{PluginApi, PluginHandle},
 };
 
-use crate::share::ShareIntent;
+use crate::share::{PeerShortcut, ShareIntent};
 
 const PLUGIN_PACKAGE: &str = "com.tradr.plugin";
 const PLUGIN_CLASS: &str = "TradrPlugin";
@@ -54,10 +54,21 @@ struct InitShareChannelRequest {
     channel: Channel<serde_json::Value>,
 }
 
+/// Sent to Kotlin's `publishSharingShortcuts` command.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublishShortcutsRequest {
+    peers: Vec<PeerShortcut>,
+}
+
+/// Handle wrapper stored in app state for invoking Android plugin methods.
+#[derive(Clone)]
+pub struct AndroidPluginHandle<R: Runtime>(pub PluginHandle<R>);
+
 /// Runs both ADR-0001 call directions once and prints what each side proves.
 pub fn demonstrate_bidirectional_calls<R: Runtime, C: serde::de::DeserializeOwned>(
     api: PluginApi<R, C>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<PluginHandle<R>, Box<dyn std::error::Error>> {
     let handle: PluginHandle<R> = api.register_android_plugin(PLUGIN_PACKAGE, PLUGIN_CLASS)?;
 
     // Direction 1, Rust calls into Kotlin: Kotlin's `greet` computes the transform
@@ -119,5 +130,15 @@ pub fn demonstrate_bidirectional_calls<R: Runtime, C: serde::de::DeserializeOwne
         },
     )?;
 
-    Ok(())
+    Ok(handle)
+}
+
+/// Publishes dynamic sharing shortcuts to Android's ShortcutManagerCompat.
+pub fn publish_sharing_shortcuts<R: Runtime>(
+    handle: &PluginHandle<R>,
+    peers: Vec<PeerShortcut>,
+) -> Result<(), String> {
+    handle
+        .run_mobile_plugin::<()>("publishSharingShortcuts", PublishShortcutsRequest { peers })
+        .map_err(|e| format!("failed to publish sharing shortcuts: {e}"))
 }

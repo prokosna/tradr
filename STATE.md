@@ -37,7 +37,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-1. **Cut WI-M2-003**: Android Sharing Shortcuts.
+1. **Cut WI-M2-004**: Android SAF and Share Roots.
 2. (Open)
 3. (Open)
 
@@ -288,6 +288,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 |---|---|---|---|
 | WI-M2-001 | Android integration: ACTION_SEND intent filter and ShareTargetActivity | **done** | |
 | WI-M2-002 | Android intent file caching and Rust interop | **done** | |
+| WI-M2-003 | Android Sharing Shortcuts | **done** | |
 
 
 ## Deferred
