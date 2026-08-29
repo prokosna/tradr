@@ -56,3 +56,4 @@ Thumbs.db
 
 # Claude Code local overrides
 .claude/settings.local.json
+work_order*.md
