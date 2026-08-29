@@ -9,6 +9,115 @@ const WINDOWS_RESERVED: &[&str] = &[
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
+/// One component of a deny pattern.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatternPart {
+    Exact(&'static str),
+    Glob(&'static str, &'static str),
+}
+
+/// docs/06-shares-and-linking.md, "The default deny list": the patterns
+/// below are the whole list and nothing besides. A pattern with more than
+/// one part denies only that consecutive run of components (DCR-056).
+pub const DENY_PATTERNS: &[&[PatternPart]] = &[
+    &[PatternPart::Exact(".tradr-partial")],
+    &[PatternPart::Exact(".ssh")],
+    &[PatternPart::Exact(".gnupg")],
+    &[PatternPart::Exact(".aws")],
+    &[PatternPart::Exact(".kube")],
+    &[PatternPart::Exact(".config"), PatternPart::Exact("gcloud")],
+    &[
+        PatternPart::Exact(".docker"),
+        PatternPart::Exact("config.json"),
+    ],
+    &[PatternPart::Exact(".netrc")],
+    &[PatternPart::Exact(".git-credentials")],
+    &[PatternPart::Exact(".npmrc")],
+    &[PatternPart::Exact(".pypirc")],
+    &[PatternPart::Glob("", ".pem")],
+    &[PatternPart::Glob("", ".key")],
+    &[PatternPart::Glob("", ".p12")],
+    &[PatternPart::Glob("", ".pfx")],
+    &[PatternPart::Glob("", ".keystore")],
+    &[PatternPart::Glob("", ".jks")],
+    &[PatternPart::Exact(".env")],
+    &[PatternPart::Glob(".env.", "")],
+    &[PatternPart::Glob("id_rsa", "")],
+    &[PatternPart::Glob("id_ed25519", "")],
+    &[PatternPart::Glob("id_ecdsa", "")],
+];
+
+fn part_matches(part: &PatternPart, component: &str) -> bool {
+    match part {
+        PatternPart::Exact(pattern) => component.eq_ignore_ascii_case(pattern),
+        PatternPart::Glob(prefix, suffix) => {
+            let bytes = component.as_bytes();
+            if bytes.len() < prefix.len() + suffix.len() {
+                return false;
+            }
+            let head = &bytes[..prefix.len()];
+            let tail = &bytes[bytes.len() - suffix.len()..];
+            head.eq_ignore_ascii_case(prefix.as_bytes())
+                && tail.eq_ignore_ascii_case(suffix.as_bytes())
+        }
+    }
+}
+
+fn pattern_matches_run(pattern: &[PatternPart], components: &[&str]) -> bool {
+    if components.len() < pattern.len() {
+        return false;
+    }
+    (0..=components.len() - pattern.len()).any(|start| {
+        pattern
+            .iter()
+            .zip(&components[start..start + pattern.len()])
+            .all(|(part, comp)| part_matches(part, comp))
+    })
+}
+
+/// Checks whether a component slice matches any pattern in the default deny list.
+pub fn is_denied(components: &[&str]) -> bool {
+    DENY_PATTERNS
+        .iter()
+        .any(|pattern| pattern_matches_run(pattern, components))
+}
+
+/// Checks whether components represent a partial transfer staging path.
+pub fn is_partial_staging(components: &[&str]) -> bool {
+    components.len() > 1
+        && matches!(components.first(), Some(c) if c.eq_ignore_ascii_case(".tradr-partial"))
+}
+
+/// Checks whether a component slice is denied for write operations.
+pub fn is_denied_for_write(components: &[&str]) -> bool {
+    if is_partial_staging(components) {
+        DENY_PATTERNS
+            .iter()
+            .filter(|p| !matches!(p.first(), Some(PatternPart::Exact(name)) if *name == ".tradr-partial"))
+            .any(|pattern| pattern_matches_run(pattern, components))
+    } else {
+        is_denied(components)
+    }
+}
+
+/// Validates that a path is not blocked by the default deny list.
+pub fn check_deny_list(at: &RelPath) -> Result<(), VfsError> {
+    let components: Vec<&str> = at.components().collect();
+    if is_denied_for_write(&components) {
+        return Err(VfsError::DenyListed);
+    }
+    Ok(())
+}
+
+/// Validates that a path is not blocked by the default deny list for writes.
+pub fn check_deny_list_write(at: &RelPath) -> Result<(), VfsError> {
+    let components: Vec<&str> = at.components().collect();
+    if is_denied_for_write(&components) {
+        return Err(VfsError::DenyListed);
+    }
+    Ok(())
+}
+
 /// Errors encountered when sanitizing destination file paths.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SanitizationError {

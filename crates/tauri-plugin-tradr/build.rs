@@ -9,6 +9,7 @@ const COMMANDS: &[&str] = &[
     "get_peers",
     "send_files",
     "publish_sharing_shortcuts",
+    "pick_share_root",
 ];
 
 fn main() {

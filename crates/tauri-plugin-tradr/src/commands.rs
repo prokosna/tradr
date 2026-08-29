@@ -513,3 +513,25 @@ pub async fn publish_sharing_shortcuts<R: tauri::Runtime>(
 
     Ok(())
 }
+
+/// Launches the platform directory picker to choose a share root.
+///
+/// On Android, this delegates to SAF `ACTION_OPEN_DOCUMENT_TREE`, requests persistable permissions,
+/// and returns the `content://` URI string. If cancelled, returns `None`.
+#[tauri::command]
+pub async fn pick_share_root<R: tauri::Runtime>(
+    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+) -> Result<Option<String>, String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        let handle_state = app
+            .try_state::<crate::android::AndroidPluginHandle<R>>()
+            .ok_or_else(|| "android plugin handle not found".to_string())?;
+        crate::android::pick_share_root(&handle_state.0).await
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(None)
+    }
+}
