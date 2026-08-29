@@ -41,4 +41,4 @@ A bespoke UDP protocol is avoided because congestion control is hard to get righ
 
 ## To verify
 
-During M1, confirm the measured LAN throughput reaches the 35 MB/s target. If it does not, first tune GSO, GRO, and receive buffer sizes, and only then re-measure against TCP.
+**Verified 2026-08-29.** The user confirmed that measured LAN throughput reaches the 35 MB/s target on two real machines. No further tuning of GSO, GRO, or receive buffer sizes is required.
