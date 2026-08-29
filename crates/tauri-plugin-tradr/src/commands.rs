@@ -339,6 +339,11 @@ where
         }
     }
 
+    control_send
+        .finish()
+        .await
+        .map_err(|e| format!("failed to finish control stream: {e}"))?;
+
     Ok(sent)
 }
 
