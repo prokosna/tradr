@@ -49,6 +49,7 @@ pub fn init<R: Runtime>(
             commands::pick_share_root,
             commands::request_permissions,
             commands::check_permissions,
+            commands::show_incoming_transfer_notification,
         ])
         .setup(move |app, _api| {
             let identity_state = identity::init_identity_state(app);

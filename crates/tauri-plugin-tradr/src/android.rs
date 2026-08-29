@@ -9,7 +9,11 @@ use tauri::{
     plugin::{PluginApi, PluginHandle},
 };
 
-use crate::share::{PeerShortcut, PickShareRootResponse, ShareIntent};
+use crate::commands::ShowIncomingTransferNotificationArgs;
+use crate::share::{
+    ACTION_NOTIFICATION_ACCEPT, ACTION_NOTIFICATION_DECLINE, PeerShortcut, PickShareRootResponse,
+    ShareIntent,
+};
 
 const PLUGIN_PACKAGE: &str = "com.tradr.plugin";
 const PLUGIN_CLASS: &str = "TradrPlugin";
@@ -121,6 +125,10 @@ pub fn demonstrate_bidirectional_calls<R: Runtime, C: serde::de::DeserializeOwne
         }
         let _ = app_handle.emit("share-intent", &share);
         let _ = app_handle.emit("shared-files", &share.files);
+        if share.action == ACTION_NOTIFICATION_ACCEPT || share.action == ACTION_NOTIFICATION_DECLINE
+        {
+            let _ = app_handle.emit("notification-action", &share);
+        }
         Ok(())
     });
     handle.run_mobile_plugin::<()>(
@@ -152,4 +160,20 @@ pub async fn pick_share_root<R: Runtime>(
         .await
         .map_err(|e| format!("failed to pick share root: {e}"))?;
     Ok(response.uri)
+}
+
+/// Shows an incoming transfer notification on Android with Accept and Decline actions.
+pub async fn show_incoming_transfer_notification<R: Runtime>(
+    handle: &PluginHandle<R>,
+    transfer_id: Option<String>,
+    sender_name: Option<String>,
+) -> Result<(), String> {
+    let args = ShowIncomingTransferNotificationArgs {
+        transfer_id,
+        sender_name,
+    };
+    handle
+        .run_mobile_plugin_async("showIncomingTransferNotification", args)
+        .await
+        .map_err(|e| format!("failed to show incoming transfer notification: {e}"))
 }

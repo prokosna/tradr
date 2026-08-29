@@ -16,9 +16,15 @@ pub struct SharedFilePayload {
     pub fd: Option<i32>,
 }
 
+/// Platform action string sent when an incoming transfer is accepted from the notification.
+pub const ACTION_NOTIFICATION_ACCEPT: &str = "com.tradr.plugin.ACTION_NOTIFICATION_ACCEPT";
+
+/// Platform action string sent when an incoming transfer is declined from the notification.
+pub const ACTION_NOTIFICATION_DECLINE: &str = "com.tradr.plugin.ACTION_NOTIFICATION_DECLINE";
+
 /// What the platform pushes each time the app receives a share intent:
 /// its action, its declared MIME type, optional text payload, optional target device,
-/// and any attached files.
+/// optional transfer ID, and any attached files.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareIntent {
@@ -31,6 +37,9 @@ pub struct ShareIntent {
     /// Target device identifier if the share was initiated toward a specific peer.
     #[serde(default)]
     pub target_device: Option<String>,
+    /// Transfer session identifier if the intent was triggered by a notification action.
+    #[serde(default)]
+    pub transfer_id: Option<String>,
     /// List of shared files attached to the intent.
     #[serde(default)]
     pub files: Vec<SharedFilePayload>,

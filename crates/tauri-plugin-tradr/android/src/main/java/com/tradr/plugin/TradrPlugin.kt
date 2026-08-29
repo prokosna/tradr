@@ -1,12 +1,20 @@
 package com.tradr.plugin
 
+import android.Manifest
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.result.ActivityResult
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
@@ -27,6 +35,12 @@ import org.json.JSONObject
 private const val CHANNEL_PUSH_DELAY_MS = 1500L
 private const val SHORTCUT_CATEGORY_SEND = "com.tradr.category.SEND"
 private const val MAX_SHARING_SHORTCUTS = 5
+const val ACTION_NOTIFICATION_ACCEPT = "com.tradr.plugin.ACTION_NOTIFICATION_ACCEPT"
+const val ACTION_NOTIFICATION_DECLINE = "com.tradr.plugin.ACTION_NOTIFICATION_DECLINE"
+const val EXTRA_NOTIFICATION_ID = "com.tradr.plugin.EXTRA_NOTIFICATION_ID"
+const val EXTRA_TRANSFER_ID = "com.tradr.plugin.EXTRA_TRANSFER_ID"
+private const val NOTIFICATION_CHANNEL_ID_TRANSFERS = "tradr_incoming_transfers"
+private const val NOTIFICATION_CHANNEL_NAME_TRANSFERS = "Incoming Transfers"
 
 @InvokeArg
 class GreetArgs {
@@ -61,11 +75,19 @@ class PluginRequestPermissionsArgs {
     var permissions: List<String>? = null
 }
 
+@InvokeArg
+class ShowIncomingTransferNotificationArgs {
+    var transferId: String? = null
+    var senderName: String? = null
+    var notificationId: Int? = null
+}
+
 // WI-M0-005 proves both ADR-0001 call directions with Rust; WI-M0-005b adds
 // the ACTION_SEND intent channel; WI-M2-002 adds file caching and FD interop;
 // WI-M2-003 publishes discovered peers as dynamic sharing shortcuts;
 // WI-M2-004 adds SAF directory picker and persistable permission;
-// WI-M2-006 adds staged platform permission requests.
+// WI-M2-006 adds staged platform permission requests;
+// WI-M2-007 adds notification accept and decline actions.
 @TauriPlugin(
     permissions = [
         Permission(strings = ["android.permission.BLUETOOTH_SCAN"], alias = "bluetoothScan"),
@@ -78,6 +100,18 @@ class PluginRequestPermissionsArgs {
     ]
 )
 class TradrPlugin(private val activity: Activity) : Plugin(activity) {
+
+    companion object {
+        private var activeInstance: TradrPlugin? = null
+
+        fun onNotificationAction(action: String, transferId: String?) {
+            activeInstance?.forwardNotificationAction(action, transferId)
+        }
+    }
+
+    init {
+        activeInstance = this
+    }
 
     // Prompts runtime permissions on demand for individual or batched capabilities.
     @Command
@@ -303,6 +337,122 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
             payload.put("targetDevice", JSONObject.NULL)
         }
         payload.put("files", filesArray)
+        channel.send(payload)
+    }
+
+    // Creates the notification channel on Android O+ for incoming transfer alerts.
+    private fun createNotificationChannelIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager = activity.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            if (notificationManager != null) {
+                val existing = notificationManager.getNotificationChannel(NOTIFICATION_CHANNEL_ID_TRANSFERS)
+                if (existing == null) {
+                    val channel = NotificationChannel(
+                        NOTIFICATION_CHANNEL_ID_TRANSFERS,
+                        NOTIFICATION_CHANNEL_NAME_TRANSFERS,
+                        NotificationManager.IMPORTANCE_HIGH
+                    ).apply {
+                        description = "Notifications for incoming file transfers"
+                    }
+                    notificationManager.createNotificationChannel(channel)
+                }
+            }
+        }
+    }
+
+    // Displays a notification with Accept and Decline actions for incoming transfers.
+    @Command
+    fun showIncomingTransferNotification(invoke: Invoke) {
+        val args = try {
+            invoke.parseArgs(ShowIncomingTransferNotificationArgs::class.java)
+        } catch (_: Exception) {
+            ShowIncomingTransferNotificationArgs()
+        }
+
+        createNotificationChannelIfNeeded()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                activity,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                invoke.resolve()
+                return
+            }
+        }
+
+        val transferId = args.transferId
+        val notifId = args.notificationId ?: (transferId?.hashCode() ?: 1001)
+        val sender = args.senderName
+        val contentText = if (!sender.isNullOrEmpty()) {
+            "Incoming transfer from $sender"
+        } else {
+            "Incoming file transfer request"
+        }
+
+        val acceptIntent = Intent(activity, NotificationActionReceiver::class.java).apply {
+            action = ACTION_NOTIFICATION_ACCEPT
+            putExtra(EXTRA_NOTIFICATION_ID, notifId)
+            if (transferId != null) {
+                putExtra(EXTRA_TRANSFER_ID, transferId)
+            }
+        }
+        val declineIntent = Intent(activity, NotificationActionReceiver::class.java).apply {
+            action = ACTION_NOTIFICATION_DECLINE
+            putExtra(EXTRA_NOTIFICATION_ID, notifId)
+            if (transferId != null) {
+                putExtra(EXTRA_TRANSFER_ID, transferId)
+            }
+        }
+
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val acceptPendingIntent = PendingIntent.getBroadcast(
+            activity,
+            notifId * 2,
+            acceptIntent,
+            flags
+        )
+        val declinePendingIntent = PendingIntent.getBroadcast(
+            activity,
+            notifId * 2 + 1,
+            declineIntent,
+            flags
+        )
+
+        val iconRes = iconFor(activity, null)
+        val builder = NotificationCompat.Builder(activity, NOTIFICATION_CHANNEL_ID_TRANSFERS)
+            .setSmallIcon(iconRes)
+            .setContentTitle("Incoming Transfer")
+            .setContentText(contentText)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .addAction(0, "Accept", acceptPendingIntent)
+            .addAction(0, "Decline", declinePendingIntent)
+
+        val notificationManager = NotificationManagerCompat.from(activity)
+        try {
+            notificationManager.notify(notifId, builder.build())
+        } catch (_: SecurityException) {
+        }
+
+        invoke.resolve()
+    }
+
+    // Forwards notification actions to Rust via the existing share channel.
+    fun forwardNotificationAction(action: String, transferId: String?) {
+        val channel = shareChannel ?: return
+        val payload = JSObject()
+        payload.put("action", action)
+        if (transferId != null) {
+            payload.put("transferId", transferId)
+        } else {
+            payload.put("transferId", JSONObject.NULL)
+        }
+        payload.put("mimeType", JSONObject.NULL)
+        payload.put("extraText", JSONObject.NULL)
+        payload.put("targetDevice", JSONObject.NULL)
+        payload.put("files", JSONArray())
         channel.send(payload)
     }
 }

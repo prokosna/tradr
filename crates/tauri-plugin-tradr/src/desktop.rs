@@ -26,3 +26,11 @@ pub async fn check_permissions() -> Result<PermissionResponse, String> {
     response.insert("all".to_string(), PermissionState::Granted);
     Ok(response)
 }
+
+/// Displays an incoming transfer notification on desktop platforms (no-op).
+pub async fn show_incoming_transfer_notification(
+    _transfer_id: Option<String>,
+    _sender_name: Option<String>,
+) -> Result<(), String> {
+    Ok(())
+}
