@@ -14,10 +14,13 @@ use tauri::{
 mod android;
 mod attestation;
 pub mod commands;
+pub mod desktop;
 pub mod handshake;
 mod identity;
 pub mod lifecycle;
 pub mod listener;
+#[cfg(target_os = "android")]
+pub mod mobile;
 pub mod share;
 mod sign_in;
 pub mod transfer;
@@ -44,6 +47,8 @@ pub fn init<R: Runtime>(
             commands::send_files,
             commands::publish_sharing_shortcuts,
             commands::pick_share_root,
+            commands::request_permissions,
+            commands::check_permissions,
         ])
         .setup(move |app, _api| {
             let identity_state = identity::init_identity_state(app);

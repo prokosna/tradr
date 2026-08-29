@@ -13,6 +13,8 @@ import androidx.core.graphics.drawable.IconCompat
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
@@ -54,12 +56,73 @@ class PublishSharingShortcutsArgs {
     var peers: List<PeerShortcutDto> = emptyList()
 }
 
+@InvokeArg
+class PluginRequestPermissionsArgs {
+    var permissions: List<String>? = null
+}
+
 // WI-M0-005 proves both ADR-0001 call directions with Rust; WI-M0-005b adds
 // the ACTION_SEND intent channel; WI-M2-002 adds file caching and FD interop;
 // WI-M2-003 publishes discovered peers as dynamic sharing shortcuts;
-// WI-M2-004 adds SAF directory picker and persistable permission.
-@TauriPlugin
+// WI-M2-004 adds SAF directory picker and persistable permission;
+// WI-M2-006 adds staged platform permission requests.
+@TauriPlugin(
+    permissions = [
+        Permission(strings = ["android.permission.BLUETOOTH_SCAN"], alias = "bluetoothScan"),
+        Permission(strings = ["android.permission.BLUETOOTH_ADVERTISE"], alias = "bluetoothAdvertise"),
+        Permission(strings = ["android.permission.BLUETOOTH_CONNECT"], alias = "bluetoothConnect"),
+        Permission(strings = ["android.permission.NEARBY_WIFI_DEVICES"], alias = "nearbyWifiDevices"),
+        Permission(strings = ["android.permission.ACCESS_FINE_LOCATION"], alias = "fineLocation"),
+        Permission(strings = ["android.permission.POST_NOTIFICATIONS"], alias = "postNotifications"),
+        Permission(strings = ["android.permission.FOREGROUND_SERVICE_DATA_SYNC"], alias = "foregroundServiceDataSync")
+    ]
+)
 class TradrPlugin(private val activity: Activity) : Plugin(activity) {
+
+    // Prompts runtime permissions on demand for individual or batched capabilities.
+    @Command
+    override fun requestPermissions(invoke: Invoke) {
+        val requested = try {
+            val args = invoke.parseArgs(PluginRequestPermissionsArgs::class.java)
+            args.permissions
+        } catch (_: Exception) {
+            null
+        }
+
+        val allPermissions = listOf(
+            "bluetoothScan" to "android.permission.BLUETOOTH_SCAN",
+            "bluetoothAdvertise" to "android.permission.BLUETOOTH_ADVERTISE",
+            "bluetoothConnect" to "android.permission.BLUETOOTH_CONNECT",
+            "nearbyWifiDevices" to "android.permission.NEARBY_WIFI_DEVICES",
+            "fineLocation" to "android.permission.ACCESS_FINE_LOCATION",
+            "postNotifications" to "android.permission.POST_NOTIFICATIONS",
+            "foregroundServiceDataSync" to "android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+        )
+
+        val aliasesToRequest = if (requested.isNullOrEmpty()) {
+            allPermissions.map { it.first }.toTypedArray()
+        } else {
+            val matchingAliases = mutableSetOf<String>()
+            for (req in requested) {
+                for ((alias, permString) in allPermissions) {
+                    if (req.equals(alias, ignoreCase = true) ||
+                        req.equals(permString, ignoreCase = true) ||
+                        req.endsWith(alias, ignoreCase = true) ||
+                        permString.endsWith(req, ignoreCase = true)
+                    ) {
+                        matchingAliases.add(alias)
+                    }
+                }
+            }
+            if (matchingAliases.isEmpty()) {
+                requested.toTypedArray()
+            } else {
+                matchingAliases.toTypedArray()
+            }
+        }
+
+        requestPermissionForAliases(aliasesToRequest, invoke, "checkPermissions")
+    }
 
     // Holds the channel Rust opens once at startup so share intents can be forwarded.
     private var shareChannel: Channel? = null

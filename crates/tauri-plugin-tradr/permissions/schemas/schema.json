@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the attestation_bundle command without any pre-configured scope."
         },
         {
+          "description": "Enables the check_permissions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-check-permissions",
+          "markdownDescription": "Enables the check_permissions command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the check_permissions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-check-permissions",
+          "markdownDescription": "Denies the check_permissions command without any pre-configured scope."
+        },
+        {
           "description": "Enables the device_identity command without any pre-configured scope.",
           "type": "string",
           "const": "allow-device-identity",
@@ -353,6 +365,18 @@
           "type": "string",
           "const": "deny-publish-sharing-shortcuts",
           "markdownDescription": "Denies the publish_sharing_shortcuts command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the request_permissions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-request-permissions",
+          "markdownDescription": "Enables the request_permissions command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the request_permissions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-request-permissions",
+          "markdownDescription": "Denies the request_permissions command without any pre-configured scope."
         },
         {
           "description": "Enables the send_files command without any pre-configured scope.",

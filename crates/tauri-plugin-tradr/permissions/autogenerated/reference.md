@@ -36,6 +36,32 @@ Denies the attestation_bundle command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-check-permissions`
+
+</td>
+<td>
+
+Enables the check_permissions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-check-permissions`
+
+</td>
+<td>
+
+Denies the check_permissions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-device-identity`
 
 </td>
@@ -133,6 +159,32 @@ Enables the publish_sharing_shortcuts command without any pre-configured scope.
 <td>
 
 Denies the publish_sharing_shortcuts command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-request-permissions`
+
+</td>
+<td>
+
+Enables the request_permissions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-request-permissions`
+
+</td>
+<td>
+
+Denies the request_permissions command without any pre-configured scope.
 
 </td>
 </tr>
