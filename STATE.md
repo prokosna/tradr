@@ -10,10 +10,10 @@
 last_updated: 2026-08-29
 phase: implementing
 current_milestone: M1
-branch: wi-m1-032-cleanup-work-orders
+branch: wi-m1-000f-pre-push-hook
 implementation_started: true
-work_items_landed: 94
-last_commit: 64cd9b0
+work_items_landed: 95
+last_commit: 5ca06ed
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
 
@@ -45,7 +45,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ## In flight
 
 ```yaml
-work_items: []
+work_items: [WI-M1-000f]
 blocked: []
 ```
 
@@ -69,16 +69,6 @@ blocked: []
 - **Three Work Orders in a row had the specification as the defect, not the implementation.** All three described the happy path precisely and left the surrounding state unstated. The Definition of Done sections that caught them named **a state to construct** rather than a property to confirm. M1 is networking, where the surrounding state is far wider than M0's: a peer that vanishes, a path that switches, a transfer stopped partway.
 - **Choosing evidence that cannot be faked leaves the fakeable part unverified**, and that is where the defect will be.
 - **Every rule here with no instrument behind it has been broken at least once**, `main` and rule A5 among them.
-
-## In flight
-
-```yaml
-work_items: []
-blocked: []
-```
-
-
-
 
 **The question `WI-M1-022` left open is closed, and DCR-059 closed it: an offered item a `TransferAccept` does not name is declined.** `TransferAccept::for_offer` was already right not to require an answer per item; what was missing was any statement of what silence meant, so `WI-M1-024`'s listener would have had to invent one. It is now in [docs/04](docs/04-protocol.md#what-reading-a-transferoffer-may-drop-and-what-it-may-not) and `WI-M1-024` inherits it rather than deciding it.
 
@@ -340,7 +330,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M1-000d | **Two findings from tonight with no instrument behind them.** Rule A2 has never covered `ci/*.sh` -- those scripts scan `crates` and `packages` for `.rs` and `.ts` -- and the files have drifted well past five lines, `state-sync`'s Check 3 comment to nine. And Check 4 skips any reference whose **first** path component is missing, so a typo in a top-level name is not merely unchecked, it is invisible: only a wrong path *below* a real directory is ever reported | todo | |
 
 **`WI-M1-000d` needs a decision before it is cut, and it is a Supervisor's.** Extending A2 to `ci/*.sh` is not the mechanical change it looks like: `ci/layer-deps.sh`'s header comment runs fifteen lines and `.githooks/pre-commit`'s twelve, and every one of those lines is why a gate exists rather than what it does. Three answers -- compress them and lose the reasoning, move the reasoning into a README beside the scripts that each header points at, or record that A2 does not govern shell scripts and say why. **The second is the only one that keeps the reasoning findable**, but it puts design rationale in a file an Implementer authors, so the move is the Supervisor's and the check extension is the Work Item. The second finding is confirmed: `ci/state-sync.sh` Check 4 skips any inline reference whose leading component is not a real top-level entry, so a typo in the word crates makes a whole path invisible, while a wrong file name *below* a real directory is reported. A token containing a `/` is a path reference and should have to resolve whatever its first component is; a token without one keeps today's rule, which is what holds `KeyStore` and `_tradr._udp.local` out.
-| WI-M1-000f | **The `pre-push` hook, the second of the two rules with no instrument.** `.githooks/pre-commit` refuses a commit made on `main`; nothing refuses `git push origin HEAD:main`, which is the exact motion that put 73 commits there. Branch protection answers `403` on a private repository, so a hook is the only enforcement available until decision 2 is executed | todo | |
+| WI-M1-000f | **The `pre-push` hook, the second of the two rules with no instrument.** `.githooks/pre-commit` refuses a commit made on `main`; nothing refuses `git push origin HEAD:main`, which is the exact motion that put 73 commits there. Branch protection answers `403` on a private repository, so a hook is the only enforcement available until decision 2 is executed | **done** -- PASS | |
 | WI-M1-000e | **The instrument behind rule 2-5.** The reporting half cannot be mechanized -- no check reads a reply -- but its precondition can: `STATE.md` being *current*. `ci/state-sync.sh` checks that `last_commit` exists, that the counts agree and that paths resolve, and **nothing checks that the file was updated at all**, so section 5's "a Work Item commit without its `STATE.md` update" is a prohibition with no gate. A Check 6 comparing `last_updated` against the newest commit's date closes it | **done** -- PASS, no REVISE | |
 | WI-M1-000g | **Restrict CI triggers to `pull_request` and `workflow_dispatch`.** Remove push-to-main and scheduled cron triggers so CI only runs on pull requests and manual dispatches | **done** -- PASS, no REVISE | |
 | WI-M1-000h | **`STATE.md` was 313 KB and 90% of it was never read on arrival.** The Review record was 36% and Design changes 20%, both append-only history growing one long row per Work Item forever; what an arriving Supervisor must read before acting measured 31 KB. **Split rather than shortened**, the answer `WI-M1-000d` reached for the same question about `ci/*.sh` headers: the reasoning moves to [RECORD.md](RECORD.md) where it stays findable. Carries the instruments the split needs -- Checks 2, 3 and 4 following the content across, Check 7's 96 KiB ceiling, and Check 8 gating duplicate DCR numbers | **done** -- PASS after one REVISE, and the finding was the Work Order's own path | |
