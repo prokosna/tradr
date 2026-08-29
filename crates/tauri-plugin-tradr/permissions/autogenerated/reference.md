@@ -218,6 +218,32 @@ Denies the send_files command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-show-incoming-transfer-notification`
+
+</td>
+<td>
+
+Enables the show_incoming_transfer_notification command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-show-incoming-transfer-notification`
+
+</td>
+<td>
+
+Denies the show_incoming_transfer_notification command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-sign-in`
 
 </td>

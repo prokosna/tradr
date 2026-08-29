@@ -12,6 +12,7 @@ const COMMANDS: &[&str] = &[
     "pick_share_root",
     "request_permissions",
     "check_permissions",
+    "show_incoming_transfer_notification",
 ];
 
 fn main() {

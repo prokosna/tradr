@@ -8,5 +8,8 @@
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
         </activity>
+        <receiver
+            android:name="com.tradr.plugin.NotificationActionReceiver"
+            android:exported="false" />
     </application>
 </manifest>

@@ -600,3 +600,41 @@ pub async fn check_permissions<R: tauri::Runtime>(
         crate::desktop::check_permissions().await
     }
 }
+
+/// Request argument for triggering an incoming transfer notification.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ShowIncomingTransferNotificationArgs {
+    /// Optional transfer session identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transfer_id: Option<String>,
+    /// Optional display name of the sending peer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender_name: Option<String>,
+}
+
+/// Triggers an incoming transfer notification with Accept and Decline actions on supported platforms.
+#[tauri::command]
+pub async fn show_incoming_transfer_notification<R: tauri::Runtime>(
+    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+    transfer_id: Option<String>,
+    sender_name: Option<String>,
+) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        let handle_state = app
+            .try_state::<crate::android::AndroidPluginHandle<R>>()
+            .ok_or_else(|| "android plugin handle not found".to_string())?;
+        crate::android::show_incoming_transfer_notification(
+            &handle_state.0,
+            transfer_id,
+            sender_name,
+        )
+        .await
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        crate::desktop::show_incoming_transfer_notification(transfer_id, sender_name).await
+    }
+}
