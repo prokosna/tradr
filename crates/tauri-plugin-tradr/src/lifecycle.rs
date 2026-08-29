@@ -63,7 +63,7 @@ pub fn init_lifecycle<R: Runtime>(
         .parse()
         .map_err(|e: std::net::AddrParseError| e.to_string())?;
     let transport = Arc::new(
-        QuicTransport::new(key_store.clone(), bind_addr)
+        tauri::async_runtime::block_on(async { QuicTransport::new(key_store.clone(), bind_addr) })
             .map_err(|e| format!("failed to start quic transport: {e}"))?,
     );
     let local_addr = transport
