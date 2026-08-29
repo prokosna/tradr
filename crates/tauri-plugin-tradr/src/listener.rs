@@ -369,6 +369,11 @@ where
         placed_paths.push(placed);
     }
 
+    control_send
+        .finish()
+        .await
+        .map_err(ListenerError::Transport)?;
+
     Ok(placed_paths)
 }
 
