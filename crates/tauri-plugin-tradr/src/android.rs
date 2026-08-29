@@ -9,7 +9,7 @@ use tauri::{
     plugin::{PluginApi, PluginHandle},
 };
 
-use crate::share::{PeerShortcut, ShareIntent};
+use crate::share::{PeerShortcut, PickShareRootResponse, ShareIntent};
 
 const PLUGIN_PACKAGE: &str = "com.tradr.plugin";
 const PLUGIN_CLASS: &str = "TradrPlugin";
@@ -141,4 +141,15 @@ pub fn publish_sharing_shortcuts<R: Runtime>(
     handle
         .run_mobile_plugin::<()>("publishSharingShortcuts", PublishShortcutsRequest { peers })
         .map_err(|e| format!("failed to publish sharing shortcuts: {e}"))
+}
+
+/// Invokes Android's SAF document tree picker and requests persistable URI permissions.
+pub async fn pick_share_root<R: Runtime>(
+    handle: &PluginHandle<R>,
+) -> Result<Option<String>, String> {
+    let response: PickShareRootResponse = handle
+        .run_mobile_plugin_async("pickShareRoot", ())
+        .await
+        .map_err(|e| format!("failed to pick share root: {e}"))?;
+    Ok(response.uri)
 }

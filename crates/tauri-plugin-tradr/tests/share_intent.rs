@@ -157,3 +157,43 @@ fn serialize_round_trip_peer_shortcut() {
     assert_eq!(json_val["displayName"], "Pixel 9 Pro");
     assert_eq!(json_val["platform"], "android");
 }
+
+#[test]
+fn deserialize_pick_share_root_response_with_uri() {
+    use tauri_plugin_tradr::share::PickShareRootResponse;
+
+    let json =
+        r#"{"uri":"content://com.android.externalstorage.documents/tree/primary%3ADocuments"}"#;
+    let parsed: PickShareRootResponse = serde_json::from_str(json).expect("valid response");
+    assert_eq!(
+        parsed.uri.as_deref(),
+        Some("content://com.android.externalstorage.documents/tree/primary%3ADocuments")
+    );
+}
+
+#[test]
+fn deserialize_pick_share_root_response_when_cancelled() {
+    use tauri_plugin_tradr::share::PickShareRootResponse;
+
+    let json = r#"{"uri":null}"#;
+    let parsed: PickShareRootResponse = serde_json::from_str(json).expect("valid response");
+    assert_eq!(parsed.uri, None);
+
+    let empty_json = r#"{}"#;
+    let parsed_empty: PickShareRootResponse =
+        serde_json::from_str(empty_json).expect("valid response");
+    assert_eq!(parsed_empty.uri, None);
+}
+
+#[test]
+fn serialize_round_trip_pick_share_root_response() {
+    use tauri_plugin_tradr::share::PickShareRootResponse;
+
+    let response = PickShareRootResponse {
+        uri: Some("content://media/external/file/100".to_string()),
+    };
+    let serialized = serde_json::to_string(&response).expect("serialize");
+    let deserialized: PickShareRootResponse =
+        serde_json::from_str(&serialized).expect("deserialize");
+    assert_eq!(response, deserialized);
+}
