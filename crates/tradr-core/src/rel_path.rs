@@ -1,5 +1,5 @@
 //! A `relative_path` naming an Item inside a Share, as it arrives from a
-//! peer. See `docs/06-shares-and-linking.md`, "Enforcing the Share Root
+//! peer. See `docs/06-shares-and-browsing.md`, "Enforcing the Share Root
 //! boundary", and `docs/04-protocol.md`, "Name collisions and sanitization".
 //! Only the rejecting rules live here (absolute paths, drive/UNC forms,
 //! `..`, control characters); `tradr-vfs` owns every transforming rule.

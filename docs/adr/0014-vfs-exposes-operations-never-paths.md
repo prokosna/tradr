@@ -5,7 +5,7 @@
 
 ## Context
 
-[docs/06](../06-shares-and-linking.md#enforcing-the-share-root-boundary) calls Share Root enforcement "the most security-critical code in Tradr" and gives it a seven-step resolution procedure. [Invariant I5](../../CLAUDE.md#8-invariants-that-must-not-break) states that file paths are assembled in exactly one place, `tradr-vfs`. And the TOCTOU section states the rule the procedure depends on:
+[docs/06](../06-shares-and-browsing.md#enforcing-the-share-root-boundary) calls Share Root enforcement "the most security-critical code in Tradr" and gives it a seven-step resolution procedure. [Invariant I5](../../CLAUDE.md#8-invariants-that-must-not-break) states that file paths are assembled in exactly one place, `tradr-vfs`. And the TOCTOU section states the rule the procedure depends on:
 
 > Between validating a path in steps 4 and 5 and opening it in step 6, an attacker who can insert a symlink defeats the check. So **validation and opening are never separated**.
 

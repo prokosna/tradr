@@ -1,6 +1,6 @@
 //! Supervisor-authored tests for SAF VFS boundary enforcement.
 //! Critical Module: Boundary enforcement in tradr-vfs.
-//! See docs/04-protocol.md, docs/06-shares-and-linking.md, and AGENTS.md section 6.
+//! See docs/04-protocol.md, docs/06-shares-and-browsing.md, and AGENTS.md section 6.
 
 use std::sync::Arc;
 

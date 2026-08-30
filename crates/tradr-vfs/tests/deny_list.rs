@@ -1,6 +1,6 @@
 //! Supervisor-authored tests for docs/06's default deny list.
 //! Critical Module: boundary enforcement in tradr-vfs.
-//! See docs/06-shares-and-linking.md, "The default deny list" and
+//! See docs/06-shares-and-browsing.md, "The default deny list" and
 //! "How a pattern matches" (DCR-056), and CLAUDE.md section 6.
 
 use std::path::Path;

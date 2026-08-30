@@ -31,7 +31,7 @@ Send files between your own devices — or devices belonging to someone you have
 | 03 | [Discovery and transport](docs/03-discovery-and-transport.md) | mDNS, BLE, static peers, Brokr, path selection |
 | 04 | [Wire protocol](docs/04-protocol.md) | Framing, messages, chunked transfer |
 | 05 | [Security and identity](docs/05-security.md) | Attestation, key handling, threat model |
-| 06 | [Shares and linking](docs/06-shares-and-linking.md) | Share roots, permissions, cross-account links |
+| 06 | [Shares and linking](docs/06-shares-and-browsing.md) | Share roots, permissions, cross-account links |
 | 07 | [Brokr (optional)](docs/07-brokr.md) | API, data model, relay, self-hosting |
 | 08 | [Platform integration](docs/08-platform-integration.md) | Drag and drop, Android share sheet, iOS constraints |
 | 09 | [Roadmap and risks](docs/09-roadmap-and-risks.md) | Milestones, open questions |

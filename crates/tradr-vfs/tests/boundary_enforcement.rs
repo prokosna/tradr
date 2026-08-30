@@ -1,6 +1,6 @@
 //! Supervisor-authored tests for VFS boundary enforcement and partial file lifecycle.
 //! Critical Module: Boundary enforcement in tradr-vfs.
-//! See docs/04-protocol.md, docs/06-shares-and-linking.md, and AGENTS.md section 6.
+//! See docs/04-protocol.md, docs/06-shares-and-browsing.md, and AGENTS.md section 6.
 
 use tradr_core::{ItemId, RelPath, RootId, TransferId, Vfs, VfsError};
 use tradr_vfs::{PosixVfs, partial_file_rel_path, sanitize_destination_path};
