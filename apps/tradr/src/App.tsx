@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useState } from "react";
 
 // Mirrors the Rust struct crates/tauri-plugin-tradr/src/identity.rs
@@ -173,24 +174,22 @@ export function App() {
 			if (intent.files && intent.files.length > 0) {
 				const filePaths = intent.files.map((f) => f.cachePath || f.name);
 				setStagedFiles(filePaths);
+				setSendState({ status: "idle" });
 
-				let targetPeer = intent.targetDevice || null;
+				const targetPeer = intent.targetDevice || null;
+
 				if (!targetPeer) {
-					// Give discovery a moment if the app just started
-					for (let i = 0; i < 5; i++) {
-						try {
-							const currentPeers = await invoke<PeerInfo[]>("plugin:tradr|get_peers");
-							if (currentPeers.length > 0) {
-								targetPeer = currentPeers[0]?.device_id || null;
-								break;
-							}
-						} catch (e) {
-							console.error("Failed to get peers", e);
+					try {
+						const currentPeers = await invoke<PeerInfo[]>(
+							"plugin:tradr|get_peers",
+						);
+						if (currentPeers.length > 0) {
+							setSelectedPeerId(currentPeers[0]?.device_id || null);
 						}
-						await new Promise((resolve) => setTimeout(resolve, 500));
+					} catch (e) {
+						console.error("Failed to get peers for share intent", e);
 					}
-				}
-				if (targetPeer) {
+				} else {
 					setSelectedPeerId(targetPeer);
 					setSendState({ status: "sending" });
 					invoke<string[]>("plugin:tradr|send_files", {
@@ -205,11 +204,6 @@ export function App() {
 							console.error("Failed to send files from share intent", e);
 							setSendState({ status: "error", message: String(e) });
 						});
-				} else {
-					setSendState({
-						status: "error",
-						message: "No peers available to auto-send to.",
-					});
 				}
 			}
 		}).then((unlisten) => {
@@ -463,17 +457,27 @@ export function App() {
 					<p>
 						Drag and drop files anywhere into the window, or choose files below.
 					</p>
-					<input
-						type="file"
-						multiple
-						onChange={(e) => {
-							if (e.target.files && e.target.files.length > 0) {
-								const names = Array.from(e.target.files).map((f) => f.name);
-								setStagedFiles(names);
-								setSendState({ status: "idle" });
+					<button
+						type="button"
+						onClick={async () => {
+							try {
+								const selected = await open({
+									multiple: true,
+								});
+								if (Array.isArray(selected) && selected.length > 0) {
+									setStagedFiles(selected);
+									setSendState({ status: "idle" });
+								} else if (typeof selected === "string") {
+									setStagedFiles([selected]);
+									setSendState({ status: "idle" });
+								}
+							} catch (e) {
+								console.error("Failed to open file dialog", e);
 							}
 						}}
-					/>
+					>
+						Select Files
+					</button>
 				</div>
 
 				{stagedFiles.length > 0 && (

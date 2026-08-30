@@ -8,7 +8,7 @@
 ```yaml
 last_updated: 2026-08-30
 phase: implementing
-current_milestone: M2
+current_milestone: M3
 implementation_started: true
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
@@ -19,7 +19,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 > **Everything below this line is derivable from somewhere else, so it is not written here.** What exists is the Work Item table. How many crates there are is `ls crates/`. Which rules hold is `ci/run-all.sh`. **A prose inventory in this spot has now gone stale four times, the last time while carrying a warning that said it goes stale** -- so the inventory is gone rather than corrected a fifth time, and what remains is the two things nothing else records.
 
-**M2 is under way. Nothing is blocked, and nothing is in flight unless the In flight block below says so.**
+**M3 is under way. M2's completion criterion is met.** On 2026-08-30, the user chose a photo in the Android gallery and successfully delivered it to a PC via Tradr's share sheet integration.
 
 **M1's completion criterion is met.** A file moved between two devices over the LAN and an interrupted transfer resumed (WI-M1-026).
 
@@ -36,10 +36,9 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
 ## Next three actions
-
-1. Test the Android `share-intent` workflow to confirm it successfully transfers to the PC.
-2. Refactor manual "Send Files" (App.tsx) to use tauri-plugin-dialog for absolute paths.
-3. Review M2 completion criteria and prepare for M3.
+1. Review M2 completion criteria and close M2. (User verified on real device that sending works).
+2. Cut the M3 design doc and prepare WI-M3-001 (Share browsing).
+3. (Open)
 
 ## In flight
 
@@ -267,7 +266,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 |---|---|---|---|
 | **M0** | **Skeleton** — monorepo, Tauri launching on Linux and Android, Google sign-in, key generation, Attestation issue and verify | 2 weeks | **done 2026-08-25** |
 | M1 | **LAN transfer**, the most important — mDNS, QUIC, transfer, resumption, drag-and-drop send | 4 weeks | **done 2026-08-29** |
-| M2 | Android integration — share sheet, Sharing Shortcuts, SAF, permissions | 3 weeks | **in progress** |
+| M2 | Android integration — share sheet, Sharing Shortcuts, SAF, permissions | 3 weeks | **done 2026-08-30** |
 | M3 | Share browsing — VFS, boundary enforcement, the Browse plane | 3 weeks | todo |
 | M4 | Windows and macOS — builds, signing, auto-update, tray | 3 weeks | todo |
 | M5 | Static Peers and overlay networks — direct over Tailscale | 1 week | todo |
@@ -276,11 +275,9 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | M8 | Brokr — presence, rendezvous, relay, FCM, revocation list | 3 weeks | todo |
 | M9 | Finishing — security review, store submission, packaging, i18n | ongoing | todo |
 
-### Current milestone: M2, Android integration
-
-**Design**: [docs/08-platform-integration.md](docs/08-platform-integration.md)
-
-**Done when**: choosing a photo in the Android gallery and tapping Tradr once in the share sheet delivers it to a PC.
+### Current milestone: M3, Share browsing
+**Design**: docs/06-shares-and-browsing.md (needs creation)
+**Done when**: A device can browse files exposed by a peer's configured Share and download them.
 
 #### Work Items
 
@@ -294,7 +291,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M2-006 | Android Staged Permission Requests | **done** | |
 | WI-M2-007 | Android Accept and Decline from Notification | **done** | |
 | WI-M2-008 | Android frontend: listen to share-intent and auto-send to PC | **done** | |
-| WI-M2-009 | Fix `send_files` Android cache path and file picker handling | **done** | |
+| WI-M2-009 | Fix manual "Send Files" path handling and `share-intent` | **done** | |
 
 
 ## Deferred

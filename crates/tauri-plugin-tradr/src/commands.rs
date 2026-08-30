@@ -199,63 +199,56 @@ where
     let mut offer_items = Vec::with_capacity(file_names.len());
 
     let mut actual_roots = std::collections::HashMap::new();
-    let mut preloaded_content = std::collections::HashMap::new();
     for (idx, name) in file_names.iter().enumerate() {
-        let item_id = ItemId::new(&format!("item_{}", idx + 1))
-            .map_err(|e| format!("invalid item id: {e}"))?;
-
-        if name.starts_with('/') {
-            let meta = tokio::fs::metadata(name)
-                .await
-                .map_err(|e| format!("failed to stat '{name}': {e}"))?;
-            let content = tokio::fs::read(name)
-                .await
-                .map_err(|e| format!("failed to read '{name}': {e}"))?;
-
-            let file_name = std::path::Path::new(name)
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy();
-            let rel_path = RelPath::new(&file_name)
+        let (actual_root, rel_path) = if name.starts_with('/') {
+            let path = std::path::Path::new(name);
+            let parent = path.parent().unwrap_or(path);
+            let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+            let r = RelPath::new(&file_name)
                 .map_err(|e| format!("invalid filename '{file_name}': {e}"))?;
 
-            let (_, hash) = outboard(&content);
-            preloaded_content.insert(item_id, content);
-            actual_roots.insert(item_id, root);
-            let offer_item = OfferItem::new(item_id, rel_path, meta.len(), hash)
-                .map_err(|e| format!("invalid offer item: {e}"))?;
-            offer_items.push(offer_item);
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            name.hash(&mut hasher);
+            let temp_root = tradr_core::RootId::new(hasher.finish());
+
+            vfs.register_root(temp_root, parent.to_path_buf(), true)
+                .map_err(|e| format!("failed to register temp root for '{name}': {e}"))?;
+            (temp_root, r)
         } else {
-            let rel_path =
+            let r =
                 RelPath::new(name).map_err(|e| format!("invalid relative path '{name}': {e}"))?;
-            let meta = vfs
-                .stat(root, &rel_path)
-                .await
-                .map_err(|e| format!("failed to stat '{name}': {e}"))?;
-            let read_handle = vfs
-                .open_read(root, &rel_path)
-                .await
-                .map_err(|e| format!("failed to open '{name}': {e}"))?;
+            (root, r)
+        };
+        let meta = vfs
+            .stat(actual_root, &rel_path)
+            .await
+            .map_err(|e| format!("failed to stat '{name}': {e}"))?;
+        let read_handle = vfs
+            .open_read(actual_root, &rel_path)
+            .await
+            .map_err(|e| format!("failed to open '{name}': {e}"))?;
 
-            let mut content = vec![0u8; meta.size_bytes as usize];
-            let mut total_read = 0;
-            while total_read < content.len() {
-                let n = read_handle
-                    .read_at(total_read as u64, &mut content[total_read..])
-                    .await
-                    .map_err(|e| format!("read error on '{name}': {e}"))?;
-                if n == 0 {
-                    break;
-                }
-                total_read += n;
+        let mut content = vec![0u8; meta.size_bytes as usize];
+        let mut total_read = 0;
+        while total_read < content.len() {
+            let n = read_handle
+                .read_at(total_read as u64, &mut content[total_read..])
+                .await
+                .map_err(|e| format!("read error on '{name}': {e}"))?;
+            if n == 0 {
+                break;
             }
-
-            let (_, hash) = outboard(&content);
-            actual_roots.insert(item_id, root);
-            let offer_item = OfferItem::new(item_id, rel_path, meta.size_bytes, hash)
-                .map_err(|e| format!("invalid offer item: {e}"))?;
-            offer_items.push(offer_item);
+            total_read += n;
         }
+
+        let (_, hash) = outboard(&content);
+        let item_id = ItemId::new(&format!("item_{}", idx + 1))
+            .map_err(|e| format!("invalid item id: {e}"))?;
+        actual_roots.insert(item_id, actual_root);
+        let offer_item = OfferItem::new(item_id, rel_path, meta.size_bytes, hash)
+            .map_err(|e| format!("invalid offer item: {e}"))?;
+        offer_items.push(offer_item);
     }
 
     let total_bytes: u64 = offer_items.iter().map(|i| i.size()).sum();
@@ -334,25 +327,16 @@ where
         let i_id_str = offer_item.item_id().to_string();
         let r_path_str = offer_item.rel_path().to_string();
 
-        let preloaded = preloaded_content
-            .get(offer_item.item_id())
-            .map(|v| v.as_slice());
-        let ok = send_file_with_progress(
-            vfs,
-            &send_req,
-            preloaded,
-            &mut streams,
-            |bytes_done, total_b| {
-                on_progress(TransferProgressPayload {
-                    transfer_id: t_id_str.clone(),
-                    item_id: i_id_str.clone(),
-                    rel_path: r_path_str.clone(),
-                    bytes_transferred: bytes_done,
-                    total_bytes: total_b,
-                    status: "transferring".to_string(),
-                });
-            },
-        )
+        let ok = send_file_with_progress(vfs, &send_req, &mut streams, |bytes_done, total_b| {
+            on_progress(TransferProgressPayload {
+                transfer_id: t_id_str.clone(),
+                item_id: i_id_str.clone(),
+                rel_path: r_path_str.clone(),
+                bytes_transferred: bytes_done,
+                total_bytes: total_b,
+                status: "transferring".to_string(),
+            });
+        })
         .await
         .map_err(|e| {
             on_progress(TransferProgressPayload {
