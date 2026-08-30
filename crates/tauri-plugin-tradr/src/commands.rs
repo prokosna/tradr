@@ -205,9 +205,6 @@ where
             .map_err(|e| format!("invalid item id: {e}"))?;
 
         if name.starts_with('/') {
-            let meta = tokio::fs::metadata(name)
-                .await
-                .map_err(|e| format!("failed to stat '{name}': {e}"))?;
             let content = tokio::fs::read(name)
                 .await
                 .map_err(|e| format!("failed to read '{name}': {e}"))?;
@@ -220,9 +217,10 @@ where
                 .map_err(|e| format!("invalid filename '{file_name}': {e}"))?;
 
             let (_, hash) = outboard(&content);
+            let content_len = content.len() as u64;
             preloaded_content.insert(item_id, content);
             actual_roots.insert(item_id, root);
-            let offer_item = OfferItem::new(item_id, rel_path, meta.len(), hash)
+            let offer_item = OfferItem::new(item_id, rel_path, content_len, hash)
                 .map_err(|e| format!("invalid offer item: {e}"))?;
             offer_items.push(offer_item);
         } else {
