@@ -43,7 +43,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 2. (Open)
 3. (Open)
 =======
-1. Implement WI-M4-005 (NativeVfs for Windows build)
+
 2. Wait for WI-M4-004 PR to merge
 3. Start M5 (Static Peers and overlay networks)
 >>>>>>> Stashed changes
@@ -309,7 +309,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 <<<<<<< Updated upstream
 =======
 | WI-M4-004 | macOS and Windows code signing in CI | in flight | |
-| WI-M4-005 | NativeVfs for Windows build | in flight | |
+| WI-M4-005 | NativeVfs for Windows build | **done** | |
 >>>>>>> Stashed changes
 
 

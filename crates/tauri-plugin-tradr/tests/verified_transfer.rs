@@ -13,7 +13,7 @@ use tradr_core::{
 };
 use tradr_integrity::{BaoVerifier, outboard, slice};
 use tradr_proto::data::encode_chunk_data_header_frame;
-use tradr_vfs::PosixVfs;
+use tradr_vfs::NativeVfs;
 
 const VALID_V7: &str = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
 const MIB: u64 = 1024 * 1024;
@@ -112,8 +112,8 @@ fn memory_stream_pair() -> (
     )
 }
 
-fn receiver_root(dir: &std::path::Path) -> (PosixVfs, RootId) {
-    let vfs = PosixVfs::new();
+fn receiver_root(dir: &std::path::Path) -> (NativeVfs, RootId) {
+    let vfs = NativeVfs::new();
     let root = RootId::new(2);
     vfs.register_root(root, dir.to_path_buf(), false)
         .expect("register root");
@@ -151,7 +151,7 @@ async fn a_verified_transfer_arrives_byte_identical() {
     let file_content = content((2 * MIB + 4096) as usize);
     std::fs::write(sender_dir.path().join("photo.raw"), &file_content).expect("write source");
 
-    let sender_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
     let root_sender = RootId::new(1);
     sender_vfs
         .register_root(root_sender, sender_dir.path().to_path_buf(), false)

@@ -10,7 +10,7 @@ use tradr_core::{
     BoxFuture, ItemId, RecvStream, RelPath, RootId, SendStream, TransferId, TransportError,
 };
 use tradr_integrity::{BaoVerifier, outboard};
-use tradr_vfs::PosixVfs;
+use tradr_vfs::NativeVfs;
 
 const VALID_V7: &str = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
 
@@ -100,8 +100,8 @@ async fn single_chunk_file_transfer_succeeds_end_to_end() {
     let sender_dir = tempfile::tempdir().expect("sender tempdir");
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
 
-    let sender_vfs = PosixVfs::new();
-    let receiver_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
 
     let root_sender = RootId::new(1);
     let root_receiver = RootId::new(2);
@@ -178,8 +178,8 @@ async fn multi_mebibyte_file_transfer_succeeds_across_multiple_chunks() {
     let sender_dir = tempfile::tempdir().expect("sender tempdir");
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
 
-    let sender_vfs = PosixVfs::new();
-    let receiver_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
 
     let root_sender = RootId::new(10);
     let root_receiver = RootId::new(20);
@@ -260,8 +260,8 @@ async fn collision_resolution_safely_renames_existing_file() {
     let sender_dir = tempfile::tempdir().expect("sender tempdir");
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
 
-    let sender_vfs = PosixVfs::new();
-    let receiver_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
 
     let root_sender = RootId::new(100);
     let root_receiver = RootId::new(200);
@@ -349,8 +349,8 @@ async fn transfer_handles_unexpected_eof_cleanly() {
     let sender_dir = tempfile::tempdir().expect("sender tempdir");
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
 
-    let sender_vfs = PosixVfs::new();
-    let receiver_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
 
     let root_sender = RootId::new(300);
     let root_receiver = RootId::new(400);

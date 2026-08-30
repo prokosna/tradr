@@ -14,7 +14,7 @@ use tradr_discovery::{
 };
 use tradr_identity::OsRng;
 use tradr_transport::quic::QuicTransport;
-use tradr_vfs::PosixVfs;
+use tradr_vfs::NativeVfs;
 
 use crate::identity::IdentityState;
 use crate::listener::run_listener;
@@ -55,7 +55,7 @@ pub fn init_lifecycle<R: Runtime>(
     std::fs::create_dir_all(&downloads_dir)
         .map_err(|e| format!("could not create downloads directory: {e}"))?;
 
-    let vfs = Arc::new(PosixVfs::new());
+    let vfs = Arc::new(NativeVfs::new());
     vfs.register_root(downloads_root_id(), downloads_dir, false)
         .map_err(|e| format!("could not register downloads root: {e}"))?;
 

@@ -5,10 +5,10 @@
 
 use std::path::Path;
 use tradr_core::{RelPath, RootId, Vfs, VfsError};
-use tradr_vfs::PosixVfs;
+use tradr_vfs::NativeVfs;
 
-fn rooted(dir: &Path) -> (PosixVfs, RootId) {
-    let vfs = PosixVfs::new();
+fn rooted(dir: &Path) -> (NativeVfs, RootId) {
+    let vfs = NativeVfs::new();
     let root = RootId::new(1);
     vfs.register_root(root, dir.to_path_buf(), false)
         .expect("register root");
@@ -76,7 +76,7 @@ const ALLOWED: &[&str] = &[
     "envelope.txt",
 ];
 
-async fn deny_verdict(vfs: &PosixVfs, root: RootId, path: &str) -> Result<(), VfsError> {
+async fn deny_verdict(vfs: &NativeVfs, root: RootId, path: &str) -> Result<(), VfsError> {
     match vfs.open_read(root, &rel(path)).await {
         Err(VfsError::DenyListed) => Err(VfsError::DenyListed),
         _ => Ok(()),
