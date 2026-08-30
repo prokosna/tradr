@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-list-peer-directory"
+description = "Enables the list_peer_directory command without any pre-configured scope."
+commands.allow = ["list_peer_directory"]
+
+[[permission]]
+identifier = "deny-list-peer-directory"
+description = "Denies the list_peer_directory command without any pre-configured scope."
+commands.deny = ["list_peer_directory"]

@@ -343,6 +343,30 @@
           "markdownDescription": "Denies the get_peers command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_visible_shares command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-visible-shares",
+          "markdownDescription": "Enables the get_visible_shares command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_visible_shares command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-visible-shares",
+          "markdownDescription": "Denies the get_visible_shares command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_peer_directory command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-peer-directory",
+          "markdownDescription": "Enables the list_peer_directory command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_peer_directory command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-peer-directory",
+          "markdownDescription": "Denies the list_peer_directory command without any pre-configured scope."
+        },
+        {
           "description": "Enables the pick_share_root command without any pre-configured scope.",
           "type": "string",
           "const": "allow-pick-share-root",

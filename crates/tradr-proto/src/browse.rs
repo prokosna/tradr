@@ -69,12 +69,17 @@ impl From<BrowseDomainError> for BrowseFrameError {
 }
 
 pub fn list_dir_from_wire(msg: v1::ListDir) -> Result<ListDir, BrowseDomainError> {
+    let path = if msg.path.is_empty() {
+        RelPath::root()
+    } else {
+        RelPath::new(&msg.path).map_err(BrowseDomainError::InvalidRelPath)?
+    };
     Ok(ListDir {
         share_id: msg
             .share_id
             .parse()
             .map_err(BrowseDomainError::InvalidShareId)?,
-        path: RelPath::new(&msg.path).map_err(BrowseDomainError::InvalidRelPath)?,
+        path,
         cursor: msg.cursor,
         limit: msg.limit,
         with_hash: msg.with_hash,

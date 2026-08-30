@@ -36,7 +36,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
 ## Next three actions
-1. Supervise WI-M3-002 (UI for Share browsing) and review the implementation.
+1. (Open)
 2. (Open)
 3. (Open)
 
@@ -292,6 +292,8 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M2-007 | Android Accept and Decline from Notification | **done** | |
 | WI-M2-008 | Android frontend: listen to share-intent and auto-send to PC | **done** | |
 | WI-M2-009 | Fix manual "Send Files" path handling and `share-intent` | **done** | |
+| WI-M3-001 | Browse plane handler and proto messages | **done** | |
+| WI-M3-002 | UI for Share browsing | **done** | |
 
 
 ## Deferred

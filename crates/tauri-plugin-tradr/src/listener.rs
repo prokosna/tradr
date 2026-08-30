@@ -294,89 +294,106 @@ where
     .await
     .map_err(ListenerError::Handshake)?;
 
-    let offer = read_transfer_offer(control_recv.as_mut(), channel.max_frame_size()).await?;
+    tokio::select! {
+        offer_res = read_transfer_offer(control_recv.as_mut(), channel.max_frame_size()) => {
+            let offer = offer_res?;
 
-    let mut accepted_items = Vec::new();
-    let mut items_to_receive = Vec::new();
+            let mut accepted_items = Vec::new();
+            let mut items_to_receive = Vec::new();
 
-    for item in offer.items() {
-        let is_accepted = item_filter.is_none_or(|f| f(item));
-        if is_accepted {
-            let resumption =
-                derive_item_resumption(vfs, params.root, offer.transfer_id(), item).await?;
-            let resume_chunk = match resumption.next_chunk_request(1) {
-                Some((c, _)) => c.value(),
-                None => item.chunk_count().saturating_sub(1),
-            };
-            let item_acc = ItemAcceptance::new(*item.item_id(), true, resume_chunk, Vec::new())
-                .map_err(ListenerError::ItemAcceptance)?;
-            accepted_items.push(item_acc);
-            items_to_receive.push(item);
+            for item in offer.items() {
+                let is_accepted = item_filter.is_none_or(|f| f(item));
+                if is_accepted {
+                    let resumption =
+                        derive_item_resumption(vfs, params.root, offer.transfer_id(), item).await?;
+                    let resume_chunk = match resumption.next_chunk_request(1) {
+                        Some((c, _)) => c.value(),
+                        None => item.chunk_count().saturating_sub(1),
+                    };
+                    let item_acc = ItemAcceptance::new(*item.item_id(), true, resume_chunk, Vec::new())
+                        .map_err(ListenerError::ItemAcceptance)?;
+                    accepted_items.push(item_acc);
+                    items_to_receive.push(item);
+                }
+            }
+
+            if accepted_items.is_empty() {
+                for item in offer.items() {
+                    let item_acc = ItemAcceptance::new(*item.item_id(), false, 0, Vec::new())
+                        .map_err(ListenerError::ItemAcceptance)?;
+                    accepted_items.push(item_acc);
+                }
+            }
+
+            let transfer_accept = TransferAccept::new(offer.transfer_id(), accepted_items, None)
+                .map_err(ListenerError::AcceptValidation)?;
+            transfer_accept
+                .for_offer(&offer)
+                .map_err(ListenerError::AcceptValidation)?;
+
+            let accept_frame =
+                encode_transfer_accept_frame(&transfer_accept, session.peer_max_frame_size())
+                    .map_err(ListenerError::OfferFrame)?;
+            control_send
+                .write_all(&accept_frame)
+                .await
+                .map_err(ListenerError::Transport)?;
+
+            let mut placed_paths = Vec::with_capacity(items_to_receive.len());
+            let negotiated_frame_bound = session.peer_max_frame_size().min(channel.max_frame_size());
+
+            for item in items_to_receive {
+                let (mut data_send, mut data_recv) = channel
+                    .accept_bi()
+                    .await
+                    .map_err(ListenerError::Transport)?;
+
+                let recv_req = ReceiveRequest {
+                    root: params.root,
+                    dest_rel_path: item.rel_path(),
+                    total_bytes: item.size(),
+                    content_hash: item.content_hash(),
+                    transfer_id: offer.transfer_id(),
+                    item_id: *item.item_id(),
+                    max_frame_size: negotiated_frame_bound,
+                };
+
+                let mut streams = SessionStreams {
+                    control_send: control_send.as_mut(),
+                    control_recv: control_recv.as_mut(),
+                    data_send: data_send.as_mut(),
+                    data_recv: data_recv.as_mut(),
+                };
+
+                let placed = receive_file(vfs, &recv_req, verifier, &mut streams)
+                    .await
+                    .map_err(ListenerError::TransferSession)?;
+                placed_paths.push(placed);
+            }
+
+            let _ = control_send.finish().await;
+
+            let mut dummy = [0u8; 1];
+            let _ = control_recv.read(&mut dummy).await;
+
+            Ok(placed_paths)
+        }
+        stream_res = channel.accept_bi() => {
+            if let Ok((mut browse_send, mut browse_recv)) = stream_res {
+                let codec = tradr_proto::browse::ProtoBrowseCodec::new(channel.max_frame_size());
+                let _ = tradr_core::handle_browse_stream(
+                    browse_recv.as_mut(),
+                    browse_send.as_mut(),
+                    &codec,
+                    vfs,
+                    params.root,
+                    channel.max_frame_size(),
+                )
+                .await;
+            }
+            Ok(Vec::new())
         }
     }
-
-    if accepted_items.is_empty() {
-        for item in offer.items() {
-            let item_acc = ItemAcceptance::new(*item.item_id(), false, 0, Vec::new())
-                .map_err(ListenerError::ItemAcceptance)?;
-            accepted_items.push(item_acc);
-        }
-    }
-
-    let transfer_accept = TransferAccept::new(offer.transfer_id(), accepted_items, None)
-        .map_err(ListenerError::AcceptValidation)?;
-    transfer_accept
-        .for_offer(&offer)
-        .map_err(ListenerError::AcceptValidation)?;
-
-    let accept_frame =
-        encode_transfer_accept_frame(&transfer_accept, session.peer_max_frame_size())
-            .map_err(ListenerError::OfferFrame)?;
-    control_send
-        .write_all(&accept_frame)
-        .await
-        .map_err(ListenerError::Transport)?;
-
-    let mut placed_paths = Vec::with_capacity(items_to_receive.len());
-    let negotiated_frame_bound = session.peer_max_frame_size().min(channel.max_frame_size());
-
-    for item in items_to_receive {
-        let (mut data_send, mut data_recv) = channel
-            .accept_bi()
-            .await
-            .map_err(ListenerError::Transport)?;
-
-        let recv_req = ReceiveRequest {
-            root: params.root,
-            dest_rel_path: item.rel_path(),
-            total_bytes: item.size(),
-            content_hash: item.content_hash(),
-            transfer_id: offer.transfer_id(),
-            item_id: *item.item_id(),
-            max_frame_size: negotiated_frame_bound,
-        };
-
-        let mut streams = SessionStreams {
-            control_send: control_send.as_mut(),
-            control_recv: control_recv.as_mut(),
-            data_send: data_send.as_mut(),
-            data_recv: data_recv.as_mut(),
-        };
-
-        let placed = receive_file(vfs, &recv_req, verifier, &mut streams)
-            .await
-            .map_err(ListenerError::TransferSession)?;
-        placed_paths.push(placed);
-    }
-
-    let _ = control_send.finish().await;
-
-    // Wait for the sender to gracefully close the connection (EOF on control_recv).
-    // This ensures Quinn does not prematurely send CONNECTION_CLOSE and drop the ItemComplete frame.
-    let mut dummy = [0u8; 1];
-    let _ = control_recv.read(&mut dummy).await;
-
-    Ok(placed_paths)
 }
 
 /// Accepts the next channel from `incoming` and handles the transfer session.
