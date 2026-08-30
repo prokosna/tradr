@@ -37,9 +37,9 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-1. Fix `listen_for_transfers` in `listener.rs` to log and continue on transfer errors instead of exiting the entire loop.
-2. Fix `handle_incoming_channel` to gracefully await peer disconnection (`control_recv.read()`) before dropping the `SecureChannel`, preventing `ItemComplete` from being lost in transit.
-3. Ask the user to re-test the Android -> PC file transfer on a real device.
+1. Test the Android `share-intent` workflow to confirm it successfully transfers to the PC.
+2. Refactor manual "Send Files" (App.tsx) to use tauri-plugin-dialog for absolute paths.
+3. Review M2 completion criteria and prepare for M3.
 
 ## In flight
 
