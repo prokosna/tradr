@@ -8,6 +8,7 @@ pub mod v1 {
     include!(concat!(env!("OUT_DIR"), "/tradr.v1.rs"));
 }
 
+pub mod browse;
 pub mod control;
 pub mod data;
 pub mod framing;

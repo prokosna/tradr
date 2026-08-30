@@ -36,8 +36,8 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
 ## Next three actions
-1. Review M2 completion criteria and close M2. (User verified on real device that sending works).
-2. Cut the M3 design doc and prepare WI-M3-001 (Share browsing).
+1. Supervise WI-M3-002 (UI for Share browsing) and review the implementation.
+2. (Open)
 3. (Open)
 
 ## In flight
