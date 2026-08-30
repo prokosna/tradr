@@ -14,6 +14,7 @@ fn non_empty(value: Option<&'static str>) -> Option<&'static str> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() -> tauri::Result<()> {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_tradr::init(
             non_empty(option_env!("TRADR_OAUTH_CLIENT_IDS")),
             non_empty(option_env!("TRADR_OAUTH_CLIENT_SECRET")),

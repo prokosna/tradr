@@ -36,10 +36,9 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
 ## Next three actions
-
-1. Test the Android `share-intent` workflow to confirm it successfully transfers to the PC.
-2. Refactor manual "Send Files" (App.tsx) to use tauri-plugin-dialog for absolute paths.
-3. Review M2 completion criteria and prepare for M3.
+1. Verify M2 completion criterion on real device after WI-M2-009 fixes.
+2. Review M2 completion criteria and prepare for M3.
+3. (Open)
 
 ## In flight
 
@@ -294,7 +293,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M2-006 | Android Staged Permission Requests | **done** | |
 | WI-M2-007 | Android Accept and Decline from Notification | **done** | |
 | WI-M2-008 | Android frontend: listen to share-intent and auto-send to PC | **done** | |
-| WI-M2-009 | Fix `send_files` Android cache path and file picker handling | **done** | |
+| WI-M2-009 | Fix manual "Send Files" path handling and `share-intent` | **done** | |
 
 
 ## Deferred

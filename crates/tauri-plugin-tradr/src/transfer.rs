@@ -260,37 +260,30 @@ where
 pub async fn send_file_with_progress<F>(
     vfs: &impl Vfs,
     request: &SendRequest<'_>,
-    preloaded_content: Option<&[u8]>,
     streams: &mut SessionStreams<'_>,
     mut on_progress: F,
 ) -> Result<bool, TransferSessionError>
 where
     F: FnMut(u64, u64) + Send,
 {
-    let file_content = if let Some(content) = preloaded_content {
-        content.to_vec()
-    } else {
-        let read_handle = vfs.open_read(request.root, request.rel_path).await?;
-        let meta = vfs.stat(request.root, request.rel_path).await?;
-        let total_bytes = meta.size_bytes;
+    let read_handle = vfs.open_read(request.root, request.rel_path).await?;
+    let meta = vfs.stat(request.root, request.rel_path).await?;
+    let total_bytes = meta.size_bytes;
 
-        let mut file_content = vec![0u8; total_bytes as usize];
-        let mut read_bytes = 0;
-        while read_bytes < file_content.len() {
-            let n = read_handle
-                .read_at(read_bytes as u64, &mut file_content[read_bytes..])
-                .await
-                .map_err(TransferSessionError::Vfs)?;
-            if n == 0 {
-                return Err(TransferSessionError::ProtocolViolation(
-                    "unexpected EOF while reading local file".to_string(),
-                ));
-            }
-            read_bytes += n;
+    let mut file_content = vec![0u8; total_bytes as usize];
+    let mut read_bytes = 0;
+    while read_bytes < file_content.len() {
+        let n = read_handle
+            .read_at(read_bytes as u64, &mut file_content[read_bytes..])
+            .await
+            .map_err(TransferSessionError::Vfs)?;
+        if n == 0 {
+            return Err(TransferSessionError::ProtocolViolation(
+                "unexpected EOF while reading local file".to_string(),
+            ));
         }
-        file_content
-    };
-    let total_bytes = file_content.len() as u64;
+        read_bytes += n;
+    }
 
     let (outboard_data, _) = outboard(&file_content);
     let session = SendSession {
@@ -373,7 +366,7 @@ pub async fn send_file(
     request: &SendRequest<'_>,
     streams: &mut SessionStreams<'_>,
 ) -> Result<bool, TransferSessionError> {
-    send_file_with_progress(vfs, request, None, streams, |_, _| {}).await
+    send_file_with_progress(vfs, request, streams, |_, _| {}).await
 }
 
 struct ReceiveSession<'a, V: Vfs> {
