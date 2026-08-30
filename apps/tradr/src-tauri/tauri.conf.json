@@ -36,5 +36,13 @@
 		"android": {
 			"debugApplicationIdSuffix": ".debug"
 		}
+	},
+	"plugins": {
+		"updater": {
+			"endpoints": [
+				"https://releases.tradr.example.com/v1/update/{{target}}/{{current_version}}"
+			],
+			"pubkey": "dW5zZXRfcHVia2V5X3BsYWNlaG9sZGVy"
+		}
 	}
 }
