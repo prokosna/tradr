@@ -178,6 +178,8 @@ jobs:
 
   macos:
     runs-on: macos-latest
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -203,7 +205,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - name: cargo tauri build (with code signing)
-        if: ${{ secrets.APPLE_CERTIFICATE != '' }}
+        if: ${{ env.APPLE_CERTIFICATE != '' }}
         working-directory: apps/tradr/src-tauri
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -215,12 +217,14 @@ jobs:
         run: cargo tauri build
 
       - name: cargo tauri build (without code signing)
-        if: ${{ secrets.APPLE_CERTIFICATE == '' }}
+        if: ${{ env.APPLE_CERTIFICATE == '' }}
         working-directory: apps/tradr/src-tauri
         run: cargo tauri build
 
   windows:
     runs-on: windows-latest
+    env:
+      TAURI_SIGNING_CERTIFICATE: ${{ secrets.TAURI_SIGNING_CERTIFICATE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -246,7 +250,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - name: cargo tauri build (with code signing)
-        if: ${{ secrets.TAURI_SIGNING_CERTIFICATE != '' }}
+        if: ${{ env.TAURI_SIGNING_CERTIFICATE != '' }}
         working-directory: apps/tradr/src-tauri
         env:
           TAURI_SIGNING_CERTIFICATE: ${{ secrets.TAURI_SIGNING_CERTIFICATE }}
@@ -254,7 +258,7 @@ jobs:
         run: cargo tauri build
 
       - name: cargo tauri build (without code signing)
-        if: ${{ secrets.TAURI_SIGNING_CERTIFICATE == '' }}
+        if: ${{ env.TAURI_SIGNING_CERTIFICATE == '' }}
         working-directory: apps/tradr/src-tauri
         run: cargo tauri build
 
