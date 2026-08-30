@@ -206,6 +206,36 @@ jobs:
         working-directory: apps/tradr/src-tauri
         run: cargo tauri build
 
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install tauri-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
+
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - name: cargo tauri build
+        working-directory: apps/tradr/src-tauri
+        run: cargo tauri build
+
   # WI-M0-015b: this job measured 41 minutes (four ABIs, release, every
   # push). Local measurement found ABI count and release optimization
   # dominate the cost, not NDK/SDK fetch or Gradle assembly. Split below:
