@@ -551,7 +551,7 @@ BLE and `relay` are raw byte streams where TLS does not fit — its handshake ov
 - BLE addresses themselves use resolvable private addresses. This depends partly on OS settings; on Linux, BlueZ `Privacy` must be enabled
 
 **T6 — malicious linked peer**
-- Sees only Shares whose audience includes them. Path boundary enforcement is covered in [06](06-shares-and-linking.md)
+- Sees only Shares whose audience includes them. Path boundary enforcement is covered in [06](06-shares-and-browsing.md)
 - Writable Shares carry limits on write volume and rate, against disk-filling
 - A link can be removed unilaterally at any time, taking effect locally at once
 - **Not mitigated**: a file once handed over cannot be recalled, and nothing stops the entire contents of a read-only Share being taken. That is what sharing means, so the response is a UI that makes the exposure obvious
