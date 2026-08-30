@@ -297,6 +297,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M3-001 | Browse plane handler and proto messages | **done** | |
 | WI-M3-002 | UI for Share browsing | **done** | |
 | WI-M3-003 | Share browsing — File download | **done** | |
+| WI-M4-001 | Desktop system tray integration | **done** | |
 
 
 ## Deferred
