@@ -176,11 +176,13 @@ export function App() {
 				setStagedFiles(filePaths);
 				setSendState({ status: "idle" });
 
-				let targetPeer = intent.targetDevice || null;
-				
+				const targetPeer = intent.targetDevice || null;
+
 				if (!targetPeer) {
 					try {
-						const currentPeers = await invoke<PeerInfo[]>("plugin:tradr|get_peers");
+						const currentPeers = await invoke<PeerInfo[]>(
+							"plugin:tradr|get_peers",
+						);
 						if (currentPeers.length > 0) {
 							setSelectedPeerId(currentPeers[0]?.device_id || null);
 						}
