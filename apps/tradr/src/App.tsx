@@ -171,21 +171,27 @@ export function App() {
 		listen<ShareIntent>("share-intent", async (event) => {
 			const intent = event.payload;
 			if (intent.files && intent.files.length > 0) {
+				const filePaths = intent.files.map((f) => f.cachePath || f.name);
+				setStagedFiles(filePaths);
+
 				let targetPeer = intent.targetDevice || null;
 				if (!targetPeer) {
-					try {
-						const currentPeers = await invoke<PeerInfo[]>(
-							"plugin:tradr|get_peers",
-						);
-						if (currentPeers.length > 0) {
-							targetPeer = currentPeers[0]?.device_id || null;
+					// Give discovery a moment if the app just started
+					for (let i = 0; i < 5; i++) {
+						try {
+							const currentPeers = await invoke<PeerInfo[]>("plugin:tradr|get_peers");
+							if (currentPeers.length > 0) {
+								targetPeer = currentPeers[0]?.device_id || null;
+								break;
+							}
+						} catch (e) {
+							console.error("Failed to get peers", e);
 						}
-					} catch (e) {
-						console.error("Failed to get peers for share intent", e);
+						await new Promise((resolve) => setTimeout(resolve, 500));
 					}
 				}
 				if (targetPeer) {
-					const filePaths = intent.files.map((f) => f.cachePath || f.name);
+					setSelectedPeerId(targetPeer);
 					setSendState({ status: "sending" });
 					invoke<string[]>("plugin:tradr|send_files", {
 						peerId: targetPeer,
@@ -193,6 +199,7 @@ export function App() {
 					})
 						.then((sentFiles) => {
 							setSendState({ status: "success", sentFiles });
+							setStagedFiles([]);
 						})
 						.catch((e) => {
 							console.error("Failed to send files from share intent", e);
