@@ -81,6 +81,7 @@ pub fn run() -> tauri::Result<()> {
     #[cfg(desktop)]
     {
         builder = builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
             .setup(|app| {
                 setup_desktop(app)?;
                 Ok(())
