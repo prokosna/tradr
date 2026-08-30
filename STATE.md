@@ -38,7 +38,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
 ## Next three actions
-1. (Open)
+1. Implement WI-M4-004 (macOS and Windows code signing)
 2. (Open)
 3. (Open)
 
@@ -299,6 +299,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M3-003 | Share browsing — File download | **done** | |
 | WI-M4-001 | Desktop system tray integration | **done** | |
 | WI-M4-002 | Desktop auto-update through the Tauri updater | **done** | |
+| WI-M4-003 | Windows CI build | **done** | |
 
 
 ## Deferred
