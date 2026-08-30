@@ -8,7 +8,7 @@
 ```yaml
 last_updated: 2026-08-30
 phase: implementing
-current_milestone: M3
+current_milestone: M4
 implementation_started: true
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
@@ -19,7 +19,9 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 > **Everything below this line is derivable from somewhere else, so it is not written here.** What exists is the Work Item table. How many crates there are is `ls crates/`. Which rules hold is `ci/run-all.sh`. **A prose inventory in this spot has now gone stale four times, the last time while carrying a warning that said it goes stale** -- so the inventory is gone rather than corrected a fifth time, and what remains is the two things nothing else records.
 
-**M3 is under way. M2's completion criterion is met.** On 2026-08-30, the user chose a photo in the Android gallery and successfully delivered it to a PC via Tradr's share sheet integration.
+**M3's completion criterion is met.** On 2026-08-30, a device browsed files exposed by a peer's configured Share and successfully downloaded a file over the Browse plane.
+
+**M2's completion criterion is met.** On 2026-08-30, the user chose a photo in the Android gallery and successfully delivered it to a PC via Tradr's share sheet integration.
 
 **M1's completion criterion is met.** A file moved between two devices over the LAN and an interrupted transfer resumed (WI-M1-026).
 
@@ -267,7 +269,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | **M0** | **Skeleton** — monorepo, Tauri launching on Linux and Android, Google sign-in, key generation, Attestation issue and verify | 2 weeks | **done 2026-08-25** |
 | M1 | **LAN transfer**, the most important — mDNS, QUIC, transfer, resumption, drag-and-drop send | 4 weeks | **done 2026-08-29** |
 | M2 | Android integration — share sheet, Sharing Shortcuts, SAF, permissions | 3 weeks | **done 2026-08-30** |
-| M3 | Share browsing — VFS, boundary enforcement, the Browse plane | 3 weeks | todo |
+| M3 | Share browsing — VFS, boundary enforcement, the Browse plane | 3 weeks | **done 2026-08-30** |
 | M4 | Windows and macOS — builds, signing, auto-update, tray | 3 weeks | todo |
 | M5 | Static Peers and overlay networks — direct over Tailscale | 1 week | todo |
 | M6 | Account linking — QR, Link Secret, Fingerprint | 2 weeks | todo |
@@ -275,9 +277,9 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | M8 | Brokr — presence, rendezvous, relay, FCM, revocation list | 3 weeks | todo |
 | M9 | Finishing — security review, store submission, packaging, i18n | ongoing | todo |
 
-### Current milestone: M3, Share browsing
-**Design**: docs/06-shares-and-browsing.md (needs creation)
-**Done when**: A device can browse files exposed by a peer's configured Share and download them.
+### Current milestone: M4, Windows and macOS
+**Design**: docs/08-platform-integration.md
+**Done when**: Tradr builds and runs natively on Windows and macOS, with code signing, auto-update, and system tray integration.
 
 #### Work Items
 
@@ -294,6 +296,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M2-009 | Fix manual "Send Files" path handling and `share-intent` | **done** | |
 | WI-M3-001 | Browse plane handler and proto messages | **done** | |
 | WI-M3-002 | UI for Share browsing | **done** | |
+| WI-M3-003 | Share browsing — File download | **done** | |
 
 
 ## Deferred
