@@ -403,6 +403,59 @@ async fn handle_message<'a>(
                 .map_err(|_| crate::channel::TransportError::Io(std::io::ErrorKind::InvalidData))?;
             send.write_all(&encoded).await?;
         }
+        BrowseMessage::ReadFile(req) => {
+            let metadata = vfs
+                .stat(root, &req.path)
+                .await
+                .map_err(|_| crate::channel::TransportError::Io(std::io::ErrorKind::NotFound))?;
+            if metadata.kind != crate::vfs::EntryKind::File {
+                return Err(crate::channel::TransportError::Io(
+                    std::io::ErrorKind::InvalidInput,
+                ));
+            }
+            let reader = vfs
+                .open_read(root, &req.path)
+                .await
+                .map_err(|_| crate::channel::TransportError::Io(std::io::ErrorKind::NotFound))?;
+
+            let total_size = metadata.size_bytes;
+            let offset = req.offset;
+            let bytes_to_read = if req.length == 0 || offset.saturating_add(req.length) > total_size
+            {
+                total_size.saturating_sub(offset)
+            } else {
+                req.length
+            };
+
+            let resp = BrowseMessage::ReadFileBegin(ReadFileBegin {
+                total_size,
+                content_hash: crate::ContentHash::from_bytes([0u8; 32]),
+                chunk_size: 64 * 1024,
+            });
+            let encoded = codec
+                .encode_frame(&resp, max_frame_size)
+                .map_err(|_| crate::channel::TransportError::Io(std::io::ErrorKind::InvalidData))?;
+            send.write_all(&encoded).await?;
+
+            let mut current_offset = offset;
+            let mut remaining = bytes_to_read;
+            let mut read_buf = vec![0u8; 64 * 1024];
+
+            while remaining > 0 {
+                let to_read = (remaining as usize).min(read_buf.len());
+                let n = reader
+                    .read_at(current_offset, &mut read_buf[..to_read])
+                    .await
+                    .map_err(|_| crate::channel::TransportError::Io(std::io::ErrorKind::Other))?;
+                if n == 0 {
+                    break;
+                }
+                send.write_all(&read_buf[..n]).await?;
+                current_offset += n as u64;
+                remaining -= n as u64;
+            }
+            send.finish().await?;
+        }
         _ => {
             return Err(crate::channel::TransportError::Io(
                 std::io::ErrorKind::InvalidInput,

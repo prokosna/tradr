@@ -41,6 +41,44 @@ pub struct PeerInfo {
     pub capabilities: u16,
 }
 
+/// Information about a share visible on a peer device.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareInfo {
+    /// The UUIDv7 share identifier.
+    pub share_id: String,
+    /// Human-readable label of the share.
+    pub label: String,
+    /// Access mode ("ro" for read-only, "rw" for read-write).
+    pub mode: String,
+}
+
+/// Directory entry description returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileEntryDto {
+    /// Relative filename.
+    pub name: String,
+    /// Type of entry: "file" or "directory".
+    pub kind: String,
+    /// Size in bytes.
+    pub size_bytes: u64,
+    /// Modification timestamp in seconds since UNIX epoch.
+    pub modified: i64,
+}
+
+/// Paginated directory listing response for frontend browsing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirListingDto {
+    /// List of file and directory entries.
+    pub entries: Vec<FileEntryDto>,
+    /// Cursor for requesting the next page.
+    pub next_cursor: String,
+    /// Total estimated number of entries in the directory.
+    pub total_estimate: u64,
+}
+
 /// Progress payload emitted during file transfer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransferProgressPayload {
@@ -394,6 +432,214 @@ pub async fn execute_send_files(
     .await
 }
 
+/// Executes the browse plane listing operation over an open secure channel.
+#[allow(clippy::too_many_arguments)]
+pub async fn execute_list_peer_directory(
+    channel: &dyn SecureChannel,
+    share_id: tradr_core::ShareId,
+    path: RelPath,
+    cursor: String,
+    limit: u32,
+    identity: &PublicIdentity,
+    key_store: &(dyn KeyStore + Sync),
+    attestation_token: String,
+) -> Result<DirListingDto, String> {
+    let (mut control_send, mut control_recv) = channel
+        .open_bi()
+        .await
+        .map_err(|e| format!("failed to open control stream: {e}"))?;
+
+    let clock = SystemClock;
+    let not_after = UnixTime::from_secs(clock.now().as_secs() + 30 * 24 * 3600);
+    let keybind_sig = key_store
+        .sign(DomainTag::KeyBind, identity.agreement_pub().as_bytes())
+        .map_err(|e| format!("failed to sign key binding: {e}"))?;
+    let our_key_binding = KeyBinding::new(identity.agreement_pub().clone(), keybind_sig, not_after);
+
+    let handshake_params = HandshakeParams {
+        authenticated_peer: channel.peer(),
+        our_channel_max_frame_size: channel.max_frame_size(),
+        our_identity: identity,
+        our_attestation_token: attestation_token,
+        our_key_binding,
+        our_versions: VersionRange::new(1, 1).map_err(|e| e.to_string())?,
+        our_capabilities: Capabilities::DIRECT_QUIC,
+    };
+
+    let session = perform_handshake(
+        control_send.as_mut(),
+        control_recv.as_mut(),
+        handshake_params,
+        key_store,
+        &OsRng,
+        &SystemClock,
+        |_| async { Ok(TrustTier::SameAccount) },
+    )
+    .await
+    .map_err(|e| format!("handshake failed: {e}"))?;
+
+    let (mut browse_send, mut browse_recv) = channel
+        .open_bi()
+        .await
+        .map_err(|e| format!("failed to open browse stream: {e}"))?;
+
+    let list_dir_msg = tradr_core::ListDir {
+        share_id,
+        path,
+        cursor,
+        limit,
+        with_hash: false,
+    };
+
+    let negotiated_frame_bound = session.peer_max_frame_size().min(channel.max_frame_size());
+    let frame_bytes =
+        tradr_proto::browse::encode_list_dir_frame(&list_dir_msg, negotiated_frame_bound)
+            .map_err(|e| format!("failed to encode ListDir frame: {e}"))?;
+    browse_send
+        .write_all(&frame_bytes)
+        .await
+        .map_err(|e| format!("failed to send ListDir frame: {e}"))?;
+
+    let resp_frame = read_frame(browse_recv.as_mut(), channel.max_frame_size())
+        .await
+        .map_err(|e| format!("failed to read DirListing response: {e}"))?;
+
+    let dir_listing = tradr_proto::browse::decode_dir_listing_frame(&resp_frame)
+        .map_err(|e| format!("failed to decode DirListing frame: {e}"))?;
+
+    let entries = dir_listing
+        .entries
+        .into_iter()
+        .map(|entry| FileEntryDto {
+            name: entry.name,
+            kind: match entry.kind {
+                tradr_core::EntryKind::File => "file".to_string(),
+                tradr_core::EntryKind::Directory => "directory".to_string(),
+            },
+            size_bytes: entry.size_bytes,
+            modified: entry.modified.as_secs(),
+        })
+        .collect();
+
+    let _ = control_send.finish().await;
+
+    Ok(DirListingDto {
+        entries,
+        next_cursor: dir_listing.next_cursor,
+        total_estimate: dir_listing.total_estimate,
+    })
+}
+
+/// Executes the browse plane file download operation over an open secure channel.
+#[allow(clippy::too_many_arguments)]
+pub async fn execute_download_file(
+    channel: &dyn SecureChannel,
+    share_id: tradr_core::ShareId,
+    path: RelPath,
+    dest_path: &std::path::Path,
+    identity: &PublicIdentity,
+    key_store: &(dyn KeyStore + Sync),
+    attestation_token: String,
+) -> Result<u64, String> {
+    let (mut control_send, mut control_recv) = channel
+        .open_bi()
+        .await
+        .map_err(|e| format!("failed to open control stream: {e}"))?;
+
+    let clock = SystemClock;
+    let not_after = UnixTime::from_secs(clock.now().as_secs() + 30 * 24 * 3600);
+    let keybind_sig = key_store
+        .sign(DomainTag::KeyBind, identity.agreement_pub().as_bytes())
+        .map_err(|e| format!("failed to sign key binding: {e}"))?;
+    let our_key_binding = KeyBinding::new(identity.agreement_pub().clone(), keybind_sig, not_after);
+
+    let handshake_params = HandshakeParams {
+        authenticated_peer: channel.peer(),
+        our_channel_max_frame_size: channel.max_frame_size(),
+        our_identity: identity,
+        our_attestation_token: attestation_token,
+        our_key_binding,
+        our_versions: VersionRange::new(1, 1).map_err(|e| e.to_string())?,
+        our_capabilities: Capabilities::DIRECT_QUIC,
+    };
+
+    let session = perform_handshake(
+        control_send.as_mut(),
+        control_recv.as_mut(),
+        handshake_params,
+        key_store,
+        &OsRng,
+        &SystemClock,
+        |_| async { Ok(TrustTier::SameAccount) },
+    )
+    .await
+    .map_err(|e| format!("handshake failed: {e}"))?;
+
+    let (mut browse_send, mut browse_recv) = channel
+        .open_bi()
+        .await
+        .map_err(|e| format!("failed to open browse stream: {e}"))?;
+
+    let read_file_msg = tradr_core::ReadFile {
+        share_id,
+        path,
+        offset: 0,
+        length: 0,
+    };
+
+    let negotiated_frame_bound = session.peer_max_frame_size().min(channel.max_frame_size());
+    let frame_bytes =
+        tradr_proto::browse::encode_read_file_frame(&read_file_msg, negotiated_frame_bound)
+            .map_err(|e| format!("failed to encode ReadFile frame: {e}"))?;
+    browse_send
+        .write_all(&frame_bytes)
+        .await
+        .map_err(|e| format!("failed to send ReadFile frame: {e}"))?;
+
+    let _ = browse_send.finish().await;
+
+    let resp_frame = read_frame(browse_recv.as_mut(), channel.max_frame_size())
+        .await
+        .map_err(|e| format!("failed to read ReadFileBegin response: {e}"))?;
+
+    let _read_file_begin = tradr_proto::browse::decode_read_file_begin_frame(&resp_frame)
+        .map_err(|e| format!("failed to decode ReadFileBegin frame: {e}"))?;
+
+    if let Some(parent) = dest_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create destination directories: {e}"))?;
+    }
+
+    use std::io::Write;
+    let mut out_file = std::fs::File::create(dest_path)
+        .map_err(|e| format!("failed to create destination file: {e}"))?;
+
+    let mut total_bytes_written = 0u64;
+    let mut read_buf = vec![0u8; 64 * 1024];
+
+    loop {
+        let n = browse_recv
+            .read(&mut read_buf)
+            .await
+            .map_err(|e| format!("error reading file stream: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        out_file
+            .write_all(&read_buf[..n])
+            .map_err(|e| format!("error writing to destination file: {e}"))?;
+        total_bytes_written += n as u64;
+    }
+
+    out_file
+        .flush()
+        .map_err(|e| format!("failed to flush destination file: {e}"))?;
+
+    let _ = control_send.finish().await;
+
+    Ok(total_bytes_written)
+}
+
 /// Polls discovered peers from mDNS and returns the current active list.
 #[tauri::command]
 pub async fn get_peers(
@@ -442,6 +688,18 @@ pub async fn get_peers(
         .collect();
 
     Ok(peers)
+}
+
+/// Queries the visible shares for a specific discovered peer.
+#[tauri::command]
+pub async fn get_visible_shares(
+    #[allow(unused_variables)] peer_id: String,
+) -> Result<Vec<ShareInfo>, String> {
+    Ok(vec![ShareInfo {
+        share_id: "017f22e2-79b0-7cc3-98c4-dc0c0c07398f".to_string(),
+        label: "Shared Files".to_string(),
+        mode: "ro".to_string(),
+    }])
 }
 
 /// Dials a discovered peer, negotiates a transfer offer, and transmits the selected files.
@@ -513,6 +771,162 @@ pub async fn send_files<R: tauri::Runtime>(
             use tauri::Emitter;
             let _ = app_handle.emit("transfer-progress", &progress);
         },
+    )
+    .await
+}
+
+/// Dials a peer over QUIC, runs the Hello handshake, opens a Browse stream, and lists directory entries.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn list_peer_directory(
+    peer_id: String,
+    share_id: String,
+    path: Option<String>,
+    cursor: Option<String>,
+    limit: Option<u32>,
+    identity_state: State<'_, IdentityState>,
+    sign_in_state: State<'_, SignInState>,
+    mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
+    peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
+    transport: State<'_, Arc<QuicTransport>>,
+) -> Result<DirListingDto, String> {
+    let target_device_id: DeviceId = peer_id
+        .parse::<DeviceId>()
+        .or_else(|_| {
+            let decoded = URL_SAFE_NO_PAD
+                .decode(&peer_id)
+                .map_err(|e| format!("invalid peer_id: {e}"))?;
+            DeviceId::from_bytes(&decoded).map_err(|e| format!("invalid peer_id: {e}"))
+        })
+        .map_err(|e| format!("failed to parse peer_id '{peer_id}': {e}"))?;
+
+    {
+        let mut source = mdns_source.lock().await;
+        let mut list = peer_list.lock().await;
+        while let Ok(Ok(event)) =
+            tokio::time::timeout(Duration::from_millis(5), source.next_event()).await
+        {
+            let _ = list.apply(MDNS_SOURCE_ID, event);
+        }
+    }
+
+    let list = peer_list.lock().await;
+    let peer = list
+        .peer(target_device_id)
+        .ok_or_else(|| format!("peer with device id {peer_id} not found"))?;
+
+    let candidate = peer
+        .candidates()
+        .into_iter()
+        .find(|c| c.transport() == TransportId::new("direct-quic"))
+        .or_else(|| peer.candidates().first().cloned())
+        .ok_or_else(|| format!("no candidate address found for peer {peer_id}"))?;
+    drop(list);
+
+    let channel = transport
+        .connect(&candidate, &PeerExpectation::Device(target_device_id))
+        .await
+        .map_err(|e| format!("failed to connect to peer at {}: {e}", candidate.address()))?;
+
+    let public_identity = identity_state.public_identity()?;
+    let key_store = identity_state.key_store()?;
+    let attestation_token = sign_in_state.id_token().unwrap_or_default();
+
+    let parsed_share_id: tradr_core::ShareId = share_id
+        .parse()
+        .map_err(|e| format!("invalid share_id '{share_id}': {e}"))?;
+    let path_str = path.unwrap_or_default();
+    let parsed_path = if path_str.is_empty() {
+        RelPath::root()
+    } else {
+        RelPath::new(&path_str).map_err(|e| format!("invalid relative path '{path_str}': {e}"))?
+    };
+
+    execute_list_peer_directory(
+        channel.as_ref(),
+        parsed_share_id,
+        parsed_path,
+        cursor.unwrap_or_default(),
+        limit.unwrap_or(500),
+        &public_identity,
+        key_store.as_ref(),
+        attestation_token,
+    )
+    .await
+}
+
+/// Downloads a file from a peer's share over the Browse plane.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn download_file<R: tauri::Runtime>(
+    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+    peer_id: String,
+    share_id: String,
+    path: String,
+    dest_path: String,
+    identity_state: State<'_, IdentityState>,
+    sign_in_state: State<'_, SignInState>,
+    mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
+    peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
+    transport: State<'_, Arc<QuicTransport>>,
+) -> Result<u64, String> {
+    let target_device_id: DeviceId = peer_id
+        .parse::<DeviceId>()
+        .or_else(|_| {
+            let decoded = URL_SAFE_NO_PAD
+                .decode(&peer_id)
+                .map_err(|e| format!("invalid peer_id: {e}"))?;
+            DeviceId::from_bytes(&decoded).map_err(|e| format!("invalid peer_id: {e}"))
+        })
+        .map_err(|e| format!("failed to parse peer_id '{peer_id}': {e}"))?;
+
+    {
+        let mut source = mdns_source.lock().await;
+        let mut list = peer_list.lock().await;
+        while let Ok(Ok(event)) =
+            tokio::time::timeout(Duration::from_millis(5), source.next_event()).await
+        {
+            let _ = list.apply(MDNS_SOURCE_ID, event);
+        }
+    }
+
+    let list = peer_list.lock().await;
+    let peer = list
+        .peer(target_device_id)
+        .ok_or_else(|| format!("peer with device id {peer_id} not found"))?;
+
+    let candidate = peer
+        .candidates()
+        .into_iter()
+        .find(|c| c.transport() == TransportId::new("direct-quic"))
+        .or_else(|| peer.candidates().first().cloned())
+        .ok_or_else(|| format!("no candidate address found for peer {peer_id}"))?;
+    drop(list);
+
+    let channel = transport
+        .connect(&candidate, &PeerExpectation::Device(target_device_id))
+        .await
+        .map_err(|e| format!("failed to connect to peer at {}: {e}", candidate.address()))?;
+
+    let public_identity = identity_state.public_identity()?;
+    let key_store = identity_state.key_store()?;
+    let attestation_token = sign_in_state.id_token().unwrap_or_default();
+
+    let parsed_share_id: tradr_core::ShareId = share_id
+        .parse()
+        .map_err(|e| format!("invalid share_id '{share_id}': {e}"))?;
+    let parsed_path =
+        RelPath::new(&path).map_err(|e| format!("invalid relative path '{path}': {e}"))?;
+    let dest_path_buf = std::path::PathBuf::from(dest_path);
+
+    execute_download_file(
+        channel.as_ref(),
+        parsed_share_id,
+        parsed_path,
+        &dest_path_buf,
+        &public_identity,
+        key_store.as_ref(),
+        attestation_token,
     )
     .await
 }

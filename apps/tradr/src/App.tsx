@@ -100,6 +100,52 @@ type SendState =
 	| { status: "success"; sentFiles: string[] }
 	| { status: "error"; message: string };
 
+// Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
+// returns from `get_visible_shares`.
+interface ShareInfo {
+	shareId: string;
+	label: string;
+	mode: string;
+}
+
+// Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
+// returns file entries in `list_peer_directory`.
+interface FileEntryDto {
+	name: string;
+	kind: "file" | "directory";
+	sizeBytes: number;
+	modified: number;
+}
+
+// Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
+// returns paginated directory listing from `list_peer_directory`.
+interface DirListingDto {
+	entries: FileEntryDto[];
+	nextCursor: string;
+	totalEstimate: number;
+}
+
+type BrowseState =
+	| { status: "idle" }
+	| { status: "loading" }
+	| { status: "loaded"; listing: DirListingDto }
+	| { status: "error"; message: string };
+
+function formatBytes(bytes: number): string {
+	if (bytes === 0) return "0 B";
+	const k = 1024;
+	const sizes = ["B", "KiB", "MiB", "GiB"];
+	const i = Math.floor(Math.log(bytes) / Math.log(k));
+	const formatted = (bytes / k ** i).toFixed(1);
+	return `${formatted} ${sizes[i]}`;
+}
+
+function formatTimestamp(timestampSecs: number): string {
+	if (!timestampSecs) return "-";
+	const date = new Date(timestampSecs * 1000);
+	return date.toLocaleString();
+}
+
 // Main UI surface for discovery, transfer staging, and attestation verification.
 export function App() {
 	const [identity, setIdentity] = useState<IdentityLoadState>({
@@ -120,6 +166,86 @@ export function App() {
 	const [progress, setProgress] = useState<TransferProgressPayload | null>(
 		null,
 	);
+
+	const [shares, setShares] = useState<ShareInfo[]>([]);
+	const [selectedShareId, setSelectedShareId] = useState<string>("");
+	const [browsePath, setBrowsePath] = useState<string>("");
+	const [browseState, setBrowseState] = useState<BrowseState>({
+		status: "idle",
+	});
+
+	const loadShares = useCallback((peerId: string) => {
+		invoke<ShareInfo[]>("plugin:tradr|get_visible_shares", { peerId })
+			.then((fetchedShares) => {
+				setShares(fetchedShares);
+				if (fetchedShares.length > 0 && fetchedShares[0]) {
+					setSelectedShareId(fetchedShares[0].shareId);
+				} else {
+					setSelectedShareId("017f22e2-79b0-7cc3-98c4-dc0c0c07398f");
+				}
+			})
+			.catch((e) => {
+				console.error("Failed to load visible shares:", e);
+				setSelectedShareId("017f22e2-79b0-7cc3-98c4-dc0c0c07398f");
+			});
+	}, []);
+
+	useEffect(() => {
+		if (selectedPeerId) {
+			loadShares(selectedPeerId);
+		} else {
+			setShares([]);
+			setSelectedShareId("");
+			setBrowsePath("");
+			setBrowseState({ status: "idle" });
+		}
+	}, [selectedPeerId, loadShares]);
+
+	const fetchDirectory = useCallback(
+		(path: string, cursor = "") => {
+			if (!selectedPeerId || !selectedShareId) {
+				return;
+			}
+			setBrowseState({ status: "loading" });
+			invoke<DirListingDto>("plugin:tradr|list_peer_directory", {
+				peerId: selectedPeerId,
+				shareId: selectedShareId,
+				path: path,
+				cursor: cursor,
+				limit: 200,
+			})
+				.then((listing) => {
+					setBrowseState({ status: "loaded", listing });
+				})
+				.catch((error) => {
+					setBrowseState({ status: "error", message: String(error) });
+				});
+		},
+		[selectedPeerId, selectedShareId],
+	);
+
+	const handleNavigate = (newPath: string) => {
+		setBrowsePath(newPath);
+		fetchDirectory(newPath);
+	};
+
+	const handleNavigateUp = () => {
+		if (!browsePath) return;
+		const parts = browsePath.split("/").filter(Boolean);
+		parts.pop();
+		const parentPath = parts.join("/");
+		handleNavigate(parentPath);
+	};
+
+	const handleBreadcrumbClick = (index: number) => {
+		if (index === -1) {
+			handleNavigate("");
+		} else {
+			const parts = browsePath.split("/").filter(Boolean);
+			const newPath = parts.slice(0, index + 1).join("/");
+			handleNavigate(newPath);
+		}
+	};
 
 	const refreshPeers = useCallback(() => {
 		invoke<PeerInfo[]>("plugin:tradr|get_peers")
@@ -546,6 +672,242 @@ export function App() {
 								: 0}
 							%)
 						</p>
+					</div>
+				)}
+			</section>
+
+			<section
+				style={{
+					marginTop: "1.5rem",
+					borderTop: "1px solid #ccc",
+					paddingTop: "1rem",
+				}}
+			>
+				<h2>Browse Peer Shares</h2>
+				{!selectedPeerId ? (
+					<p>
+						Select a peer from Discovered Peers above to browse their shared
+						files.
+					</p>
+				) : (
+					<div>
+						<div
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: "0.5rem",
+								marginBottom: "1rem",
+								flexWrap: "wrap",
+							}}
+						>
+							<label htmlFor="share-select">
+								<strong>Share:</strong>
+							</label>
+							<select
+								id="share-select"
+								value={selectedShareId}
+								onChange={(e) => setSelectedShareId(e.target.value)}
+								style={{ padding: "0.25rem 0.5rem" }}
+							>
+								{shares.map((share) => (
+									<option key={share.shareId} value={share.shareId}>
+										{share.label} ({share.mode}) - {share.shareId.slice(0, 8)}...
+									</option>
+								))}
+								{shares.length === 0 && (
+									<option value="017f22e2-79b0-7cc3-98c4-dc0c0c07398f">
+										Default Share (017f22e2...)
+									</option>
+								)}
+							</select>
+							<button
+								type="button"
+								onClick={() => fetchDirectory(browsePath)}
+								disabled={browseState.status === "loading"}
+							>
+								{browseState.status === "loading"
+									? "Loading..."
+									: "Browse Share"}
+							</button>
+						</div>
+
+						<div
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: "0.5rem",
+								marginBottom: "0.75rem",
+								padding: "0.5rem",
+								backgroundColor: "#f5f5f5",
+								borderRadius: "4px",
+							}}
+						>
+							<button
+								type="button"
+								onClick={handleNavigateUp}
+								disabled={!browsePath || browseState.status === "loading"}
+								style={{ padding: "0.2rem 0.6rem" }}
+							>
+								⬆ Up
+							</button>
+
+							<span style={{ fontWeight: 600 }}>Path:</span>
+							<button
+								type="button"
+								onClick={() => handleBreadcrumbClick(-1)}
+								style={{
+									background: "none",
+									border: "none",
+									color: "#0078d4",
+									cursor: "pointer",
+									padding: 0,
+									textDecoration: "underline",
+								}}
+							>
+								/
+							</button>
+							{browsePath
+								.split("/")
+								.filter(Boolean)
+								.map((seg, idx, arr) => (
+									<span
+										key={arr.slice(0, idx + 1).join("/")}
+										style={{
+											display: "inline-flex",
+											alignItems: "center",
+											gap: "0.25rem",
+										}}
+									>
+										<span>/</span>
+										<button
+											type="button"
+											onClick={() => handleBreadcrumbClick(idx)}
+											style={{
+												background: "none",
+												border: "none",
+												color: "#0078d4",
+												cursor: "pointer",
+												padding: 0,
+												textDecoration:
+													idx === arr.length - 1 ? "none" : "underline",
+												fontWeight:
+													idx === arr.length - 1 ? "bold" : "normal",
+											}}
+										>
+											{seg}
+										</button>
+									</span>
+								))}
+						</div>
+
+						{browseState.status === "loading" && (
+							<p>Loading directory listing...</p>
+						)}
+						{browseState.status === "error" && (
+							<p style={{ color: "red" }}>
+								Failed to browse directory: {browseState.message}
+							</p>
+						)}
+						{browseState.status === "loaded" && (
+							<div>
+								{browseState.listing.entries.length === 0 ? (
+									<p style={{ fontStyle: "italic", color: "#666" }}>
+										This directory is empty.
+									</p>
+								) : (
+									<table
+										style={{
+											width: "100%",
+											borderCollapse: "collapse",
+											marginTop: "0.5rem",
+										}}
+									>
+										<thead>
+											<tr
+												style={{
+													borderBottom: "2px solid #ddd",
+													textAlign: "left",
+												}}
+											>
+												<th style={{ padding: "0.5rem" }}>Name</th>
+												<th style={{ padding: "0.5rem" }}>Type</th>
+												<th style={{ padding: "0.5rem" }}>Size</th>
+												<th style={{ padding: "0.5rem" }}>Modified</th>
+											</tr>
+										</thead>
+										<tbody>
+											{browseState.listing.entries.map((entry) => (
+												<tr
+													key={entry.name}
+													style={{
+														borderBottom: "1px solid #eee",
+													}}
+												>
+													<td style={{ padding: "0.5rem" }}>
+														{entry.kind === "directory" ? (
+															<button
+																type="button"
+																onClick={() => {
+																	const next = browsePath
+																		? `${browsePath}/${entry.name}`
+																		: entry.name;
+																	handleNavigate(next);
+																}}
+																style={{
+																	background: "none",
+																	border: "none",
+																	color: "#0078d4",
+																	cursor: "pointer",
+																	padding: 0,
+																	font: "inherit",
+																	textAlign: "left",
+																	textDecoration: "underline",
+																}}
+															>
+																📁 {entry.name}
+															</button>
+														) : (
+															<span>📄 {entry.name}</span>
+														)}
+													</td>
+													<td
+														style={{
+															padding: "0.5rem",
+															textTransform: "capitalize",
+														}}
+													>
+														{entry.kind}
+													</td>
+													<td style={{ padding: "0.5rem" }}>
+														{entry.kind === "directory"
+															? "-"
+															: formatBytes(entry.sizeBytes)}
+													</td>
+													<td style={{ padding: "0.5rem" }}>
+														{formatTimestamp(entry.modified)}
+													</td>
+												</tr>
+											))}
+										</tbody>
+									</table>
+								)}
+								{browseState.listing.nextCursor && (
+									<div style={{ marginTop: "0.75rem" }}>
+										<button
+											type="button"
+											onClick={() =>
+												fetchDirectory(
+													browsePath,
+													browseState.listing.nextCursor,
+												)
+											}
+										>
+											Load More Entries
+										</button>
+									</div>
+								)}
+							</div>
+						)}
 					</div>
 				)}
 			</section>

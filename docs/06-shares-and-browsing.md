@@ -132,4 +132,4 @@ See `docs/04-protocol.md` for the exact wire messages.
 A `Watch` request establishes a continuous stream of `FsEvent` messages. The provider uses the OS's native file monitoring (inotify, FSEvents, ReadDirectoryChangesW, or Android's ContentObserver) to detect changes within the Share Root. Events are debounced (250 ms) before transmission to avoid flooding the stream during bulk operations.
 
 ### Downloading Files
-A file read begins with `ReadFile` on the Browse stream, which negotiates the transfer. The actual file bytes are then delivered over a separate Data stream to allow concurrent file transfers without head-of-line blocking on the Browse stream.
+A file read begins by opening a new, dedicated bidirectional QUIC stream. The requester sends a `ReadFile` message on this stream. The provider validates the request, responds with `ReadFileBegin` on the same stream, and then immediately transmits the raw file bytes on that same stream until EOF. This avoids both head-of-line blocking on the main Browse stream and the need for separate correlation IDs.

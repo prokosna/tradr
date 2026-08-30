@@ -5,8 +5,8 @@ use crate::message_type::MessageType;
 use crate::v1;
 use prost::Message;
 use tradr_core::{
-    BrowseDomainError, DirEntry, DirListing, EntryKind, ListDir, ReadFile, RelPath, Stat,
-    StatResult, UnixTime,
+    BrowseDomainError, ContentHash, DirEntry, DirListing, EntryKind, ListDir, ReadFile,
+    ReadFileBegin, RelPath, Stat, StatResult, UnixTime,
 };
 
 /// Errors arising during encoding or decoding framed Browse messages.
@@ -69,12 +69,17 @@ impl From<BrowseDomainError> for BrowseFrameError {
 }
 
 pub fn list_dir_from_wire(msg: v1::ListDir) -> Result<ListDir, BrowseDomainError> {
+    let path = if msg.path.is_empty() {
+        RelPath::root()
+    } else {
+        RelPath::new(&msg.path).map_err(BrowseDomainError::InvalidRelPath)?
+    };
     Ok(ListDir {
         share_id: msg
             .share_id
             .parse()
             .map_err(BrowseDomainError::InvalidShareId)?,
-        path: RelPath::new(&msg.path).map_err(BrowseDomainError::InvalidRelPath)?,
+        path,
         cursor: msg.cursor,
         limit: msg.limit,
         with_hash: msg.with_hash,
@@ -293,6 +298,56 @@ pub fn encode_read_file_frame(msg: &ReadFile, max_size: u32) -> Result<Vec<u8>, 
     .map_err(BrowseFrameError::Framing)
 }
 
+pub fn read_file_begin_from_wire(
+    msg: v1::ReadFileBegin,
+) -> Result<ReadFileBegin, BrowseDomainError> {
+    let hash_bytes: [u8; 32] = if msg.content_hash.is_empty() {
+        [0u8; 32]
+    } else {
+        msg.content_hash
+            .try_into()
+            .map_err(|bytes: Vec<u8>| BrowseDomainError::InvalidContentHash(bytes.len()))?
+    };
+    Ok(ReadFileBegin {
+        total_size: msg.total_size,
+        content_hash: ContentHash::from_bytes(hash_bytes),
+        chunk_size: msg.chunk_size,
+    })
+}
+
+pub fn read_file_begin_to_wire(msg: &ReadFileBegin) -> v1::ReadFileBegin {
+    v1::ReadFileBegin {
+        total_size: msg.total_size,
+        content_hash: msg.content_hash.as_bytes().to_vec(),
+        chunk_size: msg.chunk_size,
+    }
+}
+
+pub fn decode_read_file_begin_frame(frame: &Frame) -> Result<ReadFileBegin, BrowseFrameError> {
+    let expected = MessageType::ReadFileBegin.code();
+    if frame.type_code() != expected {
+        return Err(BrowseFrameError::WrongMessageType {
+            expected,
+            got: frame.type_code(),
+        });
+    }
+    let wire = v1::ReadFileBegin::decode(frame.payload()).map_err(BrowseFrameError::Decode)?;
+    read_file_begin_from_wire(wire).map_err(BrowseFrameError::Wire)
+}
+
+pub fn encode_read_file_begin_frame(
+    msg: &ReadFileBegin,
+    max_size: u32,
+) -> Result<Vec<u8>, BrowseFrameError> {
+    let wire = read_file_begin_to_wire(msg);
+    encode_frame(
+        MessageType::ReadFileBegin.code(),
+        &wire.encode_to_vec(),
+        max_size,
+    )
+    .map_err(BrowseFrameError::Framing)
+}
+
 use tradr_core::{BrowseCodec, BrowseMessage};
 
 pub struct ProtoBrowseCodec {
@@ -344,6 +399,10 @@ impl BrowseCodec for ProtoBrowseCodec {
                 decode_read_file_frame(&frame)
                     .map_err(|e| BrowseDomainError::CodecError(e.to_string()))?,
             ),
+            0x45 => BrowseMessage::ReadFileBegin(
+                decode_read_file_begin_frame(&frame)
+                    .map_err(|e| BrowseDomainError::CodecError(e.to_string()))?,
+            ),
             _ => return Err(BrowseDomainError::UnsupportedMessage),
         };
         Ok(Some((msg, consumed)))
@@ -364,6 +423,8 @@ impl BrowseCodec for ProtoBrowseCodec {
             BrowseMessage::StatResult(m) => encode_stat_result_frame(m, max_frame_size)
                 .map_err(|e| BrowseDomainError::CodecError(e.to_string())),
             BrowseMessage::ReadFile(m) => encode_read_file_frame(m, max_frame_size)
+                .map_err(|e| BrowseDomainError::CodecError(e.to_string())),
+            BrowseMessage::ReadFileBegin(m) => encode_read_file_begin_frame(m, max_frame_size)
                 .map_err(|e| BrowseDomainError::CodecError(e.to_string())),
             _ => Err(BrowseDomainError::UnsupportedMessage), // Unimplemented
         }

@@ -7,6 +7,8 @@ const COMMANDS: &[&str] = &[
     "attestation_bundle",
     "verify_peer_attestation",
     "get_peers",
+    "get_visible_shares",
+    "list_peer_directory",
     "send_files",
     "publish_sharing_shortcuts",
     "pick_share_root",

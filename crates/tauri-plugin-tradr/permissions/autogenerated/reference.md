@@ -114,6 +114,58 @@ Denies the get_peers command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-get-visible-shares`
+
+</td>
+<td>
+
+Enables the get_visible_shares command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-get-visible-shares`
+
+</td>
+<td>
+
+Denies the get_visible_shares command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-list-peer-directory`
+
+</td>
+<td>
+
+Enables the list_peer_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-list-peer-directory`
+
+</td>
+<td>
+
+Denies the list_peer_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-pick-share-root`
 
 </td>

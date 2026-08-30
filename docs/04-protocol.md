@@ -350,7 +350,7 @@ Remote operations on Share Roots. Every request carries a `share_id`, and the re
 |---|---|---|
 | `ListDir { share_id, path, cursor, limit }` | `DirListing { entries[], next_cursor }` | ro |
 | `Stat { share_id, path }` | `StatResult { entry }` | ro |
-| `ReadFile { share_id, path, offset, length }` | Returned on a data stream | ro |
+| `ReadFile { share_id, path, offset, length }` | `ReadFileBegin` then raw bytes on the same stream | ro |
 | `WriteFile { share_id, path, content_hash, size }` | Received on a data stream | rw |
 | `Mkdir { share_id, path }` | `Ack` | rw |
 | `Delete { share_id, path, recursive }` | `Ack` | rw |
