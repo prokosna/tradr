@@ -369,10 +369,12 @@ where
         placed_paths.push(placed);
     }
 
-    control_send
-        .finish()
-        .await
-        .map_err(ListenerError::Transport)?;
+    let _ = control_send.finish().await;
+
+    // Wait for the sender to gracefully close the connection (EOF on control_recv).
+    // This ensures Quinn does not prematurely send CONNECTION_CLOSE and drop the ItemComplete frame.
+    let mut dummy = [0u8; 1];
+    let _ = control_recv.read(&mut dummy).await;
 
     Ok(placed_paths)
 }
@@ -434,7 +436,7 @@ where
             Err(TransportError::Closed) => break Ok(()),
             Err(e) => return Err(ListenerError::Transport(e)),
         };
-        let _ = handle_incoming_channel(
+        match handle_incoming_channel(
             channel.as_ref(),
             vfs,
             params.clone(),
@@ -445,7 +447,11 @@ where
             verify_attestation.clone(),
             item_filter,
         )
-        .await?;
+        .await
+        {
+            Ok(_) => {}
+            Err(e) => eprintln!("transfer failed: {e}"),
+        }
     }
 }
 

@@ -6,7 +6,7 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.** `branch`, `work_items_landed`, and `last_commit` are no longer declared here — see [docs/10](docs/10-implementation-process.md#the-yaml-header--what-is-in-it-and-what-was-removed-dcr-060) for the one-command equivalents.
 
 ```yaml
-last_updated: 2026-08-29
+last_updated: 2026-08-30
 phase: implementing
 current_milestone: M2
 implementation_started: true
@@ -37,9 +37,9 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-1. Verify M2 completion criterion on real device after WI-M2-009
-2. (Open)
-3. (Open)
+1. Fix `listen_for_transfers` in `listener.rs` to log and continue on transfer errors instead of exiting the entire loop.
+2. Fix `handle_incoming_channel` to gracefully await peer disconnection (`control_recv.read()`) before dropping the `SecureChannel`, preventing `ItemComplete` from being lost in transit.
+3. Ask the user to re-test the Android -> PC file transfer on a real device.
 
 ## In flight
 
