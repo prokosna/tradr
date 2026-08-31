@@ -16,7 +16,7 @@ use tradr_proto::data::{
     encode_item_complete_frame,
 };
 use tradr_proto::framing::{FrameDecoder, encode_frame};
-use tradr_vfs::PosixVfs;
+use tradr_vfs::NativeVfs;
 
 const VALID_V7: &str = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
 const FRAME_BOUND: u32 = 2 * 1024 * 1024;
@@ -140,7 +140,7 @@ async fn read_frame_test(
 #[tokio::test]
 async fn item_complete_on_the_data_stream_is_refused() {
     let sender_dir = tempfile::tempdir().expect("sender tempdir");
-    let sender_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
     let root_sender = RootId::new(1);
     sender_vfs
         .register_root(root_sender, sender_dir.path().to_path_buf(), false)
@@ -218,7 +218,7 @@ async fn item_complete_on_the_data_stream_is_refused() {
 #[tokio::test]
 async fn a_control_plane_code_on_the_data_stream_is_refused() {
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
-    let receiver_vfs = PosixVfs::new();
+    let receiver_vfs = NativeVfs::new();
     let root_receiver = RootId::new(2);
     receiver_vfs
         .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
@@ -277,7 +277,7 @@ async fn a_control_plane_code_on_the_data_stream_is_refused() {
 #[tokio::test]
 async fn a_zero_type_code_on_the_data_stream_is_refused() {
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
-    let receiver_vfs = PosixVfs::new();
+    let receiver_vfs = NativeVfs::new();
     let root_receiver = RootId::new(2);
     receiver_vfs
         .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
@@ -336,7 +336,7 @@ async fn a_zero_type_code_on_the_data_stream_is_refused() {
 #[tokio::test]
 async fn an_unassigned_data_plane_code_is_skipped() {
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
-    let receiver_vfs = PosixVfs::new();
+    let receiver_vfs = NativeVfs::new();
     let root_receiver = RootId::new(2);
     receiver_vfs
         .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)

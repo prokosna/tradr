@@ -4,7 +4,7 @@
 
 use tradr_core::{ItemId, RootId, TransferId};
 use tradr_vfs::{
-    PosixVfs, SanitizationError, partial_file_rel_path, resolve_collision,
+    NativeVfs, SanitizationError, partial_file_rel_path, resolve_collision,
     sanitize_destination_path,
 };
 
@@ -152,7 +152,7 @@ fn partial_file_rel_path_constructs_ordinal_location() {
 #[tokio::test]
 async fn resolve_collision_numbers_existing_files() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let vfs = PosixVfs::new();
+    let vfs = NativeVfs::new();
     let root = RootId::new(1);
     vfs.register_root(root, dir.path().to_path_buf(), false)
         .expect("register root");

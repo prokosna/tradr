@@ -3,7 +3,7 @@
 //! See docs/04-protocol.md, docs/06-shares-and-browsing.md, and AGENTS.md section 6.
 
 use tradr_core::{ItemId, RelPath, RootId, TransferId, Vfs, VfsError};
-use tradr_vfs::{PosixVfs, partial_file_rel_path, sanitize_destination_path};
+use tradr_vfs::{NativeVfs, partial_file_rel_path, sanitize_destination_path};
 
 const VALID_V7: &str = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
 
@@ -14,7 +14,7 @@ fn sample_transfer() -> TransferId {
 #[tokio::test]
 async fn read_only_root_refuses_modifications() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let vfs = PosixVfs::new();
+    let vfs = NativeVfs::new();
     let root = RootId::new(2);
     vfs.register_root(root, dir.path().to_path_buf(), true)
         .expect("register ro root");
@@ -41,7 +41,7 @@ async fn read_only_root_refuses_modifications() {
 #[tokio::test]
 async fn partial_directory_is_inaccessible_to_peers() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let vfs = PosixVfs::new();
+    let vfs = NativeVfs::new();
     let root = RootId::new(2);
     vfs.register_root(root, dir.path().to_path_buf(), false)
         .expect("register root");
@@ -62,7 +62,7 @@ async fn partial_directory_is_inaccessible_to_peers() {
 #[tokio::test]
 async fn partial_file_write_sync_and_atomic_rename() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let vfs = PosixVfs::new();
+    let vfs = NativeVfs::new();
     let root = RootId::new(3);
     vfs.register_root(root, dir.path().to_path_buf(), false)
         .expect("register rw root");
@@ -116,7 +116,7 @@ async fn partial_file_write_sync_and_atomic_rename() {
 #[tokio::test]
 async fn open_write_does_not_truncate_existing_partial_file() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let vfs = PosixVfs::new();
+    let vfs = NativeVfs::new();
     let root = RootId::new(4);
     vfs.register_root(root, dir.path().to_path_buf(), false)
         .expect("register rw root");

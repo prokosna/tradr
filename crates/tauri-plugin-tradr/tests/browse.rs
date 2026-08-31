@@ -14,7 +14,7 @@ use tradr_identity::{OsRng, SoftwareKeyStore, SystemClock};
 use tradr_integrity::BaoVerifier;
 use tradr_secrets::FileStore;
 use tradr_transport::quic::QuicTransport;
-use tradr_vfs::PosixVfs;
+use tradr_vfs::NativeVfs;
 
 fn setup_key_store(dir: &std::path::Path) -> Arc<SoftwareKeyStore> {
     let rung = FileStore::new(dir.join("keys"));
@@ -42,7 +42,7 @@ async fn list_peer_directory_succeeds_over_quic_loopback() {
     )
     .expect("write photo1");
 
-    let server_vfs = Arc::new(PosixVfs::new());
+    let server_vfs = Arc::new(NativeVfs::new());
     let root_server = RootId::new(10);
     server_vfs
         .register_root(root_server, server_dir.path().to_path_buf(), false)
@@ -157,7 +157,7 @@ async fn list_peer_nested_directory_succeeds() {
     )
     .expect("write report");
 
-    let server_vfs = Arc::new(PosixVfs::new());
+    let server_vfs = Arc::new(NativeVfs::new());
     let root_server = RootId::new(10);
     server_vfs
         .register_root(root_server, server_dir.path().to_path_buf(), false)
@@ -263,7 +263,7 @@ async fn download_file_succeeds_over_quic_loopback() {
     std::fs::write(server_dir.path().join("sub").join("data.bin"), test_content)
         .expect("write test content");
 
-    let server_vfs = Arc::new(PosixVfs::new());
+    let server_vfs = Arc::new(NativeVfs::new());
     let root_server = RootId::new(10);
     server_vfs
         .register_root(root_server, server_dir.path().to_path_buf(), false)

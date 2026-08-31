@@ -6,6 +6,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,9 +21,11 @@ use tradr_core::{SecretStore, SecretStoreError, StorageLevel};
 const MAX_TEMP_ATTEMPTS: u32 = 8;
 
 /// `0600`: owner read-write, nothing for group or other.
+#[cfg(unix)]
 const FILE_MODE: u32 = 0o600;
 
 /// `0700`: owner read-write-execute, nothing for group or other.
+#[cfg(unix)]
 const DIR_MODE: u32 = 0o700;
 
 /// The lowest rung of the Linux storage ladder: one `0600` file per slot,
@@ -119,12 +122,13 @@ fn create_fresh_temp_file(dir: &Path) -> Result<(File, PathBuf), SecretStoreErro
     for _ in 0..MAX_TEMP_ATTEMPTS {
         let unique = NEXT.fetch_add(1, Ordering::Relaxed);
         let candidate = dir.join(format!(".tmp-{}-{unique}", std::process::id()));
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(FILE_MODE)
-            .open(&candidate)
-        {
+
+        let mut opts = OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        opts.mode(FILE_MODE);
+
+        match opts.open(&candidate) {
             Ok(file) => return Ok((file, candidate)),
             Err(source) if source.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(source) => return Err(backend_err(source)),
@@ -150,16 +154,20 @@ impl SecretStore for FileStore {
     fn store(&self, slot: &str, secret: &[u8]) -> Result<(), SecretStoreError> {
         validate_slot(slot)?;
 
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(DIR_MODE)
-            .create(&self.dir)
-            .map_err(backend_err)?;
-        // DirBuilder's mode is likewise only applied at creation: a
-        // directory that was already there keeps whatever mode it had, so
-        // it is narrowed here explicitly rather than trusted.
-        fs::set_permissions(&self.dir, fs::Permissions::from_mode(DIR_MODE))
-            .map_err(backend_err)?;
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        builder.mode(DIR_MODE);
+        builder.create(&self.dir).map_err(backend_err)?;
+
+        #[cfg(unix)]
+        {
+            // DirBuilder's mode is likewise only applied at creation: a
+            // directory that was already there keeps whatever mode it had, so
+            // it is narrowed here explicitly rather than trusted.
+            fs::set_permissions(&self.dir, fs::Permissions::from_mode(DIR_MODE))
+                .map_err(backend_err)?;
+        }
 
         let (mut temp_file, temp_path) = create_fresh_temp_file(&self.dir)?;
 

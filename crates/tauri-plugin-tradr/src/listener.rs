@@ -21,7 +21,7 @@ use tradr_proto::control::{
 };
 use tradr_proto::framing::{Frame, FrameDecoder, FrameError};
 use tradr_proto::message_type::{Classification, MessageType, Plane, classify};
-use tradr_vfs::{PosixVfs, partial_file_rel_path};
+use tradr_vfs::{NativeVfs, partial_file_rel_path};
 
 use crate::handshake::{HandshakeError, HandshakeParams, perform_handshake};
 use crate::transfer::{ReceiveRequest, SessionStreams, TransferSessionError, receive_file};
@@ -475,7 +475,7 @@ where
 /// Runs the listener loop for incoming transfers on an `Incoming` stream.
 pub async fn run_listener(
     mut incoming: Box<dyn Incoming>,
-    vfs: Arc<PosixVfs>,
+    vfs: Arc<NativeVfs>,
     key_store: Arc<dyn KeyStore>,
     identity: PublicIdentity,
     attestation_token: String,
