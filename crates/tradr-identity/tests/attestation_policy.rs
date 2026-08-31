@@ -13,6 +13,8 @@ use tradr_identity::{
 
 const DAY: i64 = 86_400;
 const NOW: i64 = 1_800_000_000;
+// docs/05 step 5: how far ahead of this device's clock an iat may be.
+const SKEW: i64 = 300;
 
 // RFC 4648 base64url without padding, written here rather than taken from
 // the crate under test. Checked against the RFC's own vectors below.
@@ -99,6 +101,7 @@ struct Fixture {
     linked: Vec<AccountId>,
     identity: PublicKeyPoint,
     agreement: PublicKeyPoint,
+    skew: u64,
 }
 
 impl Fixture {
@@ -109,6 +112,7 @@ impl Fixture {
             linked: Vec::new(),
             identity: point(0x11),
             agreement: point(0x22),
+            skew: SKEW as u64,
         }
     }
 
@@ -118,6 +122,7 @@ impl Fixture {
             own_account: &self.own,
             linked_accounts: &self.linked,
             staleness_limit_secs: (30 * DAY) as u64,
+            future_skew_limit_secs: self.skew,
             ephemeral_receive: ephemeral,
         }
     }
@@ -269,6 +274,7 @@ fn a_hashed_profile_expects_the_digest_of_the_verbatim_nonce() {
         own_account: &f.own,
         linked_accounts: &f.linked,
         staleness_limit_secs: (30 * DAY) as u64,
+        future_skew_limit_secs: f.skew,
         ephemeral_receive: false,
     };
 
@@ -319,14 +325,77 @@ fn an_attestation_past_the_limit_is_rejected() {
     assert_eq!(f.run(&c, NOW), Err(AttestationError::Stale));
 }
 
+// --- Step 5: the clock skew allowance in the future direction -----------
+
 #[test]
-fn an_attestation_issued_in_the_future_is_rejected() {
-    // A future iat would otherwise buy unbounded life: the age is negative,
-    // so any limit comparison written as a subtraction passes forever.
+fn an_attestation_issued_one_second_into_the_future_is_accepted() {
+    // The iat is the provider's clock. A device inside ordinary NTP
+    // tolerance can be a second behind it, and refusing here refuses a
+    // token the provider minted moments ago.
+    let f = Fixture::new();
+    let mut c = claims(f.nonce());
+    c.iat = UnixTime::from_secs(NOW + 1);
+    assert!(f.run(&c, NOW).is_ok());
+}
+
+#[test]
+fn the_skew_allowance_is_inclusive_at_exactly_the_limit() {
+    let f = Fixture::new();
+    let mut c = claims(f.nonce());
+    c.iat = UnixTime::from_secs(NOW + SKEW);
+    assert!(
+        f.run(&c, NOW).is_ok(),
+        "exactly at the allowance is not skew"
+    );
+}
+
+#[test]
+fn one_second_past_the_skew_allowance_is_rejected() {
+    let f = Fixture::new();
+    let mut c = claims(f.nonce());
+    c.iat = UnixTime::from_secs(NOW + SKEW + 1);
+    assert_eq!(f.run(&c, NOW), Err(AttestationError::ClockSkew));
+}
+
+#[test]
+fn an_attestation_far_in_the_future_is_rejected_as_skew_and_never_as_stale() {
+    // A negative age passes any limit comparison forever, so the future
+    // direction is still refused -- under its own name rather than the
+    // staleness one it used to borrow.
     let f = Fixture::new();
     let mut c = claims(f.nonce());
     c.iat = UnixTime::from_secs(NOW + 2 * DAY);
+    assert_eq!(f.run(&c, NOW), Err(AttestationError::ClockSkew));
+}
+
+#[test]
+fn the_allowance_comes_from_the_policy_and_is_not_fixed_in_the_code() {
+    let mut f = Fixture::new();
+    f.skew = 0;
+    let mut c = claims(f.nonce());
+    c.iat = UnixTime::from_secs(NOW + 1);
+    assert_eq!(f.run(&c, NOW), Err(AttestationError::ClockSkew));
+}
+
+#[test]
+fn the_allowance_buys_a_stale_attestation_no_extra_life() {
+    // The two limits bound opposite directions and neither may widen the
+    // other, or a generous allowance would quietly extend revocation.
+    let mut f = Fixture::new();
+    f.skew = 10 * DAY as u64;
+    let mut c = claims(f.nonce());
+    c.iat = UnixTime::from_secs(NOW - 30 * DAY - 1);
     assert_eq!(f.run(&c, NOW), Err(AttestationError::Stale));
+}
+
+#[test]
+fn a_clock_problem_names_the_clock_and_never_the_staleness_limit() {
+    // The message is the only thing telling a user which of the two
+    // rejections happened, and the wrong one costs the whole diagnosis.
+    let skew = AttestationError::ClockSkew.to_string();
+    assert!(skew.contains("clock"), "got {skew:?}");
+    assert!(!skew.contains("staleness"), "got {skew:?}");
+    assert_ne!(skew, AttestationError::Stale.to_string());
 }
 
 // --- Step 6: the (iss, sub) pair decides the tier -----------------------

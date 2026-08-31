@@ -92,6 +92,7 @@ fn policy<'a>(profiles: &'a [ProviderProfile], own: &'a AccountId) -> Attestatio
         own_account: own,
         linked_accounts: &[],
         staleness_limit_secs: 30 * 24 * 60 * 60,
+        future_skew_limit_secs: 300,
         ephemeral_receive: false,
     }
 }

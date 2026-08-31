@@ -108,6 +108,11 @@ pub struct AttestationPolicy<'a> {
     /// How old an `iat` may be before it is rejected, in seconds. 30 days
     /// by default (docs/05, "Handling expiry").
     pub staleness_limit_secs: u64,
+    /// How far ahead of this device's clock an `iat` may be before it is
+    /// rejected, in seconds. 300 seconds by default (docs/05 step 5, "Why
+    /// step 5 bounds both directions, and why the future one is not bounded
+    /// at zero").
+    pub future_skew_limit_secs: u64,
     /// Widens step 6 alone: an unrecognised account is accepted at
     /// `TrustTier::NearbyEphemeral` instead of rejected. Every earlier step
     /// still applies in full.
@@ -125,8 +130,12 @@ pub enum AttestationError {
     AudienceNotRecognised,
     /// The nonce does not bind the peer's identity and agreement keys.
     NonceMismatch,
-    /// `iat` falls outside the staleness limit, in either direction.
+    /// `iat` is older than the staleness limit.
     Stale,
+    /// `iat` is further ahead of this device's clock than the skew
+    /// allowance. Distinct from `Stale` since the two point at different
+    /// causes: a revoked token versus a wrong local clock.
+    ClockSkew,
     /// The `(iss, sub)` pair is neither the device's own account nor a
     /// linked one, and ephemeral-receive mode is off.
     UntrustedAccount,
@@ -141,6 +150,7 @@ impl fmt::Display for AttestationError {
             }
             Self::NonceMismatch => write!(f, "nonce does not bind the peer's public keys"),
             Self::Stale => write!(f, "iat is outside the staleness limit"),
+            Self::ClockSkew => write!(f, "iat is ahead of this device's clock"),
             Self::UntrustedAccount => write!(f, "account is neither own nor linked"),
         }
     }
@@ -224,14 +234,27 @@ pub fn classify_with_profile(
         return Err(AttestationError::NonceMismatch);
     }
 
-    // Step 5: iat must be neither stale nor in the future. elapsed_since
-    // errors when iat is later than now, which rejects a future iat instead
-    // of letting a subtraction produce unbounded life via a negative age.
-    let age = now
-        .elapsed_since(claims.iat)
-        .map_err(|_| AttestationError::Stale)?;
-    if age > policy.staleness_limit_secs {
-        return Err(AttestationError::Stale);
+    // Step 5: iat must be neither stale nor further ahead of this device's
+    // clock than the skew allowance. elapsed_since errors precisely when
+    // its argument is later, which is what tells the two directions apart
+    // without computing a signed difference.
+    match now.elapsed_since(claims.iat) {
+        Ok(age) => {
+            if age > policy.staleness_limit_secs {
+                return Err(AttestationError::Stale);
+            }
+        }
+        Err(_) => {
+            // now.elapsed_since(claims.iat) failed because claims.iat is
+            // later than now, so the reverse direction cannot itself fail.
+            let skew = claims
+                .iat
+                .elapsed_since(now)
+                .map_err(|_| AttestationError::ClockSkew)?;
+            if skew > policy.future_skew_limit_secs {
+                return Err(AttestationError::ClockSkew);
+            }
+        }
     }
 
     // Step 6: identity is the (iss, sub) pair, never sub alone.

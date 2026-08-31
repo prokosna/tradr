@@ -26,6 +26,9 @@ use crate::identity::IdentityState;
 /// How old an `id_token`'s `iat` may be before `classify_with_profile`
 /// rejects it (docs/05, "Handling expiry").
 const STALENESS_LIMIT_SECS: u64 = 30 * 24 * 60 * 60;
+/// How far ahead of this device's clock an `id_token`'s `iat` may be before
+/// `classify_with_profile` rejects it (docs/05 step 5).
+const FUTURE_SKEW_LIMIT_SECS: u64 = 300;
 
 /// Octets of entropy behind the OAuth `state` parameter, rendered as
 /// lowercase hex.
@@ -273,6 +276,7 @@ pub async fn sign_in(
         own_account: &account,
         linked_accounts: &[],
         staleness_limit_secs: STALENESS_LIMIT_SECS,
+        future_skew_limit_secs: FUTURE_SKEW_LIMIT_SECS,
         ephemeral_receive: false,
     };
     let tier = classify_with_profile(
