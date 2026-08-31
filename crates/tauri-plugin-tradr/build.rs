@@ -9,6 +9,7 @@ const COMMANDS: &[&str] = &[
     "get_peers",
     "get_visible_shares",
     "list_peer_directory",
+    "download_file",
     "send_files",
     "add_static_peer",
     "remove_static_peer",

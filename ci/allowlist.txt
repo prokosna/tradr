@@ -6,10 +6,15 @@
 #   check  | path                                    | reason
 #
 #   check  - the script's name without ".sh"
-#            (comment-lang, comment-length, excuse-grep, layer-deps, state-sync)
+#            (comment-lang, comment-length, excuse-grep, layer-deps,
+#            plugin-permissions, state-sync)
 #   path   - the file the hit occurs in, relative to the repository root.
 #            For state-sync's path check, every hit occurs in STATE.md, so
 #            this field is instead the referenced path token itself.
+#            For plugin-permissions, the token is not a file either: a bare
+#            command name for its rules 1 and 2, "<plugin>:<symbol>" for
+#            rule 3, since a violation there names a set of capability
+#            files rather than one of them.
 #   reason - why the hit is not a real violation
 #
 # Blank lines and lines starting with "#" are ignored.

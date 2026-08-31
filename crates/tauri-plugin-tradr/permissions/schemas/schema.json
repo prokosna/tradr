@@ -343,6 +343,18 @@
           "markdownDescription": "Denies the device_identity command without any pre-configured scope."
         },
         {
+          "description": "Enables the download_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-download-file",
+          "markdownDescription": "Enables the download_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the download_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-download-file",
+          "markdownDescription": "Denies the download_file command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_peers command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-peers",

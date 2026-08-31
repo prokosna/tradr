@@ -21,9 +21,10 @@ env:
   ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
 
 jobs:
-  # Mechanizes the seven checks in ci/*.sh: comment language and length,
+  # Mechanizes the nine checks in ci/*.sh: comment language and length,
   # doc visibility, the excuse-phrase grep, the invoke()/COMMANDS cross
-  # check, the layer-dependency scan, and STATE.md/git-history agreement.
+  # check, the layer-dependency scan, the plugin-permissions three-list
+  # cross check, STATE.md/git-history agreement, and hooks-executable.
   checks:
     runs-on: ubuntu-latest
     steps:
