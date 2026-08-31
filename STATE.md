@@ -37,10 +37,22 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
+### Rule F6 has never been enforced in `tauri-plugin-tradr`, found 2026-08-31
+
+**Twenty-two `let _ =` bindings sit in `crates/tauri-plugin-tradr/src/`, and rule F6 admits no exceptions.** Found while reading `commands.rs` to cut `WI-M5-003`, not by any gate: `ci/run-all.sh` has eight checks and none of them greps for a discarded `Result`, which is the shape of gap this file records five times over -- a rule with no instrument. Every one of these passed a review.
+
+**Three of them discard something that decides behaviour, and those are the finding rather than the count.**
+
+- **`listener.rs:384` discards the whole result of `handle_browse_stream`.** That call is where a Browse request is served, and [docs/06](docs/06-shares-and-browsing.md) puts the Share's audience and the requester's Trust Tier check inside it. **A refusal and a success are therefore indistinguishable at the call site**, and a peer denied a Share leaves exactly the same trace as one served.
+- **`listener.rs:234`, `235`, `241` and `242` discard `record_piece` and `mark_verified`.** Chunk resumption is one of [CLAUDE.md](CLAUDE.md#6-critical-modules--tests-come-first)'s named Critical Modules, on the grounds that if it is wrong "the entire path-selection design collapses". A `record_piece` that failed and said so into a discarded `Result` produces a resume offset computed from a state the code believes it wrote and did not.
+- **`commands.rs:655`, `735`, `809` and `889` discard `PeerList::apply`.** Its only error is `SourceMismatch`, which exists because [docs/03](docs/03-discovery-and-transport.md) does not trust a Brokr to label an observation `mdns`. Discarding it makes the one check that rule exists for unobservable. **`WI-M5-003` touches all four lines and fixes them there**; the rest are `WI-M5-005`.
+
+**The instrument matters more than the repair.** A rule that survives twenty-two violations across four milestones is not being enforced by review, and the answer this repository has reached five times before is a check in `ci/` rather than a resolution to look harder.
+
 ## Next three actions
-1. WI-M5-002, the Static Peer registry and its `DiscoverySource`. Critical Module: the Supervisor's tests are written before it is dispatched
-2. WI-M5-003, the default listen port and the adapter wiring -- the registry loaded, the source merged into the peer list, and the pin written back from the connection that authenticated it
-3. WI-M5-004, the UI that adds, lists and removes a Static Peer
+1. WI-M5-003, the default listen port and the adapter wiring -- the registry loaded, the source merged into the peer list, and the pin written back from the connection that authenticated it
+2. WI-M5-004, the UI that adds, lists and removes a Static Peer
+3. WI-M5-005, rule F6 in `tauri-plugin-tradr`, and the check in `ci/` that would have caught it. See the finding below
 
 ## In flight
 
@@ -288,9 +300,10 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | ID | Content | Status | Critical |
 |---|---|---|---|
 | WI-M5-001 | **`direct-quic` resolves a DNS name** (DCR-062), closing DF-21. The parse stays first, the resolver answers only what it refuses, and the answer is filtered to the families this endpoint can dial | **done** -- PASS after one REVISE | |
-| WI-M5-002 | **The Static Peer registry and its `DiscoverySource`**: the entry, its own id, the endpoint normalisation, the JSON file, and the pin. **Critical Module, Supervisor tests first** | todo | Yes |
+| WI-M5-002 | **The Static Peer registry and its `DiscoverySource`** (DCR-063): the entry, its own id, the endpoint normalisation, the JSON file, and the pin. **Critical Module, Supervisor tests first** | **done** -- PASS after one REVISE | Yes |
 | WI-M5-003 | **The default listen port and the adapter wiring**: `21820` with an ephemeral fallback, the registry loaded from the application data directory, the source merged into the peer list beside mDNS, and the pin written back from the connection that authenticated it | todo | |
 | WI-M5-004 | **The UI for a Static Peer**: add, list and remove an entry, and act on a peer that has no Device ID yet | todo | |
+| WI-M5-005 | **Rule F6 in `tauri-plugin-tradr`, and the instrument that would have caught it**: the eighteen `let _ =` bindings `WI-M5-003` does not touch, and a ninth check in `ci/` over a discarded `Result`. See the finding above | todo | |
 
 
 ## Deferred

@@ -5373,6 +5373,9 @@ dependencies = [
  "flume",
  "if-addrs",
  "mdns-sd",
+ "serde",
+ "serde_json",
+ "tokio",
  "tradr-core",
 ]
 
