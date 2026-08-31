@@ -87,10 +87,16 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 **This is stronger evidence than it looks, because of how the candidate was chosen.** An unidentified peer holds exactly one observation, so the only candidates that could have been dialled are the static entry's own. **Whatever address the user typed is what was dialled and what authenticated** -- no mDNS candidate could have substituted for it.
 
-**The transfer that followed failed on F-W1**, so what is proven is the connection, the authentication and the pin, and not yet a file arriving. **Which endpoint was registered is not yet recorded and decides how much of M5 this covers**: a MagicDNS name would mean the resolver and the tailnet path are both already proven, a LAN address would mean neither is.
+**The transfer that followed failed on F-W1**, so what is proven is the connection, the authentication and the pin, and not yet a file arriving. **The endpoint was a MagicDNS name, and the MacBook was moved onto phone tethering to run it** -- reported by the user on 2026-08-31. That combination is what makes the observation worth what it is:
+
+- **The two machines were on different networks, so mDNS could not see the peer at all.** Nothing could have substituted a LAN candidate for the tailnet one, which is the substitution that would have made the whole test vacuous.
+- **A MagicDNS name does not parse as a `SocketAddr`, so DCR-062's resolver path ran for real** -- the first time outside a `localhost` test.
+- **MagicDNS answers with both an `fd7a::` AAAA and a `100.x` A**, and the endpoint binds `0.0.0.0`, so DCR-062's family filter is what selected the address that could be dialled. **That rule was written from a probe and had never run against a real answer.**
+
+**So every part of M5's completion criterion is now demonstrated except the file arriving**: a hostname, resolved, over an overlay network, with no mDNS anywhere in the path, authenticated and pinned. The transfer itself failed on F-W1, which `WI-M5-008` fixes.
 
 ## Next three actions
-1. **Re-run the M5 verification on the Windows and MacBook pair.** `WI-M5-008` removes the last blocker, so a file can now leave Windows. Everything before the transfer -- sign-in, discovery, the static entry, the dial, the pin -- was already confirmed on that pair
+1. **Re-run the M5 verification, in the configuration that already worked**: the MacBook on phone tethering, the Windows machine on its own network, the entry naming the MacBook's MagicDNS name. `WI-M5-008` removes the last blocker, so a file can now leave Windows. **Everything except the file arriving is already demonstrated on that pair**
 2. **M5's completion criterion, and it is the user's to run**: **Windows and the MacBook**, settled 2026-08-31 -- WSL is excluded deliberately, since WSL2's NAT puts a second address translation inside the one path this criterion measures, and a failure there could not be told from a defect in Tradr. Two real machines on a tailnet, a Static Peer entry naming the other by its MagicDNS name, and a transfer over it. Everything below it is now in place and loopback-tested, and **loopback cannot produce this number** any more than it could produce ADR-0004's throughput figure -- what it cannot exercise is the resolver, the 100.x address family, and a path with no mDNS on it at all
 3. WI-M5-005, rule F6 in `tauri-plugin-tradr`, and the check in `ci/` that would have caught it. See the finding below
 4. WI-M5-006, the check that `invoke_handler`, `COMMANDS` and every capability file name the same set of commands. Two commands are unreachable at runtime today and neither is M5's. See the finding below
