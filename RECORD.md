@@ -25,6 +25,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M5-001 | PASS | 1 | **`direct-quic` resolves a name at last, and M5's completion criterion became reachable.** The parse stays first, so a literal costs no resolver call and DCR-048's scoped-IPv6 rules are still decided by the same parser; `tokio::net::lookup_host` answers only what that parser refuses. **The REVISE is the ninth Work Order defect this table records and the first the Implementer found by mutation-testing its own work.** The family filter -- DCR-062's one rule that fails silently in production -- was implemented correctly and falsified by nothing: replacing `find` with `next` passed every test, because `localhost` resolves to `127.0.0.1` alone on this machine and no test could reach the case without controlling the resolver. **The Implementer reported that rather than claiming coverage**, and declined to add a test seam the Definition of Done did not name, which is rule F3 held against its own interest. The repair is the shape the Work Order should have asked for: a pure `first_dialable(local, resolved)` beside `resolve`, with six unit tests that touch no resolver and no socket. **Three mutations were then run against them and the Supervisor re-ran one rather than reading the report** -- `next()` in place of the filter fails exactly `an_ipv4_bound_endpoint_skips_a_leading_ipv6_answer` and `an_ipv4_bound_endpoint_given_only_ipv6_answers_dials_nothing`, and no other test. **The pattern is the one this file records for `pkg-config` and for `ci/comment-lang.sh`, one layer up**: the behaviour was right, and the instrument that would have noticed it going wrong measured nothing |
 | WI-M1-033 | PASS | 0 | **Optimize CI tauri-cli install.** `cargo install tauri-cli` takes 7+ minutes in GitHub Actions. Replaced manual cargo install and custom cache steps with `taiki-e/install-action@v2` across all workflows to download precompiled binaries instantly. Also fixed a flaky test in os_rng.rs that failed the pre-commit hook. |
 | WI-M1-032 | PASS | 0 | **Remove and ignore work order files.** `work_order_m1_029.md` was accidentally committed. Removed it and added `work_order*.md` to `.gitignore`. |
 | WI-M1-031 | PASS | 0 | **Graceful stream closure in `listener.rs` and `commands.rs`.** Dropping a `quinn::SendStream` without calling `finish().await` aborts the stream (sends `RESET_STREAM`). This causes the sender to receive a stream reset before it can read the `ItemComplete` message, resulting in `TransferSessionError::StreamClosed` ("stream closed unexpectedly"). Added `control_send.finish().await` before returning in `handle_incoming_channel` and `execute_send_files_with_progress`. |
@@ -214,6 +215,7 @@ Design changes arising during implementation. Every DCR must have a matching `do
 
 | DCR | Content | Reflected in | Date |
 |---|---|---|---|
+| DCR-062 | **`direct-quic` resolves a name, and three rules that a probe settled rather than a reading.** docs/03 has named `desktop.tail9f3c.ts.net:51820` as a Static Peer endpoint since the design phase and the transport parses `SocketAddr` only, so M5's own completion criterion -- connect by hostname -- was unreachable by construction (DF-21). The transport now parses first and calls `tokio::net::lookup_host` only when that parse fails, so a literal costs no query and DCR-048's scoped-IPv6 rules are decided by the same parser as before. **The rule that would have gone wrong silently is which resolved address gets dialled.** Measured on 2026-08-31, `example.com:51820` answers **AAAA first**, and a `quinn::Endpoint` bound to `0.0.0.0` -- what this application binds -- refuses every IPv6 remote with `InvalidRemoteAddress` before a packet leaves. "Take the first" therefore makes every dual-stack name unreachable, failing for a reason that names neither DNS nor the socket, so the answer is filtered to the families this endpoint can dial and the first survivor is taken. **The transport still does not race**: Phase 3 owns the race and the three-second deadline, and a second one inside a transport competes with it. Every resolution failure is `Unreachable`, including the case that does not look like one -- `lookup_host` refuses an address carrying no port with `InvalidInput`, the same error it gives a bare hostname | [docs/03](docs/03-discovery-and-transport.md#how-direct-quic-turns-a-candidate-into-an-address) | 2026-08-31 |
 | DCR-061 | **NativeVfs replaces PosixVfs on Windows.** `PosixVfs` relies heavily on `rustix` and `openat` to provide secure, race-free boundary enforcement. However, Windows lacks `openat` and `rustix` does not support these APIs on Windows, causing the Windows CI build to fail. The desktop shell (`tauri-plugin-tradr`) hardcoded `PosixVfs`, breaking the build on Windows. `tradr_vfs::NativeVfs` is exported as a type alias: `PosixVfs` on Unix, `WindowsVfs` on Windows. Windows boundary enforcement relies on `std::fs` path canonicalization until a more robust Windows-specific isolated VFS is built. | ADR-0017 | 2026-08-30 |
 | DCR-060 | **Remove volatile yaml fields from `STATE.md` to eliminate structural merge conflicts.** `branch`, `work_items_landed`, and `last_commit` were declared in the yaml header that every Work Item PR edits. Each field was a derived value — readable from git in one command — so every PR set it to a different value on the same adjacent lines, making auto-merge impossible regardless of whether the code changes were logically independent. The three fields are removed; `ci/state-sync.sh` Checks 1 (last_commit existence) and 2 (work_items_landed comparison) are dropped, and Check 5a (declared branch matches HEAD) becomes a direct git check rather than a comparison against a declared field. Command equivalents documented in [docs/10](docs/10-implementation-process.md#the-yaml-header--what-is-in-it-and-what-was-removed-dcr-060) | [docs/10](docs/10-implementation-process.md) | 2026-08-29 |
 | DCR-059 | **Three things DCR-058 left for whoever wrote the codec to invent, settled before `WI-M1-023` is cut.** **`chunk_size` of `0` is refused with every other non-1-MiB value**: proto3 gives an omitted `uint32` the value `0`, and `control.proto`'s own comment says "1 MiB by default", so a codec reading `0` as the default is the reinterpretation DCR-058's row forbids -- and it is the reading a hurried implementation picks, because the comment invites it. **`OfferOrigin` and `RejectReason` become `Option` and an unspecified or unknown wire value becomes `None`**, which is DCR-058's own rule applied rather than a new one: both decorate, and refusing a value this build has no word for would make a future `OFFER_ORIGIN_*` break every older receiver's transfer outright. `HelloAck.assigned_tier` is the deliberate contrast and stays a refusal, because a tier decides every later request. **An offered item a `TransferAccept` does not name is declined**, closing the question `WI-M1-022`'s review left open: requiring an explicit decline per item makes a receiver that wants one file of two hundred send a hundred and ninety-nine of them, and the sender holds the offer already, so silence costs it nothing | [docs/04](docs/04-protocol.md#what-reading-a-transferoffer-may-drop-and-what-it-may-not) | 2026-08-28 |
@@ -462,6 +464,31 @@ ADR-0005 asks for something specific: **CI runs the Tier 0 and Tier 1 integratio
 **Stage explicit paths for each, `Cargo.lock` included when a manifest moves, and read `git show --stat` afterwards.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
 ---
+
+## Closed milestones: M2, M3 and M4
+
+Their Work Item rows, moved out of `STATE.md`'s current-milestone table on 2026-08-31 when M5 opened. **M2's criterion was met on 2026-08-30**: the user chose a photo in the Android gallery and delivered it to a PC through Tradr's share sheet. **M3's was met the same day**: a device browsed a peer's configured Share and downloaded a file over the Browse plane. **M4's was met on 2026-08-31**, with signing for macOS and Windows in CI.
+
+| ID | Content | Status | Critical |
+|---|---|---|---|
+| WI-M2-001 | Android integration: ACTION_SEND intent filter and ShareTargetActivity | **done** | |
+| WI-M2-002 | Android intent file caching and Rust interop | **done** | |
+| WI-M2-003 | Android Sharing Shortcuts | **done** | |
+| WI-M2-004 | Android SAF Directory Picker and Persistable Permission | **done** | |
+| WI-M2-005 | Android SAF Vfs Implementation (Rust) | **done** | |
+| WI-M2-006 | Android Staged Permission Requests | **done** | |
+| WI-M2-007 | Android Accept and Decline from Notification | **done** | |
+| WI-M2-008 | Android frontend: listen to share-intent and auto-send to PC | **done** | |
+| WI-M2-009 | Fix manual "Send Files" path handling and `share-intent` | **done** | |
+| WI-M3-001 | Browse plane handler and proto messages | **done** | |
+| WI-M3-002 | UI for Share browsing | **done** | |
+| WI-M3-003 | Share browsing — File download | **done** | |
+| WI-M4-001 | Desktop system tray integration | **done** | |
+| WI-M4-002 | Desktop auto-update through the Tauri updater | **done** | |
+| WI-M4-003 | Windows CI build | **done** | |
+| WI-M4-004 | macOS and Windows code signing in CI | **done** | |
+| WI-M4-005 | NativeVfs for Windows build | **done** | |
+| WI-M4-006 | Windows build fix for tradr-secrets | **done** | |
 
 ## Closed milestone: M1, LAN transfer
 

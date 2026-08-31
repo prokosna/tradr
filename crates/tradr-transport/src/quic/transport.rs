@@ -102,12 +102,10 @@ impl Transport for QuicTransport {
         expect: &'a PeerExpectation,
     ) -> BoxFuture<'a, Result<Box<dyn SecureChannel>, TransportError>> {
         Box::pin(async move {
-            // DF-21: DNS resolution is out of scope, so anything besides a
-            // literal socket address is unreachable by this transport.
-            let addr: SocketAddr = candidate
-                .address()
-                .parse()
-                .map_err(|_| TransportError::Unreachable)?;
+            let addr: SocketAddr = match candidate.address().parse() {
+                Ok(addr) => addr,
+                Err(_) => resolve(&self.endpoint, candidate.address()).await?,
+            };
 
             // Building this config only fails on a local `KeyStore` or
             // crypto-conversion problem, decided before any packet leaves
@@ -135,6 +133,33 @@ impl Transport for QuicTransport {
     }
 }
 
+// Resolves a candidate that failed to parse as a literal `SocketAddr`
+// (docs/03, "How `direct-quic` turns a candidate into an address"): the
+// system resolver, filtered to the family this endpoint's own bound
+// address can dial, taking the first survivor in the resolver's order.
+// Nothing is cached here; the system resolver already owns that cache.
+async fn resolve(endpoint: &quinn::Endpoint, address: &str) -> Result<SocketAddr, TransportError> {
+    let resolved = tokio::net::lookup_host(address)
+        .await
+        .map_err(|_| TransportError::Unreachable)?;
+    let local = endpoint
+        .local_addr()
+        .map_err(|_| TransportError::Unreachable)?;
+    first_dialable(local, resolved).ok_or(TransportError::Unreachable)
+}
+
+// docs/03, "How `direct-quic` turns a candidate into an address": an
+// IPv6-bound local address dials either family, an IPv4-bound one dials
+// IPv4 only. Pure and synchronous, unlike `resolve`, so the family rule
+// is falsifiable by a test that never touches a resolver or a socket.
+fn first_dialable(
+    local: SocketAddr,
+    mut resolved: impl Iterator<Item = SocketAddr>,
+) -> Option<SocketAddr> {
+    let dials_both_families = matches!(local, SocketAddr::V6(_));
+    resolved.find(|addr| dials_both_families || addr.is_ipv4())
+}
+
 // The listening half of a `QuicTransport`: a clone of its `Endpoint`,
 // used only to accept.
 struct QuicIncoming {
@@ -151,5 +176,74 @@ impl Incoming for QuicIncoming {
             let channel = QuicChannel::new(connection, TRANSPORT_ID)?;
             Ok(Box::new(channel) as Box<dyn SecureChannel>)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn addr(s: &str) -> SocketAddr {
+        s.parse().expect("a fixed literal address in a test")
+    }
+
+    fn v4_local() -> SocketAddr {
+        addr("0.0.0.0:0")
+    }
+
+    fn v6_local() -> SocketAddr {
+        addr("[::]:0")
+    }
+
+    #[test]
+    fn an_ipv4_bound_endpoint_skips_a_leading_ipv6_answer() {
+        let resolved = vec![addr("[2001:db8::1]:9"), addr("192.0.2.1:9")];
+
+        assert_eq!(
+            first_dialable(v4_local(), resolved.into_iter()),
+            Some(addr("192.0.2.1:9"))
+        );
+    }
+
+    #[test]
+    fn an_ipv4_bound_endpoint_given_only_ipv6_answers_dials_nothing() {
+        let resolved = vec![addr("[2001:db8::1]:9"), addr("[2001:db8::2]:9")];
+
+        assert_eq!(first_dialable(v4_local(), resolved.into_iter()), None);
+    }
+
+    #[test]
+    fn an_ipv6_bound_endpoint_takes_the_leading_ipv6_answer() {
+        let resolved = vec![addr("[2001:db8::1]:9"), addr("192.0.2.1:9")];
+
+        assert_eq!(
+            first_dialable(v6_local(), resolved.into_iter()),
+            Some(addr("[2001:db8::1]:9"))
+        );
+    }
+
+    #[test]
+    fn an_ipv6_bound_endpoint_takes_a_leading_ipv4_answer_too() {
+        let resolved = vec![addr("192.0.2.1:9"), addr("[2001:db8::1]:9")];
+
+        assert_eq!(
+            first_dialable(v6_local(), resolved.into_iter()),
+            Some(addr("192.0.2.1:9"))
+        );
+    }
+
+    #[test]
+    fn an_empty_answer_dials_nothing() {
+        assert_eq!(first_dialable(v4_local(), std::iter::empty()), None);
+    }
+
+    #[test]
+    fn the_resolvers_order_is_kept_and_never_sorted() {
+        let resolved = vec![addr("192.0.2.1:9"), addr("192.0.2.2:9")];
+
+        assert_eq!(
+            first_dialable(v4_local(), resolved.into_iter()),
+            Some(addr("192.0.2.1:9"))
+        );
     }
 }
