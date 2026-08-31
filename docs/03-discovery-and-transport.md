@@ -110,7 +110,7 @@ A reachable address the user registered by hand.
 ```jsonc
 {
   "label": "Home desktop",
-  "endpoints": ["desktop.tail9f3c.ts.net:51820", "192.168.10.5:51820"],
+  "endpoints": ["desktop.tail9f3c.ts.net:21820", "192.168.10.5:21820"],
   "expect_device_id": "3f9a..."   // filled in on the first connection
 }
 ```
@@ -121,6 +121,32 @@ A reachable address the user registered by hand.
 - Recording `expect_device_id` detects DNS hijacking and address reassignment. The first connection pins it, and later mismatches refuse the connection with a warning
 
 **A convenience**: where Tailscale is installed, read `tailscale status --json` and offer tailnet devices as candidates. This only saves typing addresses and creates no dependency — with no such command present, it silently does nothing.
+
+#### What a Static Peer entry is keyed by, and what the first connection writes back
+
+**An entry carries an id of its own**: 16 random bytes rendered as 32 lowercase hex characters, generated when the entry is created, and it is the `ObservationKey` this source reports under. The two obvious alternatives are both wrong in the same way. **The label is user-editable**, so a rename would report a new `ObservationId`, and the peer list's replacement rule would leave the old observation standing beside the new one -- one device shown twice, with the pin attached to whichever copy the user did not act on. **The endpoint list is editable too**, and an entry naming two endpoints has no single one to be keyed by.
+
+**A missing port is filled in with the default before the endpoint becomes a candidate**, so what reaches the transport always carries one. In order: an endpoint that parses as a socket address is kept as it is; one that parses as a bare IP address gets the default port appended, bracketed first where it is IPv6; anything else that already ends in `:` followed by digits is kept; everything else gets `:21820` appended.
+
+#### The default port, and why it is not 51820
+
+A Static Peer's address has to name a port, and **nothing on an overlay network can tell the dialling side which one the listener chose**. mDNS carries the bound port in its SRV record and that is why the LAN case never needed a default; a tailnet has no mDNS, so the port is either a constant both sides know or a number the user has to read off the other device.
+
+**Tradr listens on UDP 21820 by default**, and the examples above are written with it. **51820 is the one number that must not be chosen**, and this document used it until 2026-08-31: it is WireGuard's default, and an overlay network is precisely the deployment this section exists for, so the collision would land on exactly the users this feature is for. 21820 sits below Linux's default ephemeral range, 32768 to 60999, so the kernel never hands it to another process on the same machine, and no `/etc/services` entry names it.
+
+**The bind falls back to an ephemeral port when the default is taken**, which is what happens whenever two instances run on one machine -- how this is developed and tested. mDNS advertises the port actually bound, so LAN discovery is unaffected by the fallback. A Static Peer cannot be told, and that asymmetry is the whole reason a default has to exist.
+
+#### The pin: what fills it in, and what may never overwrite it
+
+**The registry is the only thing that decides what a Static Peer connection expects.** An entry holding `expect_device_id` yields `PeerExpectation::Device(that id)`; an entry without one yields `Unpinned`. **Handing back `Unpinned` for a pinned entry is the failure this section exists to prevent**: a hijacked DNS name or a reassigned address is then authenticated to whatever key answers, and nothing downstream catches it, because every signature the impostor makes is valid under its own key. That makes the choice a Critical Module by [CLAUDE.md](../CLAUDE.md#6-critical-modules--tests-come-first)'s own test -- a named, severe failure that nothing else notices -- so its tests are written before its implementation.
+
+**The pin is written by whoever completed the connection**, from the `DeviceId` the channel authenticated, and **only into an entry that holds none**. Once an entry is pinned a differing Device ID cannot arrive, because the expectation would have refused the connection before a channel existed; so a second pin is a bug in the caller rather than a peer that moved, and it is refused rather than applied. **There is deliberately no re-pin operation.** Re-pinning and accepting an impostor are the same act performed for different reasons, and the interface cannot tell them apart; a user who really did rebuild the far device deletes the entry and adds it again, which is a decision they take rather than one the code takes for them.
+
+**The source never probes.** It reports every entry the moment it starts and again whenever the set changes, reachable or not -- "an entry the user registered by hand is a real, reachable, listable peer with no Device ID at all" is this document's own rule -- and it opens no socket and holds no timer. When a pin is written it re-reports the same `ObservationId` with the Device ID now present, which is the trust-on-first-use path described above and needs no operation of its own.
+
+#### Where the set is kept
+
+`static-peers.json` in the application data directory, rewritten whole on every change. **Nothing in it is secret** -- a label, some addresses, and a public device identifier -- so the `SecretStore` ladder [docs/05](05-security.md#key-storage) defines for key material is the wrong home for it. **A missing file is an empty registry rather than an error**, which is what a first run looks like. **A malformed file is an error and must not be replaced with an empty one**: silently starting over deletes every pin the user holds, and the next connection to each of those peers accepts whatever answers.
 
 ### 4. Brokr presence registry — from anywhere, Tier 2
 
@@ -268,7 +294,7 @@ A `SecureChannel` therefore offers the same thing on every path: mutually authen
 
 ### How `direct-quic` turns a candidate into an address
 
-A Static Peer's endpoint is a name as often as it is an address — `desktop.tail9f3c.ts.net:51820` is the example this design has carried since the design phase — so the transport parses first and resolves second. `str::parse::<SocketAddr>()` runs on every candidate; only where it fails does the address reach the system resolver, through `tokio::net::lookup_host`. A literal therefore costs no resolver query and no thread hop, and every rule the section above states about scoped IPv6 is unchanged, because the same parser still decides it.
+A Static Peer's endpoint is a name as often as it is an address — `desktop.tail9f3c.ts.net:21820` is the example this design has carried since the design phase — so the transport parses first and resolves second. `str::parse::<SocketAddr>()` runs on every candidate; only where it fails does the address reach the system resolver, through `tokio::net::lookup_host`. A literal therefore costs no resolver query and no thread hop, and every rule the section above states about scoped IPv6 is unchanged, because the same parser still decides it.
 
 Four rules govern what happens after that, and three of them were established by running the resolver rather than by reading its documentation.
 
@@ -324,7 +350,7 @@ Read the other way: **if chunk-level resumption breaks, the entire path-selectio
 
 ### Worked example: sending to a home PC over Tailscale
 
-1. A Static Peer already holds `desktop.tail9f3c.ts.net:51820`
+1. A Static Peer already holds `desktop.tail9f3c.ts.net:21820`
 2. Phase 1: mDNS returns nothing, being another network. The Static Peer yields one candidate. No Brokr is configured, so there are no others
 3. Phase 3: QUIC handshake over the tailnet establishes at 25 ms RTT
 4. Phase 4: one candidate, so it is adopted. Transfer runs at full speed as `direct-quic`
