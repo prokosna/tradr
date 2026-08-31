@@ -61,18 +61,6 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 **The instrument is the repair, again.** A check that `invoke_handler`, `COMMANDS` and every capability file name the same set would have failed on the commit that introduced each of these.
 
-### `iat` の未来方向に猶予がまったくなく、失敗が原因を名指ししない -- found 2026-08-31 on Windows
-
-**A freshly issued `id_token` is refused if this device's clock is one second behind the issuer's**, and the message it produces sends the reader to the wrong rule. Found by the user on the first Windows build: `Sign-in failed: iat is outside the staleness limit`, on a token Google had just minted. **Confirmed by measurement on 2026-08-31**: a `w32tm /resync` fixed it, and the machine had been off by a few seconds. So the hypothesis is not merely consistent with the symptom -- **a few seconds of ordinary skew is what took sign-in out entirely.**
-
-`classify_with_profile` step 5 is `now.elapsed_since(claims.iat)`, and `UnixTime::elapsed_since` returns `Err(ArgumentIsLater)` the moment `iat > now`. That error is mapped to `AttestationError::Stale`, whose `Display` is "iat is outside the staleness limit". **So two unrelated conditions share one name**: a token older than thirty days, and a token issued one second into the future.
-
-**The future rejection is right and the zero tolerance is not.** The comment beside it gives the real reason -- a negative age makes any limit comparison pass forever, buying unbounded life -- and that argument justifies bounding the future direction, not bounding it at zero. **A machine inside ordinary NTP tolerance can be a second behind**, and Google's `iat` is its own server's clock, so this fails intermittently on a correctly configured device and permanently on a skewed one. The test suite hides it: `an_attestation_issued_in_the_future_is_rejected` uses `NOW + 2 * DAY`, so nothing anywhere exercises a one-second skew.
-
-**docs/05 step 5 never specified the future direction at all.** It says "Check iat falls within the staleness limit, 30 days by default" and stops, so the implementation invented both the rejection and its tolerance -- the same shape as DCR-039, DCR-047 and DCR-050, where "unspecified" meant whichever answer the first implementation happened to pick.
-
-**Two things follow and they are separable.** A bounded skew allowance in the future direction, stated in docs/05 rather than chosen in code; and a distinct error for it, because a message naming the thirty-day limit for a clock problem costs whoever reads it the whole diagnosis. **This is Critical Module territory** -- Attestation verification -- so its tests are written before the Work Item is dispatched.
-
 ### Three defects found by running the Windows build, 2026-08-31
 
 **None of these is reachable from Linux or from CI**, and all three were found in the first hour of using a real Windows machine. `cargo test --workspace` passes on `windows-latest`, so this is the gap between a green matrix and a working application.
@@ -98,9 +86,9 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **So every part of M5's completion criterion is now demonstrated except the file arriving**: a hostname, resolved, over an overlay network, with no mDNS anywhere in the path, authenticated and pinned. The transfer itself failed on F-W1, which `WI-M5-008` fixes.
 
 ## Next three actions
-1. **WI-M5-007, the `iat` skew.** A few seconds of ordinary clock skew takes sign-in out entirely, and sign-in is the first thing a new device does. Attestation verification is a Critical Module, so the Supervisor writes its tests before the Work Item is dispatched
-2. **WI-M5-006, every plugin command the frontend calls.** `dialog:allow-open` is missing so `Select Files` is dead, `download_file` and three of M2's Android commands are in the same state, and one instrument covers all of them
-3. **Open M6 properly**: read [docs/11](docs/11-account-linking.md) and cut its Work Items. `WI-M5-005` and `WI-M5-010` can ride alongside it -- neither blocks a user
+1. **WI-M5-006, every plugin command the frontend calls.** `dialog:allow-open` is missing so `Select Files` is dead, `download_file` and three of M2's Android commands are in the same state, and one instrument covers all of them. **It is now the last M5 defect a user meets on a first run**, since `WI-M5-007` landed
+2. **Open M6 properly**: read [docs/11](docs/11-account-linking.md) and cut its Work Items. **Nothing of it exists** -- `grep` finds no `Fingerprint` and no `link_id` anywhere in `crates/*/src`, so this is the first milestone since M0 that starts from nothing rather than from a wired-up path. Note that docs/11's Tier 0 reply travels "over BLE or LAN" and BLE is M7, so M6's linking runs over the LAN alone
+3. **`WI-M5-005`, `WI-M5-009` and `WI-M5-010` ride alongside M6** -- none blocks a user, and `WI-M5-009` is the one that hides the others: a frontend `catch` that only reaches the console is why F-W2 looked like a dead button rather than a refusal
 
 ## In flight
 
@@ -343,14 +331,13 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 **Design**: [docs/11-account-linking.md](docs/11-account-linking.md)
 **Done when**: two devices on different accounts link by QR, transfer both ways, and removal takes effect immediately.
 
-**M5's Work Items are in [RECORD.md](RECORD.md); four of them did not land and are carried here rather than closed with the milestone.** Every one is a defect a user meets on a first run, and three were found by running the Windows build rather than by any gate. **The recommendation is to clear them before M6 opens properly**, and `WI-M5-007` first: a few seconds of ordinary clock skew takes sign-in out entirely, which is the first thing a new device does.
+**M5's Work Items are in [RECORD.md](RECORD.md); four of them did not land and are carried here rather than closed with the milestone.** Every one is a defect a user meets on a first run, and three were found by running the Windows build rather than by any gate. **`WI-M5-007` was the fifth and it has landed**, so the one left that a user meets before anything works is `WI-M5-006`: `Select Files` is refused by the IPC ACL and, because of `WI-M5-009`, refused silently.
 
 #### Work Items
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
 | WI-M5-005 | **Rule F6 in `tauri-plugin-tradr`, and the instrument that would have caught it**: the eighteen `let _ =` bindings `WI-M5-003` does not touch, and a ninth check in `ci/` over a discarded `Result`. See the finding above | todo | |
-| WI-M5-007 | **A bounded clock-skew allowance for `iat`, and an error that names it.** A few seconds of ordinary skew takes sign-in out entirely, and sign-in is the first thing a new device does. **Critical Module, Supervisor tests first** | todo | Yes |
 | WI-M5-006 | **Every plugin command the frontend calls must be permitted, and one instrument for all of them**: `invoke_handler`, `build.rs`'s `COMMANDS` and every capability file naming the same set, widened by F-W2 to cover other plugins' commands too -- `dialog:allow-open` is missing and `Select Files` is dead because of it. Also `download_file` and M2's three Android commands | todo | |
 | WI-M5-009 | **A refusal the frontend swallows reaches nobody** (F-W2's second half): `Select Files` ends in `catch (e) { console.error(...) }`, so the ACL refusal that broke it produced no visible symptom at all. Rule F6's shape on the side of the codebase no check looks at. The permission itself is `WI-M5-006` | todo | |
 | WI-M5-010 | **Where a Static Peer appears, said in the interface** (F-W3): the Discovered Peers section claims to list what is on the local network, and a hand-registered peer arrives there with no explanation | todo | |
@@ -362,6 +349,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 
 | # | Content | When | Source |
 |---|---|---|---|
+| DF-25 | **`UnixTime::elapsed_since` subtracts two `i64`s and can overflow, which panics in a debug build.** Found while reviewing `WI-M5-007`, and it is pre-existing rather than introduced -- the new future-direction call has exactly the shape the staleness one already had. **Reachable only behind a provider signature**, which is what keeps it a Deferred entry and not a `REVISE`: `require_i64` accepts any `i64` the payload carries, so an `iat` near `i64::MAX` against an ordinary `now` overflows, but `parse_claims` runs after step 2 and Google will not sign that. **`VerifiedClaims`'s fields are public, though** (DF-13), so anything in-process can build one, and a Layer 0 primitive that panics on values its own type admits is the wrong thing to leave in a Critical Module's path. The fix is `checked_sub` and a second `UnixTimeError` variant, with its tests written first | With the next work touching `tradr-core`'s clock, before M9's security review | Review of WI-M5-007 |
 | DF-24 | **Every IPv6 candidate is refused before a packet leaves, and nothing reports why.** The endpoint binds `0.0.0.0`, and `quinn` answers an IPv6 remote on an IPv4 socket with `InvalidRemoteAddress` -- measured 2026-08-31. So an mDNS peer that publishes only an IPv6 address, and an overlay network that hands out no IPv4, are both unreachable today; DCR-062's family filter makes that visible rather than fixing it. **The exit is a dual-stack bind and it is not free**: `[::]` accepts both families on Linux, where `bindv6only` is 0, and Windows defaults that socket option the other way, so a `[::]` bind there stops receiving IPv4 entirely. Doing it properly means setting `IPV6_V6ONLY` explicitly and handing `quinn` a socket rather than an address, which is a change to how the listener is built and not to how a candidate is dialled | When an IPv6-only path is needed, M7 at the latest | DCR-062 |
 | DF-23 | **A skipped frame costs nothing to send and the receiver will skip them forever.** `WI-M1-021` made `Classification::Ignorable` skip and read the next frame, which is what [docs/04](docs/04-protocol.md#what-unknown-message-types-are-ignored-actually-covers) specifies -- and neither side bounds how many times in a row it will do so, so an authenticated peer holds a transfer open indefinitely with `0x24` frames. **This is the design's own rule implemented faithfully, not an implementation liberty**, so bounding it is a Supervisor's decision and not a `REVISE`: docs/04 says what is skipped and is silent on how often. It bites only a peer that already cleared a Trust Tier, which is why it is deferred rather than cut | Before M9's security review | [docs/04](docs/04-protocol.md#what-unknown-message-types-are-ignored-actually-covers) |
 | ~~DF-21~~ | **Resolved by WI-M5-001 and DCR-062.** `QuicTransport` accepted only a candidate that parsed as a `SocketAddr`, so docs/03's own Static Peer example, `desktop.tail9f3c.ts.net:51820`, was unreachable by construction -- and M5's completion criterion names connecting by hostname, so the milestone could not have been met while this stood. The transport now parses first and reaches `tokio::net::lookup_host` only when that parse fails | Done 2026-08-31 | Review of WI-M1-004c |

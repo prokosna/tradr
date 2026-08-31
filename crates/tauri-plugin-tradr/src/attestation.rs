@@ -20,6 +20,9 @@ use crate::sign_in::{OAuthConfig, SignInState};
 /// How old an `id_token`'s `iat` may be before verification rejects it
 /// (docs/05, "Handling expiry"). Mirrors `sign_in`'s own limit.
 const STALENESS_LIMIT_SECS: u64 = 30 * 24 * 60 * 60;
+/// How far ahead of this device's clock an `id_token`'s `iat` may be before
+/// verification rejects it (docs/05 step 5).
+const FUTURE_SKEW_LIMIT_SECS: u64 = 300;
 
 /// What a peer needs to verify this device, and what this device parses
 /// out of a peer's pasted copy of the same shape: the `id_token` an
@@ -115,6 +118,7 @@ pub async fn verify_peer_attestation(
         own_account: &own_account,
         linked_accounts: &[],
         staleness_limit_secs: STALENESS_LIMIT_SECS,
+        future_skew_limit_secs: FUTURE_SKEW_LIMIT_SECS,
         ephemeral_receive: false,
     };
 
