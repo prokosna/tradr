@@ -8,7 +8,7 @@
 ```yaml
 last_updated: 2026-08-31
 phase: implementing
-current_milestone: M4
+current_milestone: M5
 implementation_started: true
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
@@ -38,15 +38,9 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
 ## Next three actions
-<<<<<<< Updated upstream
-1. Implement WI-M4-004 (macOS and Windows code signing)
-2. (Open)
+1. Wait for WI-M4-004 PR to merge
+2. Start M5 (Static Peers and overlay networks)
 3. (Open)
-=======
-
-2. Wait for WI-M4-004 PR to merge
-3. Start M5 (Static Peers and overlay networks)
->>>>>>> Stashed changes
 
 ## In flight
 
@@ -276,16 +270,16 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | M1 | **LAN transfer**, the most important — mDNS, QUIC, transfer, resumption, drag-and-drop send | 4 weeks | **done 2026-08-29** |
 | M2 | Android integration — share sheet, Sharing Shortcuts, SAF, permissions | 3 weeks | **done 2026-08-30** |
 | M3 | Share browsing — VFS, boundary enforcement, the Browse plane | 3 weeks | **done 2026-08-30** |
-| M4 | Windows and macOS — builds, signing, auto-update, tray | 3 weeks | todo |
+| M4 | Windows and macOS — builds, signing, auto-update, tray | 3 weeks | **done 2026-08-30** |
 | M5 | Static Peers and overlay networks — direct over Tailscale | 1 week | todo |
 | M6 | Account linking — QR, Link Secret, Fingerprint | 2 weeks | todo |
 | M7 | BLE, the largest estimation risk — advertising and scanning on four platforms, EIDs, Noise over GATT | 4-5 weeks | todo |
 | M8 | Brokr — presence, rendezvous, relay, FCM, revocation list | 3 weeks | todo |
 | M9 | Finishing — security review, store submission, packaging, i18n | ongoing | todo |
 
-### Current milestone: M4, Windows and macOS
-**Design**: docs/08-platform-integration.md
-**Done when**: Tradr builds and runs natively on Windows and macOS, with code signing, auto-update, and system tray integration.
+### Current milestone: M5, Static Peers and overlay networks
+**Design**: docs/03-discovery-and-transport.md
+**Done when**: A device can connect to a static peer by IP or hostname and perform transfers over an overlay network (e.g., Tailscale).
 
 #### Work Items
 
@@ -306,11 +300,9 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M4-001 | Desktop system tray integration | **done** | |
 | WI-M4-002 | Desktop auto-update through the Tauri updater | **done** | |
 | WI-M4-003 | Windows CI build | **done** | |
-<<<<<<< Updated upstream
-=======
-| WI-M4-004 | macOS and Windows code signing in CI | in flight | |
+| WI-M4-004 | macOS and Windows code signing in CI | **done** | |
 | WI-M4-005 | NativeVfs for Windows build | **done** | |
->>>>>>> Stashed changes
+| WI-M4-006 | Windows build fix for tradr-secrets | **done** | |
 
 
 ## Deferred
