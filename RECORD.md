@@ -470,6 +470,24 @@ ADR-0005 asks for something specific: **CI runs the Tier 0 and Tier 1 integratio
 
 ---
 
+## Closed milestone: M5, Static Peers and overlay networks
+
+**Criterion met 2026-08-31.** A file went from Windows to a MacBook through a Static Peer entry naming the MacBook's MagicDNS name, over a tailnet, with the MacBook on phone tethering so the two machines were on different networks and mDNS could see nothing.
+
+**What the configuration bought, and why it is recorded rather than the bare result.** Separate networks meant no LAN candidate could substitute for the tailnet one -- the substitution that would have made the run prove nothing. A MagicDNS name does not parse as a `SocketAddr`, so DCR-062's resolver ran for the first time outside a `localhost` test. MagicDNS answers with an `fd7a::` AAAA beside the `100.x` A, and the endpoint binds `0.0.0.0`, so **DCR-062's family filter selected the address against a real answer** -- a rule written from a probe, never before exercised by one.
+
+**Four defects were found by running the Windows build and none by any gate**, which is the milestone's other finding. `cargo test --workspace` is green on `windows-latest` and the application could not send a file, could not open a file picker, and could not sign in. They are carried into M6 rather than closed here.
+
+### Work Items
+
+| ID | Content | Status | Critical |
+|---|---|---|---|
+| WI-M5-001 | **`direct-quic` resolves a DNS name** (DCR-062), closing DF-21. The parse stays first, the resolver answers only what it refuses, and the answer is filtered to the families this endpoint can dial | **done** -- PASS after one REVISE | |
+| WI-M5-002 | **The Static Peer registry and its `DiscoverySource`** (DCR-063): the entry, its own id, the endpoint normalisation, the JSON file, and the pin. **Critical Module, Supervisor tests first** | **done** -- PASS after one REVISE | Yes |
+| WI-M5-003 | **The default listen port and the adapter wiring** (DCR-063): `21820` with an ephemeral fallback, the registry loaded from the application data directory, the source merged into the peer list beside mDNS, and the pin written back from the connection that authenticated it | **done** -- PASS after one REVISE | |
+| WI-M5-004 | **The UI for a Static Peer**: add, list and remove an entry, and act on a peer that has no Device ID yet. Carries the three commands' missing `COMMANDS` and capability entries, without which the UI could not call them | **done** -- PASS after one DCR the Supervisor ruled on | |
+| WI-M5-008 | **`is_absolute` in place of `starts_with('/')`** (F-W1), and a test that a Windows-shaped absolute path is recognised. **Sending a file from Windows is impossible until this lands** | **done** -- PASS, verified by CI's `windows` job rather than locally | |
+
 ## Closed milestones: M2, M3 and M4
 
 Their Work Item rows, moved out of `STATE.md`'s current-milestone table on 2026-08-31 when M5 opened. **M2's criterion was met on 2026-08-30**: the user chose a photo in the Android gallery and delivered it to a PC through Tradr's share sheet. **M3's was met the same day**: a device browsed a peer's configured Share and downloaded a file over the Browse plane. **M4's was met on 2026-08-31**, with signing for macOS and Windows in CI.
