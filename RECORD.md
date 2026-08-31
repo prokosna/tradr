@@ -25,6 +25,7 @@ Decisions 13, 15 and the environment are closed. **Decision 16 must be settled b
 
 | WI | Verdict | REVISE cycles | Cause |
 |---|---|---|---|
+| WI-M5-001 | PASS | 1 | **`direct-quic` resolves a name at last, and M5's completion criterion became reachable.** The parse stays first, so a literal costs no resolver call and DCR-048's scoped-IPv6 rules are still decided by the same parser; `tokio::net::lookup_host` answers only what that parser refuses. **The REVISE is the ninth Work Order defect this table records and the first the Implementer found by mutation-testing its own work.** The family filter -- DCR-062's one rule that fails silently in production -- was implemented correctly and falsified by nothing: replacing `find` with `next` passed every test, because `localhost` resolves to `127.0.0.1` alone on this machine and no test could reach the case without controlling the resolver. **The Implementer reported that rather than claiming coverage**, and declined to add a test seam the Definition of Done did not name, which is rule F3 held against its own interest. The repair is the shape the Work Order should have asked for: a pure `first_dialable(local, resolved)` beside `resolve`, with six unit tests that touch no resolver and no socket. **Three mutations were then run against them and the Supervisor re-ran one rather than reading the report** -- `next()` in place of the filter fails exactly `an_ipv4_bound_endpoint_skips_a_leading_ipv6_answer` and `an_ipv4_bound_endpoint_given_only_ipv6_answers_dials_nothing`, and no other test. **The pattern is the one this file records for `pkg-config` and for `ci/comment-lang.sh`, one layer up**: the behaviour was right, and the instrument that would have noticed it going wrong measured nothing |
 | WI-M1-033 | PASS | 0 | **Optimize CI tauri-cli install.** `cargo install tauri-cli` takes 7+ minutes in GitHub Actions. Replaced manual cargo install and custom cache steps with `taiki-e/install-action@v2` across all workflows to download precompiled binaries instantly. Also fixed a flaky test in os_rng.rs that failed the pre-commit hook. |
 | WI-M1-032 | PASS | 0 | **Remove and ignore work order files.** `work_order_m1_029.md` was accidentally committed. Removed it and added `work_order*.md` to `.gitignore`. |
 | WI-M1-031 | PASS | 0 | **Graceful stream closure in `listener.rs` and `commands.rs`.** Dropping a `quinn::SendStream` without calling `finish().await` aborts the stream (sends `RESET_STREAM`). This causes the sender to receive a stream reset before it can read the `ItemComplete` message, resulting in `TransferSessionError::StreamClosed` ("stream closed unexpectedly"). Added `control_send.finish().await` before returning in `handle_incoming_channel` and `execute_send_files_with_progress`. |
@@ -463,6 +464,31 @@ ADR-0005 asks for something specific: **CI runs the Tier 0 and Tier 1 integratio
 **Stage explicit paths for each, `Cargo.lock` included when a manifest moves, and read `git show --stat` afterwards.** The emulator AVD `tradr-test` may still be running from WI-M0-004's session; check with `adb -s emulator-5556 get-state` before assuming either way.
 
 ---
+
+## Closed milestones: M2, M3 and M4
+
+Their Work Item rows, moved out of `STATE.md`'s current-milestone table on 2026-08-31 when M5 opened. **M2's criterion was met on 2026-08-30**: the user chose a photo in the Android gallery and delivered it to a PC through Tradr's share sheet. **M3's was met the same day**: a device browsed a peer's configured Share and downloaded a file over the Browse plane. **M4's was met on 2026-08-31**, with signing for macOS and Windows in CI.
+
+| ID | Content | Status | Critical |
+|---|---|---|---|
+| WI-M2-001 | Android integration: ACTION_SEND intent filter and ShareTargetActivity | **done** | |
+| WI-M2-002 | Android intent file caching and Rust interop | **done** | |
+| WI-M2-003 | Android Sharing Shortcuts | **done** | |
+| WI-M2-004 | Android SAF Directory Picker and Persistable Permission | **done** | |
+| WI-M2-005 | Android SAF Vfs Implementation (Rust) | **done** | |
+| WI-M2-006 | Android Staged Permission Requests | **done** | |
+| WI-M2-007 | Android Accept and Decline from Notification | **done** | |
+| WI-M2-008 | Android frontend: listen to share-intent and auto-send to PC | **done** | |
+| WI-M2-009 | Fix manual "Send Files" path handling and `share-intent` | **done** | |
+| WI-M3-001 | Browse plane handler and proto messages | **done** | |
+| WI-M3-002 | UI for Share browsing | **done** | |
+| WI-M3-003 | Share browsing — File download | **done** | |
+| WI-M4-001 | Desktop system tray integration | **done** | |
+| WI-M4-002 | Desktop auto-update through the Tauri updater | **done** | |
+| WI-M4-003 | Windows CI build | **done** | |
+| WI-M4-004 | macOS and Windows code signing in CI | **done** | |
+| WI-M4-005 | NativeVfs for Windows build | **done** | |
+| WI-M4-006 | Windows build fix for tradr-secrets | **done** | |
 
 ## Closed milestone: M1, LAN transfer
 

@@ -38,13 +38,15 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
 ## Next three actions
-1. Wait for WI-M4-004 PR to merge
-2. Start M5 (Static Peers and overlay networks)
-3. (Open)
+1. WI-M5-002, the Static Peer registry and its `DiscoverySource`. Critical Module: the Supervisor's tests are written before it is dispatched
+2. WI-M5-003, the default listen port and the adapter wiring -- the registry loaded, the source merged into the peer list, and the pin written back from the connection that authenticated it
+3. WI-M5-004, the UI that adds, lists and removes a Static Peer
 
 ## In flight
 
 (none)
+
+**`845b52a` is on `main` and on no other branch, which means WI-M4-004 landed with no pull request.** Reconciled on 2026-08-31: the previous entry here said to wait for that pull request to merge and there has never been one -- `gh pr list` reports none open, and the branch `wi-m4-004-code-signing` was merged as PR #70 the day before, so the commit at the tip is a second, later piece of the same Work Item committed straight to `main`. **Section 5 forbids exactly this and `ci/state-sync.sh` Check 5 catches it**, which means the commit was made with the gate bypassed or from a state the gate could not see. It is recorded rather than reverted: the work itself passed review and CI, and rewriting published history is forbidden too. **DF-18 is what would have prevented it** -- a `pre-push` hook is still the only instrument a private repository can have, and this is now the second incident it would have stopped.
 
 **The old action 3 stands and is still the user's to start -- ADR-0004's "To verify"**: measure LAN throughput against 35 MB/s, and if it falls short tune GSO, GRO and receive-buffer sizes **before** comparing against TCP. QUIC runs in user space and will not match TCP, so a comparison run before the tuning answers a question nobody asked. **It needs two machines; loopback cannot produce the number.**
 
@@ -285,24 +287,10 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M2-001 | Android integration: ACTION_SEND intent filter and ShareTargetActivity | **done** | |
-| WI-M2-002 | Android intent file caching and Rust interop | **done** | |
-| WI-M2-003 | Android Sharing Shortcuts | **done** | |
-| WI-M2-004 | Android SAF Directory Picker and Persistable Permission | **done** | |
-| WI-M2-005 | Android SAF Vfs Implementation (Rust) | **done** | |
-| WI-M2-006 | Android Staged Permission Requests | **done** | |
-| WI-M2-007 | Android Accept and Decline from Notification | **done** | |
-| WI-M2-008 | Android frontend: listen to share-intent and auto-send to PC | **done** | |
-| WI-M2-009 | Fix manual "Send Files" path handling and `share-intent` | **done** | |
-| WI-M3-001 | Browse plane handler and proto messages | **done** | |
-| WI-M3-002 | UI for Share browsing | **done** | |
-| WI-M3-003 | Share browsing — File download | **done** | |
-| WI-M4-001 | Desktop system tray integration | **done** | |
-| WI-M4-002 | Desktop auto-update through the Tauri updater | **done** | |
-| WI-M4-003 | Windows CI build | **done** | |
-| WI-M4-004 | macOS and Windows code signing in CI | **done** | |
-| WI-M4-005 | NativeVfs for Windows build | **done** | |
-| WI-M4-006 | Windows build fix for tradr-secrets | **done** | |
+| WI-M5-001 | **`direct-quic` resolves a DNS name** (DCR-062), closing DF-21. The parse stays first, the resolver answers only what it refuses, and the answer is filtered to the families this endpoint can dial | **done** -- PASS after one REVISE | |
+| WI-M5-002 | **The Static Peer registry and its `DiscoverySource`**: the entry, its own id, the endpoint normalisation, the JSON file, and the pin. **Critical Module, Supervisor tests first** | todo | Yes |
+| WI-M5-003 | **The default listen port and the adapter wiring**: `21820` with an ephemeral fallback, the registry loaded from the application data directory, the source merged into the peer list beside mDNS, and the pin written back from the connection that authenticated it | todo | |
+| WI-M5-004 | **The UI for a Static Peer**: add, list and remove an entry, and act on a peer that has no Device ID yet | todo | |
 
 
 ## Deferred
@@ -313,7 +301,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 |---|---|---|---|
 | DF-24 | **Every IPv6 candidate is refused before a packet leaves, and nothing reports why.** The endpoint binds `0.0.0.0`, and `quinn` answers an IPv6 remote on an IPv4 socket with `InvalidRemoteAddress` -- measured 2026-08-31. So an mDNS peer that publishes only an IPv6 address, and an overlay network that hands out no IPv4, are both unreachable today; DCR-062's family filter makes that visible rather than fixing it. **The exit is a dual-stack bind and it is not free**: `[::]` accepts both families on Linux, where `bindv6only` is 0, and Windows defaults that socket option the other way, so a `[::]` bind there stops receiving IPv4 entirely. Doing it properly means setting `IPV6_V6ONLY` explicitly and handing `quinn` a socket rather than an address, which is a change to how the listener is built and not to how a candidate is dialled | When an IPv6-only path is needed, M7 at the latest | DCR-062 |
 | DF-23 | **A skipped frame costs nothing to send and the receiver will skip them forever.** `WI-M1-021` made `Classification::Ignorable` skip and read the next frame, which is what [docs/04](docs/04-protocol.md#what-unknown-message-types-are-ignored-actually-covers) specifies -- and neither side bounds how many times in a row it will do so, so an authenticated peer holds a transfer open indefinitely with `0x24` frames. **This is the design's own rule implemented faithfully, not an implementation liberty**, so bounding it is a Supervisor's decision and not a `REVISE`: docs/04 says what is skipped and is silent on how often. It bites only a peer that already cleared a Trust Tier, which is why it is deferred rather than cut | Before M9's security review | [docs/04](docs/04-protocol.md#what-unknown-message-types-are-ignored-actually-covers) |
-| DF-21 | **`QuicTransport` accepts only a candidate that parses as a `SocketAddr`; a DNS name is refused as `Unreachable`.** docs/03's Static Peer names `desktop.tail9f3c.ts.net:51820` as a primary example and says resolution is left to the system resolver, so this is a real gap rather than an oversight. **It does not block M1**, whose completion criterion is a file moving over the LAN: mDNS yields addresses, and a Static Peer with a literal IP works. Resolution needs `tokio::net::lookup_host` and a decision about what a test that resolves a name is allowed to depend on, which is why it is not smuggled into `WI-M1-004d` | Before a Static Peer is usable by name, M2 at the latest | Review of WI-M1-004c |
+| ~~DF-21~~ | **Resolved by WI-M5-001 and DCR-062.** `QuicTransport` accepted only a candidate that parsed as a `SocketAddr`, so docs/03's own Static Peer example, `desktop.tail9f3c.ts.net:51820`, was unreachable by construction -- and M5's completion criterion names connecting by hostname, so the milestone could not have been met while this stood. The transport now parses first and reaches `tokio::net::lookup_host` only when that parse fails | Done 2026-08-31 | Review of WI-M1-004c |
 | DF-22 | **Nothing stops a second `#![allow(...)]` from appearing.** DF-20 is legitimate and recorded, but the only thing that will remove it is a Supervisor remembering to look. `ci/excuse-grep.sh` already greps source for prose that papers over a design problem, and an `allow` attribute is the same act performed in the language rather than in a comment. **An allowlist-backed check over `#[allow]` and `#![allow]` would make DF-20 self-closing**, and every later one visible | After WI-M1-004d closes DF-20 | Review of WI-M1-004c |
 | ~~DF-20~~ | **Resolved by WI-M1-004d.** **`crates/tradr-transport/src/quic/mod.rs` carried `#![allow(dead_code)]`.** Removed in `WI-M1-004d` upon implementing `QuicTransport`, `QuicIncoming` and `QuicChannel`, with zero dead-code warnings remaining under `-D warnings` | Done 2026-08-26 | Review of WI-M1-004c |
 | DF-19 | **Resolved by WI-M1-000b.** **`ci/comment-lang.sh` scans build output.** Its `find` excludes `node_modules`, `target` and the generated protobuf output under `packages/protocol`, but not `packages/*/dist`, so generated `.d.ts` files are held to a rule about hand-written comments. Harmless today because the generators emit ASCII; it becomes a false failure the first time one does not, and the fix is one more `-not -path` | With the next work in `ci/` | WI-M1-000 |
