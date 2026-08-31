@@ -14,6 +14,9 @@
 		"tradr:allow-get-visible-shares",
 		"tradr:allow-list-peer-directory",
 		"tradr:allow-send-files",
+		"tradr:allow-add-static-peer",
+		"tradr:allow-remove-static-peer",
+		"tradr:allow-list-static-peers",
 		"tradr:allow-publish-sharing-shortcuts"
 	]
 }

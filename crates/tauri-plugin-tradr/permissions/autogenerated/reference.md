@@ -10,6 +10,32 @@
 <tr>
 <td>
 
+`tradr:allow-add-static-peer`
+
+</td>
+<td>
+
+Enables the add_static_peer command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-add-static-peer`
+
+</td>
+<td>
+
+Denies the add_static_peer command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-attestation-bundle`
 
 </td>
@@ -166,6 +192,32 @@ Denies the list_peer_directory command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-list-static-peers`
+
+</td>
+<td>
+
+Enables the list_static_peers command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-list-static-peers`
+
+</td>
+<td>
+
+Denies the list_static_peers command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-pick-share-root`
 
 </td>
@@ -211,6 +263,32 @@ Enables the publish_sharing_shortcuts command without any pre-configured scope.
 <td>
 
 Denies the publish_sharing_shortcuts command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-remove-static-peer`
+
+</td>
+<td>
+
+Enables the remove_static_peer command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-remove-static-peer`
+
+</td>
+<td>
+
+Denies the remove_static_peer command without any pre-configured scope.
 
 </td>
 </tr>

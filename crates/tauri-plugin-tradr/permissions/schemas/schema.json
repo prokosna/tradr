@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the add_static_peer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-add-static-peer",
+          "markdownDescription": "Enables the add_static_peer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the add_static_peer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-add-static-peer",
+          "markdownDescription": "Denies the add_static_peer command without any pre-configured scope."
+        },
+        {
           "description": "Enables the attestation_bundle command without any pre-configured scope.",
           "type": "string",
           "const": "allow-attestation-bundle",
@@ -367,6 +379,18 @@
           "markdownDescription": "Denies the list_peer_directory command without any pre-configured scope."
         },
         {
+          "description": "Enables the list_static_peers command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-static-peers",
+          "markdownDescription": "Enables the list_static_peers command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_static_peers command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-static-peers",
+          "markdownDescription": "Denies the list_static_peers command without any pre-configured scope."
+        },
+        {
           "description": "Enables the pick_share_root command without any pre-configured scope.",
           "type": "string",
           "const": "allow-pick-share-root",
@@ -389,6 +413,18 @@
           "type": "string",
           "const": "deny-publish-sharing-shortcuts",
           "markdownDescription": "Denies the publish_sharing_shortcuts command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_static_peer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-static-peer",
+          "markdownDescription": "Enables the remove_static_peer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_static_peer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-static-peer",
+          "markdownDescription": "Denies the remove_static_peer command without any pre-configured scope."
         },
         {
           "description": "Enables the request_permissions command without any pre-configured scope.",

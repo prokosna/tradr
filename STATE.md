@@ -49,10 +49,20 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 **The instrument matters more than the repair.** A rule that survives twenty-two violations across four milestones is not being enforced by review, and the answer this repository has reached five times before is a check in `ci/` rather than a resolution to look harder.
 
+### Three lists must agree and one pair is checked, found 2026-08-31
+
+**A Tauri command is named in three places** -- `invoke_handler` in `crates/tauri-plugin-tradr/src/lib.rs`, `COMMANDS` in that crate's `build.rs`, and the `permissions` array in `apps/tradr/src-tauri/capabilities/default.json` -- **and a command missing from the third is refused by the IPC ACL at runtime however correctly it is registered in the first.** Today `invoke_handler` names 17, `COMMANDS` names 14, and the capability file grants 10.
+
+**`ci/invoke-commands.sh` checks one pair of the three**: a frontend `invoke()` against `COMMANDS`. So it catches a call to a command that does not exist and misses a command that exists and cannot be called. **That is why `WI-M5-003` passed review and all eight CI jobs while registering three commands the ACL would refuse** -- nothing invoked them yet, so the one instrument that looks at this had nothing to compare. The Implementer of `WI-M5-004` found it by trying to call them, which is the first moment anything could have.
+
+**Two commands are in that state now and neither is M5's**: `download_file`, registered by `WI-M3-003` and in neither of the other two lists, and `pick_share_root`, `request_permissions` and `check_permissions`, which are in `COMMANDS` and in no capability file. The first is M3's Browse-plane download, which the frontend does not yet call; the other three are M2's Android integration. **Each would fail at runtime the first time a UI reached for it**, with an ACL refusal that names a permission rather than a missing wiring step.
+
+**The instrument is the repair, again.** A check that `invoke_handler`, `COMMANDS` and every capability file name the same set would have failed on the commit that introduced each of these.
+
 ## Next three actions
-1. WI-M5-004, the UI that adds, lists and removes a Static Peer
-2. **M5's completion criterion, and it is the user's to run**: two real machines on a tailnet, a Static Peer entry naming the other by its MagicDNS name, and a transfer over it. Everything below it is now in place and loopback-tested, and **loopback cannot produce this number** any more than it could produce ADR-0004's throughput figure -- what it cannot exercise is the resolver, the 100.x address family, and a path with no mDNS on it at all
-3. WI-M5-005, rule F6 in `tauri-plugin-tradr`, and the check in `ci/` that would have caught it. See the finding below
+1. **M5's completion criterion, and it is the user's to run**: two real machines on a tailnet, a Static Peer entry naming the other by its MagicDNS name, and a transfer over it. Everything below it is now in place and loopback-tested, and **loopback cannot produce this number** any more than it could produce ADR-0004's throughput figure -- what it cannot exercise is the resolver, the 100.x address family, and a path with no mDNS on it at all
+2. WI-M5-005, rule F6 in `tauri-plugin-tradr`, and the check in `ci/` that would have caught it. See the finding below
+3. WI-M5-006, the check that `invoke_handler`, `COMMANDS` and every capability file name the same set of commands. Two commands are unreachable at runtime today and neither is M5's. See the finding below
 
 ## In flight
 
@@ -302,8 +312,9 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M5-001 | **`direct-quic` resolves a DNS name** (DCR-062), closing DF-21. The parse stays first, the resolver answers only what it refuses, and the answer is filtered to the families this endpoint can dial | **done** -- PASS after one REVISE | |
 | WI-M5-002 | **The Static Peer registry and its `DiscoverySource`** (DCR-063): the entry, its own id, the endpoint normalisation, the JSON file, and the pin. **Critical Module, Supervisor tests first** | **done** -- PASS after one REVISE | Yes |
 | WI-M5-003 | **The default listen port and the adapter wiring** (DCR-063): `21820` with an ephemeral fallback, the registry loaded from the application data directory, the source merged into the peer list beside mDNS, and the pin written back from the connection that authenticated it | **done** -- PASS after one REVISE | |
-| WI-M5-004 | **The UI for a Static Peer**: add, list and remove an entry, and act on a peer that has no Device ID yet | todo | |
+| WI-M5-004 | **The UI for a Static Peer**: add, list and remove an entry, and act on a peer that has no Device ID yet. Carries the three commands' missing `COMMANDS` and capability entries, without which the UI could not call them | **done** -- PASS after one DCR the Supervisor ruled on | |
 | WI-M5-005 | **Rule F6 in `tauri-plugin-tradr`, and the instrument that would have caught it**: the eighteen `let _ =` bindings `WI-M5-003` does not touch, and a ninth check in `ci/` over a discarded `Result`. See the finding above | todo | |
+| WI-M5-006 | **One command, three lists, one instrument**: a check that `invoke_handler`, `build.rs`'s `COMMANDS` and every capability file name the same set, plus the entries `download_file` and M2's three Android commands are missing. See the finding above | todo | |
 
 
 ## Deferred
