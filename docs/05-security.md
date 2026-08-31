@@ -63,7 +63,9 @@ When device B receives an Attestation from device A:
 4. Check the nonce binds A's keys, per the profile's nonce_binding
      verbatim: nonce == base64url(BLAKE3(identity_pub || agreement_pub))
      hashed:   nonce == SHA-256 of that value
-5. Check iat falls within the staleness limit, 30 days by default
+5. Check iat is no older than the staleness limit, 30 days by default,
+     and no further ahead than the clock skew allowance, 300 seconds.
+     The two directions reject with different reasons
 6. Compare the pair (iss, sub) against
      our own pair         -> TRUST_TIER_SAME_ACCOUNT
      a linked pair        -> TRUST_TIER_LINKED
@@ -86,6 +88,16 @@ Comparing against a single value would therefore fail every cross-platform verif
 Every device carries the full set of its deployment's client IDs and step 3 accepts membership in it. Those IDs are configuration rather than shipped values -- see [below](#oauth-client-configuration) -- and one string carries them to every device.
 
 Adding a platform means adding its client ID to that one string. **Devices that predate the new platform accept it as soon as they are restarted with the updated configuration**, since an ID whose platform label they do not recognise still joins the `aud` set. When the set was compiled in, the same change required a rebuild and older builds rejected the new platform outright.
+
+#### Why step 5 bounds both directions, and why the future one is not bounded at zero
+
+**A negative age passes every limit forever.** An age computed as `now - iat` and compared against a staleness limit accepts an Attestation minted in the future for as long as it stays in the future, so the future direction has to be bounded or the thirty-day rule is optional. That argument justifies bounding it. It does not justify bounding it at zero, which is what an implementation reading only "falls within the staleness limit" picked, and which stood until a real Windows machine ran into it.
+
+**The `iat` is the provider's clock, not the verifier's.** A device inside ordinary NTP tolerance can be a second or two behind Google, and a machine whose time has simply gone untended can be further. At zero tolerance such a device is refused a token the provider minted moments ago, intermittently when it is nearly right and permanently when it is a few seconds slow -- and sign-in is the first thing a new device does, so the whole application is unreachable to it.
+
+**The allowance is 300 seconds.** It costs 300 seconds of extra Attestation life against a limit of 30 days, and it buys every device whose clock is untended rather than wrong. Kerberos and the common OIDC libraries settled on the same five minutes for the same reason. Both limits are inclusive at exactly their value.
+
+**The two directions reject with different reasons, and that is load-bearing rather than a nicety.** The failure a user meets is a refusal to sign in, and the only thing that tells them which of the two happened is the message. One says the binding is too old to trust; the other says this device's clock disagrees with the provider's. Naming the thirty-day limit for a clock problem costs whoever reads it the whole diagnosis -- it did, for a day, on the first Windows build.
 
 ### OAuth client configuration
 
@@ -182,7 +194,7 @@ Google is the only profile shipped. **The pair `(iss, sub)` is nevertheless what
 
 An ID token's `exp` is typically one hour out. But what an Attestation asserts is not "signed in right now" — it is **a binding** between a key and an account.
 
-- **`exp` is ignored; the age of `iat` is what matters.** Accepted within 30 days by default
+- **`exp` is ignored; the age of `iat` is what matters.** Accepted within 30 days by default, and up to 300 seconds ahead of this device's clock — see [step 5](#why-step-5-bounds-both-directions-and-why-the-future-one-is-not-bounded-at-zero)
 - Devices hold a Google refresh token and **re-mint an ID token with the same nonce every 24 hours** via a `prompt=none` silent refresh, requiring no user interaction
 - A healthy device therefore always presents an Attestation less than a day old
 
