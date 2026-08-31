@@ -50,8 +50,8 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **The instrument matters more than the repair.** A rule that survives twenty-two violations across four milestones is not being enforced by review, and the answer this repository has reached five times before is a check in `ci/` rather than a resolution to look harder.
 
 ## Next three actions
-1. WI-M5-003, the default listen port and the adapter wiring -- the registry loaded, the source merged into the peer list, and the pin written back from the connection that authenticated it
-2. WI-M5-004, the UI that adds, lists and removes a Static Peer
+1. WI-M5-004, the UI that adds, lists and removes a Static Peer
+2. **M5's completion criterion, and it is the user's to run**: two real machines on a tailnet, a Static Peer entry naming the other by its MagicDNS name, and a transfer over it. Everything below it is now in place and loopback-tested, and **loopback cannot produce this number** any more than it could produce ADR-0004's throughput figure -- what it cannot exercise is the resolver, the 100.x address family, and a path with no mDNS on it at all
 3. WI-M5-005, rule F6 in `tauri-plugin-tradr`, and the check in `ci/` that would have caught it. See the finding below
 
 ## In flight
@@ -301,7 +301,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 |---|---|---|---|
 | WI-M5-001 | **`direct-quic` resolves a DNS name** (DCR-062), closing DF-21. The parse stays first, the resolver answers only what it refuses, and the answer is filtered to the families this endpoint can dial | **done** -- PASS after one REVISE | |
 | WI-M5-002 | **The Static Peer registry and its `DiscoverySource`** (DCR-063): the entry, its own id, the endpoint normalisation, the JSON file, and the pin. **Critical Module, Supervisor tests first** | **done** -- PASS after one REVISE | Yes |
-| WI-M5-003 | **The default listen port and the adapter wiring**: `21820` with an ephemeral fallback, the registry loaded from the application data directory, the source merged into the peer list beside mDNS, and the pin written back from the connection that authenticated it | todo | |
+| WI-M5-003 | **The default listen port and the adapter wiring** (DCR-063): `21820` with an ephemeral fallback, the registry loaded from the application data directory, the source merged into the peer list beside mDNS, and the pin written back from the connection that authenticated it | **done** -- PASS after one REVISE | |
 | WI-M5-004 | **The UI for a Static Peer**: add, list and remove an entry, and act on a peer that has no Device ID yet | todo | |
 | WI-M5-005 | **Rule F6 in `tauri-plugin-tradr`, and the instrument that would have caught it**: the eighteen `let _ =` bindings `WI-M5-003` does not touch, and a ninth check in `ci/` over a discarded `Result`. See the finding above | todo | |
 

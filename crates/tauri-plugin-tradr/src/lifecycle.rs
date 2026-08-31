@@ -10,7 +10,8 @@ use tauri::{AppHandle, Manager, Runtime};
 
 use tradr_core::{Capabilities, PeerList, RootId, Transport};
 use tradr_discovery::{
-    AGREEMENT_KEY_TAG_LEN, MdnsSource, Platform, TxtRecord, advertisement, instance_name,
+    AGREEMENT_KEY_TAG_LEN, MdnsSource, Platform, STATIC_PEER_DEFAULT_PORT, StaticPeerRegistry,
+    TxtRecord, advertisement, instance_name,
 };
 use tradr_identity::OsRng;
 use tradr_transport::quic::QuicTransport;
@@ -46,6 +47,20 @@ pub fn init_lifecycle<R: Runtime>(
         }
     };
 
+    let static_peers_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("could not resolve the app data directory: {e}"))?
+        .join("static-peers.json");
+    // A malformed file is refused rather than replaced with an empty
+    // registry, which would delete every pin the user holds (docs/03,
+    // "Where the set is kept"). Swallowing it here, unlike the key
+    // store above, would leave a running app with no discovery and no
+    // transfers at all, so setup fails loudly instead, naming the file.
+    let (static_peer_registry, static_peer_source) =
+        StaticPeerRegistry::load(&static_peers_path)
+            .map_err(|e| format!("static peer registry not available: {e}"))?;
+
     let downloads_dir = app.path().download_dir().unwrap_or_else(|_| {
         app.path()
             .app_data_dir()
@@ -59,12 +74,32 @@ pub fn init_lifecycle<R: Runtime>(
     vfs.register_root(downloads_root_id(), downloads_dir, false)
         .map_err(|e| format!("could not register downloads root: {e}"))?;
 
-    let bind_addr: SocketAddr = "0.0.0.0:0"
+    // docs/03, "The default port, and why it is not 51820": 21820 is the
+    // fixed number a Static Peer's dialling side can rely on with no way
+    // to be told otherwise. The bind falls back to an ephemeral port
+    // whenever the default is already taken, which is every time two
+    // instances run on the same machine.
+    let default_addr: SocketAddr = format!("0.0.0.0:{STATIC_PEER_DEFAULT_PORT}")
+        .parse()
+        .map_err(|e: std::net::AddrParseError| e.to_string())?;
+    let ephemeral_addr: SocketAddr = "0.0.0.0:0"
         .parse()
         .map_err(|e: std::net::AddrParseError| e.to_string())?;
     let transport = Arc::new(
-        tauri::async_runtime::block_on(async { QuicTransport::new(key_store.clone(), bind_addr) })
-            .map_err(|e| format!("failed to start quic transport: {e}"))?,
+        match tauri::async_runtime::block_on(async {
+            QuicTransport::new(key_store.clone(), default_addr)
+        }) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!(
+                    "lifecycle: default quic port {STATIC_PEER_DEFAULT_PORT} unavailable ({e}), falling back to an ephemeral port"
+                );
+                tauri::async_runtime::block_on(async {
+                    QuicTransport::new(key_store.clone(), ephemeral_addr)
+                })
+                .map_err(|e| format!("failed to start quic transport: {e}"))?
+            }
+        },
     );
     let local_addr = transport
         .local_addr()
@@ -150,6 +185,8 @@ pub fn init_lifecycle<R: Runtime>(
     app.manage(vfs);
     app.manage(transport);
     app.manage(tokio::sync::Mutex::new(mdns_source));
+    app.manage(tokio::sync::Mutex::new(static_peer_source));
+    app.manage(tokio::sync::Mutex::new(static_peer_registry));
     app.manage(tokio::sync::Mutex::new(PeerList::new()));
 
     Ok(())

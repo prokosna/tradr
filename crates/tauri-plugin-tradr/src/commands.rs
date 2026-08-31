@@ -3,18 +3,19 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use tradr_core::{
-    Capabilities, Clock, DeviceId, DiscoverySource, DomainTag, ItemId, KeyBinding, KeyStore,
-    OfferItem, PeerExpectation, PeerList, PublicIdentity, RecvStream, RelPath, Rng, RootId,
+    Candidate, Capabilities, Clock, DiscoverySource, DomainTag, ItemId, KeyBinding, KeyStore,
+    OfferItem, Peer, PeerExpectation, PeerList, PublicIdentity, RecvStream, RelPath, Rng, RootId,
     SecureChannel, TransferId, TransferOffer, Transport, TransportId, TrustTier, UnixTime,
     VersionRange, Vfs,
 };
-use tradr_discovery::{MDNS_SOURCE_ID, MdnsSource};
+use tradr_discovery::{
+    MDNS_SOURCE_ID, MdnsSource, STATIC_PEER_SOURCE_ID, StaticPeerId, StaticPeerRegistry,
+    StaticPeerSource,
+};
 use tradr_identity::{OsRng, SystemClock};
 use tradr_integrity::outboard;
 use tradr_proto::control::{decode_transfer_accept_frame, encode_transfer_offer_frame};
@@ -31,8 +32,15 @@ use crate::transfer::{SendRequest, SessionStreams, send_file_with_progress};
 /// Discovered peer representation for the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerInfo {
-    /// The peer's 16-byte Device ID, rendered as hex.
+    /// The peer's 16-byte Device ID, rendered as hex. Empty when this
+    /// peer has not yet been identified -- a Static Peer entry before its
+    /// first connection.
     pub device_id: String,
+    /// What `send_files`, `list_peer_directory` and `download_file` accept
+    /// as `peer_id`: the Device ID hex for an identified peer, or the
+    /// `ObservationId` (`<source>/<key>`) for one that is not. A Device ID
+    /// hex string contains no `/`, so the two forms never collide.
+    pub key: String,
     /// The peer's advertised display name, if present.
     pub display_name: Option<String>,
     /// Available candidate addresses for reaching the peer.
@@ -640,20 +648,150 @@ pub async fn execute_download_file(
     Ok(total_bytes_written)
 }
 
-/// Polls discovered peers from mDNS and returns the current active list.
+// Drains every event currently queued on both discovery sources into
+// `list`, replacing the four copies of this loop that previously lived in
+// each command below. A `SourceMismatch` is reported rather than
+// discarded (rule F6): each source is applied under its own `SourceId`,
+// so a mismatch can only mean a source produced an event it does not own.
+async fn drain_peer_sources(
+    mdns_source: &mut MdnsSource,
+    static_peer_source: &mut StaticPeerSource,
+    list: &mut PeerList,
+) -> Result<(), String> {
+    while let Ok(Ok(event)) =
+        tokio::time::timeout(Duration::from_millis(5), mdns_source.next_event()).await
+    {
+        list.apply(MDNS_SOURCE_ID, event)
+            .map_err(|e| format!("mdns peer list update rejected: {e}"))?;
+    }
+    while let Ok(Ok(event)) =
+        tokio::time::timeout(Duration::from_millis(5), static_peer_source.next_event()).await
+    {
+        list.apply(STATIC_PEER_SOURCE_ID, event)
+            .map_err(|e| format!("static peer list update rejected: {e}"))?;
+    }
+    Ok(())
+}
+
+/// The outcome of resolving a `peer_id` into a dial attempt: the candidate
+/// to dial, the `PeerExpectation` to authenticate it against, and -- only
+/// for a Static Peer's first connection -- the entry to pin once the
+/// channel authenticates.
+pub struct ResolvedPeer {
+    /// The candidate `connect_and_pin` dials.
+    pub candidate: Candidate,
+    /// The `PeerExpectation` the dial authenticates against.
+    pub expectation: PeerExpectation,
+    /// The Static Peer entry `connect_and_pin` writes back to once the
+    /// channel authenticates, or `None` when there is nothing to pin --
+    /// an already-identified peer, or an entry the registry already pins.
+    pub pin_target: Option<StaticPeerId>,
+}
+
+// The candidate a resolved peer is dialled on: the direct-quic one if the
+// peer offers it, otherwise whatever this peer's first candidate is.
+fn pick_candidate(peer: &Peer, peer_id: &str) -> Result<Candidate, String> {
+    peer.candidates()
+        .into_iter()
+        .find(|c| c.transport() == TransportId::new("direct-quic"))
+        .or_else(|| peer.candidates().first().cloned())
+        .ok_or_else(|| format!("no candidate address found for peer {peer_id}"))
+}
+
+/// Resolves `peer_id`, in either form `PeerInfo::key` may carry, into a
+/// candidate and a `PeerExpectation`. An identified peer's expectation is
+/// the Device ID the peer list merged it under -- for a Static Peer, the
+/// pin its own source re-reports once written. The registry decides only
+/// for an entry the list has not yet seen identified (docs/03, "The pin").
+pub fn resolve_peer(
+    peer_id: &str,
+    list: &PeerList,
+    registry: &StaticPeerRegistry,
+) -> Result<ResolvedPeer, String> {
+    for peer in list.peers() {
+        if let Some(device_id) = peer.device_id() {
+            if device_id.to_string() != peer_id {
+                continue;
+            }
+            let candidate = pick_candidate(&peer, peer_id)?;
+            return Ok(ResolvedPeer {
+                candidate,
+                expectation: PeerExpectation::Device(device_id),
+                pin_target: None,
+            });
+        }
+
+        let observation = peer
+            .observations()
+            .first()
+            .ok_or_else(|| format!("peer {peer_id} carries no observation"))?;
+        if observation.id().to_string() != peer_id {
+            continue;
+        }
+        if observation.id().source() != STATIC_PEER_SOURCE_ID {
+            return Err(format!("peer {peer_id} has not yet been identified"));
+        }
+
+        let static_id = StaticPeerId::new(observation.id().key().as_str())
+            .map_err(|e| format!("malformed static peer observation key: {e}"))?;
+        let expectation = registry
+            .expectation(&static_id)
+            .ok_or_else(|| format!("no static peer entry for {peer_id}"))?;
+        let candidate = pick_candidate(&peer, peer_id)?;
+        let pin_target = matches!(expectation, PeerExpectation::Unpinned).then_some(static_id);
+        return Ok(ResolvedPeer {
+            candidate,
+            expectation,
+            pin_target,
+        });
+    }
+
+    Err(format!("peer with id {peer_id} not found"))
+}
+
+/// Dials `resolved.candidate` under `resolved.expectation` and, when made
+/// under `Unpinned`, writes the `DeviceId` the channel authenticated back
+/// into the registry (docs/03, "The pin"). An `AlreadyPinned` refusal --
+/// a second device answering where an earlier pin named another -- fails
+/// the dial outright rather than being discarded (rule F6).
+pub async fn connect_and_pin(
+    transport: &QuicTransport,
+    registry: &tokio::sync::Mutex<StaticPeerRegistry>,
+    resolved: ResolvedPeer,
+) -> Result<Box<dyn SecureChannel>, String> {
+    let channel = transport
+        .connect(&resolved.candidate, &resolved.expectation)
+        .await
+        .map_err(|e| {
+            format!(
+                "failed to connect to peer at {}: {e}",
+                resolved.candidate.address()
+            )
+        })?;
+
+    if let Some(static_id) = resolved.pin_target {
+        registry
+            .lock()
+            .await
+            .pin(&static_id, channel.peer())
+            .map_err(|e| format!("failed to pin static peer {static_id}: {e}"))?;
+    }
+
+    Ok(channel)
+}
+
+/// Polls discovered peers from every source and returns the current merged list.
 #[tauri::command]
 pub async fn get_peers(
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
+    static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
 ) -> Result<Vec<PeerInfo>, String> {
-    let mut source = mdns_source.lock().await;
+    let mut mdns = mdns_source.lock().await;
+    let mut static_source = static_peer_source.lock().await;
     let mut list = peer_list.lock().await;
 
-    while let Ok(Ok(event)) =
-        tokio::time::timeout(Duration::from_millis(5), source.next_event()).await
-    {
-        let _ = list.apply(MDNS_SOURCE_ID, event);
-    }
+    drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
 
     let peers = list
         .peers()
@@ -663,6 +801,14 @@ pub async fn get_peers(
                 .device_id()
                 .map(|id| id.to_string())
                 .unwrap_or_default();
+            let key = match peer.device_id() {
+                Some(id) => id.to_string(),
+                None => peer
+                    .observations()
+                    .first()
+                    .map(|o| o.id().to_string())
+                    .unwrap_or_default(),
+            };
             let display_name = peer
                 .observations()
                 .iter()
@@ -680,6 +826,7 @@ pub async fn get_peers(
 
             PeerInfo {
                 device_id,
+                key,
                 display_name,
                 addresses,
                 capabilities,
@@ -688,6 +835,67 @@ pub async fn get_peers(
         .collect();
 
     Ok(peers)
+}
+
+/// One Static Peer entry as exposed to the frontend (docs/03, "3. Static
+/// Peer").
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StaticPeerInfo {
+    /// This entry's own id, 32 lowercase hex characters.
+    pub id: String,
+    /// The user-supplied label, if any.
+    pub label: Option<String>,
+    /// Every endpoint this entry names, normalised with a port.
+    pub endpoints: Vec<String>,
+    /// The Device ID the first connection pinned, hex, or absent before that.
+    pub expect_device_id: Option<String>,
+}
+
+/// Lists every Static Peer entry currently registered.
+#[tauri::command]
+pub async fn list_static_peers(
+    static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
+) -> Result<Vec<StaticPeerInfo>, String> {
+    let registry = static_peer_registry.lock().await;
+    Ok(registry
+        .entries()
+        .iter()
+        .map(|entry| StaticPeerInfo {
+            id: entry.id().to_string(),
+            label: entry.label().map(str::to_string),
+            endpoints: entry.endpoints().to_vec(),
+            expect_device_id: entry.expect_device_id().map(|d| d.to_string()),
+        })
+        .collect())
+}
+
+/// Registers a new Static Peer entry, returning its generated id.
+#[tauri::command]
+pub async fn add_static_peer(
+    label: Option<String>,
+    endpoints: Vec<String>,
+    static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
+) -> Result<String, String> {
+    let mut registry = static_peer_registry.lock().await;
+    let id = registry
+        .add(label.as_deref(), &endpoints, &OsRng)
+        .map_err(|e| format!("failed to add static peer: {e}"))?;
+    Ok(id.to_string())
+}
+
+/// Removes a Static Peer entry by id, along with any pin it held.
+#[tauri::command]
+pub async fn remove_static_peer(
+    id: String,
+    static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
+) -> Result<(), String> {
+    let static_id =
+        StaticPeerId::new(&id).map_err(|e| format!("invalid static peer id '{id}': {e}"))?;
+    let mut registry = static_peer_registry.lock().await;
+    registry
+        .remove(&static_id)
+        .map_err(|e| format!("failed to remove static peer: {e}"))
 }
 
 /// Queries the visible shares for a specific discovered peer.
@@ -712,47 +920,26 @@ pub async fn send_files<R: tauri::Runtime>(
     identity_state: State<'_, IdentityState>,
     sign_in_state: State<'_, SignInState>,
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
+    static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
+    static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
     peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
     transport: State<'_, Arc<QuicTransport>>,
     vfs: State<'_, Arc<NativeVfs>>,
 ) -> Result<Vec<String>, String> {
-    let target_device_id: DeviceId = peer_id
-        .parse::<DeviceId>()
-        .or_else(|_| {
-            let decoded = URL_SAFE_NO_PAD
-                .decode(&peer_id)
-                .map_err(|e| format!("invalid peer_id: {e}"))?;
-            DeviceId::from_bytes(&decoded).map_err(|e| format!("invalid peer_id: {e}"))
-        })
-        .map_err(|e| format!("failed to parse peer_id '{peer_id}': {e}"))?;
-
     {
-        let mut source = mdns_source.lock().await;
+        let mut mdns = mdns_source.lock().await;
+        let mut static_source = static_peer_source.lock().await;
         let mut list = peer_list.lock().await;
-        while let Ok(Ok(event)) =
-            tokio::time::timeout(Duration::from_millis(5), source.next_event()).await
-        {
-            let _ = list.apply(MDNS_SOURCE_ID, event);
-        }
+        drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
     }
 
-    let list = peer_list.lock().await;
-    let peer = list
-        .peer(target_device_id)
-        .ok_or_else(|| format!("peer with device id {peer_id} not found"))?;
-
-    let candidate = peer
-        .candidates()
-        .into_iter()
-        .find(|c| c.transport() == TransportId::new("direct-quic"))
-        .or_else(|| peer.candidates().first().cloned())
-        .ok_or_else(|| format!("no candidate address found for peer {peer_id}"))?;
-    drop(list);
-
-    let channel = transport
-        .connect(&candidate, &PeerExpectation::Device(target_device_id))
-        .await
-        .map_err(|e| format!("failed to connect to peer at {}: {e}", candidate.address()))?;
+    let resolved = {
+        let list = peer_list.lock().await;
+        let registry = static_peer_registry.lock().await;
+        resolve_peer(&peer_id, &list, &registry)?
+    };
+    let channel =
+        connect_and_pin(transport.as_ref(), static_peer_registry.inner(), resolved).await?;
 
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
@@ -787,46 +974,25 @@ pub async fn list_peer_directory(
     identity_state: State<'_, IdentityState>,
     sign_in_state: State<'_, SignInState>,
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
+    static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
+    static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
     peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
     transport: State<'_, Arc<QuicTransport>>,
 ) -> Result<DirListingDto, String> {
-    let target_device_id: DeviceId = peer_id
-        .parse::<DeviceId>()
-        .or_else(|_| {
-            let decoded = URL_SAFE_NO_PAD
-                .decode(&peer_id)
-                .map_err(|e| format!("invalid peer_id: {e}"))?;
-            DeviceId::from_bytes(&decoded).map_err(|e| format!("invalid peer_id: {e}"))
-        })
-        .map_err(|e| format!("failed to parse peer_id '{peer_id}': {e}"))?;
-
     {
-        let mut source = mdns_source.lock().await;
+        let mut mdns = mdns_source.lock().await;
+        let mut static_source = static_peer_source.lock().await;
         let mut list = peer_list.lock().await;
-        while let Ok(Ok(event)) =
-            tokio::time::timeout(Duration::from_millis(5), source.next_event()).await
-        {
-            let _ = list.apply(MDNS_SOURCE_ID, event);
-        }
+        drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
     }
 
-    let list = peer_list.lock().await;
-    let peer = list
-        .peer(target_device_id)
-        .ok_or_else(|| format!("peer with device id {peer_id} not found"))?;
-
-    let candidate = peer
-        .candidates()
-        .into_iter()
-        .find(|c| c.transport() == TransportId::new("direct-quic"))
-        .or_else(|| peer.candidates().first().cloned())
-        .ok_or_else(|| format!("no candidate address found for peer {peer_id}"))?;
-    drop(list);
-
-    let channel = transport
-        .connect(&candidate, &PeerExpectation::Device(target_device_id))
-        .await
-        .map_err(|e| format!("failed to connect to peer at {}: {e}", candidate.address()))?;
+    let resolved = {
+        let list = peer_list.lock().await;
+        let registry = static_peer_registry.lock().await;
+        resolve_peer(&peer_id, &list, &registry)?
+    };
+    let channel =
+        connect_and_pin(transport.as_ref(), static_peer_registry.inner(), resolved).await?;
 
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
@@ -867,46 +1033,25 @@ pub async fn download_file<R: tauri::Runtime>(
     identity_state: State<'_, IdentityState>,
     sign_in_state: State<'_, SignInState>,
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
+    static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
+    static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
     peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
     transport: State<'_, Arc<QuicTransport>>,
 ) -> Result<u64, String> {
-    let target_device_id: DeviceId = peer_id
-        .parse::<DeviceId>()
-        .or_else(|_| {
-            let decoded = URL_SAFE_NO_PAD
-                .decode(&peer_id)
-                .map_err(|e| format!("invalid peer_id: {e}"))?;
-            DeviceId::from_bytes(&decoded).map_err(|e| format!("invalid peer_id: {e}"))
-        })
-        .map_err(|e| format!("failed to parse peer_id '{peer_id}': {e}"))?;
-
     {
-        let mut source = mdns_source.lock().await;
+        let mut mdns = mdns_source.lock().await;
+        let mut static_source = static_peer_source.lock().await;
         let mut list = peer_list.lock().await;
-        while let Ok(Ok(event)) =
-            tokio::time::timeout(Duration::from_millis(5), source.next_event()).await
-        {
-            let _ = list.apply(MDNS_SOURCE_ID, event);
-        }
+        drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
     }
 
-    let list = peer_list.lock().await;
-    let peer = list
-        .peer(target_device_id)
-        .ok_or_else(|| format!("peer with device id {peer_id} not found"))?;
-
-    let candidate = peer
-        .candidates()
-        .into_iter()
-        .find(|c| c.transport() == TransportId::new("direct-quic"))
-        .or_else(|| peer.candidates().first().cloned())
-        .ok_or_else(|| format!("no candidate address found for peer {peer_id}"))?;
-    drop(list);
-
-    let channel = transport
-        .connect(&candidate, &PeerExpectation::Device(target_device_id))
-        .await
-        .map_err(|e| format!("failed to connect to peer at {}: {e}", candidate.address()))?;
+    let resolved = {
+        let list = peer_list.lock().await;
+        let registry = static_peer_registry.lock().await;
+        resolve_peer(&peer_id, &list, &registry)?
+    };
+    let channel =
+        connect_and_pin(transport.as_ref(), static_peer_registry.inner(), resolved).await?;
 
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
