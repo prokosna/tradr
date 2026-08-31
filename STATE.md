@@ -59,10 +59,47 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 **The instrument is the repair, again.** A check that `invoke_handler`, `COMMANDS` and every capability file name the same set would have failed on the commit that introduced each of these.
 
+### `iat` の未来方向に猶予がまったくなく、失敗が原因を名指ししない -- found 2026-08-31 on Windows
+
+**A freshly issued `id_token` is refused if this device's clock is one second behind the issuer's**, and the message it produces sends the reader to the wrong rule. Found by the user on the first Windows build: `Sign-in failed: iat is outside the staleness limit`, on a token Google had just minted. **Confirmed by measurement on 2026-08-31**: a `w32tm /resync` fixed it, and the machine had been off by a few seconds. So the hypothesis is not merely consistent with the symptom -- **a few seconds of ordinary skew is what took sign-in out entirely.**
+
+`classify_with_profile` step 5 is `now.elapsed_since(claims.iat)`, and `UnixTime::elapsed_since` returns `Err(ArgumentIsLater)` the moment `iat > now`. That error is mapped to `AttestationError::Stale`, whose `Display` is "iat is outside the staleness limit". **So two unrelated conditions share one name**: a token older than thirty days, and a token issued one second into the future.
+
+**The future rejection is right and the zero tolerance is not.** The comment beside it gives the real reason -- a negative age makes any limit comparison pass forever, buying unbounded life -- and that argument justifies bounding the future direction, not bounding it at zero. **A machine inside ordinary NTP tolerance can be a second behind**, and Google's `iat` is its own server's clock, so this fails intermittently on a correctly configured device and permanently on a skewed one. The test suite hides it: `an_attestation_issued_in_the_future_is_rejected` uses `NOW + 2 * DAY`, so nothing anywhere exercises a one-second skew.
+
+**docs/05 step 5 never specified the future direction at all.** It says "Check iat falls within the staleness limit, 30 days by default" and stops, so the implementation invented both the rejection and its tolerance -- the same shape as DCR-039, DCR-047 and DCR-050, where "unspecified" meant whichever answer the first implementation happened to pick.
+
+**Two things follow and they are separable.** A bounded skew allowance in the future direction, stated in docs/05 rather than chosen in code; and a distinct error for it, because a message naming the thirty-day limit for a clock problem costs whoever reads it the whole diagnosis. **This is Critical Module territory** -- Attestation verification -- so its tests are written before the Work Item is dispatched.
+
+### Three defects found by running the Windows build, 2026-08-31
+
+**None of these is reachable from Linux or from CI**, and all three were found in the first hour of using a real Windows machine. `cargo test --workspace` passes on `windows-latest`, so this is the gap between a green matrix and a working application.
+
+**F-W1. `send_files` asks "is this absolute?" as `name.starts_with('/')`.** `crates/tauri-plugin-tradr/src/commands.rs` branches on that to decide whether to register a temporary VFS root for the file's parent directory, and on Windows an absolute path is `C:\Users\...`, which does not start with `/`. So the whole absolute path falls into the relative branch and reaches `RelPath::new`, which refuses it correctly and for the wrong-looking reason: `invalid relative path 'C:\Users\prokosna\Downloads\...': relative path contains a backslash`. **The message is accurate and the diagnosis it invites is wrong** -- nothing is wrong with the path, it was never recognised as absolute. `std::path::Path::is_absolute` is the platform-correct test and handles `C:\`, UNC and `\\?\` as well as `/`. **Drag-and-drop is the only way to send a file on Windows today, and it is the one that fails.**
+
+**F-W2. The `dialog` plugin is initialised and permitted nowhere, so `Select Files` does nothing.** `apps/tradr/src-tauri/src/lib.rs` registers `tauri_plugin_dialog::init()`, and `apps/tradr/src-tauri/capabilities/default.json` grants no `dialog:` permission at all, so the IPC ACL refuses `open()`. **This is the same defect the `WI-M5-004` DCR found, in another plugin**, which widens `WI-M5-006`: the instrument has to cover every plugin the frontend calls, not only `tauri-plugin-tradr`'s own `COMMANDS`. **A second fault makes it invisible rather than merely broken**: the handler ends in `catch (e) { console.error(...) }`, so an ACL refusal reaches no part of the interface and the button silently does nothing. That is rule F6's shape on the frontend, where no check looks.
+
+**F-W3. A registered Static Peer is not selectable where a user looks for it, and that is an affordance rather than a defect -- settled by observation on 2026-08-31.** The entry does reach the Discovered Peers list; the user confirmed it appears there after adding. The Static Peers section lists entries with a Remove button and no way to act on one, and the Discovered Peers section's empty text reads "No peers discovered on local network yet", **which tells a reader that a hand-registered peer does not belong there.** So the plumbing is right and the interface hides it. The repair is labelling and placement, not the source or the drain.
+
+### Trust on first use works on real machines, 2026-08-31
+
+**A Static Peer registered by hand on Windows was dialled, authenticated, and pinned, against a real MacBook.** The user pressed send and watched the entry change from "Unidentified" to carrying the peer's identity -- which is the whole of docs/03's "Trust on first use needs no operation of its own" running for the first time outside a loopback test: the dial went out under `PeerExpectation::Unpinned`, the channel authenticated, `connect_and_pin` wrote the `DeviceId` back, the source re-reported the same `ObservationId` with it present, and the peer list merged it.
+
+**This is stronger evidence than it looks, because of how the candidate was chosen.** An unidentified peer holds exactly one observation, so the only candidates that could have been dialled are the static entry's own. **Whatever address the user typed is what was dialled and what authenticated** -- no mDNS candidate could have substituted for it.
+
+**The transfer that followed failed on F-W1**, so what is proven is the connection, the authentication and the pin, and not yet a file arriving. **The endpoint was a MagicDNS name, and the MacBook was moved onto phone tethering to run it** -- reported by the user on 2026-08-31. That combination is what makes the observation worth what it is:
+
+- **The two machines were on different networks, so mDNS could not see the peer at all.** Nothing could have substituted a LAN candidate for the tailnet one, which is the substitution that would have made the whole test vacuous.
+- **A MagicDNS name does not parse as a `SocketAddr`, so DCR-062's resolver path ran for real** -- the first time outside a `localhost` test.
+- **MagicDNS answers with both an `fd7a::` AAAA and a `100.x` A**, and the endpoint binds `0.0.0.0`, so DCR-062's family filter is what selected the address that could be dialled. **That rule was written from a probe and had never run against a real answer.**
+
+**So every part of M5's completion criterion is now demonstrated except the file arriving**: a hostname, resolved, over an overlay network, with no mDNS anywhere in the path, authenticated and pinned. The transfer itself failed on F-W1, which `WI-M5-008` fixes.
+
 ## Next three actions
-1. **M5's completion criterion, and it is the user's to run**: two real machines on a tailnet, a Static Peer entry naming the other by its MagicDNS name, and a transfer over it. Everything below it is now in place and loopback-tested, and **loopback cannot produce this number** any more than it could produce ADR-0004's throughput figure -- what it cannot exercise is the resolver, the 100.x address family, and a path with no mDNS on it at all
-2. WI-M5-005, rule F6 in `tauri-plugin-tradr`, and the check in `ci/` that would have caught it. See the finding below
-3. WI-M5-006, the check that `invoke_handler`, `COMMANDS` and every capability file name the same set of commands. Two commands are unreachable at runtime today and neither is M5's. See the finding below
+1. **Re-run the M5 verification, in the configuration that already worked**: the MacBook on phone tethering, the Windows machine on its own network, the entry naming the MacBook's MagicDNS name. `WI-M5-008` removes the last blocker, so a file can now leave Windows. **Everything except the file arriving is already demonstrated on that pair**
+2. **M5's completion criterion, and it is the user's to run**: **Windows and the MacBook**, settled 2026-08-31 -- WSL is excluded deliberately, since WSL2's NAT puts a second address translation inside the one path this criterion measures, and a failure there could not be told from a defect in Tradr. Two real machines on a tailnet, a Static Peer entry naming the other by its MagicDNS name, and a transfer over it. Everything below it is now in place and loopback-tested, and **loopback cannot produce this number** any more than it could produce ADR-0004's throughput figure -- what it cannot exercise is the resolver, the 100.x address family, and a path with no mDNS on it at all
+3. WI-M5-005, rule F6 in `tauri-plugin-tradr`, and the check in `ci/` that would have caught it. See the finding below
+4. WI-M5-006, the check that `invoke_handler`, `COMMANDS` and every capability file name the same set of commands. Two commands are unreachable at runtime today and neither is M5's. See the finding below
 
 ## In flight
 
@@ -314,7 +351,11 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M5-003 | **The default listen port and the adapter wiring** (DCR-063): `21820` with an ephemeral fallback, the registry loaded from the application data directory, the source merged into the peer list beside mDNS, and the pin written back from the connection that authenticated it | **done** -- PASS after one REVISE | |
 | WI-M5-004 | **The UI for a Static Peer**: add, list and remove an entry, and act on a peer that has no Device ID yet. Carries the three commands' missing `COMMANDS` and capability entries, without which the UI could not call them | **done** -- PASS after one DCR the Supervisor ruled on | |
 | WI-M5-005 | **Rule F6 in `tauri-plugin-tradr`, and the instrument that would have caught it**: the eighteen `let _ =` bindings `WI-M5-003` does not touch, and a ninth check in `ci/` over a discarded `Result`. See the finding above | todo | |
-| WI-M5-006 | **One command, three lists, one instrument**: a check that `invoke_handler`, `build.rs`'s `COMMANDS` and every capability file name the same set, plus the entries `download_file` and M2's three Android commands are missing. See the finding above | todo | |
+| WI-M5-007 | **A bounded clock-skew allowance for `iat`, and an error that names it.** Blocks the M5 verification: sign-in fails on the Windows machine it needs. **Critical Module, Supervisor tests first** | todo | Yes |
+| WI-M5-006 | **Every plugin command the frontend calls must be permitted, and one instrument for all of them**: `invoke_handler`, `build.rs`'s `COMMANDS` and every capability file naming the same set, widened by F-W2 to cover other plugins' commands too -- `dialog:allow-open` is missing and `Select Files` is dead because of it. Also `download_file` and M2's three Android commands | todo | |
+| WI-M5-008 | **`is_absolute` in place of `starts_with('/')`** (F-W1), and a test that a Windows-shaped absolute path is recognised. **Sending a file from Windows is impossible until this lands** | **done** -- PASS, verified by CI's `windows` job rather than locally | |
+| WI-M5-009 | **The `dialog` permission, and the refusal made visible** (F-W2): `dialog:allow-open` in the capability file, and the `catch` that sends an ACL refusal to `console.error` and nowhere else | todo | |
+| WI-M5-010 | **Where a Static Peer appears, said in the interface** (F-W3): the Discovered Peers section claims to list what is on the local network, and a hand-registered peer arrives there with no explanation | todo | |
 
 
 ## Deferred

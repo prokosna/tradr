@@ -188,6 +188,24 @@ pub(crate) fn generate_transfer_id(rng: &dyn Rng) -> Result<TransferId, String> 
     s.parse::<TransferId>().map_err(|e| e.to_string())
 }
 
+// `starts_with('/')` only recognises a Unix absolute path; drag-and-drop on
+// Windows hands the frontend `C:\...`, UNC or `\\?\...` paths, none of which
+// start with `/`, so they fell into the relative branch and were rejected by
+// `RelPath::new` (WI-M5-008). `Path::is_absolute` is the platform-correct test.
+fn split_absolute_path(name: &str) -> Option<(std::path::PathBuf, String)> {
+    let path = std::path::Path::new(name);
+    if !path.is_absolute() {
+        return None;
+    }
+    let parent = path.parent().unwrap_or(path).to_path_buf();
+    let file_name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    Some((parent, file_name))
+}
+
 /// Executes the sending side of a file transfer session over an open secure channel with progress callbacks.
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_send_files_with_progress<F>(
@@ -246,10 +264,7 @@ where
 
     let mut actual_roots = std::collections::HashMap::new();
     for (idx, name) in file_names.iter().enumerate() {
-        let (actual_root, rel_path) = if name.starts_with('/') {
-            let path = std::path::Path::new(name);
-            let parent = path.parent().unwrap_or(path);
-            let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+        let (actual_root, rel_path) = if let Some((parent, file_name)) = split_absolute_path(name) {
             let r = RelPath::new(&file_name)
                 .map_err(|e| format!("invalid filename '{file_name}': {e}"))?;
 
@@ -258,7 +273,7 @@ where
             name.hash(&mut hasher);
             let temp_root = tradr_core::RootId::new(hasher.finish());
 
-            vfs.register_root(temp_root, parent.to_path_buf(), true)
+            vfs.register_root(temp_root, parent, true)
                 .map_err(|e| format!("failed to register temp root for '{name}': {e}"))?;
             (temp_root, r)
         } else {
@@ -1219,5 +1234,54 @@ pub async fn show_incoming_transfer_notification<R: tauri::Runtime>(
     #[cfg(not(target_os = "android"))]
     {
         crate::desktop::show_incoming_transfer_notification(transfer_id, sender_name).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_absolute_path;
+
+    #[test]
+    fn a_plain_relative_name_is_not_absolute() {
+        assert!(split_absolute_path("report.pdf").is_none());
+    }
+
+    #[test]
+    fn a_relative_name_with_a_subdirectory_is_not_absolute() {
+        assert!(split_absolute_path("sub/report.pdf").is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_drive_path_is_absolute() {
+        let (parent, file_name) = split_absolute_path(r"C:\Users\me\report.pdf")
+            .expect("a drive-letter path must be recognised as absolute");
+        assert_eq!(parent, std::path::PathBuf::from(r"C:\Users\me"));
+        assert_eq!(file_name, "report.pdf");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_unix_path_is_absolute() {
+        let (parent, file_name) = split_absolute_path("/home/me/report.pdf")
+            .expect("a leading-slash path must be recognised as absolute");
+        assert_eq!(parent, std::path::PathBuf::from("/home/me"));
+        assert_eq!(file_name, "report.pdf");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_non_ascii_file_name_survives_the_split_unchanged() {
+        let (_, file_name) = split_absolute_path("/home/me/20260830_配置図.pdf")
+            .expect("a leading-slash path must be recognised as absolute");
+        assert_eq!(file_name, "20260830_配置図.pdf");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_non_ascii_file_name_survives_the_split_unchanged() {
+        let (_, file_name) = split_absolute_path(r"C:\Users\me\20260830_配置図.pdf")
+            .expect("a drive-letter path must be recognised as absolute");
+        assert_eq!(file_name, "20260830_配置図.pdf");
     }
 }
