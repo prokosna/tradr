@@ -19,6 +19,8 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 > **Everything below this line is derivable from somewhere else, so it is not written here.** What exists is the Work Item table. How many crates there are is `ls crates/`. Which rules hold is `ci/run-all.sh`. **A prose inventory in this spot has now gone stale four times, the last time while carrying a warning that said it goes stale** -- so the inventory is gone rather than corrected a fifth time, and what remains is the two things nothing else records.
 
+**M5's completion criterion is met.** On 2026-08-31 a file went from a Windows machine to a MacBook through a Static Peer entry naming the MacBook's MagicDNS name, over a tailnet, **with the MacBook on phone tethering so the two were on different networks and mDNS could see nothing at all**. That configuration is what makes it worth recording: no LAN candidate could have substituted for the tailnet one, which is the substitution that would have made the result vacuous. A MagicDNS name does not parse as a `SocketAddr`, so DCR-062's resolver ran; MagicDNS answers with an `fd7a::` AAAA beside the `100.x` A and the endpoint binds `0.0.0.0`, so **DCR-062's family filter chose the address, against a real answer for the first time** -- that rule had only ever been exercised against a probe. Trust on first use ran the whole way: dialled under `Unpinned`, authenticated, pinned, re-reported, merged.
+
 **M3's completion criterion is met.** On 2026-08-30, a device browsed files exposed by a peer's configured Share and successfully downloaded a file over the Browse plane.
 
 **M2's completion criterion is met.** On 2026-08-30, the user chose a photo in the Android gallery and successfully delivered it to a PC via Tradr's share sheet integration.
@@ -96,10 +98,9 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **So every part of M5's completion criterion is now demonstrated except the file arriving**: a hostname, resolved, over an overlay network, with no mDNS anywhere in the path, authenticated and pinned. The transfer itself failed on F-W1, which `WI-M5-008` fixes.
 
 ## Next three actions
-1. **Re-run the M5 verification, in the configuration that already worked**: the MacBook on phone tethering, the Windows machine on its own network, the entry naming the MacBook's MagicDNS name. `WI-M5-008` removes the last blocker, so a file can now leave Windows. **Everything except the file arriving is already demonstrated on that pair**
-2. **M5's completion criterion, and it is the user's to run**: **Windows and the MacBook**, settled 2026-08-31 -- WSL is excluded deliberately, since WSL2's NAT puts a second address translation inside the one path this criterion measures, and a failure there could not be told from a defect in Tradr. Two real machines on a tailnet, a Static Peer entry naming the other by its MagicDNS name, and a transfer over it. Everything below it is now in place and loopback-tested, and **loopback cannot produce this number** any more than it could produce ADR-0004's throughput figure -- what it cannot exercise is the resolver, the 100.x address family, and a path with no mDNS on it at all
-3. WI-M5-005, rule F6 in `tauri-plugin-tradr`, and the check in `ci/` that would have caught it. See the finding below
-4. WI-M5-006, the check that `invoke_handler`, `COMMANDS` and every capability file name the same set of commands. Two commands are unreachable at runtime today and neither is M5's. See the finding below
+1. **WI-M5-007, the `iat` skew.** A few seconds of ordinary clock skew takes sign-in out entirely, and sign-in is the first thing a new device does. Attestation verification is a Critical Module, so the Supervisor writes its tests before the Work Item is dispatched
+2. **WI-M5-006, every plugin command the frontend calls.** `dialog:allow-open` is missing so `Select Files` is dead, `download_file` and three of M2's Android commands are in the same state, and one instrument covers all of them
+3. **Open M6 properly**: read [docs/11](docs/11-account-linking.md) and cut its Work Items. `WI-M5-005` and `WI-M5-010` can ride alongside it -- neither blocks a user
 
 ## In flight
 
@@ -338,23 +339,20 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | M8 | Brokr — presence, rendezvous, relay, FCM, revocation list | 3 weeks | todo |
 | M9 | Finishing — security review, store submission, packaging, i18n | ongoing | todo |
 
-### Current milestone: M5, Static Peers and overlay networks
-**Design**: docs/03-discovery-and-transport.md
-**Done when**: A device can connect to a static peer by IP or hostname and perform transfers over an overlay network (e.g., Tailscale).
+### Current milestone: M6, Account linking
+**Design**: [docs/11-account-linking.md](docs/11-account-linking.md)
+**Done when**: two devices on different accounts link by QR, transfer both ways, and removal takes effect immediately.
+
+**M5's Work Items are in [RECORD.md](RECORD.md); four of them did not land and are carried here rather than closed with the milestone.** Every one is a defect a user meets on a first run, and three were found by running the Windows build rather than by any gate. **The recommendation is to clear them before M6 opens properly**, and `WI-M5-007` first: a few seconds of ordinary clock skew takes sign-in out entirely, which is the first thing a new device does.
 
 #### Work Items
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M5-001 | **`direct-quic` resolves a DNS name** (DCR-062), closing DF-21. The parse stays first, the resolver answers only what it refuses, and the answer is filtered to the families this endpoint can dial | **done** -- PASS after one REVISE | |
-| WI-M5-002 | **The Static Peer registry and its `DiscoverySource`** (DCR-063): the entry, its own id, the endpoint normalisation, the JSON file, and the pin. **Critical Module, Supervisor tests first** | **done** -- PASS after one REVISE | Yes |
-| WI-M5-003 | **The default listen port and the adapter wiring** (DCR-063): `21820` with an ephemeral fallback, the registry loaded from the application data directory, the source merged into the peer list beside mDNS, and the pin written back from the connection that authenticated it | **done** -- PASS after one REVISE | |
-| WI-M5-004 | **The UI for a Static Peer**: add, list and remove an entry, and act on a peer that has no Device ID yet. Carries the three commands' missing `COMMANDS` and capability entries, without which the UI could not call them | **done** -- PASS after one DCR the Supervisor ruled on | |
 | WI-M5-005 | **Rule F6 in `tauri-plugin-tradr`, and the instrument that would have caught it**: the eighteen `let _ =` bindings `WI-M5-003` does not touch, and a ninth check in `ci/` over a discarded `Result`. See the finding above | todo | |
-| WI-M5-007 | **A bounded clock-skew allowance for `iat`, and an error that names it.** Blocks the M5 verification: sign-in fails on the Windows machine it needs. **Critical Module, Supervisor tests first** | todo | Yes |
+| WI-M5-007 | **A bounded clock-skew allowance for `iat`, and an error that names it.** A few seconds of ordinary skew takes sign-in out entirely, and sign-in is the first thing a new device does. **Critical Module, Supervisor tests first** | todo | Yes |
 | WI-M5-006 | **Every plugin command the frontend calls must be permitted, and one instrument for all of them**: `invoke_handler`, `build.rs`'s `COMMANDS` and every capability file naming the same set, widened by F-W2 to cover other plugins' commands too -- `dialog:allow-open` is missing and `Select Files` is dead because of it. Also `download_file` and M2's three Android commands | todo | |
-| WI-M5-008 | **`is_absolute` in place of `starts_with('/')`** (F-W1), and a test that a Windows-shaped absolute path is recognised. **Sending a file from Windows is impossible until this lands** | **done** -- PASS, verified by CI's `windows` job rather than locally | |
-| WI-M5-009 | **The `dialog` permission, and the refusal made visible** (F-W2): `dialog:allow-open` in the capability file, and the `catch` that sends an ACL refusal to `console.error` and nowhere else | todo | |
+| WI-M5-009 | **A refusal the frontend swallows reaches nobody** (F-W2's second half): `Select Files` ends in `catch (e) { console.error(...) }`, so the ACL refusal that broke it produced no visible symptom at all. Rule F6's shape on the side of the codebase no check looks at. The permission itself is `WI-M5-006` | todo | |
 | WI-M5-010 | **Where a Static Peer appears, said in the interface** (F-W3): the Discovered Peers section claims to list what is on the local network, and a hand-registered peer arrives there with no explanation | todo | |
 
 
