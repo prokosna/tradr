@@ -75,12 +75,25 @@ type PeerVerifyState =
 	| { status: "error"; message: string };
 
 // Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
-// returns from `get_peers`.
+// returns from `get_peers`. `device_id` is empty for a peer nothing has
+// identified yet -- a Static Peer entry before its first connection --
+// so `key` (the Device ID, or the ObservationId before one is known) is
+// what selection and list keys must use instead.
 interface PeerInfo {
 	device_id: string;
+	key: string;
 	display_name: string | null;
 	addresses: string[];
 	capabilities: number;
+}
+
+// Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
+// returns from `list_static_peers`.
+interface StaticPeerInfo {
+	id: string;
+	label: string | null;
+	endpoints: string[];
+	expectDeviceId: string | null;
 }
 
 // Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
@@ -131,6 +144,17 @@ type BrowseState =
 	| { status: "loaded"; listing: DirListingDto }
 	| { status: "error"; message: string };
 
+type StaticPeerListState =
+	| { status: "loading" }
+	| { status: "loaded"; entries: StaticPeerInfo[] }
+	| { status: "error"; message: string };
+
+type StaticPeerActionState =
+	| { status: "idle" }
+	| { status: "adding" }
+	| { status: "removing"; id: string }
+	| { status: "error"; message: string };
+
 function formatBytes(bytes: number): string {
 	if (bytes === 0) return "0 B";
 	const k = 1024;
@@ -173,6 +197,14 @@ export function App() {
 	const [browseState, setBrowseState] = useState<BrowseState>({
 		status: "idle",
 	});
+
+	const [staticPeerList, setStaticPeerList] = useState<StaticPeerListState>({
+		status: "loading",
+	});
+	const [staticPeerLabel, setStaticPeerLabel] = useState("");
+	const [staticPeerEndpoints, setStaticPeerEndpoints] = useState("");
+	const [staticPeerAction, setStaticPeerAction] =
+		useState<StaticPeerActionState>({ status: "idle" });
 
 	const loadShares = useCallback((peerId: string) => {
 		invoke<ShareInfo[]>("plugin:tradr|get_visible_shares", { peerId })
@@ -254,7 +286,7 @@ export function App() {
 				setSelectedPeerId((prev) => {
 					if (list.length > 0 && prev === null) {
 						const first = list[0];
-						return first ? first.device_id : null;
+						return first ? first.key : null;
 					}
 					return prev;
 				});
@@ -267,6 +299,61 @@ export function App() {
 		const interval = setInterval(refreshPeers, 2000);
 		return () => clearInterval(interval);
 	}, [refreshPeers]);
+
+	const loadStaticPeers = useCallback(() => {
+		invoke<StaticPeerInfo[]>("plugin:tradr|list_static_peers")
+			.then((entries) => setStaticPeerList({ status: "loaded", entries }))
+			.catch((error) =>
+				setStaticPeerList({ status: "error", message: String(error) }),
+			);
+	}, []);
+
+	useEffect(() => {
+		loadStaticPeers();
+	}, [loadStaticPeers]);
+
+	const handleAddStaticPeer = () => {
+		const endpoints = staticPeerEndpoints
+			.split(",")
+			.map((endpoint) => endpoint.trim())
+			.filter((endpoint) => endpoint.length > 0);
+		if (endpoints.length === 0) {
+			setStaticPeerAction({
+				status: "error",
+				message: "Enter at least one endpoint.",
+			});
+			return;
+		}
+		const label = staticPeerLabel.trim();
+		setStaticPeerAction({ status: "adding" });
+		invoke<string>("plugin:tradr|add_static_peer", {
+			label: label.length > 0 ? label : null,
+			endpoints,
+		}).then(
+			() => {
+				setStaticPeerAction({ status: "idle" });
+				setStaticPeerLabel("");
+				setStaticPeerEndpoints("");
+				loadStaticPeers();
+			},
+			(error) => {
+				setStaticPeerAction({ status: "error", message: String(error) });
+			},
+		);
+	};
+
+	const handleRemoveStaticPeer = (id: string) => {
+		setStaticPeerAction({ status: "removing", id });
+		invoke<void>("plugin:tradr|remove_static_peer", { id }).then(
+			() => {
+				setStaticPeerAction({ status: "idle" });
+				loadStaticPeers();
+			},
+			(error) => {
+				setStaticPeerAction({ status: "error", message: String(error) });
+			},
+		);
+	};
 
 	useEffect(() => {
 		invoke<DeviceIdentitySnapshot>("plugin:tradr|device_identity").then(
@@ -310,7 +397,7 @@ export function App() {
 							"plugin:tradr|get_peers",
 						);
 						if (currentPeers.length > 0) {
-							setSelectedPeerId(currentPeers[0]?.device_id || null);
+							setSelectedPeerId(currentPeers[0]?.key || null);
 						}
 					} catch (e) {
 						console.error("Failed to get peers for share intent", e);
@@ -506,61 +593,188 @@ export function App() {
 					<p>No peers discovered on local network yet.</p>
 				) : (
 					<ul style={{ listStyle: "none", padding: 0 }}>
-						{peers.map((peer) => (
-							<li
-								key={peer.device_id}
-								style={{
-									margin: "0.5rem 0",
-									padding: "0.5rem",
-									border:
-										selectedPeerId === peer.device_id
-											? "2px solid #0078d4"
-											: "1px solid #ddd",
-									borderRadius: "4px",
-									cursor: "pointer",
-								}}
-								onClick={() => setSelectedPeerId(peer.device_id)}
-								onKeyDown={(e) => {
-									if (e.key === "Enter" || e.key === " ") {
-										setSelectedPeerId(peer.device_id);
-									}
-								}}
-							>
-								<label style={{ cursor: "pointer", display: "block" }}>
-									<input
-										type="radio"
-										name="peer-selection"
-										value={peer.device_id}
-										checked={selectedPeerId === peer.device_id}
-										onChange={() => setSelectedPeerId(peer.device_id)}
-										style={{ marginRight: "0.5rem" }}
-									/>
-									<strong>{peer.display_name || peer.device_id}</strong>
-									<span
-										style={{
-											fontSize: "0.85em",
-											color: "#666",
-											marginLeft: "0.5rem",
-										}}
-									>
-										({peer.device_id.slice(0, 8)}...)
-									</span>
-								</label>
-								{peer.addresses.length > 0 && (
-									<p
-										style={{
-											margin: "0.25rem 0 0 1.5rem",
-											fontSize: "0.8em",
-											color: "#666",
-										}}
-									>
-										Addresses: {peer.addresses.join(", ")}
-									</p>
-								)}
-							</li>
-						))}
+						{peers.map((peer) => {
+							const isIdentified = peer.device_id.length > 0;
+							return (
+								<li
+									key={peer.key}
+									style={{
+										margin: "0.5rem 0",
+										padding: "0.5rem",
+										border:
+											selectedPeerId === peer.key
+												? "2px solid #0078d4"
+												: "1px solid #ddd",
+										borderRadius: "4px",
+										cursor: "pointer",
+									}}
+									onClick={() => setSelectedPeerId(peer.key)}
+									onKeyDown={(e) => {
+										if (e.key === "Enter" || e.key === " ") {
+											setSelectedPeerId(peer.key);
+										}
+									}}
+								>
+									<label style={{ cursor: "pointer", display: "block" }}>
+										<input
+											type="radio"
+											name="peer-selection"
+											value={peer.key}
+											checked={selectedPeerId === peer.key}
+											onChange={() => setSelectedPeerId(peer.key)}
+											style={{ marginRight: "0.5rem" }}
+										/>
+										<strong>{peer.display_name || "Unidentified peer"}</strong>
+										<span
+											style={{
+												fontSize: "0.85em",
+												color: "#666",
+												marginLeft: "0.5rem",
+											}}
+										>
+											{isIdentified
+												? `(${peer.device_id.slice(0, 8)}...)`
+												: "(not yet identified)"}
+										</span>
+									</label>
+									{peer.addresses.length > 0 && (
+										<p
+											style={{
+												margin: "0.25rem 0 0 1.5rem",
+												fontSize: "0.8em",
+												color: "#666",
+											}}
+										>
+											Addresses: {peer.addresses.join(", ")}
+										</p>
+									)}
+								</li>
+							);
+						})}
 					</ul>
 				)}
+			</section>
+
+			<section
+				style={{
+					marginTop: "1.5rem",
+					borderTop: "1px solid #ccc",
+					paddingTop: "1rem",
+				}}
+			>
+				<h2>Static Peers</h2>
+				<p>
+					A reachable address you register by hand, for overlay networks and
+					fixed IPs (Tailscale, WireGuard, ZeroTier). The first connection pins
+					the peer's Device ID; later connections are refused if it changes.
+				</p>
+				<div
+					style={{
+						display: "flex",
+						gap: "0.5rem",
+						flexWrap: "wrap",
+						alignItems: "flex-end",
+					}}
+				>
+					<label>
+						<div>Label (optional)</div>
+						<input
+							type="text"
+							value={staticPeerLabel}
+							onChange={(e) => setStaticPeerLabel(e.target.value)}
+							placeholder="Home desktop"
+						/>
+					</label>
+					<label>
+						<div>Endpoints</div>
+						<input
+							type="text"
+							value={staticPeerEndpoints}
+							onChange={(e) => setStaticPeerEndpoints(e.target.value)}
+							placeholder="desktop.tail9f3c.ts.net, 192.168.10.5:21820"
+							style={{ width: "22rem" }}
+						/>
+					</label>
+					<button
+						type="button"
+						onClick={handleAddStaticPeer}
+						disabled={staticPeerAction.status === "adding"}
+					>
+						{staticPeerAction.status === "adding"
+							? "Adding..."
+							: "Add Static Peer"}
+					</button>
+				</div>
+				<p style={{ fontSize: "0.8em", color: "#666" }}>
+					Separate multiple endpoints with commas. A missing port defaults to
+					21820.
+				</p>
+
+				{staticPeerAction.status === "error" && (
+					<p style={{ color: "red" }}>{staticPeerAction.message}</p>
+				)}
+
+				{staticPeerList.status === "loading" && <p>Loading static peers...</p>}
+				{staticPeerList.status === "error" && (
+					<p style={{ color: "red" }}>
+						Could not load static peers: {staticPeerList.message}
+					</p>
+				)}
+				{staticPeerList.status === "loaded" &&
+					(staticPeerList.entries.length === 0 ? (
+						<p>No static peers registered yet.</p>
+					) : (
+						<ul style={{ listStyle: "none", padding: 0 }}>
+							{staticPeerList.entries.map((entry) => {
+								const isRemoving =
+									staticPeerAction.status === "removing" &&
+									staticPeerAction.id === entry.id;
+								return (
+									<li
+										key={entry.id}
+										style={{
+											margin: "0.5rem 0",
+											padding: "0.5rem",
+											border: "1px solid #ddd",
+											borderRadius: "4px",
+										}}
+									>
+										<strong>
+											{entry.label || entry.endpoints[0] || entry.id}
+										</strong>
+										<p
+											style={{
+												margin: "0.25rem 0 0",
+												fontSize: "0.85em",
+												color: "#666",
+											}}
+										>
+											Endpoints: {entry.endpoints.join(", ")}
+										</p>
+										<p
+											style={{
+												margin: "0.25rem 0 0",
+												fontSize: "0.85em",
+												color: "#666",
+											}}
+										>
+											{entry.expectDeviceId
+												? `Pinned to ${entry.expectDeviceId}`
+												: "Not yet connected"}
+										</p>
+										<button
+											type="button"
+											onClick={() => handleRemoveStaticPeer(entry.id)}
+											disabled={isRemoving}
+											style={{ marginTop: "0.5rem" }}
+										>
+											{isRemoving ? "Removing..." : "Remove"}
+										</button>
+									</li>
+								);
+							})}
+						</ul>
+					))}
 			</section>
 
 			<section
@@ -711,7 +925,8 @@ export function App() {
 							>
 								{shares.map((share) => (
 									<option key={share.shareId} value={share.shareId}>
-										{share.label} ({share.mode}) - {share.shareId.slice(0, 8)}...
+										{share.label} ({share.mode}) - {share.shareId.slice(0, 8)}
+										...
 									</option>
 								))}
 								{shares.length === 0 && (
@@ -790,8 +1005,7 @@ export function App() {
 												padding: 0,
 												textDecoration:
 													idx === arr.length - 1 ? "none" : "underline",
-												fontWeight:
-													idx === arr.length - 1 ? "bold" : "normal",
+												fontWeight: idx === arr.length - 1 ? "bold" : "normal",
 											}}
 										>
 											{seg}

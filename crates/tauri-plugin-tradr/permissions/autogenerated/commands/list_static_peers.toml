@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-list-static-peers"
+description = "Enables the list_static_peers command without any pre-configured scope."
+commands.allow = ["list_static_peers"]
+
+[[permission]]
+identifier = "deny-list-static-peers"
+description = "Denies the list_static_peers command without any pre-configured scope."
+commands.deny = ["list_static_peers"]
