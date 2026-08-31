@@ -6,7 +6,7 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.** `branch`, `work_items_landed`, and `last_commit` are no longer declared here — see [docs/10](docs/10-implementation-process.md#the-yaml-header--what-is-in-it-and-what-was-removed-dcr-060) for the one-command equivalents.
 
 ```yaml
-last_updated: 2026-08-30
+last_updated: 2026-08-31
 phase: implementing
 current_milestone: M4
 implementation_started: true

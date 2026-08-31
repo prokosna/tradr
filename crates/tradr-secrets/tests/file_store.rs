@@ -4,6 +4,7 @@
 //! second Device Key over a key that is still there.
 
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
@@ -22,6 +23,7 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
+#[cfg(unix)]
 fn mode_of(path: &PathBuf) -> u32 {
     fs::metadata(path)
         .expect("the path should exist")
@@ -54,6 +56,7 @@ fn a_stored_value_comes_back_byte_identical() {
 // A key readable by another account on the machine is a key that has left
 // the device, which is the one promise this rung still makes.
 #[test]
+#[cfg(unix)]
 fn the_stored_file_is_readable_only_by_its_owner() {
     let dir = scratch("mode");
     let store = FileStore::new(dir.clone());
@@ -64,6 +67,7 @@ fn the_stored_file_is_readable_only_by_its_owner() {
 }
 
 #[test]
+#[cfg(unix)]
 fn the_directory_is_created_and_is_reachable_only_by_its_owner() {
     let dir = scratch("dirmode");
     let store = FileStore::new(dir.clone());
@@ -87,6 +91,7 @@ fn a_second_store_replaces_the_first_rather_than_appending() {
 }
 
 #[test]
+#[cfg(unix)]
 fn a_replaced_file_is_still_readable_only_by_its_owner() {
     let dir = scratch("replacemode");
     let store = FileStore::new(dir.clone());
@@ -101,6 +106,7 @@ fn a_replaced_file_is_still_readable_only_by_its_owner() {
 // an absent one are one line apart in every filesystem API and mean
 // opposite things to a caller deciding whether to generate a key.
 #[test]
+#[cfg(unix)]
 fn a_file_that_cannot_be_read_is_an_error_and_not_an_empty_slot() {
     let dir = scratch("unreadable");
     let store = FileStore::new(dir.clone());
@@ -233,6 +239,7 @@ fn a_refused_slot_creates_nothing_at_all() {
 // mode it has, so a store that only ever creates its own paths keeps the
 // 0600 promise by luck rather than by enforcing it.
 #[test]
+#[cfg(unix)]
 fn a_directory_that_already_exists_too_widely_is_narrowed() {
     let dir = scratch("widedir");
     fs::create_dir_all(&dir).expect("the directory should be creatable");
@@ -246,6 +253,7 @@ fn a_directory_that_already_exists_too_widely_is_narrowed() {
 }
 
 #[test]
+#[cfg(unix)]
 fn a_file_that_already_exists_too_widely_is_narrowed() {
     let dir = scratch("widefile");
     fs::create_dir_all(&dir).expect("the directory should be creatable");
