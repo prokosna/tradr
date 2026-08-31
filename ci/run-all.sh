@@ -7,7 +7,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 overall=0
 
-for check in comment-lang comment-length doc-visibility excuse-grep invoke-commands layer-deps state-sync hooks-executable; do
+for check in comment-lang comment-length doc-visibility excuse-grep invoke-commands layer-deps plugin-permissions state-sync hooks-executable; do
 	echo "== $check =="
 	if ! "$SCRIPT_DIR/$check.sh"; then
 		overall=1

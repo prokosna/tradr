@@ -114,6 +114,32 @@ Denies the device_identity command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-download-file`
+
+</td>
+<td>
+
+Enables the download_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-download-file`
+
+</td>
+<td>
+
+Denies the download_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-get-peers`
 
 </td>

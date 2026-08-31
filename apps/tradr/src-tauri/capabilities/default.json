@@ -13,10 +13,16 @@
 		"tradr:allow-get-peers",
 		"tradr:allow-get-visible-shares",
 		"tradr:allow-list-peer-directory",
+		"tradr:allow-download-file",
 		"tradr:allow-send-files",
 		"tradr:allow-add-static-peer",
 		"tradr:allow-remove-static-peer",
 		"tradr:allow-list-static-peers",
-		"tradr:allow-publish-sharing-shortcuts"
+		"tradr:allow-publish-sharing-shortcuts",
+		"tradr:allow-pick-share-root",
+		"tradr:allow-request-permissions",
+		"tradr:allow-check-permissions",
+		"tradr:allow-show-incoming-transfer-notification",
+		"dialog:allow-open"
 	]
 }
