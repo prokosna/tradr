@@ -7,7 +7,7 @@ use tradr_core::{
 };
 
 use crate::sanitization::{check_deny_list, check_deny_list_write, is_denied};
-use crate::{PosixReadHandle, PosixWriteHandle};
+use crate::{NativeReadHandle, NativeWriteHandle};
 
 /// A node reported by the SAF bridge.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,7 +269,7 @@ impl Vfs for SafVfs {
             }
             let file = self.bridge.open_file(&node.doc_id, "r").await?;
             let tokio_file = tokio::fs::File::from_std(file);
-            Ok(Box::new(PosixReadHandle::new(tokio_file)) as Box<dyn ReadAt>)
+            Ok(Box::new(NativeReadHandle::new(tokio_file)) as Box<dyn ReadAt>)
         })
     }
 
@@ -339,7 +339,7 @@ impl Vfs for SafVfs {
 
             let file = self.bridge.open_file(&file_doc_id, "rw").await?;
             let tokio_file = tokio::fs::File::from_std(file);
-            Ok(Box::new(PosixWriteHandle::new(tokio_file)) as Box<dyn WriteAt>)
+            Ok(Box::new(NativeWriteHandle::new(tokio_file)) as Box<dyn WriteAt>)
         })
     }
 

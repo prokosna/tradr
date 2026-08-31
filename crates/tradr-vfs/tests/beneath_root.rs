@@ -8,11 +8,11 @@
 use std::os::unix::fs::symlink;
 use std::path::Path;
 use tradr_core::{RelPath, RootId, Vfs, VfsError};
-use tradr_vfs::PosixVfs;
+use tradr_vfs::NativeVfs;
 use tradr_vfs::sanitization::sanitize_destination_path;
 
-fn rooted(dir: &Path) -> (PosixVfs, RootId) {
-    let vfs = PosixVfs::new();
+fn rooted(dir: &Path) -> (NativeVfs, RootId) {
+    let vfs = NativeVfs::new();
     let root = RootId::new(1);
     vfs.register_root(root, dir.to_path_buf(), false)
         .expect("register root");

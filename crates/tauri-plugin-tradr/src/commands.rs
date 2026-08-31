@@ -20,7 +20,7 @@ use tradr_integrity::outboard;
 use tradr_proto::control::{decode_transfer_accept_frame, encode_transfer_offer_frame};
 use tradr_proto::framing::{Frame, FrameDecoder, encode_frame};
 use tradr_transport::quic::QuicTransport;
-use tradr_vfs::PosixVfs;
+use tradr_vfs::NativeVfs;
 
 use crate::handshake::{HandshakeParams, perform_handshake};
 use crate::identity::IdentityState;
@@ -184,7 +184,7 @@ pub(crate) fn generate_transfer_id(rng: &dyn Rng) -> Result<TransferId, String> 
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_send_files_with_progress<F>(
     channel: &dyn SecureChannel,
-    vfs: &PosixVfs,
+    vfs: &NativeVfs,
     root: RootId,
     file_names: &[String],
     identity: &PublicIdentity,
@@ -412,7 +412,7 @@ where
 /// Executes the sending side of a file transfer session over an open secure channel.
 pub async fn execute_send_files(
     channel: &dyn SecureChannel,
-    vfs: &PosixVfs,
+    vfs: &NativeVfs,
     root: RootId,
     file_names: &[String],
     identity: &PublicIdentity,
@@ -714,7 +714,7 @@ pub async fn send_files<R: tauri::Runtime>(
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
     transport: State<'_, Arc<QuicTransport>>,
-    vfs: State<'_, Arc<PosixVfs>>,
+    vfs: State<'_, Arc<NativeVfs>>,
 ) -> Result<Vec<String>, String> {
     let target_device_id: DeviceId = peer_id
         .parse::<DeviceId>()

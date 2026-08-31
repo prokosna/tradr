@@ -16,7 +16,7 @@ use tradr_identity::{OsRng, SoftwareKeyStore, SystemClock};
 use tradr_integrity::BaoVerifier;
 use tradr_secrets::FileStore;
 use tradr_transport::quic::QuicTransport;
-use tradr_vfs::PosixVfs;
+use tradr_vfs::NativeVfs;
 
 fn setup_key_store(dir: &std::path::Path) -> Arc<SoftwareKeyStore> {
     let rung = FileStore::new(dir.join("keys"));
@@ -41,13 +41,13 @@ async fn send_files_end_to_end_over_quic_loopback() {
     std::fs::write(sender_dir.path().join("file1.txt"), &file1_content).expect("write file1");
     std::fs::write(sender_dir.path().join("file2.bin"), &file2_content).expect("write file2");
 
-    let sender_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
     let root_sender = RootId::new(1);
     sender_vfs
         .register_root(root_sender, sender_dir.path().to_path_buf(), false)
         .expect("register sender root");
 
-    let receiver_vfs = Arc::new(PosixVfs::new());
+    let receiver_vfs = Arc::new(NativeVfs::new());
     let root_receiver = RootId::new(2);
     receiver_vfs
         .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
@@ -153,13 +153,13 @@ async fn send_files_respects_receiver_item_filtering() {
     std::fs::write(sender_dir.path().join("accepted.txt"), b"Accept me").expect("write accepted");
     std::fs::write(sender_dir.path().join("rejected.txt"), b"Reject me").expect("write rejected");
 
-    let sender_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
     let root_sender = RootId::new(1);
     sender_vfs
         .register_root(root_sender, sender_dir.path().to_path_buf(), false)
         .expect("register sender root");
 
-    let receiver_vfs = Arc::new(PosixVfs::new());
+    let receiver_vfs = Arc::new(NativeVfs::new());
     let root_receiver = RootId::new(2);
     receiver_vfs
         .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
@@ -257,7 +257,7 @@ async fn send_files_rejects_empty_file_list() {
     let sender_dir = tempfile::tempdir().expect("sender tempdir");
     let sender_store = setup_key_store(sender_dir.path());
     let sender_id = sender_store.public_identity().expect("sender id");
-    let sender_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
     let root_sender = RootId::new(1);
 
     let result = execute_send_files(

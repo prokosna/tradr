@@ -6,7 +6,7 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.** `branch`, `work_items_landed`, and `last_commit` are no longer declared here — see [docs/10](docs/10-implementation-process.md#the-yaml-header--what-is-in-it-and-what-was-removed-dcr-060) for the one-command equivalents.
 
 ```yaml
-last_updated: 2026-08-30
+last_updated: 2026-08-31
 phase: implementing
 current_milestone: M5
 implementation_started: true
@@ -38,8 +38,8 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
 ## Next three actions
-1. Start M5 (Static Peers and overlay networks)
-2. (Open)
+1. Wait for WI-M4-004 PR to merge
+2. Start M5 (Static Peers and overlay networks)
 3. (Open)
 
 ## In flight
@@ -301,6 +301,8 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M4-002 | Desktop auto-update through the Tauri updater | **done** | |
 | WI-M4-003 | Windows CI build | **done** | |
 | WI-M4-004 | macOS and Windows code signing in CI | **done** | |
+| WI-M4-005 | NativeVfs for Windows build | **done** | |
+| WI-M4-006 | Windows build fix for tradr-secrets | **done** | |
 
 
 ## Deferred

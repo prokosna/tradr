@@ -22,7 +22,7 @@ use tradr_identity::SoftwareKeyStore;
 use tradr_integrity::{BaoVerifier, outboard};
 use tradr_proto::control::{decode_transfer_accept_frame, encode_transfer_offer_frame};
 use tradr_proto::framing::{Frame, FrameDecoder, encode_frame};
-use tradr_vfs::PosixVfs;
+use tradr_vfs::NativeVfs;
 use tradr_vfs::sanitization::partial_file_rel_path;
 
 const VALID_V7_A: &str = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
@@ -372,8 +372,8 @@ async fn single_file_transfer_via_listener_end_to_end() {
 
     let sender_dir = tempfile::tempdir().expect("sender tempdir");
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
-    let sender_vfs = PosixVfs::new();
-    let receiver_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
     let root_sender = RootId::new(1);
     let root_receiver = RootId::new(2);
     sender_vfs
@@ -510,8 +510,8 @@ async fn multiple_files_transfer_via_listener() {
 
     let sender_dir = tempfile::tempdir().expect("sender tempdir");
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
-    let sender_vfs = PosixVfs::new();
-    let receiver_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
     let root_sender = RootId::new(10);
     let root_receiver = RootId::new(20);
     sender_vfs
@@ -680,8 +680,8 @@ async fn resumed_transfer_via_listener_skips_existing_chunks() {
 
     let sender_dir = tempfile::tempdir().expect("sender tempdir");
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
-    let sender_vfs = PosixVfs::new();
-    let receiver_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
     let root_sender = RootId::new(100);
     let root_receiver = RootId::new(200);
     sender_vfs
@@ -849,8 +849,8 @@ async fn selective_item_acceptance_declines_filtered_items() {
 
     let sender_dir = tempfile::tempdir().expect("sender tempdir");
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
-    let sender_vfs = PosixVfs::new();
-    let receiver_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
     let root_sender = RootId::new(1000);
     let root_receiver = RootId::new(2000);
     sender_vfs
@@ -1010,7 +1010,7 @@ async fn listener_refuses_when_peer_attestation_fails() {
         mock_channel_pair(sender_id.device_id(), receiver_id.device_id(), MAX_FRAME);
 
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
-    let receiver_vfs = PosixVfs::new();
+    let receiver_vfs = NativeVfs::new();
     let root_receiver = RootId::new(300);
     receiver_vfs
         .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
@@ -1083,8 +1083,8 @@ async fn unknown_control_plane_messages_ignored_before_offer() {
 
     let sender_dir = tempfile::tempdir().expect("sender tempdir");
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
-    let sender_vfs = PosixVfs::new();
-    let receiver_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
     let root_sender = RootId::new(400);
     let root_receiver = RootId::new(500);
     sender_vfs
@@ -1232,8 +1232,8 @@ async fn accept_and_handle_transfer_from_mock_incoming() {
 
     let sender_dir = tempfile::tempdir().expect("sender tempdir");
     let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
-    let sender_vfs = PosixVfs::new();
-    let receiver_vfs = PosixVfs::new();
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
     let root_sender = RootId::new(600);
     let root_receiver = RootId::new(700);
     sender_vfs
@@ -1367,7 +1367,7 @@ async fn listen_for_transfers_terminates_on_closed_incoming() {
     // Drop incoming_tx so incoming channel is closed immediately
     drop(_incoming_tx);
 
-    let receiver_vfs = PosixVfs::new();
+    let receiver_vfs = NativeVfs::new();
     let root_receiver = RootId::new(800);
 
     let listener_params = ListenerParams {

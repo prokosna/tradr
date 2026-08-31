@@ -20,3 +20,4 @@ Decisions and the reasoning behind them. To change a decision, write a new ADR a
 | [0014](0014-vfs-exposes-operations-never-paths.md) | The Vfs exposes operations, never paths | Accepted |
 | [0015](0015-tauri-2-is-retained-after-m0.md) | Tauri 2 is retained after M0's decision point | Accepted |
 | [0016](0016-bao-verified-streaming-costs-6-percent.md) | `bao` verified streaming costs 6%, not 0.03% | Accepted |
+| [0017](0017-nativevfs-for-windows.md) | NativeVfs for Windows | Accepted |
