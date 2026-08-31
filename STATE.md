@@ -59,10 +59,23 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 **The instrument is the repair, again.** A check that `invoke_handler`, `COMMANDS` and every capability file name the same set would have failed on the commit that introduced each of these.
 
+### `iat` の未来方向に猶予がまったくなく、失敗が原因を名指ししない -- found 2026-08-31 on Windows
+
+**A freshly issued `id_token` is refused if this device's clock is one second behind the issuer's**, and the message it produces sends the reader to the wrong rule. Found by the user on the first Windows build: `Sign-in failed: iat is outside the staleness limit`, on a token Google had just minted.
+
+`classify_with_profile` step 5 is `now.elapsed_since(claims.iat)`, and `UnixTime::elapsed_since` returns `Err(ArgumentIsLater)` the moment `iat > now`. That error is mapped to `AttestationError::Stale`, whose `Display` is "iat is outside the staleness limit". **So two unrelated conditions share one name**: a token older than thirty days, and a token issued one second into the future.
+
+**The future rejection is right and the zero tolerance is not.** The comment beside it gives the real reason -- a negative age makes any limit comparison pass forever, buying unbounded life -- and that argument justifies bounding the future direction, not bounding it at zero. **A machine inside ordinary NTP tolerance can be a second behind**, and Google's `iat` is its own server's clock, so this fails intermittently on a correctly configured device and permanently on a skewed one. The test suite hides it: `an_attestation_issued_in_the_future_is_rejected` uses `NOW + 2 * DAY`, so nothing anywhere exercises a one-second skew.
+
+**docs/05 step 5 never specified the future direction at all.** It says "Check iat falls within the staleness limit, 30 days by default" and stops, so the implementation invented both the rejection and its tolerance -- the same shape as DCR-039, DCR-047 and DCR-050, where "unspecified" meant whichever answer the first implementation happened to pick.
+
+**Two things follow and they are separable.** A bounded skew allowance in the future direction, stated in docs/05 rather than chosen in code; and a distinct error for it, because a message naming the thirty-day limit for a clock problem costs whoever reads it the whole diagnosis. **This is Critical Module territory** -- Attestation verification -- so its tests are written before the Work Item is dispatched.
+
 ## Next three actions
-1. **M5's completion criterion, and it is the user's to run**: two real machines on a tailnet, a Static Peer entry naming the other by its MagicDNS name, and a transfer over it. Everything below it is now in place and loopback-tested, and **loopback cannot produce this number** any more than it could produce ADR-0004's throughput figure -- what it cannot exercise is the resolver, the 100.x address family, and a path with no mDNS on it at all
-2. WI-M5-005, rule F6 in `tauri-plugin-tradr`, and the check in `ci/` that would have caught it. See the finding below
-3. WI-M5-006, the check that `invoke_handler`, `COMMANDS` and every capability file name the same set of commands. Two commands are unreachable at runtime today and neither is M5's. See the finding below
+1. **WI-M5-007, and it blocks the M5 verification rather than merely preceding it**: sign-in fails on the Windows machine that verification needs. See the finding above
+2. **M5's completion criterion, and it is the user's to run**: **Windows and the MacBook**, settled 2026-08-31 -- WSL is excluded deliberately, since WSL2's NAT puts a second address translation inside the one path this criterion measures, and a failure there could not be told from a defect in Tradr. Two real machines on a tailnet, a Static Peer entry naming the other by its MagicDNS name, and a transfer over it. Everything below it is now in place and loopback-tested, and **loopback cannot produce this number** any more than it could produce ADR-0004's throughput figure -- what it cannot exercise is the resolver, the 100.x address family, and a path with no mDNS on it at all
+3. WI-M5-005, rule F6 in `tauri-plugin-tradr`, and the check in `ci/` that would have caught it. See the finding below
+4. WI-M5-006, the check that `invoke_handler`, `COMMANDS` and every capability file name the same set of commands. Two commands are unreachable at runtime today and neither is M5's. See the finding below
 
 ## In flight
 
@@ -314,6 +327,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M5-003 | **The default listen port and the adapter wiring** (DCR-063): `21820` with an ephemeral fallback, the registry loaded from the application data directory, the source merged into the peer list beside mDNS, and the pin written back from the connection that authenticated it | **done** -- PASS after one REVISE | |
 | WI-M5-004 | **The UI for a Static Peer**: add, list and remove an entry, and act on a peer that has no Device ID yet. Carries the three commands' missing `COMMANDS` and capability entries, without which the UI could not call them | **done** -- PASS after one DCR the Supervisor ruled on | |
 | WI-M5-005 | **Rule F6 in `tauri-plugin-tradr`, and the instrument that would have caught it**: the eighteen `let _ =` bindings `WI-M5-003` does not touch, and a ninth check in `ci/` over a discarded `Result`. See the finding above | todo | |
+| WI-M5-007 | **A bounded clock-skew allowance for `iat`, and an error that names it.** Blocks the M5 verification: sign-in fails on the Windows machine it needs. **Critical Module, Supervisor tests first** | todo | Yes |
 | WI-M5-006 | **One command, three lists, one instrument**: a check that `invoke_handler`, `build.rs`'s `COMMANDS` and every capability file name the same set, plus the entries `download_file` and M2's three Android commands are missing. See the finding above | todo | |
 
 
