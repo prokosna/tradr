@@ -8,7 +8,7 @@
 ```yaml
 last_updated: 2026-08-31
 phase: implementing
-current_milestone: M5
+current_milestone: M6
 implementation_started: true
 repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ```
@@ -333,8 +333,8 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | M2 | Android integration — share sheet, Sharing Shortcuts, SAF, permissions | 3 weeks | **done 2026-08-30** |
 | M3 | Share browsing — VFS, boundary enforcement, the Browse plane | 3 weeks | **done 2026-08-30** |
 | M4 | Windows and macOS — builds, signing, auto-update, tray | 3 weeks | **done 2026-08-30** |
-| M5 | Static Peers and overlay networks — direct over Tailscale | 1 week | todo |
-| M6 | Account linking — QR, Link Secret, Fingerprint | 2 weeks | todo |
+| M5 | Static Peers and overlay networks — direct over Tailscale | 1 week | **done 2026-08-31** |
+| M6 | Account linking — QR, Link Secret, Fingerprint | 2 weeks | **current** |
 | M7 | BLE, the largest estimation risk — advertising and scanning on four platforms, EIDs, Noise over GATT | 4-5 weeks | todo |
 | M8 | Brokr — presence, rendezvous, relay, FCM, revocation list | 3 weeks | todo |
 | M9 | Finishing — security review, store submission, packaging, i18n | ongoing | todo |
