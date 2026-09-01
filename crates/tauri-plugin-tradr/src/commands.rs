@@ -1,5 +1,6 @@
 //! Frontend command surface for discovery and outgoing file transfers (WI-M1-025).
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,15 +8,16 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use tradr_core::{
-    Candidate, Capabilities, Clock, DiscoverySource, DomainTag, ItemId, KeyBinding, KeyStore,
-    OfferItem, Peer, PeerExpectation, PeerList, PublicIdentity, RecvStream, RelPath, Rng, RootId,
-    SecureChannel, TransferId, TransferOffer, Transport, TransportId, TrustTier, UnixTime,
+    BoxFuture, Candidate, Capabilities, Clock, DiscoverySource, DomainTag, ItemId, KeyBinding,
+    KeyStore, OfferItem, Peer, PeerExpectation, PeerList, PublicIdentity, RecvStream, RelPath, Rng,
+    RootId, SecureChannel, TransferId, TransferOffer, Transport, TransportId, TrustTier, UnixTime,
     VersionRange, Vfs,
 };
 use tradr_discovery::{
     MDNS_SOURCE_ID, MdnsSource, STATIC_PEER_SOURCE_ID, StaticPeerId, StaticPeerRegistry,
     StaticPeerSource,
 };
+use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
 use tradr_integrity::outboard;
 use tradr_proto::control::{decode_transfer_accept_frame, encode_transfer_offer_frame};
@@ -26,8 +28,35 @@ use tradr_vfs::NativeVfs;
 use crate::handshake::{HandshakeParams, perform_handshake};
 use crate::identity::IdentityState;
 use crate::lifecycle::downloads_root_id;
+use crate::peer_trust::{PeerTrust, PeerTrustState};
 use crate::sign_in::SignInState;
 use crate::transfer::{SendRequest, SessionStreams, send_file_with_progress};
+
+// Builds the closure `perform_handshake` calls once the peer's Hello
+// arrives: reads `own_account` fresh at call time and delegates to
+// `PeerTrust::classify`. A free function rather than four inlined copies,
+// since every call site builds the identical closure over its own
+// `trust`/`sign_in` pair.
+fn peer_verifier(
+    trust: Arc<PeerTrust>,
+    sign_in: Arc<SignInState>,
+) -> impl FnOnce(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>> {
+    move |req: AttestationRequest| {
+        Box::pin(async move {
+            let own_account = sign_in.own_account();
+            trust
+                .classify(
+                    req.token(),
+                    req.identity_pub(),
+                    req.agreement_pub(),
+                    own_account.as_ref(),
+                    &[],
+                    &SystemClock,
+                )
+                .await
+        })
+    }
+}
 
 /// Discovered peer representation for the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -208,7 +237,7 @@ fn split_absolute_path(name: &str) -> Option<(std::path::PathBuf, String)> {
 
 /// Executes the sending side of a file transfer session over an open secure channel with progress callbacks.
 #[allow(clippy::too_many_arguments)]
-pub async fn execute_send_files_with_progress<F>(
+pub async fn execute_send_files_with_progress<F, Fut, G>(
     channel: &dyn SecureChannel,
     vfs: &NativeVfs,
     root: RootId,
@@ -216,10 +245,13 @@ pub async fn execute_send_files_with_progress<F>(
     identity: &PublicIdentity,
     key_store: &(dyn KeyStore + Sync),
     attestation_token: String,
-    mut on_progress: F,
+    verify_attestation: F,
+    mut on_progress: G,
 ) -> Result<Vec<String>, String>
 where
-    F: FnMut(TransferProgressPayload) + Send,
+    F: FnOnce(AttestationRequest) -> Fut,
+    Fut: Future<Output = Result<TrustTier, String>>,
+    G: FnMut(TransferProgressPayload) + Send,
 {
     if file_names.is_empty() {
         return Err("no files provided for transfer".to_string());
@@ -254,7 +286,7 @@ where
         key_store,
         &OsRng,
         &SystemClock,
-        |_| async { Ok(TrustTier::SameAccount) },
+        verify_attestation,
     )
     .await
     .map_err(|e| format!("handshake failed: {e}"))?;
@@ -433,7 +465,8 @@ where
 }
 
 /// Executes the sending side of a file transfer session over an open secure channel.
-pub async fn execute_send_files(
+#[allow(clippy::too_many_arguments)]
+pub async fn execute_send_files<F, Fut>(
     channel: &dyn SecureChannel,
     vfs: &NativeVfs,
     root: RootId,
@@ -441,7 +474,12 @@ pub async fn execute_send_files(
     identity: &PublicIdentity,
     key_store: &(dyn KeyStore + Sync),
     attestation_token: String,
-) -> Result<Vec<String>, String> {
+    verify_attestation: F,
+) -> Result<Vec<String>, String>
+where
+    F: FnOnce(AttestationRequest) -> Fut,
+    Fut: Future<Output = Result<TrustTier, String>>,
+{
     execute_send_files_with_progress(
         channel,
         vfs,
@@ -450,6 +488,7 @@ pub async fn execute_send_files(
         identity,
         key_store,
         attestation_token,
+        verify_attestation,
         |_| {},
     )
     .await
@@ -457,7 +496,7 @@ pub async fn execute_send_files(
 
 /// Executes the browse plane listing operation over an open secure channel.
 #[allow(clippy::too_many_arguments)]
-pub async fn execute_list_peer_directory(
+pub async fn execute_list_peer_directory<F, Fut>(
     channel: &dyn SecureChannel,
     share_id: tradr_core::ShareId,
     path: RelPath,
@@ -466,7 +505,12 @@ pub async fn execute_list_peer_directory(
     identity: &PublicIdentity,
     key_store: &(dyn KeyStore + Sync),
     attestation_token: String,
-) -> Result<DirListingDto, String> {
+    verify_attestation: F,
+) -> Result<DirListingDto, String>
+where
+    F: FnOnce(AttestationRequest) -> Fut,
+    Fut: Future<Output = Result<TrustTier, String>>,
+{
     let (mut control_send, mut control_recv) = channel
         .open_bi()
         .await
@@ -496,7 +540,7 @@ pub async fn execute_list_peer_directory(
         key_store,
         &OsRng,
         &SystemClock,
-        |_| async { Ok(TrustTier::SameAccount) },
+        verify_attestation,
     )
     .await
     .map_err(|e| format!("handshake failed: {e}"))?;
@@ -555,7 +599,7 @@ pub async fn execute_list_peer_directory(
 
 /// Executes the browse plane file download operation over an open secure channel.
 #[allow(clippy::too_many_arguments)]
-pub async fn execute_download_file(
+pub async fn execute_download_file<F, Fut>(
     channel: &dyn SecureChannel,
     share_id: tradr_core::ShareId,
     path: RelPath,
@@ -563,7 +607,12 @@ pub async fn execute_download_file(
     identity: &PublicIdentity,
     key_store: &(dyn KeyStore + Sync),
     attestation_token: String,
-) -> Result<u64, String> {
+    verify_attestation: F,
+) -> Result<u64, String>
+where
+    F: FnOnce(AttestationRequest) -> Fut,
+    Fut: Future<Output = Result<TrustTier, String>>,
+{
     let (mut control_send, mut control_recv) = channel
         .open_bi()
         .await
@@ -593,7 +642,7 @@ pub async fn execute_download_file(
         key_store,
         &OsRng,
         &SystemClock,
-        |_| async { Ok(TrustTier::SameAccount) },
+        verify_attestation,
     )
     .await
     .map_err(|e| format!("handshake failed: {e}"))?;
@@ -933,7 +982,8 @@ pub async fn send_files<R: tauri::Runtime>(
     peer_id: String,
     files: Vec<String>,
     identity_state: State<'_, IdentityState>,
-    sign_in_state: State<'_, SignInState>,
+    sign_in_state: State<'_, Arc<SignInState>>,
+    peer_trust_state: State<'_, PeerTrustState>,
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
@@ -958,7 +1008,13 @@ pub async fn send_files<R: tauri::Runtime>(
 
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
-    let attestation_token = sign_in_state.id_token().unwrap_or_default();
+    let attestation_token = sign_in_state
+        .id_token()
+        .ok_or_else(|| "sign in before sending files".to_string())?;
+    let verify_attestation = peer_verifier(
+        peer_trust_state.peer_trust()?,
+        sign_in_state.inner().clone(),
+    );
 
     let app_handle = app.clone();
     execute_send_files_with_progress(
@@ -969,6 +1025,7 @@ pub async fn send_files<R: tauri::Runtime>(
         &public_identity,
         key_store.as_ref(),
         attestation_token,
+        verify_attestation,
         move |progress| {
             use tauri::Emitter;
             let _ = app_handle.emit("transfer-progress", &progress);
@@ -987,7 +1044,8 @@ pub async fn list_peer_directory(
     cursor: Option<String>,
     limit: Option<u32>,
     identity_state: State<'_, IdentityState>,
-    sign_in_state: State<'_, SignInState>,
+    sign_in_state: State<'_, Arc<SignInState>>,
+    peer_trust_state: State<'_, PeerTrustState>,
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
@@ -1011,7 +1069,13 @@ pub async fn list_peer_directory(
 
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
-    let attestation_token = sign_in_state.id_token().unwrap_or_default();
+    let attestation_token = sign_in_state
+        .id_token()
+        .ok_or_else(|| "sign in before browsing a peer's share".to_string())?;
+    let verify_attestation = peer_verifier(
+        peer_trust_state.peer_trust()?,
+        sign_in_state.inner().clone(),
+    );
 
     let parsed_share_id: tradr_core::ShareId = share_id
         .parse()
@@ -1032,6 +1096,7 @@ pub async fn list_peer_directory(
         &public_identity,
         key_store.as_ref(),
         attestation_token,
+        verify_attestation,
     )
     .await
 }
@@ -1046,7 +1111,8 @@ pub async fn download_file<R: tauri::Runtime>(
     path: String,
     dest_path: String,
     identity_state: State<'_, IdentityState>,
-    sign_in_state: State<'_, SignInState>,
+    sign_in_state: State<'_, Arc<SignInState>>,
+    peer_trust_state: State<'_, PeerTrustState>,
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
@@ -1070,7 +1136,13 @@ pub async fn download_file<R: tauri::Runtime>(
 
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
-    let attestation_token = sign_in_state.id_token().unwrap_or_default();
+    let attestation_token = sign_in_state
+        .id_token()
+        .ok_or_else(|| "sign in before downloading from a peer's share".to_string())?;
+    let verify_attestation = peer_verifier(
+        peer_trust_state.peer_trust()?,
+        sign_in_state.inner().clone(),
+    );
 
     let parsed_share_id: tradr_core::ShareId = share_id
         .parse()
@@ -1087,6 +1159,7 @@ pub async fn download_file<R: tauri::Runtime>(
         &public_identity,
         key_store.as_ref(),
         attestation_token,
+        verify_attestation,
     )
     .await
 }

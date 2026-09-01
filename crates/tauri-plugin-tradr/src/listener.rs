@@ -24,6 +24,7 @@ use tradr_proto::message_type::{Classification, MessageType, Plane, classify};
 use tradr_vfs::{NativeVfs, partial_file_rel_path};
 
 use crate::handshake::{HandshakeError, HandshakeParams, perform_handshake};
+use crate::peer_trust::OwnAttestation;
 use crate::transfer::{ReceiveRequest, SessionStreams, TransferSessionError, receive_file};
 
 /// Configuration parameters for the listener half of the composition root.
@@ -33,8 +34,9 @@ pub struct ListenerParams<'a> {
     pub root: RootId,
     /// Our public identity (identity_pub and agreement_pub).
     pub our_identity: &'a PublicIdentity,
-    /// Our OIDC provider-signed ID token.
-    pub our_attestation_token: String,
+    /// Where this device's own OIDC provider-signed ID token is read from,
+    /// fresh for each connection rather than captured once at startup.
+    pub our_attestation_token: Arc<dyn OwnAttestation>,
     /// Our key binding linking agreement key to identity key.
     pub our_key_binding: KeyBinding,
     /// Supported protocol version range.
@@ -267,6 +269,15 @@ where
     F: FnOnce(AttestationRequest) -> Fut,
     Fut: Future<Output = Result<TrustTier, String>>,
 {
+    // Read fresh per connection rather than trusting a value captured at
+    // startup; a device with no completed sign-in has nothing to put on
+    // the wire and must say so rather than send an empty token.
+    let our_token = params.our_attestation_token.id_token().ok_or_else(|| {
+        ListenerError::Handshake(HandshakeError::Attestation(
+            "sign in on this device before accepting a transfer".to_string(),
+        ))
+    })?;
+
     let (mut control_send, mut control_recv) = channel
         .accept_bi()
         .await
@@ -276,7 +287,7 @@ where
         authenticated_peer: channel.peer(),
         our_channel_max_frame_size: channel.max_frame_size(),
         our_identity: params.our_identity,
-        our_attestation_token: params.our_attestation_token,
+        our_attestation_token: our_token,
         our_key_binding: params.our_key_binding,
         our_versions: params.our_versions,
         our_capabilities: params.our_capabilities,
@@ -473,14 +484,20 @@ where
 }
 
 /// Runs the listener loop for incoming transfers on an `Incoming` stream.
-pub async fn run_listener(
+#[allow(clippy::too_many_arguments)]
+pub async fn run_listener<F, Fut>(
     mut incoming: Box<dyn Incoming>,
     vfs: Arc<NativeVfs>,
     key_store: Arc<dyn KeyStore>,
     identity: PublicIdentity,
-    attestation_token: String,
+    our_attestation: Arc<dyn OwnAttestation>,
     root: RootId,
-) -> Result<(), ListenerError> {
+    verify_attestation: F,
+) -> Result<(), ListenerError>
+where
+    F: Fn(AttestationRequest) -> Fut + Clone,
+    Fut: Future<Output = Result<TrustTier, String>>,
+{
     let clock = SystemClock;
     let not_after = UnixTime::from_secs(clock.now().as_secs() + 30 * 24 * 3600);
     let keybind_sig = key_store
@@ -494,7 +511,7 @@ pub async fn run_listener(
     let params = ListenerParams {
         root,
         our_identity: &identity,
-        our_attestation_token: attestation_token,
+        our_attestation_token: our_attestation,
         our_key_binding: key_binding,
         our_versions: versions,
         our_capabilities: Capabilities::DIRECT_QUIC,
@@ -508,7 +525,7 @@ pub async fn run_listener(
         &OsRng,
         &SystemClock,
         &BaoVerifier,
-        |_| async { Ok(TrustTier::SameAccount) },
+        verify_attestation,
         None,
     )
     .await

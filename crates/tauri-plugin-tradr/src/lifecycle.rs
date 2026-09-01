@@ -13,12 +13,14 @@ use tradr_discovery::{
     AGREEMENT_KEY_TAG_LEN, MdnsSource, Platform, STATIC_PEER_DEFAULT_PORT, StaticPeerRegistry,
     TxtRecord, advertisement, instance_name,
 };
-use tradr_identity::OsRng;
+use tradr_identity::hello::AttestationRequest;
+use tradr_identity::{OsRng, SystemClock};
 use tradr_transport::quic::QuicTransport;
 use tradr_vfs::NativeVfs;
 
 use crate::identity::IdentityState;
 use crate::listener::run_listener;
+use crate::peer_trust::PeerTrustState;
 use crate::sign_in::SignInState;
 
 /// Returns the root identifier for the local downloads directory.
@@ -30,7 +32,8 @@ pub fn downloads_root_id() -> RootId {
 pub fn init_lifecycle<R: Runtime>(
     app: &AppHandle<R>,
     identity_state: &IdentityState,
-    sign_in_state: &SignInState,
+    sign_in_state: Arc<SignInState>,
+    peer_trust_state: &PeerTrustState,
 ) -> Result<(), String> {
     let key_store = match identity_state.key_store() {
         Ok(k) => k,
@@ -163,7 +166,13 @@ pub fn init_lifecycle<R: Runtime>(
     let vfs_for_listener = vfs.clone();
     let key_store_for_listener = key_store.clone();
     let public_identity_for_listener = public_identity.clone();
-    let attestation_token = sign_in_state.id_token().unwrap_or_default();
+    let our_attestation = sign_in_state.clone();
+    // `peer_trust` reports its build failure through every classification
+    // rather than aborting the listener: a fresh clone with no configured
+    // OAuth client ids still accepts channels, it just cannot yet promote
+    // any of them past the handshake.
+    let peer_trust = peer_trust_state.peer_trust();
+    let sign_in_for_verify = sign_in_state;
 
     tauri::async_runtime::spawn(async move {
         if let Ok(incoming) = transport_for_listener.listen().await {
@@ -172,8 +181,26 @@ pub fn init_lifecycle<R: Runtime>(
                 vfs_for_listener,
                 key_store_for_listener,
                 public_identity_for_listener,
-                attestation_token,
+                our_attestation,
                 downloads_root_id(),
+                move |req: AttestationRequest| {
+                    let peer_trust = peer_trust.clone();
+                    let sign_in = sign_in_for_verify.clone();
+                    async move {
+                        let trust = peer_trust?;
+                        let own_account = sign_in.own_account();
+                        trust
+                            .classify(
+                                req.token(),
+                                req.identity_pub(),
+                                req.agreement_pub(),
+                                own_account.as_ref(),
+                                &[],
+                                &SystemClock,
+                            )
+                            .await
+                    }
+                },
             )
             .await;
             if let Err(e) = res {

@@ -11,6 +11,7 @@ use tauri_plugin_tradr::listener::{
     ListenerError, ListenerParams, accept_and_handle_transfer, derive_item_resumption,
     handle_incoming_channel, listen_for_transfers,
 };
+use tauri_plugin_tradr::peer_trust::OwnAttestation;
 use tauri_plugin_tradr::transfer::{SendRequest, SessionStreams, send_file};
 use tradr_core::{
     BoxFuture, Capabilities, Clock, DeviceId, DomainTag, Incoming, ItemId, KeyBinding, KeyStore,
@@ -33,6 +34,15 @@ const LATER: i64 = NOW + 86_400;
 
 fn sample_transfer(s: &str) -> TransferId {
     s.parse().expect("valid transfer id")
+}
+
+// A fixed own-attestation for tests that never exercise sign-in itself.
+struct FixedAttestation(String);
+
+impl OwnAttestation for FixedAttestation {
+    fn id_token(&self) -> Option<String> {
+        Some(self.0.clone())
+    }
 }
 
 struct SeededRng {
@@ -396,7 +406,7 @@ async fn single_file_transfer_via_listener_end_to_end() {
     let listener_params = ListenerParams {
         root: root_receiver,
         our_identity: &receiver_id,
-        our_attestation_token: "mock-token-receiver".to_string(),
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Capabilities::empty(),
@@ -545,7 +555,7 @@ async fn multiple_files_transfer_via_listener() {
     let listener_params = ListenerParams {
         root: root_receiver,
         our_identity: &receiver_id,
-        our_attestation_token: "mock-token-receiver".to_string(),
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Capabilities::empty(),
@@ -733,7 +743,7 @@ async fn resumed_transfer_via_listener_skips_existing_chunks() {
     let listener_params = ListenerParams {
         root: root_receiver,
         our_identity: &receiver_id,
-        our_attestation_token: "mock-token-receiver".to_string(),
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Capabilities::empty(),
@@ -901,7 +911,7 @@ async fn selective_item_acceptance_declines_filtered_items() {
     let listener_params = ListenerParams {
         root: root_receiver,
         our_identity: &receiver_id,
-        our_attestation_token: "mock-token-receiver".to_string(),
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Capabilities::empty(),
@@ -1019,7 +1029,7 @@ async fn listener_refuses_when_peer_attestation_fails() {
     let listener_params = ListenerParams {
         root: root_receiver,
         our_identity: &receiver_id,
-        our_attestation_token: "mock-token-receiver".to_string(),
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Capabilities::empty(),
@@ -1106,7 +1116,7 @@ async fn unknown_control_plane_messages_ignored_before_offer() {
     let listener_params = ListenerParams {
         root: root_receiver,
         our_identity: &receiver_id,
-        our_attestation_token: "mock-token-receiver".to_string(),
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Capabilities::empty(),
@@ -1255,7 +1265,7 @@ async fn accept_and_handle_transfer_from_mock_incoming() {
     let listener_params = ListenerParams {
         root: root_receiver,
         our_identity: &receiver_id,
-        our_attestation_token: "mock-token-receiver".to_string(),
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Capabilities::empty(),
@@ -1373,7 +1383,7 @@ async fn listen_for_transfers_terminates_on_closed_incoming() {
     let listener_params = ListenerParams {
         root: root_receiver,
         our_identity: &receiver_id,
-        our_attestation_token: "mock-token-receiver".to_string(),
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Capabilities::empty(),

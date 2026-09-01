@@ -5,6 +5,8 @@
 //! plus the ACTION_SEND intent channel, run once from this plugin's setup hook,
 //! so the evidence needs no interaction with the frontend.
 
+use std::sync::Arc;
+
 use tauri::{
     Manager, Runtime,
     plugin::{Builder, TauriPlugin},
@@ -21,11 +23,12 @@ pub mod lifecycle;
 pub mod listener;
 #[cfg(target_os = "android")]
 pub mod mobile;
+pub mod peer_trust;
 pub mod share;
 mod sign_in;
 pub mod transfer;
 
-use sign_in::OAuthConfig;
+use sign_in::{OAuthConfig, SignInState};
 
 /// Builds the plugin. Its setup hook opens the Device Key store once and
 /// manages `client_ids`/`client_secret`, this build's OAuth configuration
@@ -59,17 +62,24 @@ pub fn init<R: Runtime>(
         ])
         .setup(move |app, _api| {
             let identity_state = identity::init_identity_state(app);
-            let sign_in_state = sign_in::SignInState::empty();
+            let sign_in_state = Arc::new(SignInState::empty());
             let oauth_config = OAuthConfig {
                 client_ids,
                 client_secret,
             };
+            let peer_trust_state = peer_trust::init_peer_trust_state(&oauth_config);
 
-            lifecycle::init_lifecycle(app, &identity_state, &sign_in_state)?;
+            lifecycle::init_lifecycle(
+                app,
+                &identity_state,
+                sign_in_state.clone(),
+                &peer_trust_state,
+            )?;
 
             app.manage(identity_state);
             app.manage(oauth_config);
             app.manage(sign_in_state);
+            app.manage(peer_trust_state);
 
             #[cfg(target_os = "android")]
             {

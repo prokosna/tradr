@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use tauri_plugin_tradr::commands::{connect_and_pin, execute_send_files, resolve_peer};
 use tauri_plugin_tradr::listener::{ListenerParams, handle_incoming_channel};
+use tauri_plugin_tradr::peer_trust::OwnAttestation;
 use tradr_core::{
     Capabilities, Clock, DeviceId, DiscoverySource, DomainTag, KeyBinding, KeyStore,
     PeerExpectation, PeerList, RootId, Transport, TrustTier, UnixTime, VersionRange,
@@ -25,6 +26,15 @@ fn setup_key_store(dir: &std::path::Path) -> Arc<SoftwareKeyStore> {
     let rung = FileStore::new(dir.join("keys"));
     let store = SoftwareKeyStore::open(&rung, "device-key", &OsRng).expect("open key store");
     Arc::new(store)
+}
+
+// A fixed own-attestation for tests that never exercise sign-in itself.
+struct FixedAttestation(String);
+
+impl OwnAttestation for FixedAttestation {
+    fn id_token(&self) -> Option<String> {
+        Some(self.0.clone())
+    }
 }
 
 #[tokio::test]
@@ -88,7 +98,7 @@ async fn run_test() {
         let params = ListenerParams {
             root: root_receiver,
             our_identity: &rx_identity,
-            our_attestation_token: String::new(),
+            our_attestation_token: Arc::new(FixedAttestation(String::new())),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Capabilities::DIRECT_QUIC,
@@ -162,6 +172,7 @@ async fn run_test() {
             &sender_id,
             sender_store.as_ref(),
             String::new(),
+            |_| async { Ok(TrustTier::SameAccount) },
         ),
         rx_handle,
     );

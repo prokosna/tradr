@@ -21,14 +21,9 @@ use tradr_oidc::{
     Pkce, authorization_url, callback_redirect_uri, exchange_code, fetch_jwks, serve_one_callback,
 };
 
+use crate::attestation::{FUTURE_SKEW_LIMIT_SECS, STALENESS_LIMIT_SECS};
 use crate::identity::IdentityState;
-
-/// How old an `id_token`'s `iat` may be before `classify_with_profile`
-/// rejects it (docs/05, "Handling expiry").
-const STALENESS_LIMIT_SECS: u64 = 30 * 24 * 60 * 60;
-/// How far ahead of this device's clock an `id_token`'s `iat` may be before
-/// `classify_with_profile` rejects it (docs/05 step 5).
-const FUTURE_SKEW_LIMIT_SECS: u64 = 300;
+use crate::peer_trust::OwnAttestation;
 
 /// Octets of entropy behind the OAuth `state` parameter, rendered as
 /// lowercase hex.
@@ -138,10 +133,19 @@ impl SignInState {
     }
 }
 
+impl OwnAttestation for SignInState {
+    // Read fresh on every connection (WI-M6-001): a listener started
+    // before sign-in must see today's token, not an empty one captured at
+    // process start.
+    fn id_token(&self) -> Option<String> {
+        self.id_token()
+    }
+}
+
 /// Returns the most recently completed sign-in, so the screen can show it
 /// again after a reload without repeating the flow.
 #[tauri::command]
-pub fn sign_in_status(state: State<'_, SignInState>) -> Option<SignInOutcome> {
+pub fn sign_in_status(state: State<'_, Arc<SignInState>>) -> Option<SignInOutcome> {
     state.outcome()
 }
 
@@ -190,7 +194,7 @@ fn serve_one_callback_with_timeout(
 pub async fn sign_in(
     identity_state: State<'_, IdentityState>,
     oauth: State<'_, OAuthConfig>,
-    sign_in_state: State<'_, SignInState>,
+    sign_in_state: State<'_, Arc<SignInState>>,
 ) -> Result<SignInOutcome, String> {
     let _guard = sign_in_state
         .begin()
