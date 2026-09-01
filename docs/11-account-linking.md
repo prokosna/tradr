@@ -14,6 +14,7 @@ Enabling communication with another Google account. **Both sides must approve ex
    show a QR code ----------------------> [scan the QR]
      {                                        |
        v: 1,                                  |
+       invite_id: ...,      <- 16 bytes       |
        sub: "1048...",     <- Alice's sub     |
        identity_pub: ...,  <- Alice's key     |
        agreement_pub: ...,                    |
@@ -27,8 +28,9 @@ Enabling communication with another Google account. **Both sides must approve ex
         |                                     |
         |<---- reply over BLE or LAN ---------|
         |        {                            |
-        |          sub: "9273...",            |
+        |          invite_id: ...,            |
         |          identity_pub: ...,         |
+        |          agreement_pub: ...,        |
         |          attestation: ...,          |
         |          half_secret: ...           |
         |        }                            |
@@ -83,6 +85,30 @@ link_id     = BLAKE3(Link Secret)[0..16]
 **The window is single-use.** It closes at the first completed exchange — an approval and a decline close it alike — or at expiry, whichever comes first. A second reply arriving after that is refused the way any unexpected first frame is.
 
 **So what a photographed QR buys is one thing: the chance to be shown to Alice as a stranger asking to link.** The approval and the Fingerprint comparison are still in the way, `half_B` was never on the screen, and no Link Secret of the real link is derivable from what the camera saw.
+
+### What the three linking messages carry
+
+**The diagram above is a sketch of a payload and not a definition of one**, and two of its lines could not be implemented as drawn. DCR-068 settles the three messages; `proto/tradr/v1/link.proto` is where they live, and the same rule the Offer and the Hello follow applies here: **a field that decides something refuses the message; a field that only decorates it never does.**
+
+**`LinkReply` (`0x0c`), the replier to the inviter.**
+
+| Field | Wire | Native | On disagreement |
+|---|---|---|---|
+| `invite_id` | `bytes`, 16 | `InviteId` | **Refuse.** It names which invite this answers, which is the reason that type exists at all, and a reply naming an invite that is not the open one is a reply to something else |
+| `identity_pub`, `agreement_pub` | `bytes`, 65 each | `PublicKeyPoint` | **Refuse.** The key join reads the first and step 3's nonce binding reads both. **The diagram carried only `identity_pub` and the verification it describes cannot run on that**: the Attestation's nonce is `BLAKE3(identity_pub \|\| agreement_pub)`, so a reply omitting the agreement key omits half of what step 3 recomputes |
+| `attestation.id_token` | `string` | `String`, unverified | **Refuse when absent.** It is the whole of what the exchange is for |
+| `attestation.issuer`, `attestation.issued_at` | `string`, `int64` | **absent** | **Dropped**, exactly as in a `Hello`: the authoritative values are the token's own `iss` and `iat` claims, and a second copy is a second answer |
+| `half_secret` | `bytes`, 16 | `HalfSecret` | **Refuse.** It is half of the Link Secret |
+| `display_name` | `string` | `DisplayName`, dropped when invalid | **Drop it and carry on**, exactly as in a `Hello`. It is shown to a person and decides nothing |
+| `sub` | — | — | **Not carried at all.** The diagram showed it and it is a wire copy of a claim already inside the token. Two answers to "which account is this" is the defect the key join exists to prevent, and it is why `Attestation.issuer` is a hint rather than a value |
+| `device_id`, `platform`, `capabilities` | `DeviceInfo` fields | **absent** | **Dropped.** The Device ID is recomputed from `identity_pub` and never read off the wire, and nothing in this exchange negotiates a capability or reads a platform |
+| a `KeyBinding` | — | — | **Not carried.** It is the redundant proof, and what makes it redundant is exactly the Attestation nonce this stream verifies in full. A `Hello` carries it so the agreement key can rotate on its own later; nothing here rotates a key |
+
+**A `LinkReply` carries no nonce and no signature over one**, which a `Hello` does. It does not need one: the channel is already mutually authenticated before the first frame, so the inviter knows the replier's Device Key from the channel rather than from the message, and the key join is what ties the message to it.
+
+**`LinkApprove` (`0x0d`), the inviter to the replier**: the `invite_id` and the `link_id` the inviter derived. **Both sides derive that identifier independently and a mismatch refuses the exchange** — it is the one cheap check that the two halves joined into the same secret in the same order. `link_id` is safe to send: a Share's Audience already names it, and it is a truncated hash nobody can invert into the Link Secret.
+
+**`LinkDecline` (`0x0e`), the inviter to the replier**: the `invite_id`, and a reason that decorates. Three reasons are reachable and no more — the user declined, the invite expired while the user was reading the Fingerprint, or verification of the reply failed. **An unknown invite is not among them**, because a stream naming one is refused before any message is read. The reason follows `TransferReject.reason`: an unspecified or unrecognised value is dropped and the decline still stands, since what it decides is nothing.
 
 ### Tier 2 — linking through a Brokr
 

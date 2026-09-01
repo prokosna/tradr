@@ -55,7 +55,7 @@ impl fmt::Display for Plane {
 /// in a different file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MessageType {
-    // Control: 0x01-0x1f, 11 assigned.
+    // Control: 0x01-0x1f, 14 assigned.
     Hello,
     HelloAck,
     TransferOffer,
@@ -67,6 +67,9 @@ pub enum MessageType {
     KeepAlive,
     ItemComplete,
     TransferProgress,
+    LinkReply,
+    LinkApprove,
+    LinkDecline,
     // Data: 0x20-0x3f, 4 assigned.
     ChunkRequest,
     ChunkRerequest,
@@ -104,6 +107,9 @@ impl MessageType {
         Self::KeepAlive,
         Self::ItemComplete,
         Self::TransferProgress,
+        Self::LinkReply,
+        Self::LinkApprove,
+        Self::LinkDecline,
         Self::ChunkRequest,
         Self::ChunkRerequest,
         Self::ChunkData,
@@ -137,6 +143,9 @@ impl MessageType {
             Self::KeepAlive => 0x09,
             Self::ItemComplete => 0x0a,
             Self::TransferProgress => 0x0b,
+            Self::LinkReply => 0x0c,
+            Self::LinkApprove => 0x0d,
+            Self::LinkDecline => 0x0e,
             Self::ChunkRequest => 0x20,
             Self::ChunkRerequest => 0x21,
             Self::ChunkData => 0x22,
@@ -170,7 +179,10 @@ impl MessageType {
             | Self::PathChanged
             | Self::KeepAlive
             | Self::ItemComplete
-            | Self::TransferProgress => Plane::Control,
+            | Self::TransferProgress
+            | Self::LinkReply
+            | Self::LinkApprove
+            | Self::LinkDecline => Plane::Control,
             Self::ChunkRequest | Self::ChunkRerequest | Self::ChunkData | Self::FlowControl => {
                 Plane::Data
             }
@@ -208,7 +220,7 @@ pub enum Refusal {
     Zero,
     /// The code falls inside a plane's range other than the one it
     /// arrived on, whether or not that plane has assigned it. `range_owner`
-    /// is the plane owning the *range*, not the message: `0x0c` is
+    /// is the plane owning the *range*, not the message: `0x0f` is
     /// unassigned and still belongs to Control.
     WrongPlane { range_owner: Plane },
     /// `0x60`-`0x7f`, reserved for the in-band multiplexing variant no

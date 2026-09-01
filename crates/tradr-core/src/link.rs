@@ -6,6 +6,9 @@
 use std::fmt;
 use std::str::FromStr;
 
+use crate::discovery::DisplayName;
+use crate::key_store::PublicKeyPoint;
+
 /// The number of bytes a `HalfSecret` occupies.
 pub const HALF_SECRET_LEN: usize = 16;
 
@@ -216,4 +219,211 @@ fn hex_byte(pair: &str) -> Option<u8> {
         return None;
     }
     u8::from_str_radix(pair, 16).ok()
+}
+
+/// What a replier sent back in its `LinkReply` (docs/11-account-linking.md,
+/// "What the three linking messages carry"): a claim, unverified here.
+/// `device_id`, `platform`, `capabilities` and `KeyBinding` are absent,
+/// unread here. No `PartialEq`: comparing `half_secret`'s bytes is what a
+/// constant-time comparison exists to avoid; its codec's tests compare accessor by accessor instead.
+#[derive(Clone)]
+pub struct LinkReply {
+    invite_id: InviteId,
+    identity_pub: PublicKeyPoint,
+    agreement_pub: PublicKeyPoint,
+    attestation_token: String,
+    half_secret: HalfSecret,
+    display_name: Option<DisplayName>,
+}
+
+impl LinkReply {
+    /// Builds a `LinkReply` from everything mandatory. `display_name` is
+    /// the only optional field, added with `with_display_name`.
+    pub fn new(
+        invite_id: InviteId,
+        identity_pub: PublicKeyPoint,
+        agreement_pub: PublicKeyPoint,
+        attestation_token: String,
+        half_secret: HalfSecret,
+    ) -> Self {
+        Self {
+            invite_id,
+            identity_pub,
+            agreement_pub,
+            attestation_token,
+            half_secret,
+            display_name: None,
+        }
+    }
+
+    /// Records the name the replier published about itself.
+    pub fn with_display_name(mut self, display_name: DisplayName) -> Self {
+        self.display_name = Some(display_name);
+        self
+    }
+
+    /// The invite this reply answers.
+    pub fn invite_id(&self) -> &InviteId {
+        &self.invite_id
+    }
+
+    /// The identity key the replier claims.
+    pub fn identity_pub(&self) -> &PublicKeyPoint {
+        &self.identity_pub
+    }
+
+    /// The agreement key the replier claims.
+    pub fn agreement_pub(&self) -> &PublicKeyPoint {
+        &self.agreement_pub
+    }
+
+    /// The provider-signed id token the replier's Attestation carries,
+    /// unverified.
+    pub fn attestation_token(&self) -> &str {
+        &self.attestation_token
+    }
+
+    /// The replier's half of the prospective Link Secret.
+    pub fn half_secret(&self) -> &HalfSecret {
+        &self.half_secret
+    }
+
+    /// The name the replier published about itself, if any.
+    pub fn display_name(&self) -> Option<&DisplayName> {
+        self.display_name.as_ref()
+    }
+}
+
+// Hand-written rather than derived (rule F4): attestation_token is a
+// bearer credential, so this must never place its value into a {:?}.
+// `half_secret` is printed normally -- `HalfSecret` already redacts itself.
+impl fmt::Debug for LinkReply {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LinkReply")
+            .field("invite_id", &self.invite_id)
+            .field("identity_pub", &self.identity_pub)
+            .field("agreement_pub", &self.agreement_pub)
+            .field("attestation_token", &"[redacted]")
+            .field("half_secret", &self.half_secret)
+            .field("display_name", &self.display_name)
+            .finish()
+    }
+}
+
+/// The inviter's confirmation that both sides derived the same Link
+/// Secret (docs/11, "What the three linking messages carry"): the
+/// `invite_id` it answers and the `link_id` the inviter derived.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkApprove {
+    invite_id: InviteId,
+    link_id: LinkId,
+}
+
+impl LinkApprove {
+    /// Builds a `LinkApprove` from the invite it answers and the `LinkId`
+    /// the inviter derived.
+    pub fn new(invite_id: InviteId, link_id: LinkId) -> Self {
+        Self { invite_id, link_id }
+    }
+
+    /// The invite this approval answers.
+    pub fn invite_id(&self) -> &InviteId {
+        &self.invite_id
+    }
+
+    /// The `LinkId` the inviter derived, for the replier to compare
+    /// against its own.
+    pub fn link_id(&self) -> LinkId {
+        self.link_id
+    }
+}
+
+/// The reason an inviter declined a `LinkReply` (docs/11, "What the three
+/// linking messages carry"): it decorates and decides nothing.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LinkDeclineReason {
+    /// The user explicitly declined the link.
+    UserDeclined,
+    /// The invite expired while the user was reading the Fingerprint.
+    InviteExpired,
+    /// Verification of the reply failed.
+    VerificationFailed,
+}
+
+/// An error converting a wire `i32` to a `LinkDeclineReason`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkDeclineReasonError {
+    /// The wire value was `LINK_DECLINE_REASON_UNSPECIFIED` (0).
+    Unspecified,
+    /// The wire value matches no reason `link.proto` defines.
+    Unknown(i32),
+}
+
+impl fmt::Display for LinkDeclineReasonError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unspecified => write!(f, "link decline reason is unspecified"),
+            Self::Unknown(value) => {
+                write!(
+                    f,
+                    "link decline reason wire value {value} matches no reason"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for LinkDeclineReasonError {}
+
+impl TryFrom<i32> for LinkDeclineReason {
+    type Error = LinkDeclineReasonError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Err(LinkDeclineReasonError::Unspecified),
+            1 => Ok(Self::UserDeclined),
+            2 => Ok(Self::InviteExpired),
+            3 => Ok(Self::VerificationFailed),
+            other => Err(LinkDeclineReasonError::Unknown(other)),
+        }
+    }
+}
+
+impl From<LinkDeclineReason> for i32 {
+    fn from(reason: LinkDeclineReason) -> Self {
+        match reason {
+            LinkDeclineReason::UserDeclined => 1,
+            LinkDeclineReason::InviteExpired => 2,
+            LinkDeclineReason::VerificationFailed => 3,
+        }
+    }
+}
+
+/// The inviter's refusal of a `LinkReply` (docs/11, "What the three
+/// linking messages carry"): the `invite_id` it answers, and a reason
+/// that decorates and decides nothing -- an unspecified or unrecognised
+/// value is dropped and the decline still stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkDecline {
+    invite_id: InviteId,
+    reason: Option<LinkDeclineReason>,
+}
+
+impl LinkDecline {
+    /// Builds a `LinkDecline` from the invite it answers and an optional
+    /// reason.
+    pub fn new(invite_id: InviteId, reason: Option<LinkDeclineReason>) -> Self {
+        Self { invite_id, reason }
+    }
+
+    /// The invite this decline answers.
+    pub fn invite_id(&self) -> &InviteId {
+        &self.invite_id
+    }
+
+    /// The reason given for the decline, if any.
+    pub fn reason(&self) -> Option<LinkDeclineReason> {
+        self.reason
+    }
 }

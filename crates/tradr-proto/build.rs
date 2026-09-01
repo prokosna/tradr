@@ -13,6 +13,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         v1_dir.join("common.proto"),
         v1_dir.join("browse.proto"),
         v1_dir.join("control.proto"),
+        v1_dir.join("link.proto"),
         v1_dir.join("transfer.proto"),
         v1_dir.join("brokr.proto"),
     ];

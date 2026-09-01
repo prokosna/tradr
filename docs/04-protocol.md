@@ -91,11 +91,11 @@ Retiring a message retires its code with it, the way a removed protobuf field be
 
 `0x40` `ListDir` arriving on the Control stream is not an unknown message; it is a known one on a stream that does not carry it. **The plane is where authorization lives** — a Browse request is checked against the requester's Trust Tier and the Share's audience before it acts — so accepting one wherever it arrives is how a request reaches the code that serves it without passing the code that guards it. The frame is refused and the stream closes.
 
-**A plane owns its whole range, not merely the codes assigned inside it.** `0x0c` is unassigned and sits in Control's range; on the Browse stream it is refused, not skipped. Reading ownership from the assignments instead would make the answer for a given code change as later versions fill the gaps in, so a device would have to know what a future version assigned in order to decide what to refuse today.
+**A plane owns its whole range, not merely the codes assigned inside it.** `0x0f` is unassigned and sits in Control's range; on the Browse stream it is refused, not skipped. Reading ownership from the assignments instead would make the answer for a given code change as later versions fill the gaps in, so a device would have to know what a future version assigned in order to decide what to refuse today.
 
 ### What "unknown message types are ignored" actually covers
 
-Only an **unassigned** code, and only within the receiving plane's own range. That is the forward compatibility the versioning section promises: a newer peer sending `0x0c` on the Control stream is skipped by an older one, whose extent is known because the frame decoded cleanly.
+Only an **unassigned** code, and only within the receiving plane's own range. That is the forward compatibility the versioning section promises: a newer peer sending `0x0f` on the Control stream is skipped by an older one, whose extent is known because the frame decoded cleanly.
 
 Three things are outside it and none is skippable: `0x00`, a code belonging to another plane, and a malformed length. The first two are refusals; the third, per the Framing section, is not a frame at all.
 
@@ -106,6 +106,8 @@ Three things are outside it and none is skippable: `0x00`, a code belonging to a
 **It is accepted only while an invite is open**, and refused outright otherwise, which is the whole of its authorisation. The three linking codes are the only ones it carries in either direction; anything else on it is refused the way a Browse code on the Control stream is, and the stream closes.
 
 **Both bounds on that stream stay the channel's own `max_frame_size` for its whole life**, since `HelloAck` is what would have replaced them and never arrives. That is the same rule the Hello exchange already runs under, applied to a stream that never leaves it.
+
+**What the three messages carry is settled in [docs/11](11-account-linking.md#what-the-three-linking-messages-carry), and `proto/tradr/v1/link.proto` is where they live.** They are Control-plane codes that belong to no session, which is why they are not in `control.proto` beside the messages a session exchanges. DCR-068.
 
 ## Session flow
 

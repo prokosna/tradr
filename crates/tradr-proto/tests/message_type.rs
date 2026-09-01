@@ -35,6 +35,9 @@ fn expected_classification(code: u8, arriving_on: Plane) -> Classification {
         (Plane::Control, 0x09) => Some(MessageType::KeepAlive),
         (Plane::Control, 0x0a) => Some(MessageType::ItemComplete),
         (Plane::Control, 0x0b) => Some(MessageType::TransferProgress),
+        (Plane::Control, 0x0c) => Some(MessageType::LinkReply),
+        (Plane::Control, 0x0d) => Some(MessageType::LinkApprove),
+        (Plane::Control, 0x0e) => Some(MessageType::LinkDecline),
         (Plane::Data, 0x20) => Some(MessageType::ChunkRequest),
         (Plane::Data, 0x21) => Some(MessageType::ChunkRerequest),
         (Plane::Data, 0x22) => Some(MessageType::ChunkData),
@@ -190,17 +193,17 @@ fn a_known_code_is_refused_as_wrong_plane_everywhere_else() {
 
 #[test]
 fn unassigned_code_inside_a_range_is_ignorable_on_its_own_plane_and_refused_elsewhere() {
-    // 0x0c sits in Control's 0x01-0x1f range and is unassigned: the case
+    // 0x0f sits in Control's 0x01-0x1f range and is unassigned: the case
     // that separates a plane's range from what it has assigned inside it.
-    assert_eq!(classify(0x0c, Plane::Control), Classification::Ignorable);
+    assert_eq!(classify(0x0f, Plane::Control), Classification::Ignorable);
     assert_eq!(
-        classify(0x0c, Plane::Browse),
+        classify(0x0f, Plane::Browse),
         Classification::Refused(Refusal::WrongPlane {
             range_owner: Plane::Control
         })
     );
     assert_eq!(
-        classify(0x0c, Plane::Data),
+        classify(0x0f, Plane::Data),
         Classification::Refused(Refusal::WrongPlane {
             range_owner: Plane::Control
         })
@@ -255,6 +258,9 @@ fn all_matches_an_independently_enumerated_list_of_every_variant() {
         KeepAlive,
         ItemComplete,
         TransferProgress,
+        LinkReply,
+        LinkApprove,
+        LinkDecline,
         ChunkRequest,
         ChunkRerequest,
         ChunkData,
@@ -287,7 +293,7 @@ fn all_matches_an_independently_enumerated_list_of_every_variant() {
     );
     assert_eq!(
         ground_truth_set.len(),
-        28,
-        "11 Control + 4 Data + 13 Browse"
+        31,
+        "14 Control + 4 Data + 13 Browse"
     );
 }
