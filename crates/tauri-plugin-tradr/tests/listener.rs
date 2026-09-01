@@ -1149,8 +1149,8 @@ async fn unknown_control_plane_messages_ignored_before_offer() {
         .await
         .expect("sender handshake");
 
-        // Send an unassigned control message (0x0c) before the TransferOffer
-        let unassigned_frame = encode_frame(0x0c, b"future_field", MAX_FRAME).unwrap();
+        // Send an unassigned control message (0x0f) before the TransferOffer
+        let unassigned_frame = encode_frame(0x0f, b"future_field", MAX_FRAME).unwrap();
         sender_ctrl_send.write_all(&unassigned_frame).await.unwrap();
 
         let offer = TransferOffer::new(

@@ -1,0 +1,46 @@
+syntax = "proto3";
+package tradr.v1;
+
+import "tradr/v1/common.proto";
+
+// Tier 0 account linking, docs/11. A Control stream may open with a
+// LinkReply instead of a Hello while an invite is open; see docs/04,
+// "A Control stream may open with LinkReply instead of Hello".
+
+// The replier's answer to an open invite. Carries no nonce and no
+// signature of its own: the channel is already mutually authenticated
+// before this frame arrives (docs/11, "What the three linking messages
+// carry").
+message LinkReply {
+  bytes invite_id = 1;  // 16 bytes. Names the invite this answers
+  // identity_pub and agreement_pub carry the claim the Attestation nonce
+  // binds; device_id, platform and capabilities are never read off this
+  // message.
+  DeviceInfo device = 2;
+  // id_token is the whole of what this exchange verifies; issuer and
+  // issued_at are ignored, since the token's own iss and iat are authoritative.
+  Attestation attestation = 3;
+  bytes half_secret = 4;  // 16 bytes. Half of the Link Secret
+}
+
+// The inviter's confirmation, sent once both sides have derived the same
+// Link Secret.
+message LinkApprove {
+  bytes invite_id = 1;
+  // 16 bytes. Both sides derive this independently; a mismatch refuses
+  // the exchange rather than trusting the value on the wire.
+  bytes link_id = 2;
+}
+
+// The inviter's refusal. reason decorates and decides nothing.
+message LinkDecline {
+  bytes invite_id = 1;
+  LinkDeclineReason reason = 2;
+}
+
+enum LinkDeclineReason {
+  LINK_DECLINE_REASON_UNSPECIFIED         = 0;
+  LINK_DECLINE_REASON_USER_DECLINED       = 1;
+  LINK_DECLINE_REASON_INVITE_EXPIRED      = 2;
+  LINK_DECLINE_REASON_VERIFICATION_FAILED = 3;
+}

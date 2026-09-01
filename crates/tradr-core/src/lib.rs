@@ -69,8 +69,9 @@ pub use key_store::{
     SharedSecret, Signature, SoftwareReason, StorageLevel,
 };
 pub use link::{
-    HALF_SECRET_LEN, HalfSecret, INVITE_ID_LEN, InviteId, LINK_ID_LEN, LINK_SECRET_LEN, LinkError,
-    LinkId, LinkSecret,
+    HALF_SECRET_LEN, HalfSecret, INVITE_ID_LEN, InviteId, LINK_ID_LEN, LINK_SECRET_LEN,
+    LinkApprove, LinkDecline, LinkDeclineReason, LinkDeclineReasonError, LinkError, LinkId,
+    LinkReply, LinkSecret,
 };
 pub use rel_path::{REL_PATH_COMPONENT_MAX_LEN, RelPath, RelPathError};
 pub use resumption::{ItemResumption, ResumptionError};
