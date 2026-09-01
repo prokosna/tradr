@@ -24,6 +24,7 @@ pub use jwks::{JwksError, parse_jwks};
 pub use jwks_cache::JwksCache;
 pub use link::{
     Link, LinkRegistry, LinkRegistryError, derive_link_id, derive_link_secret, device_fingerprint,
+    link_secret_slot,
 };
 pub use os_rng::OsRng;
 pub use software_key_store::SoftwareKeyStore;

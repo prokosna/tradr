@@ -68,6 +68,11 @@ impl SecretStore for Rung {
         Ok(self.held.clone())
     }
 
+    fn remove(&self, _slot: &str) -> Result<(), SecretStoreError> {
+        // select_rung never removes, so nothing here is worth counting.
+        Ok(())
+    }
+
     fn level(&self) -> StorageLevel {
         self.level
     }

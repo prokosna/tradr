@@ -73,6 +73,11 @@ impl SecretStore for FakeStore {
         Ok(self.held.borrow().clone())
     }
 
+    fn remove(&self, _slot: &str) -> Result<(), SecretStoreError> {
+        *self.held.borrow_mut() = None;
+        Ok(())
+    }
+
     fn level(&self) -> StorageLevel {
         self.level
     }

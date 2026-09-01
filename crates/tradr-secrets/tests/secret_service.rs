@@ -118,3 +118,47 @@ fn it_is_usable_as_a_trait_object() {
 
     assert_eq!(as_trait.level(), StorageLevel::SecretService);
 }
+
+#[test]
+#[ignore]
+fn a_removed_slot_reads_back_empty() {
+    let store = open();
+    let slot = slot("remove");
+    store.store(&slot, KEY).expect("storing should succeed");
+
+    store
+        .remove(&slot)
+        .expect("removing a stored slot succeeds");
+
+    assert_eq!(store.load(&slot).expect("loading should succeed"), None);
+}
+
+// DCR-070: the same absence `load` answers with `Ok(None)`, answered the
+// same way, so a retry after a half-finished removal still succeeds.
+#[test]
+#[ignore]
+fn removing_a_slot_that_was_never_stored_is_a_success() {
+    let store = open();
+
+    store
+        .remove(&slot("remove-never-written"))
+        .expect("an absent slot is not an error to remove");
+}
+
+#[test]
+#[ignore]
+fn removing_one_slot_leaves_another_alone() {
+    let store = open();
+    let gone = slot("remove-gone");
+    let kept = slot("remove-kept");
+    store.store(&gone, KEY).expect("first store");
+    store.store(&kept, b"kept").expect("second store");
+
+    store.remove(&gone).expect("the first slot removes");
+
+    assert_eq!(store.load(&gone).expect("load gone"), None);
+    assert_eq!(
+        store.load(&kept).expect("load kept").as_deref(),
+        Some(&b"kept"[..])
+    );
+}

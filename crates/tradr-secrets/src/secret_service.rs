@@ -81,7 +81,7 @@ impl SecretStore for SecretServiceStore {
         // rather than a second item competing for the same lookup.
         collection
             .create_item(
-                "Tradr Device Key",
+                &format!("Tradr {slot}"),
                 attributes_for(slot),
                 secret,
                 true,
@@ -102,6 +102,18 @@ impl SecretStore for SecretServiceStore {
         };
         let secret = item.get_secret().map_err(backend_err)?;
         Ok(Some(secret))
+    }
+
+    fn remove(&self, slot: &str) -> Result<(), SecretStoreError> {
+        let collection = self.collection()?;
+        Self::ensure_unlocked(&collection)?;
+        let items = collection
+            .search_items(attributes_for(slot))
+            .map_err(backend_err)?;
+        for item in items {
+            item.delete().map_err(backend_err)?;
+        }
+        Ok(())
     }
 
     fn level(&self) -> StorageLevel {
