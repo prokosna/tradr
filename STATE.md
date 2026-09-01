@@ -78,8 +78,8 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **So every part of M5's completion criterion is now demonstrated except the file arriving**: a hostname, resolved, over an overlay network, with no mDNS anywhere in the path, authenticated and pinned. The transfer itself failed on F-W1, which `WI-M5-008` fixes.
 
 ## Next three actions
-1. **`WI-M6-004b`, the codec for the three linking messages.** `WI-M6-004a` landed the proto file, the type bytes and the Layer 0 types; what is left is a `link.rs` under `crates/tradr-proto/src/` converting each message both ways, with `hello.rs` as the precedent for both error types
-2. **`WI-M6-003`, the hashing half and the persisted Link registry.** It needs `WI-M6-002`'s types in hand, and `StaticPeerRegistry` is the precedent for the file, the whole-file rewrite and the temporary-file rename
+1. **`WI-M6-003`, the hashing half and the persisted Link registry.** It needs `WI-M6-002`'s types in hand, and `StaticPeerRegistry` is the precedent for the file, the whole-file rewrite and the temporary-file rename. **It is what makes `AttestationPolicy::linked_accounts` stop being `&[]` at every call site**, which `WI-M6-001` landed and nothing has yet filled
+2. **`WI-M6-005`, the invite: generated, rendered as a QR and as a base64 blob, parsed back, and expired.** `WI-M6-004b` closed the wire half of the exchange, so what an invite has to carry is now fixed by a codec rather than by docs/11's sketch
 3. **`WI-M5-005`, `WI-M5-009` and `WI-M5-010` still ride alongside.** Unchanged and still blocking nobody. **`WI-M5-005` reads differently after `WI-M6-001`, though** -- it is the ninth CI check over a rule review did not enforce, and a constant Trust Tier was an eleventh rule with no instrument, so whatever `WI-M5-005` builds is the shape the answer to both takes
 
 ## In flight
@@ -340,7 +340,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 #### Work Items
 
-**`WI-M6-001` has landed and the rest are not cut yet.** They are the shape M6 is expected to take, listed so the order is on record; each is cut properly once the docs commit above lands, and any of them may change when it is.
+**`WI-M6-001`, `WI-M6-002`, `WI-M6-004a` and `WI-M6-004b` have landed; the rest are not cut yet.** They are the shape M6 is expected to take, listed so the order is on record; each is cut properly when its turn comes, and any of them may change then. **Two of the four were re-cut at dispatch and the table records why in its own rows**, which is the reason a row is worth more than the order it sits in.
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
@@ -348,7 +348,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | WI-M6-002 | Layer 0 link domain in `tradr-core`: `LinkId`, `LinkSecret`, `HalfSecret`, `InviteId`, and the `Fingerprint` word encoding with its vendored list. No hashing -- `DeviceId::from_identity_digest`'s precedent is that Layer 0 receives a digest and never computes one. **Re-cut when it was dispatched: the `Link` record moved to `WI-M6-003`**, because it must carry the peer's account and `AccountId` lives in `tradr-identity`, so a Layer 0 `Link` would have had to hold a loose `iss`/`sub` pair and duplicate a type that already exists one layer up | **done** | **yes -- the Fingerprint encoding, by section 6's own test** |
 | WI-M6-003 | `tradr-identity`: the hashing half of the above, the `Link` record `WI-M6-002` handed over, and the persisted Link registry that feeds `AttestationPolicy::linked_accounts`. `StaticPeerRegistry` is the precedent for the file, the whole-file rewrite and the temporary-file rename | planned | |
 | WI-M6-004a | The three linking messages, first half: `link.proto` under `proto/tradr/v1/`, the three type bytes in `tradr-proto`'s registry, and the Layer 0 `LinkReply`, `LinkApprove` and `LinkDecline` in `tradr-core`. **Re-cut when it was dispatched, in two ways.** DCR-068 had to settle what the messages carry before any of it could be written -- docs/11's sketch omitted `agreement_pub`, which step 3 reads, and carried `sub`, which is a second answer to a question the token already answers. And `tradr-core` was not in the original scope at all: `hello.rs` and `control.rs` are the precedent, and both convert a wire message into a validated Layer 0 type rather than handing the generated one out, so the native types have to exist before a codec can produce them | **done** | |
-| WI-M6-004b | The three linking messages, second half: the codec in `link.rs` under `crates/tradr-proto/src/`, converting each message both ways and framing it under its type byte. `hello.rs` is the precedent for the two error types and for what a `from_wire` refuses | planned | |
+| WI-M6-004b | The three linking messages, second half: the codec in `link.rs` under `crates/tradr-proto/src/`, converting each message both ways and framing it under its type byte. `hello.rs` is the precedent for the two error types and for what a `from_wire` refuses. **It refuses an empty `attestation.id_token` where `peer_hello_from_wire` does not**, because docs/11 says that field refuses the message when absent and proto3 cannot tell an absent string from an empty one | **done** | |
 | WI-M6-005 | The invite: generated, rendered as a QR and as a base64 blob, parsed back, and expired | planned | |
 | WI-M6-006 | The exchange in the plugin: the window an invite opens, the reply, the approval, and both sides storing the Link | planned | |
 | WI-M6-007 | The interface: show the QR, scan or paste one, show both Fingerprints, approve or decline, list Links and remove one | planned | |
