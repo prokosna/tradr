@@ -38,7 +38,7 @@ Enabling communication with another Google account. **Both sides must approve ex
         |                                     |
   [both compare Fingerprints and approve]     |
         |                                     |
-  Link Secret = HKDF(half_A || half_B, "tradr-link-v1")
+  Link Secret = BLAKE3::derive_key("tradr-link-v1", half_A || half_B)
   link_id     = BLAKE3(Link Secret)[0..16]
         |                                     |
   both store the Link locally                 |
@@ -47,6 +47,42 @@ Enabling communication with another Google account. **Both sides must approve ex
 Where a QR will not work — a screen out of view, or distance — the same JSON travels as a base64 **invite blob** pasted into a chat. That channel cannot be trusted, so **Fingerprint verification becomes mandatory**, with the UI prompting both parties to read it aloud.
 
 Contributing half the randomness each stops either side deciding the secret alone. Photographing the QR does not yield the Link Secret.
+
+### Deriving the Link Secret
+
+**This line read `HKDF(half_A || half_B, "tradr-link-v1")` and named no hash, no salt and no output length**, which is three decisions left to whoever implemented it first. DCR-066 settles them as BLAKE3's own key derivation:
+
+```
+Link Secret = BLAKE3::derive_key(context = "tradr-link-v1",
+                                 key_material = half_A || half_B)   32 bytes
+link_id     = BLAKE3(Link Secret)[0..16]
+```
+
+**`derive_key` is a KDF with a context string, which is the role HKDF's `info` was playing here**, so nothing about the construction changes — only the primitive that performs it. Every other derived value in this design is BLAKE3: the Device ID, the Content Hash, the Attestation nonce, the Agreement Key Tag, the EIDs. Adding HMAC-SHA256 for one value would put a second hash family in the trust path to save nothing.
+
+**The salt the original line omitted has no source, which is why it could not be named.** HKDF's salt wants a value both sides share and neither controls alone, and at this point in the exchange the only such value is the key material itself. `derive_key`'s context string carries the domain separation a salt would have carried here, and it is a compile-time constant rather than a negotiated one, which is what the specification of that function asks for.
+
+**`half_A` is the invite's creator's 16 bytes and `half_B` the replier's**, and the order is by role rather than by value. Both sides know which they are — Alice showed the QR, Bob scanned it — so no comparison is needed to agree, and sorting the two halves instead would let one side try both orders against a target.
+
+**`link_id` is a plain hash and not a second `derive_key`.** It is an identifier that both sides must compute alike and neither must be able to invert into the secret; a truncated hash of the secret is exactly that. It is 16 bytes rendered as lowercase hex, the same shape as a `DeviceId`.
+
+### How Bob's reply reaches Alice, and what authorises the connection
+
+**The diagram says "reply over BLE or LAN" and that sentence was written before there was a handshake to say it about.** BLE is M7, so M6's reply is a LAN connection — and since `WI-M6-001` every live connection classifies the peer's Attestation, whose step 6 refuses an account that is neither this device's own nor already linked. Bob's account is exactly that account, by definition, at the moment he replies. **The check that makes linking worth having is the one that refuses the connection establishing it**, and DCR-067 settles how.
+
+**Finding Alice needs no address in the QR, because the QR carries her identity key.** Bob computes `BLAKE3(identity_pub)[0..16]`, which is Alice's Device ID, and looks for it in his own Peer List — mDNS publishes it as TXT `id`, and a Static Peer entry carries it once pinned. **Tier 0 linking therefore requires that Bob has already discovered Alice**: a shared LAN, or an entry he added by hand. When that Device ID is in no observation, the interface says the peer cannot be found, which is a different sentence from a dial that failed.
+
+**The QR is the pin.** Bob dials under `PeerExpectation::Device`, so the channel authenticates Alice's Device Key against the key he read off her screen. A device on the same LAN claiming her Device ID cannot complete the handshake, because it does not hold the key that ID is a hash of.
+
+**The invite authorises one connection, for one purpose, and it does so outside the Trust Tier entirely.** While an invite is open — from the moment its QR is shown until it expires five minutes later — this device accepts an inbound Control stream **whose first frame is a `LinkReply` rather than a `Hello`**. Such a stream carries no session: no Trust Tier is computed for it, no `HelloAck` is exchanged, and the only frames that may travel on it are the three linking messages [docs/04](04-protocol.md#the-type-byte) assigns. No transfer and no browse is reachable from it.
+
+**Bob's Attestation is verified in full on that stream, minus the single step that cannot apply.** Steps 1 to 5 all run — the provider's signature, the audience, the nonce binding Bob's two keys, the freshness — and so does the key join, `BLAKE3(LinkReply.identity_pub)[0..16]` against the Device ID the channel authenticated. **Step 6 is the only one left out, and it is the one the link exists to change.** What Alice ends up holding is therefore the same assertion an ordinary connection would have given her: this `(iss, sub)` controls these keys.
+
+**Nothing in the tier machinery moves.** `classify` is untouched, `TrustTier` gains no fourth variant, and no widening flag is added to the policy: `ephemeral_receive` is the precedent for widening step 6 and it is the wrong instrument here, because it grants receiving files and an invite must grant nothing of the sort. Once both sides store the Link, the ordinary handshake returns `TrustTier::Linked` on its own, with no further special case anywhere.
+
+**The window is single-use.** It closes at the first completed exchange — an approval and a decline close it alike — or at expiry, whichever comes first. A second reply arriving after that is refused the way any unexpected first frame is.
+
+**So what a photographed QR buys is one thing: the chance to be shown to Alice as a stranger asking to link.** The approval and the Fingerprint comparison are still in the way, `half_B` was never on the screen, and no Link Secret of the real link is derivable from what the camera saw.
 
 ### Tier 2 — linking through a Brokr
 
@@ -71,7 +107,7 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
 
 ```jsonc
 {
-  "link_id": "01J8YM...",
+  "link_id": "3f1c9a04e7b25d68...",  // 16 bytes of hex, never a ULID
   "peer_iss": "https://accounts.google.com",  // the peer's issuer
   "peer_sub": "9273...",            // subject, unique only within that issuer
   "peer_email": "bob@example.com",  // display only, never for identity

@@ -26,7 +26,10 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 | **Agreement Key Tag** | The first 8 bytes of `BLAKE3(agreement_pub)`, carried as mDNS TXT `pk`. A machine-comparable short hash, and **not** a Fingerprint — it is never shown to a person and never rendered as words. |
 | **Trust Tier** | How much a peer is trusted: `same-account`, `linked`, or `nearby-ephemeral`. |
 | **Link** | A mutually consented relationship between two Accounts. A one-sided invitation never establishes one. |
-| **Link Secret** | 32 bytes shared by both sides of a Link. Identifies linked peers over BLE and proves the link. |
+| **Link Secret** | 32 bytes shared by both sides of a Link. Identifies linked peers over BLE and proves the link. Derived as `BLAKE3::derive_key("tradr-link-v1", half_A \|\| half_B)`. |
+| **Link ID** | The first 16 bytes of `BLAKE3(Link Secret)`, rendered as lowercase hex. A Link's identifier, and what a Share's Audience names. |
+| **Half Secret** | 16 random bytes one side of a prospective Link contributes. Neither side decides the Link Secret alone. |
+| **Invite** | One side's offer to link, carried by QR or as a base64 blob: its issuer's account, keys, Attestation and Half Secret, valid five minutes. It authorises exactly one inbound connection, for the linking exchange alone. A one-sided Invite establishes no Link. |
 | **Account Broadcast Key** (ABK) | 32 bytes shared by all devices of one Account. Identifies same-account peers over BLE. Handed over when devices first meet. |
 | **EID** (Ephemeral Identifier) | The rotating identifier broadcast over BLE. Derived from an ABK or Link Secret plus the current time, rotating every 15 minutes, so no permanent ID ever goes on the air. |
 

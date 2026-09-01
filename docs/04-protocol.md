@@ -75,7 +75,7 @@ Every code is listed here and nowhere else, and the ranges are by plane.
 | Range | Plane | Assigned |
 |---|---|---|
 | `0x00` | — | **Never valid.** A zero byte is what padding, a truncated write and an uninitialised buffer all produce, so it is the one code that must never mean a message |
-| `0x01`-`0x1f` | Control | `0x01` `Hello`, `0x02` `HelloAck`, `0x03` `TransferOffer`, `0x04` `TransferAccept`, `0x05` `TransferReject`, `0x06` `TransferComplete`, `0x07` `TransferAbort`, `0x08` `PathChanged`, `0x09` `KeepAlive`, `0x0a` `ItemComplete`, `0x0b` `TransferProgress` |
+| `0x01`-`0x1f` | Control | `0x01` `Hello`, `0x02` `HelloAck`, `0x03` `TransferOffer`, `0x04` `TransferAccept`, `0x05` `TransferReject`, `0x06` `TransferComplete`, `0x07` `TransferAbort`, `0x08` `PathChanged`, `0x09` `KeepAlive`, `0x0a` `ItemComplete`, `0x0b` `TransferProgress`, `0x0c` `LinkReply`, `0x0d` `LinkApprove`, `0x0e` `LinkDecline` |
 | `0x20`-`0x3f` | Data | `0x20` `ChunkRequest`, `0x21` `ChunkRerequest`, `0x22` `ChunkData`, `0x23` `FlowControl` |
 | `0x40`-`0x5f` | Browse | `0x40` `ListDir`, `0x41` `DirListing`, `0x42` `Stat`, `0x43` `StatResult`, `0x44` `ReadFile`, `0x45` `ReadFileBegin`, `0x46` `WriteFile`, `0x47` `Mkdir`, `0x48` `Delete`, `0x49` `Rename`, `0x4a` `Ack`, `0x4b` `Watch`, `0x4c` `FsEvent` |
 | `0x60`-`0x7f` | — | Reserved for the in-band multiplexing variant the `stream_id` bullet above describes, which `ble-gatt` and `relay` need and the QUIC paths never send |
@@ -98,6 +98,14 @@ Retiring a message retires its code with it, the way a removed protobuf field be
 Only an **unassigned** code, and only within the receiving plane's own range. That is the forward compatibility the versioning section promises: a newer peer sending `0x0c` on the Control stream is skipped by an older one, whose extent is known because the frame decoded cleanly.
 
 Three things are outside it and none is skippable: `0x00`, a code belonging to another plane, and a malformed length. The first two are refusals; the third, per the Framing section, is not a frame at all.
+
+### A Control stream may open with `LinkReply` instead of `Hello`
+
+**One stream in this protocol carries no session, and it is the one [docs/11](11-account-linking.md#how-bobs-reply-reaches-alice-and-what-authorises-the-connection) needs**: an account being linked is by construction not yet linked, so its Attestation fails step 6 and the ordinary handshake refuses the connection that would fix that. A stream opening with `0x0c` is that exchange and nothing else — no `Hello`, no `HelloAck`, no negotiated capabilities, and no Trust Tier computed or sent.
+
+**It is accepted only while an invite is open**, and refused outright otherwise, which is the whole of its authorisation. The three linking codes are the only ones it carries in either direction; anything else on it is refused the way a Browse code on the Control stream is, and the stream closes.
+
+**Both bounds on that stream stay the channel's own `max_frame_size` for its whole life**, since `HelloAck` is what would have replaced them and never arrives. That is the same rule the Hello exchange already runs under, applied to a stream that never leaves it.
 
 ## Session flow
 

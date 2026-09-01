@@ -269,9 +269,10 @@ A `SecureChannel` has already authenticated a Device Key by the time a `Hello` i
 A Device Key rendered human-readable, equivalent to a Signal safety number.
 
 ```
-Take the first 15 bytes of BLAKE3("tradr-fp-v1" || identity_pub || agreement_pub),
-split into three groups of 5, and encode each as 4 words from a
-BIP-39-style list of 2048.
+Take the first 132 bits of BLAKE3("tradr-fp-v1" || identity_pub || agreement_pub),
+most significant bit first, split them into twelve 11-bit indices, and read
+each index from the BIP-39 English word list of 2048. Show them in three
+rows of four.
 
   example:  harbor  lantern  copper  drift
             silent  meadow   quartz  ember
@@ -284,6 +285,31 @@ BIP-39-style list of 2048.
 - Verification is never mandatory. The default is trust on first use
 
 This catches the case where Google forged an Attestation for an unknown device, for peers that were verified. The UI presses for verification during account linking.
+
+### Why 132 bits, when the words were always twelve
+
+**This paragraph said 15 bytes and twelve words, and those two numbers cannot both be true.** Five bytes is 40 bits and four words of an 2048-list is 44, so the split it described could not be implemented at all — found while cutting M6's Layer 0 Work Item, and recorded as DCR-065. Two numbers were defensible and the text named neither.
+
+**132 is the one that keeps everything the reader can see.** Twelve words at 11 bits each is exactly 132, so the three rows of four survive, the list size survives, and only the byte count changes. Taking 120 instead means eleven words with a padding bit in the last one, which is a shape no reader would guess from a display of twelve.
+
+**The bit-level rule is written out because a fingerprint read aloud has to agree between two implementations exactly.** Treat the digest's first 17 bytes as one big-endian bit string; word *i* is bits `[11i, 11i+11)` for *i* in `0..12`. Byte 16 contributes only its top 4 bits, and its low nibble is unused — as are the remaining 15 bytes of a 32-byte BLAKE3 output.
+
+**Layer 0 receives the digest and never computes it**, the same rule `DeviceId::from_identity_digest` follows: the encoding is arithmetic over 32 bytes, and the hash that produced them belongs where a hash function is allowed.
+
+### Where the word list comes from
+
+**"A BIP-39-style list of 2048" named a shape and not a file**, and a Layer 0 crate may not depend on a crate that carries one, so the list is vendored and its provenance belongs here where a review can check it.
+
+| | |
+|---|---|
+| Source | `https://raw.githubusercontent.com/bitcoin/bips/master/bip-0039/english.txt` |
+| SHA-256 | `2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda` |
+| Licence | MIT, per BIP-39's own header. The notice travels with the vendored copy |
+| Shape | 2048 lines, lowercase ASCII, 3 to 8 letters, sorted ascending, one trailing newline |
+
+**The list is chosen for a property the shape does not state: no two words share their first four letters.** That is BIP-39's own rule, and it is what makes a fingerprint survive being read aloud badly — a listener who catches `harb` has the word. A list of 2048 pleasant-sounding words assembled by hand would satisfy every other row of that table and lose this one silently.
+
+**Vendoring is checked structurally rather than by trusting the download.** Every property in the table's last row is asserted by a test, the four-letter rule included, so a truncated or reordered file fails at `cargo test` instead of at the first fingerprint two people compare.
 
 ## Key storage
 
