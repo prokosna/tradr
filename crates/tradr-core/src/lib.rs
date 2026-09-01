@@ -15,10 +15,12 @@ mod control;
 mod data;
 mod device_id;
 mod discovery;
+mod fingerprint;
 mod future;
 mod hello;
 mod item_id;
 mod key_store;
+mod link;
 mod rel_path;
 mod resumption;
 mod rng;
@@ -52,6 +54,9 @@ pub use discovery::{
     DisplayName, DisplayNameError, OBSERVATION_KEY_MAX_LEN, ObservationId, ObservationKey,
     ObservationKeyError, Peer, PeerList, PeerListError, PeerObservation, SourceId,
 };
+pub use fingerprint::{
+    FINGERPRINT_ROW_COUNT, FINGERPRINT_WORD_COUNT, FINGERPRINT_WORDS_PER_ROW, Fingerprint,
+};
 pub use future::BoxFuture;
 pub use hello::{
     HELLO_NONCE_LEN, HelloNonce, KeyBinding, NoCommonVersion, PeerHello, PeerHelloAck,
@@ -62,6 +67,10 @@ pub use key_store::{
     Backing, DomainTag, KeyStore, KeyStoreError, MissingSeparation, PUBLIC_KEY_POINT_LEN,
     PublicIdentity, PublicKeyPoint, PublicKeyPointError, SecretStore, SecretStoreError, Separation,
     SharedSecret, Signature, SoftwareReason, StorageLevel,
+};
+pub use link::{
+    HALF_SECRET_LEN, HalfSecret, INVITE_ID_LEN, InviteId, LINK_ID_LEN, LINK_SECRET_LEN, LinkError,
+    LinkId, LinkSecret,
 };
 pub use rel_path::{REL_PATH_COMPONENT_MAX_LEN, RelPath, RelPathError};
 pub use resumption::{ItemResumption, ResumptionError};
