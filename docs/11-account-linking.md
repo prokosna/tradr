@@ -190,6 +190,8 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
 
 **`add` refuses a secret that does not derive the Link's own id.** `link_id` is `BLAKE3(Link Secret)[0..16]` and the slot is addressed by it, so a record and a secret that do not derive from each other would put the secret under a name nothing could find it by. It costs one comparison, and it is the check `LinkApprove` already makes across the wire, made again where the two are stored.
 
+**What reads a Link Secret back, and what a wrong length means.** M7's EIDs are the first thing that will derive from one, and the registry exposes the read now anyway, because **a store nothing can read is a store nothing can check**: the slot a record names either holds that record's secret or it does not, and only a reader can say which. Two absences must not collapse into one answer. **A record whose slot is empty reads as empty rather than as an error** -- that is the intermediate state a removal whose record write failed leaves behind, and it is precisely the state a repair expects to find. **A stored value that is not a Link Secret's length is malformed, never read as absent**: an empty slot says the secret was discarded, and a wrong-length one says the key store returned something nothing here ever wrote, which is the same distinction `load` draws between `Ok(None)` and `Err` one layer down.
+
 **On the Secret Service rung an item is labelled from its slot rather than `Tradr Device Key`.** The label is what a person reads in their keyring, lookup goes by attributes and never by it, and a Link Secret is not a Device Key.
 
 ### When the peer adds a device
