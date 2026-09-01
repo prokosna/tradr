@@ -131,26 +131,40 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
 
 ### State after linking
 
+**This block was a sketch of a record and not a definition of one**, the same way the reply payload four sections above was, and DCR-069 settles it against what the code can actually write. The registry is `links.json` in the application data directory, beside `static-peers.json`, written whole through a temporary file renamed over the target.
+
 ```jsonc
 {
-  "link_id": "3f1c9a04e7b25d68...",  // 16 bytes of hex, never a ULID
-  "peer_iss": "https://accounts.google.com",  // the peer's issuer
-  "peer_sub": "9273...",            // subject, unique only within that issuer
-  "peer_email": "bob@example.com",  // display only, never for identity
-  "peer_label": "Bob",
-  "link_secret": "<in the OS key store>",
-  "created_at": "2026-08-22T...",
-  "fingerprint_verified": true,
-  "policy": {
-    "auto_accept_transfers": false,
-    "max_transfer_bytes": null,
-    "notify_on_transfer": true
-  },
-  "known_devices": [                // peer devices met and verified
-    { "device_id": "...", "label": "Bob's Pixel", "verified_at": "..." }
+  "links": [
+    {
+      "link_id": "3f1c9a04e7b25d68...",  // 16 bytes of hex, never a ULID
+      "peer_iss": "https://accounts.google.com",  // the peer's issuer
+      "peer_sub": "9273...",          // subject, unique only within that issuer
+      "peer_label": "Bob",            // display only, dropped when absent
+      "created_at": 1756684800,       // seconds since the Unix epoch
+      "fingerprint_verified": true
+    }
   ]
 }
 ```
+
+**`created_at` is an integer of seconds and not an ISO-8601 string.** `UnixTime` is the only time this workspace has, nothing anywhere formats a date, and a second time representation is a second thing that can disagree with the one the Attestation staleness rule already compares against. The same argument settled the certificate validity window in decision 20: a field written in a shape nothing reads is a field that goes wrong unobserved.
+
+**The Link Secret is in the OS key store and is named nowhere in this file.** A `SecretStore` slot is what holds it, and this record is what a reader of `links.json` may see.
+
+#### What this record deliberately does not carry yet
+
+**`peer_email` has no source.** `VerifiedClaims` carries no `email` claim and no linking message carries one, so it is a field nothing could write. It is left out rather than landed empty, following `ProviderProfile::renewal` — DF-16 — for the same reason.
+
+**`policy` and `known_devices` are left out on the same grounds**: nothing reads either one, and a per-Link transfer policy is a decision open decision 9 has not settled. Both return when something consults them.
+
+**What is here is what the milestone's own criterion needs**: the account, so `AttestationPolicy::linked_accounts` stops being `&[]`; the `link_id`, so removal names one Link; and `fingerprint_verified`, which the exchange writes and docs/05's changed-fingerprint refusal will read.
+
+#### What the registry refuses
+
+**A malformed `links.json` is an error and never an empty registry**, the same rule DCR-063 gives `static-peers.json` and for a sharper reason. An emptied Link registry silently withdraws `TrustTier::Linked` from every peer at once, and what the user sees is every one of their links appearing to have been removed from the other side.
+
+**A second Link to an account already linked is refused.** Linking is per account, as "When the peer adds a device" below says, so two records naming one `(iss, sub)` are two answers to a question that has one. **A duplicate `link_id` is refused too**: it is the key removal and Fingerprint verification address a Link by, and a registry holding two would act on whichever it found first.
 
 ### Removing a link
 
@@ -158,6 +172,8 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
 - Removal discards the Link Secret, so the peer's EIDs no longer resolve and they fall off BLE discovery
 - The peer is notified when online, but **removal takes effect locally at once regardless**. Their connections are then rejected because the Attestation's `(iss, sub)` matches no known link
 - Files already handed over cannot be recalled. The UI says so
+
+**Discarding the Link Secret needs an operation `SecretStore` does not have.** The trait declares `store` and `load` and nothing that empties a slot, so removal as built today drops the Link record and leaves the secret behind it — orphaned, since nothing knows the slot name once the record naming it is gone, but still on disk or in the keyring. **The account half of removal is complete and is what the milestone is judged on**: the `(iss, sub)` leaves `linked_accounts` at once and the peer's next connection is refused. The secret half is `WI-M6-003b`, and it is the same shape as the two rules this project found had no instrument — the sentence was true as design and nothing made it true in code.
 
 ### When the peer adds a device
 

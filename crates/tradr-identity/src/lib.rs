@@ -7,6 +7,7 @@ pub mod hello;
 mod id_token;
 mod jwks;
 mod jwks_cache;
+mod link;
 mod os_rng;
 mod software_key_store;
 mod storage_ladder;
@@ -21,6 +22,9 @@ pub use google::{OAuthClient, Platform, ProviderError, google, oauth_client};
 pub use id_token::{Jwk, SignatureAlgorithm, TokenError, peek_issuer, verify_id_token};
 pub use jwks::{JwksError, parse_jwks};
 pub use jwks_cache::JwksCache;
+pub use link::{
+    Link, LinkRegistry, LinkRegistryError, derive_link_id, derive_link_secret, device_fingerprint,
+};
 pub use os_rng::OsRng;
 pub use software_key_store::SoftwareKeyStore;
 pub use storage_ladder::{LadderError, select_rung};

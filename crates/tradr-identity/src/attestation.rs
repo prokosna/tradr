@@ -74,6 +74,16 @@ impl AccountId {
             sub: sub.to_string(),
         }
     }
+
+    /// The issuer half of the pair.
+    pub fn iss(&self) -> &str {
+        &self.iss
+    }
+
+    /// The subject half of the pair.
+    pub fn sub(&self) -> &str {
+        &self.sub
+    }
 }
 
 /// Claims read from an `id_token` whose signature has already been checked
