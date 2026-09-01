@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use tauri_plugin_tradr::commands::{execute_download_file, execute_list_peer_directory};
 use tauri_plugin_tradr::listener::{ListenerParams, handle_incoming_channel};
+use tauri_plugin_tradr::peer_trust::OwnAttestation;
 use tradr_core::{
     Candidate, Capabilities, Clock, DomainTag, KeyBinding, KeyStore, PeerExpectation, RelPath,
     RootId, ShareId, Transport, TransportId, TrustTier, UnixTime, VersionRange,
@@ -20,6 +21,15 @@ fn setup_key_store(dir: &std::path::Path) -> Arc<SoftwareKeyStore> {
     let rung = FileStore::new(dir.join("keys"));
     let store = SoftwareKeyStore::open(&rung, "device-key", &OsRng).expect("open key store");
     Arc::new(store)
+}
+
+// A fixed own-attestation for tests that never exercise sign-in itself.
+struct FixedAttestation(String);
+
+impl OwnAttestation for FixedAttestation {
+    fn id_token(&self) -> Option<String> {
+        Some(self.0.clone())
+    }
 }
 
 #[tokio::test]
@@ -75,7 +85,7 @@ async fn list_peer_directory_succeeds_over_quic_loopback() {
         let params = ListenerParams {
             root: root_server,
             our_identity: &rx_identity,
-            our_attestation_token: String::new(),
+            our_attestation_token: Arc::new(FixedAttestation(String::new())),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Capabilities::DIRECT_QUIC,
@@ -118,6 +128,7 @@ async fn list_peer_directory_succeeds_over_quic_loopback() {
             &client_id,
             client_store.as_ref(),
             String::new(),
+            |_| async { Ok(TrustTier::SameAccount) },
         ),
         server_handle,
     );
@@ -190,7 +201,7 @@ async fn list_peer_nested_directory_succeeds() {
         let params = ListenerParams {
             root: root_server,
             our_identity: &rx_identity,
-            our_attestation_token: String::new(),
+            our_attestation_token: Arc::new(FixedAttestation(String::new())),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Capabilities::DIRECT_QUIC,
@@ -233,6 +244,7 @@ async fn list_peer_nested_directory_succeeds() {
             &client_id,
             client_store.as_ref(),
             String::new(),
+            |_| async { Ok(TrustTier::SameAccount) },
         ),
         server_handle,
     );
@@ -296,7 +308,7 @@ async fn download_file_succeeds_over_quic_loopback() {
         let params = ListenerParams {
             root: root_server,
             our_identity: &rx_identity,
-            our_attestation_token: String::new(),
+            our_attestation_token: Arc::new(FixedAttestation(String::new())),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Capabilities::DIRECT_QUIC,
@@ -339,6 +351,7 @@ async fn download_file_succeeds_over_quic_loopback() {
             &client_id,
             client_store.as_ref(),
             String::new(),
+            |_| async { Ok(TrustTier::SameAccount) },
         ),
         server_handle,
     );

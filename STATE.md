@@ -37,6 +37,8 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 **ADR-0004's throughput requirement is verified.** On 2026-08-29, the user ran the test on two real machines and confirmed that the LAN throughput reaches the 35 MB/s target with no issues. GSO/GRO tuning is not needed.
 
+**The Trust Tier on every live connection was a constant until 2026-09-01, and `WI-M6-001` is what changed that.** All four live call sites handed the handshake `|_| async { Ok(TrustTier::SameAccount) }`, so any device completing the QUIC handshake held the top tier and the peer's Attestation was read off the wire and discarded. **Five milestones shipped that way** and no review, test or CI job noticed; `verify_attestation` was complete, tested, and reachable only from the hand-pasted bundle screen. The full account is in [RECORD.md](RECORD.md).
+
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
 ### Rule F6 has never been enforced in `tauri-plugin-tradr`, found 2026-08-31
@@ -76,9 +78,9 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 **So every part of M5's completion criterion is now demonstrated except the file arriving**: a hostname, resolved, over an overlay network, with no mDNS anywhere in the path, authenticated and pinned. The transfer itself failed on F-W1, which `WI-M5-008` fixes.
 
 ## Next three actions
-1. **Open M6 properly**: read [docs/11](docs/11-account-linking.md) and cut its Work Items. **Nothing of it exists** -- `grep` finds no `Fingerprint` and no `link_id` anywhere in `crates/*/src`, so this is the first milestone since M0 that starts from nothing rather than from a wired-up path. Note that docs/11's Tier 0 reply travels "over BLE or LAN" and BLE is M7, so M6's linking runs over the LAN alone
-2. **`WI-M5-009` is now the one that hides things.** With `WI-M5-006` landed, the ACL refusals a user could meet are gone -- and the frontend `catch` that reaches only the console is still there, so the next one will look like a dead button rather than a refusal. It is the cheapest of the three carried items and the one that changes what a defect looks like
-3. **`WI-M5-005` and `WI-M5-010` ride alongside M6.** Neither blocks a user. `WI-M5-005` is the eighteen remaining `let _ =` bindings and the ninth check's sibling -- **and `WI-M5-006` is the argument for cutting it next**, since a rule with no instrument is what both findings turned out to be
+1. **The docs commit M6's remaining Work Items wait on.** The four gaps under Current milestone below. Three are arithmetic or naming a primitive; **G4 is the one that needs thinking about, and `WI-M6-001` is what made it urgent.** docs/11's reply travels over the LAN to a peer that is not linked in either direction, and as of today an unlinked account is refused at the handshake -- so the invite has to be what authorises that one connection, and docs/11 does not say so because it was written before there was a handshake to say it about
+2. **`WI-M6-002`, the Layer 0 link domain**, once G1 and G2 are settled. It is the only M6 Work Item that depends on nothing else
+3. **`WI-M5-005`, `WI-M5-009` and `WI-M5-010` still ride alongside.** Unchanged and still blocking nobody. **`WI-M5-005` reads differently after `WI-M6-001`, though** -- it is the ninth CI check over a rule review did not enforce, and a constant Trust Tier was an eleventh rule with no instrument, so whatever `WI-M5-005` builds is the shape the answer to both takes
 
 ## In flight
 
@@ -321,9 +323,35 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 **Design**: [docs/11-account-linking.md](docs/11-account-linking.md)
 **Done when**: two devices on different accounts link by QR, transfer both ways, and removal takes effect immediately.
 
-**M5's Work Items are in [RECORD.md](RECORD.md); three of them did not land and are carried here rather than closed with the milestone.** **`WI-M5-006` was the last one a user meets before anything works and it has landed**, so `Select Files` is permitted and no longer dead. What is left touches nobody's first run: an unenforced rule, a swallowed refusal, and a label.
+**M6 does not start from nothing, and the first hour of reading it found the reason it looked as though it did.** `grep` finds no `Fingerprint` and no `link_id` in `crates/*/src`, which is what the last session recorded -- and `AttestationPolicy` has carried a `linked_accounts` field since M0, `TrustTier::Linked` has been on the wire since M1, and `classify_with_profile` already returns it for an account in that list. **Every call site passes `linked_accounts: &[]`, and none of the four live ones reaches that function at all.** So M6's real first move is not building the tier, it is making the tier reachable. See the finding at the top of this file.
+
+#### Four gaps M6's design has, and the docs commit that closes them
+
+**These are recorded before any of them is settled**, so a later session can tell what was decided from what was assumed. Three are arithmetic or naming a primitive; the fourth is a design decision.
+
+| # | Gap | Where |
+|---|---|---|
+| G1 | **The Fingerprint's bit arithmetic does not close.** docs/05 says: 15 bytes, split into three groups of 5, each encoded as 4 words from a list of 2048. A group of 5 bytes is 40 bits and 4 words of an 2048-list is 44, so the formula as written cannot be implemented. **120 bits and 132 bits are both defensible and the doc names neither** | [docs/05](docs/05-security.md#fingerprint--the-option-not-to-trust-google) |
+| G2 | **The word list has no source.** "A BIP-39-style list of 2048" names a shape and not a file, and a Layer 0 crate may not depend on a crate that carries one, so whatever is chosen is vendored and its provenance has to be recorded where a review can check it | [docs/05](docs/05-security.md#fingerprint--the-option-not-to-trust-google) |
+| G3 | **`HKDF(half_A \|\| half_B, "tradr-link-v1")` does not name a hash, a salt, or an output length.** The workspace has `hmac` and `sha2` in `tradr-identity` and `blake3` in four crates, and every derived value this design already has -- Device ID, Content Hash, the Attestation nonce, the Agreement Key Tag, EIDs -- is BLAKE3 | [docs/11](docs/11-account-linking.md) |
+| G4 | **The reply reaches a peer that is not linked yet, and after `WI-M6-001` that connection is refused.** docs/11's Tier 0 diagram has Bob reply "over BLE or LAN"; BLE is M7, so M6's reply is a LAN connection to Alice, whose account Bob's is not linked to in either direction. The handshake classifies it `UntrustedAccount` and the connection never opens. **The invite is what has to authorise that one connection**, and docs/11 does not say so because it was written before there was a handshake to say it about. Bound up with it: the QR carries no address, so Bob reaches Alice by computing `BLAKE3(identity_pub)[0..16]` and matching the mDNS TXT `id` of a peer he has already discovered | [docs/11](docs/11-account-linking.md), [docs/04](docs/04-protocol.md#the-type-byte) |
 
 #### Work Items
+
+**`WI-M6-001` has landed and the rest are not cut yet.** They are the shape M6 is expected to take, listed so the order is on record; each is cut properly once the docs commit above lands, and any of them may change when it is.
+
+| ID | Content | Status | Critical |
+|---|---|---|---|
+| WI-M6-001 | **The live Trust Tier stops being a constant.** The four `\|_\| async { Ok(TrustTier::SameAccount) }` closures call `verify_attestation` against a policy built from this device's own sign-in, sharing one warm `JwksCache` across connections, and the listener reads its own `id_token` at connection time rather than capturing it at startup | **done** | **yes** |
+| WI-M6-002 | Layer 0 link domain in `tradr-core`: `LinkId`, `LinkSecret`, `HalfSecret`, `InviteId`, the `Link` record, and the `Fingerprint` word encoding with its vendored list. No hashing -- `DeviceId::from_identity_digest`'s precedent is that Layer 0 receives a digest and never computes one | planned | |
+| WI-M6-003 | `tradr-identity`: the hashing half of the above, and the persisted Link registry that feeds `AttestationPolicy::linked_accounts`. `StaticPeerRegistry` is the precedent for the file, the whole-file rewrite and the temporary-file rename | planned | |
+| WI-M6-004 | The three linking messages: `proto/`, the type bytes docs/04 assigns them, and the codec in `tradr-proto` | planned | |
+| WI-M6-005 | The invite: generated, rendered as a QR and as a base64 blob, parsed back, and expired | planned | |
+| WI-M6-006 | The exchange in the plugin: the window an invite opens, the reply, the approval, and both sides storing the Link | planned | |
+| WI-M6-007 | The interface: show the QR, scan or paste one, show both Fingerprints, approve or decline, list Links and remove one | planned | |
+| WI-M6-008 | Removal takes effect at once, and a transfer runs both ways at `TrustTier::Linked`. M6's completion criterion, and the Work Item that measures it | planned | |
+
+**M5's three carried Work Items are still open and still ride alongside M6.**
 
 | ID | Content | Status | Critical |
 |---|---|---|---|

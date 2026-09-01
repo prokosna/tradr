@@ -4,6 +4,8 @@
 //! own -- `tradr_identity::verify_attestation` already runs every step;
 //! nothing outside a test had ever called it before this module.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -18,11 +20,12 @@ use crate::identity::IdentityState;
 use crate::sign_in::{OAuthConfig, SignInState};
 
 /// How old an `id_token`'s `iat` may be before verification rejects it
-/// (docs/05, "Handling expiry"). Mirrors `sign_in`'s own limit.
-const STALENESS_LIMIT_SECS: u64 = 30 * 24 * 60 * 60;
+/// (docs/05, "Handling expiry"). Mirrors `sign_in`'s own limit; shared with
+/// `crate::peer_trust` so a live connection applies the same policy.
+pub(crate) const STALENESS_LIMIT_SECS: u64 = 30 * 24 * 60 * 60;
 /// How far ahead of this device's clock an `id_token`'s `iat` may be before
 /// verification rejects it (docs/05 step 5).
-const FUTURE_SKEW_LIMIT_SECS: u64 = 300;
+pub(crate) const FUTURE_SKEW_LIMIT_SECS: u64 = 300;
 
 /// What a peer needs to verify this device, and what this device parses
 /// out of a peer's pasted copy of the same shape: the `id_token` an
@@ -76,7 +79,7 @@ fn decode_point(field: &str, hex: &str) -> Result<PublicKeyPoint, String> {
 #[tauri::command]
 pub fn attestation_bundle(
     identity_state: State<'_, IdentityState>,
-    sign_in_state: State<'_, SignInState>,
+    sign_in_state: State<'_, Arc<SignInState>>,
 ) -> Result<AttestationBundle, String> {
     let id_token = sign_in_state
         .id_token()
@@ -98,7 +101,7 @@ pub fn attestation_bundle(
 pub async fn verify_peer_attestation(
     bundle: String,
     oauth: State<'_, OAuthConfig>,
-    sign_in_state: State<'_, SignInState>,
+    sign_in_state: State<'_, Arc<SignInState>>,
 ) -> Result<VerifiedPeer, String> {
     let parsed: AttestationBundle =
         serde_json::from_str(&bundle).map_err(|e| format!("malformed attestation bundle: {e}"))?;

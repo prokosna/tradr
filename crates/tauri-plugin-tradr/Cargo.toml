@@ -32,3 +32,5 @@ tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 
 [dev-dependencies]
 tempfile = "3"
+rsa = { version = "0.9", features = ["sha2", "pem"] }
+sha2 = "0.10"

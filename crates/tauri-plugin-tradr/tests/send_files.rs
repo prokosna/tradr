@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use tauri_plugin_tradr::commands::execute_send_files;
 use tauri_plugin_tradr::listener::{ListenerParams, handle_incoming_channel};
+use tauri_plugin_tradr::peer_trust::OwnAttestation;
 use tradr_core::{
     Candidate, Capabilities, Clock, DomainTag, KeyBinding, KeyStore, PeerExpectation, RelPath,
     RootId, Transport, TransportId, TrustTier, UnixTime, VersionRange,
@@ -22,6 +23,15 @@ fn setup_key_store(dir: &std::path::Path) -> Arc<SoftwareKeyStore> {
     let rung = FileStore::new(dir.join("keys"));
     let store = SoftwareKeyStore::open(&rung, "device-key", &OsRng).expect("open key store");
     Arc::new(store)
+}
+
+// A fixed own-attestation for tests that never exercise sign-in itself.
+struct FixedAttestation(String);
+
+impl OwnAttestation for FixedAttestation {
+    fn id_token(&self) -> Option<String> {
+        Some(self.0.clone())
+    }
 }
 
 #[tokio::test]
@@ -80,7 +90,7 @@ async fn send_files_end_to_end_over_quic_loopback() {
         let params = ListenerParams {
             root: root_receiver,
             our_identity: &rx_identity,
-            our_attestation_token: String::new(),
+            our_attestation_token: Arc::new(FixedAttestation(String::new())),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Capabilities::DIRECT_QUIC,
@@ -121,6 +131,7 @@ async fn send_files_end_to_end_over_quic_loopback() {
             &sender_id,
             sender_store.as_ref(),
             String::new(),
+            |_| async { Ok(TrustTier::SameAccount) },
         ),
         rx_handle,
     );
@@ -191,7 +202,7 @@ async fn send_files_respects_receiver_item_filtering() {
         let params = ListenerParams {
             root: root_receiver,
             our_identity: &rx_identity,
-            our_attestation_token: String::new(),
+            our_attestation_token: Arc::new(FixedAttestation(String::new())),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Capabilities::DIRECT_QUIC,
@@ -234,6 +245,7 @@ async fn send_files_respects_receiver_item_filtering() {
             &sender_id,
             sender_store.as_ref(),
             String::new(),
+            |_| async { Ok(TrustTier::SameAccount) },
         ),
         rx_handle,
     );
@@ -268,6 +280,7 @@ async fn send_files_rejects_empty_file_list() {
         &sender_id,
         sender_store.as_ref(),
         String::new(),
+        |_| async { Ok(TrustTier::SameAccount) },
     )
     .await;
 
