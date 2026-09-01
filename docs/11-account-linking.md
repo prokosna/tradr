@@ -150,7 +150,7 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
 
 **`created_at` is an integer of seconds and not an ISO-8601 string.** `UnixTime` is the only time this workspace has, nothing anywhere formats a date, and a second time representation is a second thing that can disagree with the one the Attestation staleness rule already compares against. The same argument settled the certificate validity window in decision 20: a field written in a shape nothing reads is a field that goes wrong unobserved.
 
-**The Link Secret is in the OS key store and is named nowhere in this file.** A `SecretStore` slot is what holds it, and this record is what a reader of `links.json` may see.
+**The Link Secret is in the OS key store and never in this file.** The slot holding it is `link-` followed by the same lowercase hex the `link_id` field carries, so **the record is the only thing that names the slot** — which is what decides the order the two are written and discarded in, below. The record itself stays what a reader of `links.json` may see.
 
 #### What this record deliberately does not carry yet
 
@@ -173,7 +173,24 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
 - The peer is notified when online, but **removal takes effect locally at once regardless**. Their connections are then rejected because the Attestation's `(iss, sub)` matches no known link
 - Files already handed over cannot be recalled. The UI says so
 
-**Discarding the Link Secret needs an operation `SecretStore` does not have.** The trait declares `store` and `load` and nothing that empties a slot, so removal as built today drops the Link record and leaves the secret behind it — orphaned, since nothing knows the slot name once the record naming it is gone, but still on disk or in the keyring. **The account half of removal is complete and is what the milestone is judged on**: the `(iss, sub)` leaves `linked_accounts` at once and the peer's next connection is refused. The secret half is `WI-M6-003b`, and it is the same shape as the two rules this project found had no instrument — the sentence was true as design and nothing made it true in code.
+**Discarding the Link Secret needed an operation `SecretStore` did not have, and DCR-070 adds it.** The trait declared `store` and `load` and nothing that empties a slot, so removal as first built dropped the Link record and left the secret behind it — orphaned, since nothing knows the slot name once the record naming it is gone, but still on disk or in the keyring. **The account half of removal was complete throughout and is what the milestone is judged on**: the `(iss, sub)` leaves `linked_accounts` at once and the peer's next connection is refused.
+
+#### `remove`, and the order the two halves move in
+
+**`remove(slot)` empties a slot, and a slot that was already empty is a success.** That mirrors `load`'s `Ok(None)` rather than inventing a second convention for the same absence: what a caller asks for is a slot that is empty afterwards, and a removal that refused because there was nothing there would make the retry after a half-finished removal fail forever. **The rule `load` already carries is unchanged** — a backend that cannot be reached is an error and never a success, because the two must not be confused by a caller deciding whether anything is still there.
+
+**The secret moves first and the record second, in both directions.** One rule, and one reason: the record is the only thing that names the slot.
+
+- **Removing.** A record deleted before its secret leaves a slot nothing can address again, which is the orphan above. Secret first means a discard that fails changes nothing at all, and a record write that fails afterwards leaves the record still naming the slot — so the repair is to run the same removal again, which an idempotent `remove` and a whole-file write both accept.
+- **Adding.** The two half secrets are ephemeral, so a record written before its secret can never acquire one and re-linking is the only repair. **That is why this cannot wait for M7's EIDs to be the first thing that reads a Link Secret.** Secret first, and a record that then fails to write **takes its secret back down with it**, so a refused `add` leaves nothing behind.
+
+**A rollback that itself fails is reported beside the failure that caused it, never instead of it.** A second error discarded to report the first is rule F6's shape exactly, and the file rung already carries this pattern for the temporary file it cleans up.
+
+**The registry performs both halves, and no caller can ask for one without the other.** `add` and `remove` take the secret store as an argument, so removing a Link and leaving its secret behind is not a thing a caller can express. **That is the difference between a sentence and an instrument**, and it is the finding this repository has recorded against a rule with no check five times over: "removal discards the Link Secret" was true as design and false as code for exactly as long as it rested on a caller remembering.
+
+**`add` refuses a secret that does not derive the Link's own id.** `link_id` is `BLAKE3(Link Secret)[0..16]` and the slot is addressed by it, so a record and a secret that do not derive from each other would put the secret under a name nothing could find it by. It costs one comparison, and it is the check `LinkApprove` already makes across the wire, made again where the two are stored.
+
+**On the Secret Service rung an item is labelled from its slot rather than `Tradr Device Key`.** The label is what a person reads in their keyring, lookup goes by attributes and never by it, and a Link Secret is not a Device Key.
 
 ### When the peer adds a device
 
