@@ -19,6 +19,7 @@ use tradr_transport::quic::QuicTransport;
 use tradr_vfs::NativeVfs;
 
 use crate::identity::IdentityState;
+use crate::link_registry::LinkRegistryState;
 use crate::listener::run_listener;
 use crate::peer_trust::PeerTrustState;
 use crate::sign_in::SignInState;
@@ -34,6 +35,7 @@ pub fn init_lifecycle<R: Runtime>(
     identity_state: &IdentityState,
     sign_in_state: Arc<SignInState>,
     peer_trust_state: &PeerTrustState,
+    link_registry_state: &LinkRegistryState,
 ) -> Result<(), String> {
     let key_store = match identity_state.key_store() {
         Ok(k) => k,
@@ -173,6 +175,9 @@ pub fn init_lifecycle<R: Runtime>(
     // any of them past the handshake.
     let peer_trust = peer_trust_state.peer_trust();
     let sign_in_for_verify = sign_in_state;
+    // Reported the same way as `peer_trust` above, through `let links =
+    // links?;` inside the closure, rather than substituting an empty list.
+    let link_registry = link_registry_state.registry();
 
     tauri::async_runtime::spawn(async move {
         if let Ok(incoming) = transport_for_listener.listen().await {
@@ -186,16 +191,19 @@ pub fn init_lifecycle<R: Runtime>(
                 move |req: AttestationRequest| {
                     let peer_trust = peer_trust.clone();
                     let sign_in = sign_in_for_verify.clone();
+                    let links = link_registry.clone();
                     async move {
                         let trust = peer_trust?;
                         let own_account = sign_in.own_account();
+                        let links = links?;
+                        let linked_accounts = links.lock().await.linked_accounts();
                         trust
                             .classify(
                                 req.token(),
                                 req.identity_pub(),
                                 req.agreement_pub(),
                                 own_account.as_ref(),
-                                &[],
+                                &linked_accounts,
                                 &SystemClock,
                             )
                             .await

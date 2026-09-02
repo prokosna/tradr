@@ -217,6 +217,12 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
 
 **A second Link to an account already linked is refused.** Linking is per account, as "When the peer adds a device" below says, so two records naming one `(iss, sub)` are two answers to a question that has one. **A duplicate `link_id` is refused too**: it is the key removal and Fingerprint verification address a Link by, and a registry holding two would act on whichever it found first.
 
+#### Where the registry is read from, and when
+
+**`linked_accounts` is read off the registry at each classification and never captured once.** [docs/05](05-security.md#what-a-verifier-does)'s step 6 runs on every connection, and "removal takes effect locally at once" below is true in code only if the list that step reads is the list the registry holds at that moment. A copy taken when the application started goes on granting `TrustTier::Linked` to an account the user has just removed, and nothing anywhere fails.
+
+**A registry that cannot be read is reported at every use and never at startup**, which is the opposite of what DCR-063 gives `static-peers.json`, and the difference is what is left to say it in. An unreadable list must never be read as an empty one, so a device whose `links.json` is malformed classifies no peer at all -- that is already every connection refused, and refusing them from a running window that names the file is strictly more than refusing them from no window. **`PeerTrustState` is the precedent**: it holds its own build failure and reports it through every classification rather than aborting the setup hook, for the same reason.
+
 ### Removing a link
 
 - Either side removing it ends it. The other's consent is irrelevant

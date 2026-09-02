@@ -21,6 +21,7 @@ pub mod handshake;
 mod identity;
 pub mod lifecycle;
 pub mod link_exchange;
+pub mod link_registry;
 pub mod listener;
 #[cfg(target_os = "android")]
 pub mod mobile;
@@ -69,18 +70,21 @@ pub fn init<R: Runtime>(
                 client_secret,
             };
             let peer_trust_state = peer_trust::init_peer_trust_state(&oauth_config);
+            let link_registry_state = link_registry::init_link_registry_state(app);
 
             lifecycle::init_lifecycle(
                 app,
                 &identity_state,
                 sign_in_state.clone(),
                 &peer_trust_state,
+                &link_registry_state,
             )?;
 
             app.manage(identity_state);
             app.manage(oauth_config);
             app.manage(sign_in_state);
             app.manage(peer_trust_state);
+            app.manage(link_registry_state);
 
             #[cfg(target_os = "android")]
             {

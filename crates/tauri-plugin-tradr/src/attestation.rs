@@ -17,6 +17,7 @@ use tradr_identity::{
 use tradr_oidc::fetch_jwks;
 
 use crate::identity::IdentityState;
+use crate::link_registry::LinkRegistryState;
 use crate::sign_in::{OAuthConfig, SignInState};
 
 /// How old an `id_token`'s `iat` may be before verification rejects it
@@ -102,6 +103,7 @@ pub async fn verify_peer_attestation(
     bundle: String,
     oauth: State<'_, OAuthConfig>,
     sign_in_state: State<'_, Arc<SignInState>>,
+    link_registry: State<'_, LinkRegistryState>,
 ) -> Result<VerifiedPeer, String> {
     let parsed: AttestationBundle =
         serde_json::from_str(&bundle).map_err(|e| format!("malformed attestation bundle: {e}"))?;
@@ -111,6 +113,7 @@ pub async fn verify_peer_attestation(
     let own_account = sign_in_state
         .own_account()
         .ok_or_else(|| "sign in on this device before verifying a peer".to_string())?;
+    let linked_accounts = link_registry.linked_accounts().await?;
 
     let client = oauth_client(Platform::Desktop, oauth.client_ids, oauth.client_secret)
         .map_err(|e| e.to_string())?;
@@ -119,7 +122,7 @@ pub async fn verify_peer_attestation(
     let policy = AttestationPolicy {
         profiles: std::slice::from_ref(&profile),
         own_account: &own_account,
-        linked_accounts: &[],
+        linked_accounts: &linked_accounts,
         staleness_limit_secs: STALENESS_LIMIT_SECS,
         future_skew_limit_secs: FUTURE_SKEW_LIMIT_SECS,
         ephemeral_receive: false,
