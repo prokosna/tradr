@@ -129,6 +129,22 @@ pub struct AttestationPolicy<'a> {
     pub ephemeral_receive: bool,
 }
 
+/// The policy a link stream verifies an Attestation under (docs/05, "What
+/// runs on a stream that has no session"; DCR-072). Carries the profiles
+/// and the two freshness limits and nothing else -- no `own_account`, no
+/// `linked_accounts`, no `ephemeral_receive` -- so step 6 is inexpressible
+/// on it, not merely skipped.
+pub struct LinkPolicy<'a> {
+    /// Every provider profile this device trusts. Compiled in, same as
+    /// `AttestationPolicy::profiles`.
+    pub profiles: &'a [ProviderProfile],
+    /// How old an `iat` may be before it is rejected, in seconds.
+    pub staleness_limit_secs: u64,
+    /// How far ahead of this device's clock an `iat` may be before it is
+    /// rejected, in seconds.
+    pub future_skew_limit_secs: u64,
+}
+
 /// Why an Attestation was rejected. Rejection is always an `Err`: the wire
 /// tier `TrustTier::Rejected` exists for encoding a decision already made
 /// elsewhere, not for a caller to receive here and forget to check.
@@ -230,6 +246,44 @@ pub fn classify_with_profile(
     agreement_pub: &PublicKeyPoint,
     now: UnixTime,
 ) -> Result<TrustTier, AttestationError> {
+    check_claims(
+        profile,
+        claims,
+        identity_pub,
+        agreement_pub,
+        policy.staleness_limit_secs,
+        policy.future_skew_limit_secs,
+        now,
+    )?;
+
+    // Step 6: identity is the (iss, sub) pair, never sub alone.
+    let account = AccountId::new(&claims.iss, &claims.sub);
+    if account == *policy.own_account {
+        return Ok(TrustTier::SameAccount);
+    }
+    if policy.linked_accounts.contains(&account) {
+        return Ok(TrustTier::Linked);
+    }
+    if policy.ephemeral_receive {
+        return Ok(TrustTier::NearbyEphemeral);
+    }
+    Err(AttestationError::UntrustedAccount)
+}
+
+/// Steps 3 through 5, shared by `classify_with_profile` and
+/// `verify::verify_link_attestation` (docs/05, "What runs on a stream that
+/// has no session"). Takes the two freshness limits directly, since the two
+/// entry points carry different policy types and neither is read here
+/// (DCR-025).
+pub(crate) fn check_claims(
+    profile: &ProviderProfile,
+    claims: &VerifiedClaims,
+    identity_pub: &PublicKeyPoint,
+    agreement_pub: &PublicKeyPoint,
+    staleness_limit_secs: u64,
+    future_skew_limit_secs: u64,
+    now: UnixTime,
+) -> Result<(), AttestationError> {
     // Step 3: aud is checked against the profile's whole client id set, not
     // one value, since aud is whichever platform ran the flow.
     if !profile.client_ids.iter().any(|id| id == &claims.aud) {
@@ -250,7 +304,7 @@ pub fn classify_with_profile(
     // without computing a signed difference.
     match now.elapsed_since(claims.iat) {
         Ok(age) => {
-            if age > policy.staleness_limit_secs {
+            if age > staleness_limit_secs {
                 return Err(AttestationError::Stale);
             }
         }
@@ -261,22 +315,11 @@ pub fn classify_with_profile(
                 .iat
                 .elapsed_since(now)
                 .map_err(|_| AttestationError::ClockSkew)?;
-            if skew > policy.future_skew_limit_secs {
+            if skew > future_skew_limit_secs {
                 return Err(AttestationError::ClockSkew);
             }
         }
     }
 
-    // Step 6: identity is the (iss, sub) pair, never sub alone.
-    let account = AccountId::new(&claims.iss, &claims.sub);
-    if account == *policy.own_account {
-        return Ok(TrustTier::SameAccount);
-    }
-    if policy.linked_accounts.contains(&account) {
-        return Ok(TrustTier::Linked);
-    }
-    if policy.ephemeral_receive {
-        return Ok(TrustTier::NearbyEphemeral);
-    }
-    Err(AttestationError::UntrustedAccount)
+    Ok(())
 }

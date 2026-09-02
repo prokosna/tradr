@@ -489,6 +489,18 @@ Both are unreachable when the algorithm comes from the profile and the header is
 
 **Selecting the profile reads `iss` before any signature has been checked, and that is not a contradiction.** Verification does not alter the payload, so the `iss` read in step 1 is the `iss` the signature covers; if it were forged, the profile it selects carries keys that will not verify the token, and step 2 rejects it. What step 1 must never do is read anything *other* than `iss` -- a JWKS host, a `kid`, an `alg` -- to decide which rules apply.
 
+#### What runs on a stream that has no session
+
+**One stream in this protocol verifies an Attestation and must not run step 6, and [docs/11](11-account-linking.md#how-bobs-reply-reaches-alice-and-what-authorises-the-connection) is why**: an account being linked is by construction one step 6 refuses, so the check that makes linking worth having is the check that refuses the exchange establishing it. DCR-072 settles what runs instead, and the shape is a second entry point rather than a flag on the first.
+
+**A flag is rejected for the reason docs/11 already gives against `ephemeral_receive`, and for one this document can add.** A policy that still carries `own_account` and `linked_accounts` while being told to ignore them has two account fields read on one path and not on the other, and nothing in the type says which path is running. **The link policy carries no account fields at all**, so step 6 is not skipped there -- it is inexpressible. That is the difference between a sentence and an instrument, and it is the thing this repository has recorded six times in place of a rule someone must remember.
+
+**What it returns is the account, and that is the whole point of running steps 1 to 5 at all.** An ordinary verification answers "which tier"; a link verification answers "which account", because the account is what the Link record stores and what `linked_accounts` holds the next time step 6 runs. The two entry points return different things rather than the same thing under two names.
+
+**The key join moves inside it, and only here.** On the Hello path the join is check 2 of the exchange -- one hash, before any signature work, refusing before an `AttestationRequest` exists at all -- and a link stream has no `Hello` and no state machine, so the join has exactly one honest home left. **Taking the channel-authenticated `DeviceId` as an argument is what makes it unforgettable**: the function cannot be called without supplying the value the peer's key is compared against. It runs first, ahead of the signature work, exactly where check 2 runs.
+
+**Steps 1 to 5 are one implementation and not two.** DCR-025's argument is unchanged and now has a second caller to survive: the profile is selected once, from `iss` alone, and every step that depends on a profile runs against that same selection. Two entry points over one core is what keeps that true. **Two entry points each with their own copy would be the defect DCR-025 exists to prevent, reached by a different route** -- and it is the shape DF-27 and DF-29 already record twice in this workspace.
+
 ### How a signature is encoded, and where its nonce comes from
 
 **64 bytes, `r || s`, each a 32-byte big-endian scalar. Never DER.**

@@ -1,0 +1,650 @@
+//! Supervisor-authored tests for WI-M6-006a, written before the
+//! implementation. DCR-072: a link stream runs docs/05's steps 1 to 5 and
+//! the key join and must not run step 6, because the account it reports is
+//! by construction one step 6 refuses. Critical Module -- those steps
+//! already pass their own tests, and the entry point over them is new.
+
+use std::cell::Cell;
+
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+use rsa::pkcs1v15::SigningKey;
+use rsa::pkcs8::DecodePrivateKey;
+use rsa::signature::{SignatureEncoding, Signer};
+use rsa::traits::PublicKeyParts;
+use rsa::{RsaPrivateKey, RsaPublicKey};
+use sha2::Sha256;
+use std::time::{Duration, Instant};
+use tradr_core::{Clock, DeviceId, KeyStore, Monotonic, PublicIdentity, Rng, RngError, UnixTime};
+use tradr_identity::{
+    AccountId, AttestationError, AttestationPolicy, Jwk, JwksCache, LinkPolicy, LinkVerification,
+    LinkVerifyError, NonceBinding, ProviderProfile, SignatureAlgorithm, SoftwareKeyStore,
+    TokenError, VerifyError, attestation_nonce, verify_attestation, verify_link_attestation,
+};
+
+const TEST_KEY_PEM: &str = r#"-----BEGIN PRIVATE KEY-----
+MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDYQ+qgF0T16c2x
+yXBPU0I36ACKWEjOYpixQ1gz7x4MPcpmod8Yrjl7neTIfUVsmKT5brnzJ64kcKT8
+b4zmtJ090gHN3Fa7L/RIiIAw+7xm1s1hrStLMDT5GZcQJ7gmtciuM4a2BoxOi3Cp
+vxtN2SSsu4AumW1qOE81KD0K9+yodMTiUXRQHdM8BcWqz7MwLdFSNzTp0gWch3HV
+/ApthIScsNrFXt0tGxMUZ5PGxrOBl7ToRSZmerdEuWUibv62uxGD8uTmjADTwx0u
+IVJoI6ky8SBsP4tswRFmVM3yR9HkygjqnCK2bkJrEIO+hvgh0taZshYCRg5BKJBp
+I+UAvpqjAgMBAAECggEBANHTw3ckXJJEEIDoswEkBOF9Rdj0o18rJn8GmjN5UywJ
+X7GIaI7nq3oWzf0AHjWpPJeOKPiUjU9pw4nxKUJGBzIN6hY0LCpd8qPVXJsqA7e7
+vXWBsLm4wgzWGU1hXDiis1zhPViqrcMfY2Yut20mu4CkQ0/zKMegbqliqydTONiO
++hMaKig1naMoSUn5UO2GDtTHocqDSTWa6TOI7o0mEtBqKkKdXrsulnzptCWNYpc9
+IzZVurQZ8QG2PCB0oTpze3r1/aUMAwqE4P3h8kHEhDaHNDaDEfIiJTsojDoChMEf
+wOHcwRtF4oDFCp1aI2c3XKSCYLKDFvQ8AeyTs5VKgkECgYEA5EI+9iXKa2+MXQZ6
+4VZ5ks31Pk/fHs7z53RY2D4cG6ehK8Fhnd8b3J9wmoMPQySE6DamfXGk7mwqdERb
+jJ/kxowc4g2fVW9WY5kcTbtPp0qgx3xRoIEb7ErVY3zzf5KLwR47mCYn93aLWnRp
+Q6ZHUXH1KAnvjIfoxBROJ0SFuhECgYEA8oyFU53ZmidDB/3eO6bFSf7bXH3sWSnJ
+0QEkB3HDOLkqeGEIWH9XxVnqwSDcZ807Z4mfCtSHC/pCaA075o7sTKpSF2JRkeGS
+EH5G1/BZjzenRlaKPTEePisWYwxTwT19stxF/ViQ9fBHTsEZQ+iyLcQ1yVqIspH/
+3SyLNdw+tXMCgYBCM/SO7+cFwhSz5m09bhdUvOekawYLqXqUZupdzaXZX4Ufa7ck
+UtGB67x9FAYZMz5ZG4CuYYe0nyqxDiJ/ZuCztW+rIMhVvzUPLhlHckxn+P0o3qXO
+J6QxpIK/mD4HgjmGiX4/YtG0tG02jwz40gFdXe/87OTNnZ2lQT5ppTYkAQKBgQCF
+iZw2JygQ2SDsm3bpPK5OSQSY7bNce8djTM97UcT7y+Z4FGQ15RZ7zz+SSPdQJwxX
+ustXeR9JFuXMx8x86Z9rrjI4MadbO+fhMMTsSqXkVe3AqhC+E/bkn3BZ5AWQ1LwJ
+54CZNVPKNBnuYB3653iB/g7m5vNv7TYDnWyfoLzdxQKBgQC6EYvHMd8ol9WgpRXk
+/F7ZcA5/6eUGkI1Z4l8nfnlylCUGp49v5hGY+i2z64/c5/VNF/NM9x9s1eFU2wwt
+7GmF4b+pYDjQYFAIyK82trfgO+w3w7Gicmxo4Qw3By0IPG/+LskehuEz7Bw7EVKL
+MH1PaxeOz3eaTQVEUUg5TNv80g==
+-----END PRIVATE KEY-----"#;
+
+const KID: &str = "provider-a-key";
+const ISS_A: &str = "https://accounts.google.com";
+const AUD_A: &str = "desktop-a.apps.googleusercontent.com";
+const JWKS_A: &str = "https://a.example/jwks";
+const ISS_B: &str = "https://login.microsoftonline.com/common/v2.0";
+const AUD_B: &str = "desktop-b.example";
+const JWKS_B: &str = "https://b.example/jwks";
+const SUB: &str = "peer-subject";
+const NOW: i64 = 1_800_000_000;
+const STALENESS_LIMIT_SECS: u64 = 30 * 24 * 60 * 60;
+const FUTURE_SKEW_LIMIT_SECS: u64 = 300;
+
+struct Timeline {
+    origin: Instant,
+}
+
+impl Timeline {
+    fn new() -> Self {
+        Self {
+            origin: Instant::now(),
+        }
+    }
+
+    fn at(&self, secs: u64) -> Monotonic {
+        Monotonic::from_instant(self.origin + Duration::from_secs(secs))
+    }
+}
+
+struct CountingRng {
+    next: Cell<u8>,
+}
+
+impl Rng for CountingRng {
+    fn fill_bytes(&self, buf: &mut [u8]) -> Result<(), RngError> {
+        buf.fill(self.next.get());
+        self.next.set(self.next.get().wrapping_add(1));
+        Ok(())
+    }
+}
+
+fn identity(seed: u8) -> PublicIdentity {
+    let store = SoftwareKeyStore::generate(&CountingRng {
+        next: Cell::new(seed),
+    })
+    .expect("these seeds are valid P-256 scalars");
+    store.public_identity().expect("a generated store")
+}
+
+fn private_key() -> RsaPrivateKey {
+    match RsaPrivateKey::from_pkcs8_pem(TEST_KEY_PEM) {
+        Ok(k) => k,
+        Err(e) => panic!("the embedded test key must parse, got {e}"),
+    }
+}
+
+fn published_key(kid: &str) -> Jwk {
+    let public = RsaPublicKey::from(&private_key());
+    Jwk {
+        kid: kid.to_string(),
+        algorithm: SignatureAlgorithm::Rs256,
+        modulus: public.n().to_bytes_be(),
+        exponent: public.e().to_bytes_be(),
+    }
+}
+
+// A key published under a real `kid` whose modulus is not the signing
+// key's, so a token selecting it fails on the signature rather than on
+// an unknown id.
+fn impostor_key(kid: &str) -> Jwk {
+    let mut key = published_key(kid);
+    key.modulus[8] ^= 0xFF;
+    key
+}
+
+fn document(keys: &[Jwk]) -> Vec<u8> {
+    let entries: Vec<String> = keys
+        .iter()
+        .map(|k| {
+            format!(
+                r#"{{"kty":"RSA","alg":"RS256","use":"sig","kid":"{}","n":"{}","e":"{}"}}"#,
+                k.kid,
+                B64.encode(&k.modulus),
+                B64.encode(&k.exponent)
+            )
+        })
+        .collect();
+    format!(r#"{{"keys":[{}]}}"#, entries.join(",")).into_bytes()
+}
+
+fn profile(issuer: &str, aud: &str, jwks_uri: &str) -> ProviderProfile {
+    ProviderProfile {
+        client_id: "test-client".to_string(),
+        client_secret: Some("test-secret".to_string()),
+        authorization_uri: "https://accounts.google.com/o/oauth2/auth".to_string(),
+        token_uri: "https://oauth2.googleapis.com/token".to_string(),
+        issuer: issuer.to_string(),
+        client_ids: vec![aud.to_string()],
+        nonce_binding: NonceBinding::Verbatim,
+        algorithms: vec![SignatureAlgorithm::Rs256],
+        jwks_uri: jwks_uri.to_string(),
+    }
+}
+
+fn both_profiles() -> Vec<ProviderProfile> {
+    vec![profile(ISS_A, AUD_A, JWKS_A), profile(ISS_B, AUD_B, JWKS_B)]
+}
+
+fn signed_token(header_json: &str, payload_json: &str) -> String {
+    let input = format!("{}.{}", B64.encode(header_json), B64.encode(payload_json));
+    let signing_key = SigningKey::<Sha256>::new(private_key());
+    let signature = signing_key.sign(input.as_bytes());
+    format!("{}.{}", input, B64.encode(signature.to_bytes()))
+}
+
+fn token_for(kid: &str, iss: &str, aud: &str, nonce: &str, iat: i64) -> String {
+    signed_token(
+        &format!(r#"{{"alg":"RS256","typ":"JWT","kid":"{kid}"}}"#),
+        &format!(r#"{{"iss":"{iss}","sub":"{SUB}","aud":"{aud}","iat":{iat},"nonce":"{nonce}"}}"#),
+    )
+}
+
+fn conforming_token(id: &PublicIdentity) -> String {
+    let nonce = attestation_nonce(NonceBinding::Verbatim, id);
+    token_for(KID, ISS_A, AUD_A, &nonce, NOW)
+}
+
+fn peer_account() -> AccountId {
+    AccountId::new(ISS_A, SUB)
+}
+
+// The policy a link stream verifies under: the profiles and the two
+// freshness limits, and no account field of any kind. Adding one back
+// stops this function compiling, which is the whole of DCR-072's
+// instrument.
+fn link_policy(profiles: &[ProviderProfile]) -> LinkPolicy<'_> {
+    LinkPolicy {
+        profiles,
+        staleness_limit_secs: STALENESS_LIMIT_SECS,
+        future_skew_limit_secs: FUTURE_SKEW_LIMIT_SECS,
+    }
+}
+
+fn warm_cache(uri: &str, keys: &[Jwk]) -> JwksCache {
+    let mut cache = JwksCache::new(uri);
+    cache
+        .install(&document(keys))
+        .expect("a well-formed document");
+    cache
+}
+
+// Both kinds of time arrive through one `Clock` rather than as two
+// arguments, so a caller cannot hand the staleness check and the refetch
+// budget readings that disagree with each other.
+struct FixedClock {
+    wall: UnixTime,
+    mono: Monotonic,
+}
+
+impl Clock for FixedClock {
+    fn now(&self) -> UnixTime {
+        self.wall
+    }
+
+    fn monotonic_now(&self) -> Monotonic {
+        self.mono
+    }
+}
+
+// Runs the link verification with the channel authenticated as `id`'s own
+// device, which is the case every conforming exchange is in.
+fn run(
+    policy: &LinkPolicy,
+    cache: &mut JwksCache,
+    token: &str,
+    id: &PublicIdentity,
+    mono: Monotonic,
+) -> Result<LinkVerification, LinkVerifyError> {
+    run_against(policy, cache, token, id, id.device_id(), mono)
+}
+
+fn run_against(
+    policy: &LinkPolicy,
+    cache: &mut JwksCache,
+    token: &str,
+    id: &PublicIdentity,
+    authenticated: DeviceId,
+    mono: Monotonic,
+) -> Result<LinkVerification, LinkVerifyError> {
+    let clock = FixedClock {
+        wall: UnixTime::from_secs(NOW),
+        mono,
+    };
+    verify_link_attestation(
+        policy,
+        cache,
+        token,
+        id.identity_pub(),
+        id.agreement_pub(),
+        authenticated,
+        &clock,
+    )
+}
+
+// --- What this path exists for ---
+
+#[test]
+fn a_conforming_attestation_names_the_peers_account() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let profiles = both_profiles();
+    let mut cache = warm_cache(JWKS_A, &[published_key(KID)]);
+
+    assert_eq!(
+        run(
+            &link_policy(&profiles),
+            &mut cache,
+            &conforming_token(&id),
+            &id,
+            time.at(0)
+        ),
+        Ok(LinkVerification::Verified(peer_account()))
+    );
+}
+
+#[test]
+fn the_account_the_ordinary_path_refuses_is_the_account_this_path_returns() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let profiles = both_profiles();
+    let token = conforming_token(&id);
+    let ours = AccountId::new(ISS_A, "this-devices-own-subject");
+    let ordinary = AttestationPolicy {
+        profiles: &profiles,
+        own_account: &ours,
+        linked_accounts: &[],
+        staleness_limit_secs: STALENESS_LIMIT_SECS,
+        future_skew_limit_secs: FUTURE_SKEW_LIMIT_SECS,
+        ephemeral_receive: false,
+    };
+    let clock = FixedClock {
+        wall: UnixTime::from_secs(NOW),
+        mono: time.at(0),
+    };
+
+    let mut cache = warm_cache(JWKS_A, &[published_key(KID)]);
+    assert_eq!(
+        verify_attestation(
+            &ordinary,
+            &mut cache,
+            &token,
+            id.identity_pub(),
+            id.agreement_pub(),
+            &clock
+        ),
+        Err(VerifyError::Attestation(AttestationError::UntrustedAccount))
+    );
+
+    let mut cache = warm_cache(JWKS_A, &[published_key(KID)]);
+    assert_eq!(
+        run(&link_policy(&profiles), &mut cache, &token, &id, time.at(0)),
+        Ok(LinkVerification::Verified(peer_account()))
+    );
+}
+
+// --- The key join, which has no state machine to live in here ---
+
+#[test]
+fn a_key_that_is_not_the_channels_device_id_is_refused() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let stranger = identity(2);
+    let profiles = both_profiles();
+    let mut cache = warm_cache(JWKS_A, &[published_key(KID)]);
+
+    assert_eq!(
+        run_against(
+            &link_policy(&profiles),
+            &mut cache,
+            &conforming_token(&id),
+            &id,
+            stranger.device_id(),
+            time.at(0)
+        ),
+        Err(LinkVerifyError::KeyDoesNotMatchChannel {
+            authenticated: stranger.device_id(),
+            claimed: id.device_id(),
+        })
+    );
+}
+
+#[test]
+fn the_key_join_runs_before_the_signature_is_checked() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let stranger = identity(2);
+    let profiles = both_profiles();
+    // The published key cannot verify this token, so a join running second
+    // would report a signature failure instead.
+    let mut cache = warm_cache(JWKS_A, &[impostor_key(KID)]);
+
+    assert_eq!(
+        run_against(
+            &link_policy(&profiles),
+            &mut cache,
+            &conforming_token(&id),
+            &id,
+            stranger.device_id(),
+            time.at(0)
+        ),
+        Err(LinkVerifyError::KeyDoesNotMatchChannel {
+            authenticated: stranger.device_id(),
+            claimed: id.device_id(),
+        })
+    );
+}
+
+#[test]
+fn a_key_that_does_not_match_the_channel_cannot_make_this_device_fetch() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let stranger = identity(2);
+    let profiles = both_profiles();
+    let mut cache = JwksCache::new(JWKS_A);
+
+    assert_eq!(
+        run_against(
+            &link_policy(&profiles),
+            &mut cache,
+            &conforming_token(&id),
+            &id,
+            stranger.device_id(),
+            time.at(0)
+        ),
+        Err(LinkVerifyError::KeyDoesNotMatchChannel {
+            authenticated: stranger.device_id(),
+            claimed: id.device_id(),
+        })
+    );
+    assert!(cache.claim_refetch_for(KID, time.at(1)));
+}
+
+#[test]
+fn the_key_join_runs_before_a_profile_is_selected() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let stranger = identity(2);
+    let profiles = both_profiles();
+    let nonce = attestation_nonce(NonceBinding::Verbatim, &id);
+    let unknown_issuer = token_for(KID, "https://issuer.example", AUD_A, &nonce, NOW);
+    let mut cache = warm_cache(JWKS_A, &[published_key(KID)]);
+
+    assert_eq!(
+        run_against(
+            &link_policy(&profiles),
+            &mut cache,
+            &unknown_issuer,
+            &id,
+            stranger.device_id(),
+            time.at(0)
+        ),
+        Err(LinkVerifyError::KeyDoesNotMatchChannel {
+            authenticated: stranger.device_id(),
+            claimed: id.device_id(),
+        })
+    );
+}
+
+// --- Steps 1 to 5 are the ones the ordinary path runs ---
+
+#[test]
+fn an_issuer_no_profile_names_is_rejected_before_anything_is_fetched() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let profiles = both_profiles();
+    let nonce = attestation_nonce(NonceBinding::Verbatim, &id);
+    let unknown_issuer = token_for(KID, "https://issuer.example", AUD_A, &nonce, NOW);
+    let mut cache = warm_cache(JWKS_A, &[published_key(KID)]);
+
+    assert_eq!(
+        run(
+            &link_policy(&profiles),
+            &mut cache,
+            &unknown_issuer,
+            &id,
+            time.at(0)
+        ),
+        Err(LinkVerifyError::Attestation(VerifyError::Attestation(
+            AttestationError::UnknownIssuer
+        )))
+    );
+    assert!(cache.claim_refetch_for("any-kid", time.at(1)));
+}
+
+#[test]
+fn a_cache_holding_another_providers_keys_is_refused() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let profiles = both_profiles();
+    let mut cache = warm_cache(JWKS_B, &[published_key(KID)]);
+
+    assert_eq!(
+        run(
+            &link_policy(&profiles),
+            &mut cache,
+            &conforming_token(&id),
+            &id,
+            time.at(0)
+        ),
+        Err(LinkVerifyError::Attestation(
+            VerifyError::CacheIsForAnotherProvider {
+                expected: JWKS_A.to_string(),
+                held: JWKS_B.to_string(),
+            }
+        ))
+    );
+}
+
+#[test]
+fn a_signature_the_published_keys_do_not_verify_is_refused() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let profiles = both_profiles();
+    let mut cache = warm_cache(JWKS_A, &[impostor_key(KID)]);
+
+    assert!(matches!(
+        run(
+            &link_policy(&profiles),
+            &mut cache,
+            &conforming_token(&id),
+            &id,
+            time.at(0)
+        ),
+        Err(LinkVerifyError::Attestation(VerifyError::Token(
+            TokenError::SignatureInvalid
+        )))
+    ));
+}
+
+#[test]
+fn an_unknown_kid_asks_for_the_jwks_and_verifies_once_it_is_installed() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let profiles = both_profiles();
+    let token = conforming_token(&id);
+    let mut cache = JwksCache::new(JWKS_A);
+
+    assert_eq!(
+        run(&link_policy(&profiles), &mut cache, &token, &id, time.at(0)),
+        Ok(LinkVerification::JwksNeeded {
+            jwks_uri: JWKS_A.to_string()
+        })
+    );
+
+    cache
+        .install(&document(&[published_key(KID)]))
+        .expect("a well-formed document");
+
+    assert_eq!(
+        run(&link_policy(&profiles), &mut cache, &token, &id, time.at(1)),
+        Ok(LinkVerification::Verified(peer_account()))
+    );
+}
+
+#[test]
+fn an_audience_the_selected_profile_does_not_name_is_refused() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let profiles = both_profiles();
+    let nonce = attestation_nonce(NonceBinding::Verbatim, &id);
+    // Provider B's issuer with provider A's audience: step 1 selects B, so
+    // A's client id set must not be what step 3 consults.
+    let crossed = token_for(KID, ISS_B, AUD_A, &nonce, NOW);
+    let mut cache = warm_cache(JWKS_B, &[published_key(KID)]);
+
+    assert_eq!(
+        run(
+            &link_policy(&profiles),
+            &mut cache,
+            &crossed,
+            &id,
+            time.at(0)
+        ),
+        Err(LinkVerifyError::Attestation(VerifyError::Attestation(
+            AttestationError::AudienceNotRecognised
+        )))
+    );
+}
+
+#[test]
+fn a_nonce_binding_another_devices_keys_is_refused() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let other = identity(3);
+    let profiles = both_profiles();
+    let nonce = attestation_nonce(NonceBinding::Verbatim, &other);
+    let borrowed = token_for(KID, ISS_A, AUD_A, &nonce, NOW);
+    let mut cache = warm_cache(JWKS_A, &[published_key(KID)]);
+
+    assert_eq!(
+        run(
+            &link_policy(&profiles),
+            &mut cache,
+            &borrowed,
+            &id,
+            time.at(0)
+        ),
+        Err(LinkVerifyError::Attestation(VerifyError::Attestation(
+            AttestationError::NonceMismatch
+        )))
+    );
+}
+
+#[test]
+fn a_token_older_than_the_staleness_limit_is_refused() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let profiles = both_profiles();
+    let nonce = attestation_nonce(NonceBinding::Verbatim, &id);
+    let stale = token_for(
+        KID,
+        ISS_A,
+        AUD_A,
+        &nonce,
+        NOW - STALENESS_LIMIT_SECS as i64 - 1,
+    );
+    let mut cache = warm_cache(JWKS_A, &[published_key(KID)]);
+
+    assert_eq!(
+        run(&link_policy(&profiles), &mut cache, &stale, &id, time.at(0)),
+        Err(LinkVerifyError::Attestation(VerifyError::Attestation(
+            AttestationError::Stale
+        )))
+    );
+}
+
+#[test]
+fn a_token_further_ahead_than_the_skew_allowance_is_refused() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let profiles = both_profiles();
+    let nonce = attestation_nonce(NonceBinding::Verbatim, &id);
+    let ahead = token_for(
+        KID,
+        ISS_A,
+        AUD_A,
+        &nonce,
+        NOW + FUTURE_SKEW_LIMIT_SECS as i64 + 1,
+    );
+    let mut cache = warm_cache(JWKS_A, &[published_key(KID)]);
+
+    assert_eq!(
+        run(&link_policy(&profiles), &mut cache, &ahead, &id, time.at(0)),
+        Err(LinkVerifyError::Attestation(VerifyError::Attestation(
+            AttestationError::ClockSkew
+        )))
+    );
+}
+
+#[test]
+fn a_token_inside_the_skew_allowance_still_names_its_account() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let profiles = both_profiles();
+    let nonce = attestation_nonce(NonceBinding::Verbatim, &id);
+    let ahead = token_for(
+        KID,
+        ISS_A,
+        AUD_A,
+        &nonce,
+        NOW + FUTURE_SKEW_LIMIT_SECS as i64,
+    );
+    let mut cache = warm_cache(JWKS_A, &[published_key(KID)]);
+
+    assert_eq!(
+        run(&link_policy(&profiles), &mut cache, &ahead, &id, time.at(0)),
+        Ok(LinkVerification::Verified(peer_account()))
+    );
+}
+
+// --- What a link verification must never leak ---
+
+#[test]
+fn the_error_type_does_not_print_the_token() {
+    let time = Timeline::new();
+    let id = identity(1);
+    let profiles = both_profiles();
+    let token = conforming_token(&id);
+    let mut cache = warm_cache(JWKS_A, &[impostor_key(KID)]);
+
+    let rendered = format!(
+        "{:?}",
+        run(&link_policy(&profiles), &mut cache, &token, &id, time.at(0))
+    );
+    let body = token.split('.').nth(1).expect("a three-part token");
+    assert!(!rendered.contains(&token));
+    assert!(!rendered.contains(body));
+}
