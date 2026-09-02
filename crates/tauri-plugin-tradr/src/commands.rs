@@ -18,7 +18,7 @@ use tradr_discovery::{
     StaticPeerSource,
 };
 use tradr_identity::hello::AttestationRequest;
-use tradr_identity::{OsRng, SystemClock};
+use tradr_identity::{LinkRegistry, OsRng, SystemClock};
 use tradr_integrity::outboard;
 use tradr_proto::control::{decode_transfer_accept_frame, encode_transfer_offer_frame};
 use tradr_proto::framing::{Frame, FrameDecoder, encode_frame};
@@ -28,6 +28,7 @@ use tradr_vfs::NativeVfs;
 use crate::handshake::{HandshakeParams, perform_handshake};
 use crate::identity::IdentityState;
 use crate::lifecycle::downloads_root_id;
+use crate::link_registry::LinkRegistryState;
 use crate::peer_trust::{PeerTrust, PeerTrustState};
 use crate::sign_in::SignInState;
 use crate::transfer::{SendRequest, SessionStreams, send_file_with_progress};
@@ -40,17 +41,21 @@ use crate::transfer::{SendRequest, SessionStreams, send_file_with_progress};
 fn peer_verifier(
     trust: Arc<PeerTrust>,
     sign_in: Arc<SignInState>,
+    links: Arc<tokio::sync::Mutex<LinkRegistry>>,
 ) -> impl FnOnce(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>> {
     move |req: AttestationRequest| {
         Box::pin(async move {
             let own_account = sign_in.own_account();
+            // Read out and drop the guard before classifying: the registry
+            // must never stay locked across `PeerTrust::classify`'s await.
+            let linked_accounts = links.lock().await.linked_accounts();
             trust
                 .classify(
                     req.token(),
                     req.identity_pub(),
                     req.agreement_pub(),
                     own_account.as_ref(),
-                    &[],
+                    &linked_accounts,
                     &SystemClock,
                 )
                 .await
@@ -984,6 +989,7 @@ pub async fn send_files<R: tauri::Runtime>(
     identity_state: State<'_, IdentityState>,
     sign_in_state: State<'_, Arc<SignInState>>,
     peer_trust_state: State<'_, PeerTrustState>,
+    link_registry: State<'_, LinkRegistryState>,
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
@@ -1014,6 +1020,7 @@ pub async fn send_files<R: tauri::Runtime>(
     let verify_attestation = peer_verifier(
         peer_trust_state.peer_trust()?,
         sign_in_state.inner().clone(),
+        link_registry.registry()?,
     );
 
     let app_handle = app.clone();
@@ -1046,6 +1053,7 @@ pub async fn list_peer_directory(
     identity_state: State<'_, IdentityState>,
     sign_in_state: State<'_, Arc<SignInState>>,
     peer_trust_state: State<'_, PeerTrustState>,
+    link_registry: State<'_, LinkRegistryState>,
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
@@ -1075,6 +1083,7 @@ pub async fn list_peer_directory(
     let verify_attestation = peer_verifier(
         peer_trust_state.peer_trust()?,
         sign_in_state.inner().clone(),
+        link_registry.registry()?,
     );
 
     let parsed_share_id: tradr_core::ShareId = share_id
@@ -1113,6 +1122,7 @@ pub async fn download_file<R: tauri::Runtime>(
     identity_state: State<'_, IdentityState>,
     sign_in_state: State<'_, Arc<SignInState>>,
     peer_trust_state: State<'_, PeerTrustState>,
+    link_registry: State<'_, LinkRegistryState>,
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
@@ -1142,6 +1152,7 @@ pub async fn download_file<R: tauri::Runtime>(
     let verify_attestation = peer_verifier(
         peer_trust_state.peer_trust()?,
         sign_in_state.inner().clone(),
+        link_registry.registry()?,
     );
 
     let parsed_share_id: tradr_core::ShareId = share_id
