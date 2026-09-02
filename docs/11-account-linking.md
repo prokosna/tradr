@@ -89,6 +89,16 @@ Contributing half the randomness each stops either side deciding the secret alon
 **So the reader's check takes its clock-skew allowance from the caller rather than baking one in**, the shape `AttestationPolicy` already gives every limit it applies. Nothing else in this design catches a device whose clock runs fast: [docs/05](05-security.md) step 5's forward allowance is applied by a verifier to a token's `iat`, so a reader ten minutes ahead finds every Attestation fine and every fresh invite expired. **A too-generous allowance costs nothing here**, because the most it can do is let Bob answer an invite that Alice will refuse.
 
 
+#### The same expiry bounds the wait on a person, and there is no second number
+
+**Nothing else in this exchange has a deadline, and without one both sides wait forever** (DCR-075). The inviter's approval reaches a person who may put the phone down mid-comparison; the replier is then blocked reading an answer that will never be written, holding a connection open behind it. **The bound is the invite's own `expires_at` and not a timeout invented beside it**, because a second number is a second thing that can disagree with the first, and this one is already on the wire — both sides hold it, so both arrive at the same instant with nothing negotiated to get there.
+
+**A wait that reaches it declines with `InviteExpired`, which is true rather than merely convenient.** What ended the exchange is the window closing: the user did not decline, verification did not fail, and the invite is exactly what expired. So no fourth decline reason is invented. **The contrast with a failed store is what makes the choice a decision rather than a default**: a store that fails is none of the three reasons and declines with none, while a window that closes is one of them exactly.
+
+**The replier stops after the inviter, by the allowance it already grants.** Its read is bounded at `expires_at` plus the same caller-supplied clock-skew allowance its expiry check above takes, so an approval the inviter writes just inside its own window is still read rather than raced against a deadline that fired first. The asymmetry is the point: **the side that decides must be the side whose deadline comes first**, or the exchange can end with one side linked and the other not for no reason but a tie.
+
+**The cost is that a reply arriving late in the window leaves little time to approve**, and that is the honest consequence of one deadline rather than two. It is also the recoverable one: what the interface says is that the invite expired, and showing a fresh one takes a moment. A separate approval timeout would buy that time and pay for it with a second clock nothing displays.
+
 ### Deriving the Link Secret
 
 **This line read `HKDF(half_A || half_B, "tradr-link-v1")` and named no hash, no salt and no output length**, which is three decisions left to whoever implemented it first. DCR-066 settles them as BLAKE3's own key derivation:
@@ -201,7 +211,7 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
 
 **`created_at` is an integer of seconds and not an ISO-8601 string.** `UnixTime` is the only time this workspace has, nothing anywhere formats a date, and a second time representation is a second thing that can disagree with the one the Attestation staleness rule already compares against. The same argument settled the certificate validity window in decision 20: a field written in a shape nothing reads is a field that goes wrong unobserved.
 
-**The Link Secret is in the OS key store and never in this file.** The slot holding it is `link-` followed by the same lowercase hex the `link_id` field carries, so **the record is the only thing that names the slot** — which is what decides the order the two are written and discarded in, below. The record itself stays what a reader of `links.json` may see.
+**The Link Secret is in the OS key store and never in this file**, on the same rung of the storage ladder the Device Key is on and never on one chosen for it separately ([docs/05](05-security.md#one-rung-per-device-and-what-else-goes-on-it)). The slot holding it is `link-` followed by the same lowercase hex the `link_id` field carries, so **the record is the only thing that names the slot** — which is what decides the order the two are written and discarded in, below. The record itself stays what a reader of `links.json` may see.
 
 #### What this record deliberately does not carry yet
 
