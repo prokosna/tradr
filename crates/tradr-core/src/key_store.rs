@@ -346,6 +346,12 @@ pub trait SecretStore {
     /// replacement.
     fn load(&self, slot: &str) -> Result<Option<Vec<u8>>, SecretStoreError>;
 
+    /// Empties `slot`; a slot already empty is a success, mirroring
+    /// `load`'s `Ok(None)` so a retry after a half-finished removal does
+    /// not fail forever. A backend that cannot be reached returns `Err`,
+    /// never `Ok`, for the same reason `load` never confuses the two.
+    fn remove(&self, slot: &str) -> Result<(), SecretStoreError>;
+
     /// The storage level this instance actually reached, for `backing()`
     /// to report.
     fn level(&self) -> StorageLevel;

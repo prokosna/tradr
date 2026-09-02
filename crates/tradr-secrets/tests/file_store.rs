@@ -267,3 +267,93 @@ fn a_file_that_already_exists_too_widely_is_narrowed() {
 
     assert_eq!(mode_of(&dir.join(SLOT)), 0o600);
 }
+
+// --- remove: what DCR-070 added, and the slot check it must keep ---
+
+#[test]
+fn a_removed_slot_reads_back_empty() {
+    let dir = scratch("removeread");
+    let store = FileStore::new(dir.clone());
+    store.store(SLOT, KEY).expect("storing should succeed");
+
+    store.remove(SLOT).expect("removing a stored slot succeeds");
+
+    assert_eq!(store.load(SLOT).expect("loading should succeed"), None);
+}
+
+// DCR-070: a removal that refused because there was nothing there would
+// make the retry after a half-finished removal fail forever, which is
+// exactly the state the ordering rule expects a caller to repair.
+#[test]
+fn removing_a_slot_that_was_never_stored_is_a_success() {
+    let dir = scratch("removeabsent");
+    let store = FileStore::new(dir);
+
+    store
+        .remove(SLOT)
+        .expect("an absent slot is not an error to remove");
+}
+
+#[test]
+fn removing_the_same_slot_twice_is_a_success() {
+    let dir = scratch("removetwice");
+    let store = FileStore::new(dir);
+    store.store(SLOT, KEY).expect("storing should succeed");
+
+    store.remove(SLOT).expect("the first removal succeeds");
+    store.remove(SLOT).expect("the second removal succeeds");
+}
+
+#[test]
+fn removing_one_slot_leaves_another_alone() {
+    let dir = scratch("removeother");
+    let store = FileStore::new(dir);
+    store.store("first", b"one").expect("first store");
+    store.store("second", b"two").expect("second store");
+
+    store.remove("first").expect("the first slot removes");
+
+    assert_eq!(store.load("first").expect("load first"), None);
+    assert_eq!(
+        store.load("second").expect("load second").as_deref(),
+        Some(&b"two"[..])
+    );
+}
+
+#[test]
+fn removing_leaves_nothing_behind_in_the_directory() {
+    let dir = scratch("removeclean");
+    let store = FileStore::new(dir.clone());
+    store.store(SLOT, KEY).expect("storing should succeed");
+
+    store.remove(SLOT).expect("removing a stored slot succeeds");
+
+    let names: Vec<String> = fs::read_dir(&dir)
+        .expect("the directory should exist")
+        .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(names.is_empty(), "removal left {names:?} behind");
+}
+
+// The same check `store` and `load` apply, and the one whose absence
+// would turn a slot name into an arbitrary unlink (invariant I5).
+#[test]
+fn a_slot_that_climbs_out_of_the_directory_is_refused_by_remove() {
+    let enclosing = scratch("removeclimb");
+    let dir = enclosing.join("store");
+    fs::create_dir_all(&dir).expect("the directory should be creatable");
+    let victim = enclosing.join("escaped");
+    fs::write(&victim, b"a file this store was never given").expect("the file should be writable");
+
+    let outcome = FileStore::new(dir).remove("../escaped");
+
+    assert!(outcome.is_err(), "a climbing slot came back as {outcome:?}");
+    assert!(victim.exists(), "a refused slot unlinked a file outside");
+}
+
+#[test]
+fn an_empty_slot_name_is_refused_by_remove() {
+    let dir = scratch("removeemptyname");
+
+    assert!(FileStore::new(dir).remove("").is_err());
+}

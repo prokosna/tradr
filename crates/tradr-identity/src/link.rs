@@ -10,7 +10,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tradr_core::{Fingerprint, HalfSecret, LinkId, LinkSecret, PublicKeyPoint, UnixTime};
+use tradr_core::{
+    Fingerprint, HalfSecret, LinkId, LinkSecret, PublicKeyPoint, SecretStore, SecretStoreError,
+    UnixTime,
+};
 
 use crate::attestation::AccountId;
 
@@ -44,6 +47,14 @@ pub fn derive_link_secret(half_a: &HalfSecret, half_b: &HalfSecret) -> LinkSecre
 pub fn derive_link_id(secret: &LinkSecret) -> LinkId {
     let digest = blake3::hash(secret.as_bytes());
     LinkId::from_link_secret_digest(digest.as_bytes())
+}
+
+/// The `SecretStore` slot a Link's secret lives under (docs/11, "State
+/// after linking"): `link-` followed by the `LinkId`'s own lowercase hex,
+/// which is why it always passes `FileStore`'s bare-name check. The Link
+/// record is the only thing that names this slot.
+pub fn link_secret_slot(id: &LinkId) -> String {
+    format!("link-{id}")
 }
 
 /// Derives the Fingerprint a device renders as twelve words:
@@ -185,10 +196,10 @@ struct LinkFile {
 #[derive(Debug)]
 pub enum LinkRegistryError {
     /// The registry file was not valid JSON in the shape this module
-    /// writes, a field inside it was not a shape this module ever
-    /// produces, or it named one account or one `link_id` more than once.
-    /// An empty registry in its place would silently withdraw
-    /// `TrustTier::Linked` from every peer at once.
+    /// writes, a field was not a shape this module ever produces, it
+    /// named one account or one `link_id` twice, or a stored Link Secret
+    /// was not `LinkSecret`'s length. An empty registry in its place
+    /// would silently withdraw `TrustTier::Linked` from every peer.
     Malformed(String),
     /// `add` was called with a Link whose account this registry already
     /// holds a Link for. Linking is per account, so two Links naming one
@@ -196,9 +207,26 @@ pub enum LinkRegistryError {
     AccountAlreadyLinked,
     /// `add` was called with a `link_id` this registry already holds.
     DuplicateLinkId,
+    /// `add` was given a secret that does not derive the Link's own
+    /// `link_id`. The slot is addressed by `link_id`, so a mismatched pair
+    /// would store the secret under a name nothing could find it by.
+    SecretMismatch,
     /// `remove` or `set_fingerprint_verified` was called with a `link_id`
     /// this registry does not hold.
     UnknownLink,
+    /// The `SecretStore` failed while `add` stored, `remove` discarded, or
+    /// `link_secret` read a Link Secret.
+    Secret(SecretStoreError),
+    /// `add`'s record write failed after its secret had already been
+    /// stored, and discarding that secret -- so a refused `add` leaves
+    /// nothing behind -- also failed. Carries both rather than reporting
+    /// only the persist failure (rule F6).
+    SecretRollbackFailed {
+        /// Why the record write itself failed.
+        persist: Box<LinkRegistryError>,
+        /// Why discarding the just-stored secret then also failed.
+        discard: SecretStoreError,
+    },
     /// The registry file could not be read or written.
     Io(std::io::Error),
 }
@@ -211,7 +239,15 @@ impl fmt::Display for LinkRegistryError {
                 write!(f, "this account is already linked")
             }
             Self::DuplicateLinkId => write!(f, "this link id is already in use"),
+            Self::SecretMismatch => {
+                write!(f, "the secret does not derive the link's own id")
+            }
             Self::UnknownLink => write!(f, "no link in this registry has this id"),
+            Self::Secret(source) => write!(f, "link secret store error: {source}"),
+            Self::SecretRollbackFailed { persist, discard } => write!(
+                f,
+                "{persist}, and discarding the secret just stored also failed: {discard}"
+            ),
             Self::Io(source) => write!(f, "link registry i/o error: {source}"),
         }
     }
@@ -221,9 +257,12 @@ impl std::error::Error for LinkRegistryError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(source) => Some(source),
+            Self::Secret(source) => Some(source),
+            Self::SecretRollbackFailed { persist, .. } => Some(persist.as_ref()),
             Self::Malformed(_)
             | Self::AccountAlreadyLinked
             | Self::DuplicateLinkId
+            | Self::SecretMismatch
             | Self::UnknownLink => None,
         }
     }
@@ -306,11 +345,17 @@ impl LinkRegistry {
             .collect()
     }
 
-    /// Registers `link`. Refuses a second Link to an account this
-    /// registry already holds one for (`AccountAlreadyLinked`) and a
-    /// `link_id` this registry already holds (`DuplicateLinkId`); either
-    /// refusal changes neither memory nor disk.
-    pub fn add(&mut self, link: Link) -> Result<(), LinkRegistryError> {
+    /// Registers `link`, storing `secret` under the slot `link_id` names.
+    /// Refuses an already-held account or `link_id`, or a `secret` not
+    /// derived from `link`'s own `link_id`. Stores the secret before the
+    /// record (docs/11, DCR-070), rolling it back if the record then
+    /// fails to write.
+    pub fn add(
+        &mut self,
+        link: Link,
+        secret: &LinkSecret,
+        secrets: &dyn SecretStore,
+    ) -> Result<(), LinkRegistryError> {
         if self
             .links
             .iter()
@@ -325,24 +370,49 @@ impl LinkRegistry {
         {
             return Err(LinkRegistryError::DuplicateLinkId);
         }
+        if derive_link_id(secret) != link.link_id {
+            return Err(LinkRegistryError::SecretMismatch);
+        }
+
+        let slot = link_secret_slot(&link.link_id);
+        secrets
+            .store(&slot, secret.as_bytes())
+            .map_err(LinkRegistryError::Secret)?;
 
         let mut prospective = self.links.clone();
         prospective.push(link);
-        self.persist(&prospective)?;
+        if let Err(persist_err) = self.persist(&prospective) {
+            return Err(match secrets.remove(&slot) {
+                Ok(()) => persist_err,
+                Err(discard_err) => LinkRegistryError::SecretRollbackFailed {
+                    persist: Box::new(persist_err),
+                    discard: discard_err,
+                },
+            });
+        }
 
         self.links = prospective;
         Ok(())
     }
 
-    /// Removes the Link carrying `id`. Removal takes effect at once: the
-    /// account leaves `linked_accounts` before this call returns
-    /// (docs/11, "Removing a link").
-    pub fn remove(&mut self, id: &LinkId) -> Result<(), LinkRegistryError> {
+    /// Removes the Link carrying `id`, discarding its Link Secret first
+    /// since the record is the only thing that names the slot (docs/11,
+    /// DCR-070). Refuses an unheld `id`, changing nothing. Takes effect at
+    /// once: the account leaves `linked_accounts` before this returns.
+    pub fn remove(
+        &mut self,
+        id: &LinkId,
+        secrets: &dyn SecretStore,
+    ) -> Result<(), LinkRegistryError> {
         let index = self
             .links
             .iter()
             .position(|link| &link.link_id == id)
             .ok_or(LinkRegistryError::UnknownLink)?;
+
+        secrets
+            .remove(&link_secret_slot(id))
+            .map_err(LinkRegistryError::Secret)?;
 
         let mut prospective = self.links.clone();
         prospective.remove(index);
@@ -350,6 +420,30 @@ impl LinkRegistry {
 
         self.links = prospective;
         Ok(())
+    }
+
+    /// The Link Secret stored for `id`: `UnknownLink` when this registry
+    /// holds no Link with that id, `Ok(None)` when it does and the slot is
+    /// empty, `Ok(Some(..))` otherwise. A stored value of the wrong length
+    /// is `Malformed`, never silently read as absent.
+    pub fn link_secret(
+        &self,
+        id: &LinkId,
+        secrets: &dyn SecretStore,
+    ) -> Result<Option<LinkSecret>, LinkRegistryError> {
+        if !self.links.iter().any(|link| &link.link_id == id) {
+            return Err(LinkRegistryError::UnknownLink);
+        }
+
+        let stored = secrets
+            .load(&link_secret_slot(id))
+            .map_err(LinkRegistryError::Secret)?;
+        let Some(bytes) = stored else {
+            return Ok(None);
+        };
+        LinkSecret::from_bytes(&bytes)
+            .map(Some)
+            .map_err(|source| LinkRegistryError::Malformed(source.to_string()))
     }
 
     /// Marks the Link carrying `id` as Fingerprint-verified or not. Refuses

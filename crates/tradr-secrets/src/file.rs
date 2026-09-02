@@ -44,8 +44,8 @@ impl FileStore {
     }
 }
 
-/// A slot name failed the bare-name check `store` and `load` both apply
-/// before touching the filesystem.
+/// A slot name failed the bare-name check `store`, `load`, and `remove`
+/// all apply before touching the filesystem.
 #[derive(Debug)]
 struct InvalidSlot {
     slot: String,
@@ -197,6 +197,16 @@ impl SecretStore for FileStore {
                 Ok(Some(bytes))
             }
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(source) => Err(backend_err(source)),
+        }
+    }
+
+    fn remove(&self, slot: &str) -> Result<(), SecretStoreError> {
+        validate_slot(slot)?;
+
+        match fs::remove_file(self.dir.join(slot)) {
+            Ok(()) => Ok(()),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(source) => Err(backend_err(source)),
         }
     }
