@@ -50,6 +50,45 @@ Where a QR will not work — a screen out of view, or distance — the same JSON
 
 Contributing half the randomness each stops either side deciding the secret alone. Photographing the QR does not yield the Link Secret.
 
+### What the Invite carries, and how it travels
+
+**The block the diagram draws is a sketch of a payload and not a definition of one**, the fourth in this document read as a specification, after the `link_id` that rendered as a ULID, the reply that omitted `agreement_pub`, and the Link record whose three fields nothing could write. DCR-071 settles it, and one of its lines is the defect DCR-068 had already removed from the reply.
+
+| Field | Wire | Native | On disagreement |
+|---|---|---|---|
+| `invite_id` | `bytes`, 16 | `InviteId` | **Refuse.** The reply names it, so an invite whose id cannot be read is one no reply could answer |
+| `identity_pub`, `agreement_pub` | `bytes`, 65 each | `PublicKeyPoint` | **Refuse.** The first of the two is the pin -- Bob dials `BLAKE3(identity_pub)[0..16]` -- and step 3's nonce binding reads both |
+| `attestation.id_token` | `string` | `String`, unverified | **Refuse when absent.** It is what Bob verifies before he answers, and the same empty-string rule a `LinkReply` carries: proto3 cannot tell an absent string from an empty one |
+| `attestation.issuer`, `attestation.issued_at` | `string`, `int64` | **absent** | **Dropped**, as in a `Hello` and a `LinkReply`: the token's own `iss` and `iat` are the authoritative values |
+| `half_secret` | `bytes`, 16 | `HalfSecret` | **Refuse.** It is half of the Link Secret |
+| `expires_at` | `int64` | `UnixTime` | **Refuse when zero.** The diagram's `expires` named no shape; it is seconds since the Unix epoch, for DCR-069's reason for `created_at` -- `UnixTime` is the only time this workspace has, and a second representation is a second thing that can disagree |
+| `display_name` | `string` | `DisplayName`, dropped when invalid | **Drop it and carry on**, exactly as in a `LinkReply`. **The sketch omitted it and the reply carries one**, so without it Bob decides whether to answer a stranger from a Fingerprint alone. It decorates and decides nothing |
+| `sub` | -- | -- | **Not carried at all.** DCR-068's argument, unchanged: it is a wire copy of a claim already inside the token, and two answers to "which account is this" is the defect the key join exists to prevent |
+| `device_id`, `platform`, `capabilities` | `DeviceInfo` fields | **absent** | **Dropped.** The Device ID is recomputed from `identity_pub` and never read off the payload, and nothing here negotiates a capability or reads a platform |
+
+#### The Invite is the only linking payload that is never framed, and that decides its encoding
+
+**It carries a version byte, and the three framed messages do not need one.** A type byte says what a framed message is; an invite has no frame, so it has no type byte and no place in [docs/04](04-protocol.md#the-type-byte)'s registry. **A version field inside the payload could only be read after deciding the bytes are protobuf**, which is the decision the version exists to make -- so it is one byte in front of the body, `0x01`, and a blob opening with anything else is refused as an invite this build cannot read. That is a different sentence from a malformed one, and it is the one a user can act on.
+
+**The body is protobuf and not the JSON the diagram draws.** protobuf is what this workspace encodes with, [Change Drill D5](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) confines it to one crate, and the field-refusal discipline `hello.rs` established applies here unchanged rather than being invented a second time in a second format. It is also about a third smaller, which matters for the reason immediately below and nowhere else in this design.
+
+**The blob is unpadded base64url**, the encoding `attestation.rs`, `jwks.rs`, `id_token.rs` and the mDNS TXT records already use. **The QR encodes exactly that string and nothing else**: one payload and one parser, because the channel a person happened to choose is not a second format.
+
+#### Why an invite's size is a design constraint here and nowhere else
+
+**A blob is roughly 1.7 KB and almost all of it is one field.** A Google `id_token` runs to about 1 KB; everything else the invite carries is under 200 bytes. **QR byte mode holds 2953 bytes at its lowest error-correction level**, so a real invite fits, and it fits at around 137x137 modules -- a QR a phone camera reads off a bright screen, and not much margin beyond that.
+
+- **Generating an invite never fails on size.** The field that decides the size is a token an identity provider issued, which this design does not control, and refusing to link because Google issued a long token is a failure the user cannot act on.
+- **The paste channel is therefore not only a convenience.** The diagram introduces it for a screen out of view or a distance; it is also what an invite too large for a QR must use, and the interface says which of the two it is faced with rather than rendering a QR that will not scan.
+- **Parsing refuses a blob longer than 4096 characters, before decoding it.** It is an untrusted paste, so it needs a bound; the cap sits well above any invite this design produces and well below anything a parser should spend time on.
+
+#### What an invite's expiry decides, and what it does not
+
+**The five minutes are enforced by the inviter and merely advised to the reader.** Alice's device closes its window five minutes after showing the QR and refuses a reply arriving after that -- the single-use window above, on the side that has the authority to enforce it. `expires_at` lets Bob decline to answer an invite that is certainly dead, and it decides nothing else.
+
+**So the reader's check takes its clock-skew allowance from the caller rather than baking one in**, the shape `AttestationPolicy` already gives every limit it applies. Nothing else in this design catches a device whose clock runs fast: [docs/05](05-security.md) step 5's forward allowance is applied by a verifier to a token's `iat`, so a reader ten minutes ahead finds every Attestation fine and every fresh invite expired. **A too-generous allowance costs nothing here**, because the most it can do is let Bob answer an invite that Alice will refuse.
+
+
 ### Deriving the Link Secret
 
 **This line read `HKDF(half_A || half_B, "tradr-link-v1")` and named no hash, no salt and no output length**, which is three decisions left to whoever implemented it first. DCR-066 settles them as BLAKE3's own key derivation:

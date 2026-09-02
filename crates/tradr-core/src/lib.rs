@@ -69,7 +69,7 @@ pub use key_store::{
     SharedSecret, Signature, SoftwareReason, StorageLevel,
 };
 pub use link::{
-    HALF_SECRET_LEN, HalfSecret, INVITE_ID_LEN, InviteId, LINK_ID_LEN, LINK_SECRET_LEN,
+    HALF_SECRET_LEN, HalfSecret, INVITE_ID_LEN, Invite, InviteId, LINK_ID_LEN, LINK_SECRET_LEN,
     LinkApprove, LinkDecline, LinkDeclineReason, LinkDeclineReasonError, LinkError, LinkId,
     LinkReply, LinkSecret,
 };

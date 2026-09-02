@@ -6,6 +6,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use crate::clock::UnixTime;
 use crate::discovery::DisplayName;
 use crate::key_store::PublicKeyPoint;
 
@@ -305,6 +306,115 @@ impl fmt::Debug for LinkReply {
             .field("agreement_pub", &self.agreement_pub)
             .field("attestation_token", &"[redacted]")
             .field("half_secret", &self.half_secret)
+            .field("display_name", &self.display_name)
+            .finish()
+    }
+}
+
+/// One side's offer to link (docs/11, "What the Invite carries"; CONTEXT.md,
+/// "Invite"): the offering device's keys and Attestation, its half of the
+/// Link Secret, and when it expires. `device_id`, `platform` and
+/// `capabilities` are absent, unread. No `PartialEq`, for the reason
+/// `LinkReply` has none: comparing `half_secret`'s bytes is what constant-time comparison avoids.
+#[derive(Clone)]
+pub struct Invite {
+    invite_id: InviteId,
+    identity_pub: PublicKeyPoint,
+    agreement_pub: PublicKeyPoint,
+    attestation_token: String,
+    half_secret: HalfSecret,
+    expires_at: UnixTime,
+    display_name: Option<DisplayName>,
+}
+
+impl Invite {
+    /// Builds an `Invite` from everything mandatory. `display_name` is the
+    /// only optional field, added with `with_display_name`.
+    pub fn new(
+        invite_id: InviteId,
+        identity_pub: PublicKeyPoint,
+        agreement_pub: PublicKeyPoint,
+        attestation_token: String,
+        half_secret: HalfSecret,
+        expires_at: UnixTime,
+    ) -> Self {
+        Self {
+            invite_id,
+            identity_pub,
+            agreement_pub,
+            attestation_token,
+            half_secret,
+            expires_at,
+            display_name: None,
+        }
+    }
+
+    /// Records the name the inviter published about itself.
+    pub fn with_display_name(mut self, display_name: DisplayName) -> Self {
+        self.display_name = Some(display_name);
+        self
+    }
+
+    /// The identifier of this invite.
+    pub fn invite_id(&self) -> &InviteId {
+        &self.invite_id
+    }
+
+    /// The identity key the inviter claims.
+    pub fn identity_pub(&self) -> &PublicKeyPoint {
+        &self.identity_pub
+    }
+
+    /// The agreement key the inviter claims.
+    pub fn agreement_pub(&self) -> &PublicKeyPoint {
+        &self.agreement_pub
+    }
+
+    /// The provider-signed id token the inviter's Attestation carries,
+    /// unverified.
+    pub fn attestation_token(&self) -> &str {
+        &self.attestation_token
+    }
+
+    /// The inviter's half of the prospective Link Secret.
+    pub fn half_secret(&self) -> &HalfSecret {
+        &self.half_secret
+    }
+
+    /// When this invite expires.
+    pub fn expires_at(&self) -> UnixTime {
+        self.expires_at
+    }
+
+    /// The name the inviter published about itself, if any.
+    pub fn display_name(&self) -> Option<&DisplayName> {
+        self.display_name.as_ref()
+    }
+
+    /// Whether this invite is expired, as of `now`, allowing `skew_secs` of
+    /// clock skew past `expires_at`. Advisory only -- the enforcement is the
+    /// inviter's own five-minute window, so the allowance is the caller's
+    /// to set (docs/11, "What an invite's expiry decides, and what it does
+    /// not"). Saturates rather than overflowing when `skew_secs` is large.
+    pub fn is_expired(&self, now: UnixTime, skew_secs: u64) -> bool {
+        let skew = i64::try_from(skew_secs).unwrap_or(i64::MAX);
+        let limit = self.expires_at.as_secs().saturating_add(skew);
+        now.as_secs() > limit
+    }
+}
+
+// Hand-written rather than derived (rule F4): attestation_token is a
+// bearer credential, so this must never place its value into a {:?}.
+// `half_secret` is printed normally -- `HalfSecret` already redacts itself.
+impl fmt::Debug for Invite {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Invite")
+            .field("invite_id", &self.invite_id)
+            .field("identity_pub", &self.identity_pub)
+            .field("agreement_pub", &self.agreement_pub)
+            .field("attestation_token", &"[redacted]")
+            .field("half_secret", &self.half_secret)
+            .field("expires_at", &self.expires_at)
             .field("display_name", &self.display_name)
             .finish()
     }
