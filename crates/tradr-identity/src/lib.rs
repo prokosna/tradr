@@ -16,8 +16,8 @@ mod system_clock;
 mod verify;
 
 pub use attestation::{
-    AccountId, AttestationError, AttestationPolicy, NonceBinding, ProviderProfile, VerifiedClaims,
-    attestation_nonce, classify, classify_with_profile,
+    AccountId, AttestationError, AttestationPolicy, LinkPolicy, NonceBinding, ProviderProfile,
+    VerifiedClaims, attestation_nonce, classify, classify_with_profile,
 };
 pub use google::{OAuthClient, Platform, ProviderError, google, oauth_client};
 pub use id_token::{Jwk, SignatureAlgorithm, TokenError, peek_issuer, verify_id_token};
@@ -32,4 +32,7 @@ pub use os_rng::OsRng;
 pub use software_key_store::SoftwareKeyStore;
 pub use storage_ladder::{LadderError, select_rung};
 pub use system_clock::SystemClock;
-pub use verify::{Verification, VerifyError, verify_attestation};
+pub use verify::{
+    LinkVerification, LinkVerifyError, Verification, VerifyError, verify_attestation,
+    verify_link_attestation,
+};
