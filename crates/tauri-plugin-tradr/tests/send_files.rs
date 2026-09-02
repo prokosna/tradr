@@ -106,6 +106,7 @@ async fn send_files_end_to_end_over_quic_loopback() {
             &BaoVerifier,
             |_| async { Ok(TrustTier::SameAccount) },
             None,
+            None,
         )
         .await;
         (res, channel)
@@ -220,6 +221,7 @@ async fn send_files_respects_receiver_item_filtering() {
             &BaoVerifier,
             |_| async { Ok(TrustTier::SameAccount) },
             Some(&filter),
+            None,
         )
         .await;
         (res, channel)

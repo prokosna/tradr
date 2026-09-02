@@ -101,6 +101,7 @@ async fn list_peer_directory_succeeds_over_quic_loopback() {
             &BaoVerifier,
             |_| async { Ok(TrustTier::SameAccount) },
             None,
+            None,
         )
         .await;
         (res, channel)
@@ -217,6 +218,7 @@ async fn list_peer_nested_directory_succeeds() {
             &BaoVerifier,
             |_| async { Ok(TrustTier::SameAccount) },
             None,
+            None,
         )
         .await;
         (res, channel)
@@ -323,6 +325,7 @@ async fn download_file_succeeds_over_quic_loopback() {
             &SystemClock,
             &BaoVerifier,
             |_| async { Ok(TrustTier::SameAccount) },
+            None,
             None,
         )
         .await;

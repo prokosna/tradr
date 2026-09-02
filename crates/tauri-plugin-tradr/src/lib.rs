@@ -20,6 +20,7 @@ pub mod desktop;
 pub mod handshake;
 mod identity;
 pub mod lifecycle;
+pub mod link_exchange;
 pub mod listener;
 #[cfg(target_os = "android")]
 pub mod mobile;

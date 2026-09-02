@@ -493,6 +493,7 @@ async fn single_file_transfer_via_listener_end_to_end() {
         &BaoVerifier,
         |_| async { Ok(TrustTier::SameAccount) },
         None,
+        None,
     );
 
     let (sender_res, listener_res) = tokio::join!(sender_task, listener_task);
@@ -655,6 +656,7 @@ async fn multiple_files_transfer_via_listener() {
         &clock,
         &BaoVerifier,
         |_| async { Ok(TrustTier::SameAccount) },
+        None,
         None,
     );
 
@@ -832,6 +834,7 @@ async fn resumed_transfer_via_listener_skips_existing_chunks() {
         &BaoVerifier,
         |_| async { Ok(TrustTier::SameAccount) },
         None,
+        None,
     );
 
     let (sender_res, listener_res) = tokio::join!(sender_task, listener_task);
@@ -994,6 +997,7 @@ async fn selective_item_acceptance_declines_filtered_items() {
         &BaoVerifier,
         |_| async { Ok(TrustTier::SameAccount) },
         Some(&item_filter),
+        None,
     );
 
     let (sender_res, listener_res) = tokio::join!(sender_task, listener_task);
@@ -1071,6 +1075,7 @@ async fn listener_refuses_when_peer_attestation_fails() {
         &clock,
         &BaoVerifier,
         |_| async { Err("attestation token is invalid".to_string()) },
+        None,
         None,
     );
 
@@ -1203,6 +1208,7 @@ async fn unknown_control_plane_messages_ignored_before_offer() {
         &clock,
         &BaoVerifier,
         |_| async { Ok(TrustTier::SameAccount) },
+        None,
         None,
     );
 
@@ -1349,6 +1355,7 @@ async fn accept_and_handle_transfer_from_mock_incoming() {
         &BaoVerifier,
         |_| async { Ok(TrustTier::SameAccount) },
         None,
+        None,
     );
 
     let (sender_res, listener_res) = tokio::join!(sender_task, listener_task);
@@ -1400,6 +1407,7 @@ async fn listen_for_transfers_terminates_on_closed_incoming() {
         &clock,
         &BaoVerifier,
         |_| async { Ok(TrustTier::SameAccount) },
+        None,
         None,
     )
     .await;

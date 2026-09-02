@@ -5,10 +5,10 @@
 use std::future::Future;
 
 use tradr_core::{
-    Capabilities, Clock, DeviceId, KeyBinding, KeyStore, KeyStoreError, PublicIdentity, RecvStream,
-    Rng, RngError, SendStream, TransportError, TrustTier, VersionRange,
+    Capabilities, Clock, DeviceId, KeyBinding, KeyStore, KeyStoreError, PeerHello, PublicIdentity,
+    RecvStream, Rng, RngError, SendStream, TransportError, TrustTier, VersionRange,
 };
-use tradr_identity::hello::{AttestationRequest, HelloRefused, Session, open};
+use tradr_identity::hello::{AttestationRequest, AwaitingPeerHello, HelloRefused, Session, open};
 use tradr_proto::framing::{Frame, FrameDecoder};
 use tradr_proto::hello::{
     HelloFrameError, decode_hello_ack_frame, decode_hello_frame, encode_hello_ack_frame,
@@ -147,8 +147,101 @@ where
     let frame = read_frame(recv_stream, &mut decoder).await?;
     let peer_hello = decode_hello_frame(&frame).map_err(HandshakeError::Proto)?;
 
+    continue_after_peer_hello(
+        send_stream,
+        recv_stream,
+        &mut decoder,
+        awaiting_peer_hello,
+        peer_hello,
+        params.authenticated_peer,
+        params.our_channel_max_frame_size,
+        key_store,
+        clock,
+        verify_attestation,
+    )
+    .await
+}
+
+/// Drives the Hello handshake for a caller that has already read and
+/// decoded the peer's `Hello` -- `listener.rs`'s branch on the first
+/// Control frame (docs/04, "Deciding which of the two a stream is").
+/// Writes our own `Hello` first, then runs the same steps
+/// `perform_handshake` runs from `on_peer_hello` onward.
+#[allow(clippy::too_many_arguments)]
+pub async fn perform_handshake_after_peer_hello<F, Fut>(
+    send_stream: &mut dyn SendStream,
+    recv_stream: &mut dyn RecvStream,
+    peer_hello: PeerHello,
+    params: HandshakeParams<'_>,
+    key_store: &(dyn KeyStore + Sync),
+    rng: &(dyn Rng + Sync),
+    clock: &(dyn Clock + Sync),
+    verify_attestation: F,
+) -> Result<Session, HandshakeError>
+where
+    F: FnOnce(AttestationRequest) -> Fut,
+    Fut: Future<Output = Result<TrustTier, String>>,
+{
+    let (awaiting_peer_hello, our_hello) = open(
+        rng,
+        params.our_versions,
+        params.our_identity,
+        params.our_attestation_token,
+        params.our_key_binding,
+        params.our_capabilities,
+    )
+    .map_err(HandshakeError::Rng)?;
+
+    let frame_bytes = encode_hello_frame(&our_hello, params.our_channel_max_frame_size)
+        .map_err(HandshakeError::Proto)?;
+    send_stream
+        .write_all(&frame_bytes)
+        .await
+        .map_err(HandshakeError::Transport)?;
+
+    // listener.rs's `read_frame` consumed exactly the peer's Hello frame
+    // and buffers nothing past it, so this decoder starts empty rather
+    // than carrying over one that might hold bytes read for `Hello`.
+    let mut decoder = FrameDecoder::new(params.our_channel_max_frame_size);
+
+    continue_after_peer_hello(
+        send_stream,
+        recv_stream,
+        &mut decoder,
+        awaiting_peer_hello,
+        peer_hello,
+        params.authenticated_peer,
+        params.our_channel_max_frame_size,
+        key_store,
+        clock,
+        verify_attestation,
+    )
+    .await
+}
+
+// Everything from `on_peer_hello` onward, shared so it runs once rather
+// than twice. `perform_handshake` passes the decoder it already read the
+// peer's `Hello` through, since it may hold bytes past that frame;
+// `perform_handshake_after_peer_hello` passes a fresh one.
+#[allow(clippy::too_many_arguments)]
+async fn continue_after_peer_hello<F, Fut>(
+    send_stream: &mut dyn SendStream,
+    recv_stream: &mut dyn RecvStream,
+    decoder: &mut FrameDecoder,
+    awaiting_peer_hello: AwaitingPeerHello,
+    peer_hello: PeerHello,
+    authenticated_peer: DeviceId,
+    our_channel_max_frame_size: u32,
+    key_store: &(dyn KeyStore + Sync),
+    clock: &(dyn Clock + Sync),
+    verify_attestation: F,
+) -> Result<Session, HandshakeError>
+where
+    F: FnOnce(AttestationRequest) -> Fut,
+    Fut: Future<Output = Result<TrustTier, String>>,
+{
     let (awaiting_verification, attestation_req) = awaiting_peer_hello
-        .on_peer_hello(peer_hello, params.authenticated_peer, clock)
+        .on_peer_hello(peer_hello, authenticated_peer, clock)
         .map_err(HandshakeError::Refused)?;
 
     let tier = verify_attestation(attestation_req)
@@ -156,22 +249,20 @@ where
         .map_err(HandshakeError::Attestation)?;
 
     let (awaiting_peer_ack, our_ack) = awaiting_verification
-        .on_verified(tier, key_store, params.our_channel_max_frame_size)
+        .on_verified(tier, key_store, our_channel_max_frame_size)
         .map_err(HandshakeError::KeyStore)?;
 
-    let frame_bytes = encode_hello_ack_frame(&our_ack, params.our_channel_max_frame_size)
+    let frame_bytes = encode_hello_ack_frame(&our_ack, our_channel_max_frame_size)
         .map_err(HandshakeError::Proto)?;
     send_stream
         .write_all(&frame_bytes)
         .await
         .map_err(HandshakeError::Transport)?;
 
-    let ack_frame = read_frame(recv_stream, &mut decoder).await?;
+    let ack_frame = read_frame(recv_stream, decoder).await?;
     let peer_ack = decode_hello_ack_frame(&ack_frame).map_err(HandshakeError::Proto)?;
 
-    let session = awaiting_peer_ack
+    awaiting_peer_ack
         .on_peer_hello_ack(peer_ack)
-        .map_err(HandshakeError::Refused)?;
-
-    Ok(session)
+        .map_err(HandshakeError::Refused)
 }
