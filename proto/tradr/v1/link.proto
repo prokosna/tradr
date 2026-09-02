@@ -38,6 +38,24 @@ message LinkDecline {
   LinkDeclineReason reason = 2;
 }
 
+// One side's offer to link (docs/11, "What the Invite carries, and how it
+// travels"). The only linking payload that is never framed: it travels as a
+// QR or a base64 blob rather than on a Control stream, so it takes no type
+// byte and no row in docs/04's registry.
+message Invite {
+  bytes invite_id = 1;  // 16 bytes
+  // identity_pub is the pin the replier dials against; identity_pub and
+  // agreement_pub together are what the Attestation nonce binds.
+  // device_id, platform and capabilities are never read off this message.
+  DeviceInfo device = 2;
+  // id_token is the whole of what the replier verifies before answering;
+  // issuer and issued_at are ignored, since the token's own iss and iat
+  // are authoritative.
+  Attestation attestation = 3;
+  bytes half_secret = 4;  // 16 bytes. Half of the Link Secret
+  int64 expires_at = 5;  // Unix seconds. Advisory only; the inviter enforces its own window
+}
+
 enum LinkDeclineReason {
   LINK_DECLINE_REASON_UNSPECIFIED         = 0;
   LINK_DECLINE_REASON_USER_DECLINED       = 1;
