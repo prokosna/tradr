@@ -114,6 +114,7 @@ async fn run_test() {
             &BaoVerifier,
             |_| async { Ok(TrustTier::SameAccount) },
             None,
+            None,
         )
         .await;
         (res, channel)

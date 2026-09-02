@@ -125,6 +125,16 @@ link_id     = BLAKE3(Link Secret)[0..16]
 
 **The window is single-use.** It closes at the first completed exchange — an approval and a decline close it alike — or at expiry, whichever comes first. A second reply arriving after that is refused the way any unexpected first frame is.
 
+#### What each side verifies, and the order the inviter's two acts go in
+
+**Both sides verify over the channel and neither off the payload the Attestation arrived in.** The replier holds the inviter's Attestation from the invite and the inviter holds the replier's from the `LinkReply`, and each runs it through the same steps-1-to-5 entry point against the `DeviceId` its own channel authenticated. **The key join is what makes the channel the authority rather than the payload**: the invite's `identity_pub` is already the pin the replier dialled under, so checking it against the authenticated `DeviceId` is checking that the QR and the connection name one device. Verifying a token against a key nobody proved possession of would be the whole exchange resting on a photograph.
+
+**The inviter stores the Link before it writes `LinkApprove`.** That message carries the `link_id` and asserts the link exists on the inviter's side; writing it first would make it a claim about state not yet written, and a store that then failed would leave the replier holding a link to an account that holds none back -- refusing its next connection with nothing on the inviter's side naming why. Storing first turns that failure into a `LinkDecline`, which is a state both sides agree on. **It is DCR-070's rule one layer up**, and the same sentence settles it: what names the thing must not precede the thing.
+
+**A store that fails carries no reason.** None of the three is true of it -- the user did not decline, the invite did not expire, and verification succeeded -- and an absent reason is already a value this message defines, since what the reason decides is nothing. A fourth reason invented for a failure the peer can do nothing about would be a wire field carrying an apology.
+
+**A reply naming an invite that is not the open one is refused rather than declined**, and the stream closes with nothing written. That is the same sentence as "an unknown invite is not among the reasons": a decline answers an exchange this device is in, and a stream naming an invite it is not holding is not that exchange. The check runs before anything is verified, so an unknown `invite_id` never spends a signature verification either.
+
 **So what a photographed QR buys is one thing: the chance to be shown to Alice as a stranger asking to link.** The approval and the Fingerprint comparison are still in the way, `half_B` was never on the screen, and no Link Secret of the real link is derivable from what the camera saw.
 
 ### What the three linking messages carry

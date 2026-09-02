@@ -99,11 +99,19 @@ Only an **unassigned** code, and only within the receiving plane's own range. Th
 
 Three things are outside it and none is skippable: `0x00`, a code belonging to another plane, and a malformed length. The first two are refusals; the third, per the Framing section, is not a frame at all.
 
+**The promise begins after the frame that decides what a stream is, and never at that frame itself.** A Control stream's first frame settles its whole shape -- a `Hello` opens a session, `0x0c` opens the link exchange below -- so an unassigned code in that position names no shape at all, and a receiver skipping it would be waiting for one it has just been told nothing about. It is refused, which is what the `Hello` position has always done, and the exception is written down here rather than left as the difference between this rule and the code that implements it. DCR-073.
+
 ### A Control stream may open with `LinkReply` instead of `Hello`
 
 **One stream in this protocol carries no session, and it is the one [docs/11](11-account-linking.md#how-bobs-reply-reaches-alice-and-what-authorises-the-connection) needs**: an account being linked is by construction not yet linked, so its Attestation fails step 6 and the ordinary handshake refuses the connection that would fix that. A stream opening with `0x0c` is that exchange and nothing else — no `Hello`, no `HelloAck`, no negotiated capabilities, and no Trust Tier computed or sent.
 
 **It is accepted only while an invite is open**, and refused outright otherwise, which is the whole of its authorisation. The three linking codes are the only ones it carries in either direction; anything else on it is refused the way a Browse code on the Control stream is, and the stream closes.
+
+#### Deciding which of the two a stream is
+
+**The receiver reads before it writes, and on this one frame only.** Everywhere else the exchange writes unprompted -- the dialling side sends its own `Hello` before it reads anything -- so a receiver that defers its first write until it has seen a frame cannot deadlock against a dialler that is already waiting to be read. The inversion is confined to that frame: once the branch is taken, both shapes run exactly as they are written, and the ordinary handshake is the same exchange with its first read already performed.
+
+**Nothing is skipped to reach that decision**, per the rule above, and refusing there is also what keeps this stream's exposure from being worse than the session's. An unassigned code costs a peer nothing to send and nothing bounds how many a receiver will skip; on a stream that has decided nothing yet, the peer holding the receiver open is any device that completed the transport handshake, before a single Attestation has been checked. That is one tier below the peer a skipped frame can occupy anywhere else in this protocol. DCR-073.
 
 **Both bounds on that stream stay the channel's own `max_frame_size` for its whole life**, since `HelloAck` is what would have replaced them and never arrives. That is the same rule the Hello exchange already runs under, applied to a stream that never leaves it.
 
