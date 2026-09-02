@@ -13,6 +13,7 @@ pub mod control;
 pub mod data;
 pub mod framing;
 pub mod hello;
+pub mod invite;
 pub mod link;
 pub mod message_type;
 

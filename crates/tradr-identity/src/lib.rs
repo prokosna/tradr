@@ -5,6 +5,7 @@ mod attestation;
 mod google;
 pub mod hello;
 mod id_token;
+mod invite;
 mod jwks;
 mod jwks_cache;
 mod link;
@@ -20,6 +21,7 @@ pub use attestation::{
 };
 pub use google::{OAuthClient, Platform, ProviderError, google, oauth_client};
 pub use id_token::{Jwk, SignatureAlgorithm, TokenError, peek_issuer, verify_id_token};
+pub use invite::{INVITE_TTL_SECS, create_invite};
 pub use jwks::{JwksError, parse_jwks};
 pub use jwks_cache::JwksCache;
 pub use link::{
