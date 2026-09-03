@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useState } from "react";
+import { Linking } from "./Linking.js";
 
 // Mirrors the Rust struct crates/tauri-plugin-tradr/src/identity.rs
 // returns from the `device_identity` command.
@@ -775,6 +776,17 @@ export function App() {
 							})}
 						</ul>
 					))}
+			</section>
+
+			<section
+				style={{
+					marginTop: "1.5rem",
+					borderTop: "1px solid #ccc",
+					paddingTop: "1rem",
+				}}
+			>
+				<h2>Account linking</h2>
+				<Linking />
 			</section>
 
 			<section
