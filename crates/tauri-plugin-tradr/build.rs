@@ -19,6 +19,10 @@ const COMMANDS: &[&str] = &[
     "request_permissions",
     "check_permissions",
     "show_incoming_transfer_notification",
+    "open_link_invite",
+    "reply_to_link_invite",
+    "approve_link",
+    "decline_link",
 ];
 
 fn main() {

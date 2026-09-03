@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the add_static_peer command without any pre-configured scope."
         },
         {
+          "description": "Enables the approve_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-approve-link",
+          "markdownDescription": "Enables the approve_link command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the approve_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-approve-link",
+          "markdownDescription": "Denies the approve_link command without any pre-configured scope."
+        },
+        {
           "description": "Enables the attestation_bundle command without any pre-configured scope.",
           "type": "string",
           "const": "allow-attestation-bundle",
@@ -329,6 +341,18 @@
           "type": "string",
           "const": "deny-check-permissions",
           "markdownDescription": "Denies the check_permissions command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the decline_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-decline-link",
+          "markdownDescription": "Enables the decline_link command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the decline_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-decline-link",
+          "markdownDescription": "Denies the decline_link command without any pre-configured scope."
         },
         {
           "description": "Enables the device_identity command without any pre-configured scope.",
@@ -403,6 +427,18 @@
           "markdownDescription": "Denies the list_static_peers command without any pre-configured scope."
         },
         {
+          "description": "Enables the open_link_invite command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-link-invite",
+          "markdownDescription": "Enables the open_link_invite command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_link_invite command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-link-invite",
+          "markdownDescription": "Denies the open_link_invite command without any pre-configured scope."
+        },
+        {
           "description": "Enables the pick_share_root command without any pre-configured scope.",
           "type": "string",
           "const": "allow-pick-share-root",
@@ -437,6 +473,18 @@
           "type": "string",
           "const": "deny-remove-static-peer",
           "markdownDescription": "Denies the remove_static_peer command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reply_to_link_invite command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reply-to-link-invite",
+          "markdownDescription": "Enables the reply_to_link_invite command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reply_to_link_invite command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reply-to-link-invite",
+          "markdownDescription": "Denies the reply_to_link_invite command without any pre-configured scope."
         },
         {
           "description": "Enables the request_permissions command without any pre-configured scope.",

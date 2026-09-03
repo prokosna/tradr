@@ -36,6 +36,32 @@ Denies the add_static_peer command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-approve-link`
+
+</td>
+<td>
+
+Enables the approve_link command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-approve-link`
+
+</td>
+<td>
+
+Denies the approve_link command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-attestation-bundle`
 
 </td>
@@ -81,6 +107,32 @@ Enables the check_permissions command without any pre-configured scope.
 <td>
 
 Denies the check_permissions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-decline-link`
+
+</td>
+<td>
+
+Enables the decline_link command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-decline-link`
+
+</td>
+<td>
+
+Denies the decline_link command without any pre-configured scope.
 
 </td>
 </tr>
@@ -244,6 +296,32 @@ Denies the list_static_peers command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-open-link-invite`
+
+</td>
+<td>
+
+Enables the open_link_invite command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-open-link-invite`
+
+</td>
+<td>
+
+Denies the open_link_invite command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-pick-share-root`
 
 </td>
@@ -315,6 +393,32 @@ Enables the remove_static_peer command without any pre-configured scope.
 <td>
 
 Denies the remove_static_peer command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-reply-to-link-invite`
+
+</td>
+<td>
+
+Enables the reply_to_link_invite command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-reply-to-link-invite`
+
+</td>
+<td>
+
+Denies the reply_to_link_invite command without any pre-configured scope.
 
 </td>
 </tr>
