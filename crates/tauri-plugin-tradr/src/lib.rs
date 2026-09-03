@@ -20,6 +20,7 @@ pub mod desktop;
 pub mod handshake;
 mod identity;
 pub mod lifecycle;
+pub mod link_commands;
 pub mod link_exchange;
 pub mod link_invite;
 pub mod link_registry;
@@ -62,6 +63,10 @@ pub fn init<R: Runtime>(
             commands::request_permissions,
             commands::check_permissions,
             commands::show_incoming_transfer_notification,
+            link_commands::open_link_invite,
+            link_commands::reply_to_link_invite,
+            link_commands::approve_link,
+            link_commands::decline_link,
         ])
         .setup(move |app, _api| {
             let identity_state = identity::init_identity_state(app);

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-approve-link"
+description = "Enables the approve_link command without any pre-configured scope."
+commands.allow = ["approve_link"]
+
+[[permission]]
+identifier = "deny-approve-link"
+description = "Denies the approve_link command without any pre-configured scope."
+commands.deny = ["approve_link"]

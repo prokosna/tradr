@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-reply-to-link-invite"
+description = "Enables the reply_to_link_invite command without any pre-configured scope."
+commands.allow = ["reply_to_link_invite"]
+
+[[permission]]
+identifier = "deny-reply-to-link-invite"
+description = "Denies the reply_to_link_invite command without any pre-configured scope."
+commands.deny = ["reply_to_link_invite"]

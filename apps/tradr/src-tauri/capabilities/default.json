@@ -23,6 +23,10 @@
 		"tradr:allow-request-permissions",
 		"tradr:allow-check-permissions",
 		"tradr:allow-show-incoming-transfer-notification",
+		"tradr:allow-open-link-invite",
+		"tradr:allow-reply-to-link-invite",
+		"tradr:allow-approve-link",
+		"tradr:allow-decline-link",
 		"dialog:allow-open"
 	]
 }

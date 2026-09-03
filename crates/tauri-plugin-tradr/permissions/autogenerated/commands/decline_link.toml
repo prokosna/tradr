@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-decline-link"
+description = "Enables the decline_link command without any pre-configured scope."
+commands.allow = ["decline_link"]
+
+[[permission]]
+identifier = "deny-decline-link"
+description = "Denies the decline_link command without any pre-configured scope."
+commands.deny = ["decline_link"]

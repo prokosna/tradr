@@ -727,7 +727,7 @@ where
 // each command below. A `SourceMismatch` is reported rather than
 // discarded (rule F6): each source is applied under its own `SourceId`,
 // so a mismatch can only mean a source produced an event it does not own.
-async fn drain_peer_sources(
+pub(crate) async fn drain_peer_sources(
     mdns_source: &mut MdnsSource,
     static_peer_source: &mut StaticPeerSource,
     list: &mut PeerList,
@@ -764,7 +764,7 @@ pub struct ResolvedPeer {
 
 // The candidate a resolved peer is dialled on: the direct-quic one if the
 // peer offers it, otherwise whatever this peer's first candidate is.
-fn pick_candidate(peer: &Peer, peer_id: &str) -> Result<Candidate, String> {
+pub(crate) fn pick_candidate(peer: &Peer, peer_id: &str) -> Result<Candidate, String> {
     peer.candidates()
         .into_iter()
         .find(|c| c.transport() == TransportId::new("direct-quic"))
