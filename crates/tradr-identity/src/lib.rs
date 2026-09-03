@@ -30,7 +30,7 @@ pub use link::{
 };
 pub use os_rng::OsRng;
 pub use software_key_store::SoftwareKeyStore;
-pub use storage_ladder::{LadderError, select_rung};
+pub use storage_ladder::{LadderError, select_rung, select_rung_index};
 pub use system_clock::SystemClock;
 pub use verify::{
     LinkVerification, LinkVerifyError, Verification, VerifyError, verify_attestation,

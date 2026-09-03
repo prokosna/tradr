@@ -358,6 +358,16 @@ That ladder is a **search on load, not only a preference on write**. A device th
 
 **A rung that is absent is skipped; a rung that is present and then fails stops the search.** The two are separated when a rung is constructed rather than when it is read: a Secret Service that cannot be reached at all is never on the ladder, and one that is on it and then errors is not treated as an empty slot, because a read that failed and a slot that is empty are indistinguishable in the answer while only one of them may lead to generating a key. A headless box with no D-Bus session descends to the keyring and says so; a D-Bus session that is running and refuses is an error the user is shown, not a new identity.
 
+### One rung per device, and what else goes on it
+
+**A Link Secret goes on the rung the Device Key selected, and no second selection is made anywhere** (DCR-075). The ladder is a search on load, and what it searches for is a value some earlier run wrote. A Link Secret's slot is written moments after the search that would look for it, so there is nothing anywhere to find and the search returns its own documented fallback, the highest rung — which on a device that descended for its Device Key is not the rung that device's secrets are on. **Two rungs holding one device's secrets is two answers to a question Settings displays one answer to.**
+
+**What settles it is that a per-slot selection would have to be made at every call site.** [docs/11](11-account-linking.md#remove-and-the-order-the-two-halves-move-in)'s registry takes a secret store as an argument to each of `add`, `remove` and reading a secret back, so "search the ladder first" would be a rule three callers must remember — and DCR-070 gave those signatures their shape precisely so that nothing is left to a caller's memory. The rung is chosen once, where it is already chosen, and kept beside the `KeyStore` it opened rather than dropped after opening it.
+
+**So a Link Secret is exactly as durable as the Device Key beside it.** A key store emptied between two runs empties both, and what is then left is a Link record naming a slot with nothing in it — the state docs/11 already defines, where an empty slot says the secret was discarded and a wrong-length one says the key store returned something nothing here ever wrote.
+
+**The selection is by position and not by identity.** The search answers *which rung of this ladder*, and a caller that must keep the rung it was handed needs to name the same one among rungs it owns; comparing storage levels to find it again would be a second lookup that can disagree with the first. Nothing about the walk changes — the same rule decides, and the answer is reported in the one form both callers can use.
+
 ### The KeyStore boundary
 
 A key inside StrongBox, a TPM, or the Secure Enclave **cannot be read out** — that is the entire point of those elements. So the shape of the `KeyStore` trait, not the choice of curve, is what first decides whether hardware backing is reachable at all. A trait that hands Layer 1 a private key can only ever be implemented in software, on every platform, and it fails silently because the code still works.

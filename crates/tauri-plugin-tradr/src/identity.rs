@@ -9,7 +9,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime, State};
 
 use tradr_core::{Backing, KeyStore, PublicIdentity, SecretStore, SoftwareReason, StorageLevel};
-use tradr_identity::{OsRng, SoftwareKeyStore, select_rung};
+use tradr_identity::{OsRng, SoftwareKeyStore, select_rung_index};
 use tradr_secrets::FileStore;
 #[cfg(target_os = "linux")]
 use tradr_secrets::SecretServiceStore;
@@ -27,14 +27,22 @@ pub struct DeviceIdentitySnapshot {
     storage: String,
 }
 
-/// The outcome of opening the key store at startup, kept as managed state
-/// so a failure here can be shown in a window instead of aborting `setup`
-/// and leaving no window at all. Carries the `PublicIdentity` and `KeyStore`
-/// alongside the snapshot so `sign_in` can compute the Attestation nonce
-/// and transports can bind without opening the key store a second time.
-pub struct IdentityState(
-    Result<(DeviceIdentitySnapshot, PublicIdentity, Arc<dyn KeyStore>), String>,
+// What a successful open of the key store yields: the snapshot for the
+// frontend, the PublicIdentity, the KeyStore, and the SecretStore the
+// Device Key was selected on (docs/05, "One rung per device").
+type OpenedIdentity = (
+    DeviceIdentitySnapshot,
+    PublicIdentity,
+    Arc<dyn KeyStore>,
+    Arc<dyn SecretStore + Send + Sync>,
 );
+
+/// The outcome of opening the key store at startup, kept as managed state
+/// so a failure here can be shown in a window instead of aborting `setup`.
+/// Carries the `PublicIdentity`, `KeyStore`, and the `SecretStore` the
+/// Device Key was selected on, so a Link Secret can go on the same rung
+/// with no second selection made anywhere (docs/05, "One rung per device").
+pub struct IdentityState(Result<OpenedIdentity, String>);
 
 impl IdentityState {
     /// The device's own `PublicIdentity`, as opened once at startup. Used
@@ -42,7 +50,7 @@ impl IdentityState {
     pub fn public_identity(&self) -> Result<PublicIdentity, String> {
         self.0
             .as_ref()
-            .map(|(_, identity, _)| identity.clone())
+            .map(|(_, identity, _, _)| identity.clone())
             .map_err(|e| e.clone())
     }
 
@@ -50,7 +58,16 @@ impl IdentityState {
     pub fn key_store(&self) -> Result<Arc<dyn KeyStore>, String> {
         self.0
             .as_ref()
-            .map(|(_, _, store)| store.clone())
+            .map(|(_, _, store, _)| store.clone())
+            .map_err(|e| e.clone())
+    }
+
+    /// The rung of the storage ladder the Device Key was found on, for a
+    /// Link Secret to be stored on the same rung.
+    pub fn secret_store(&self) -> Result<Arc<dyn SecretStore + Send + Sync>, String> {
+        self.0
+            .as_ref()
+            .map(|(_, _, _, secrets)| secrets.clone())
             .map_err(|e| e.clone())
     }
 }
@@ -59,16 +76,14 @@ impl IdentityState {
 // the result into a snapshot plus the PublicIdentity it was built from.
 // Runs once, from the plugin's setup hook. Never panics: every failure
 // becomes the Err side of the returned Result.
-fn open_identity<R: Runtime>(
-    app: &AppHandle<R>,
-) -> Result<(DeviceIdentitySnapshot, PublicIdentity, Arc<dyn KeyStore>), String> {
+fn open_identity<R: Runtime>(app: &AppHandle<R>) -> Result<OpenedIdentity, String> {
     let keys_dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("could not resolve the app data directory: {e}"))?
         .join("keys");
 
-    let file_rung = FileStore::new(keys_dir);
+    let file_rung: Arc<dyn SecretStore + Send + Sync> = Arc::new(FileStore::new(keys_dir));
 
     // Secret Service is a Linux D-Bus interface; there is nothing on the
     // other end of it anywhere else, so the rung exists only there
@@ -80,20 +95,29 @@ fn open_identity<R: Runtime>(
     // A rung that is absent is skipped by never joining the ladder at all
     // (docs/05-security.md, "Descending the Linux ladder"), which is why
     // this pushes conditionally rather than passing a fixed-size array.
-    let mut ladder: Vec<&dyn SecretStore> = Vec::with_capacity(2);
+    // Owned, not borrowed, so the selected rung can be kept beside the
+    // KeyStore it opened rather than dropped with the ladder (docs/05).
+    let mut ladder: Vec<Arc<dyn SecretStore + Send + Sync>> = Vec::with_capacity(2);
     #[cfg(target_os = "linux")]
-    match &secret_service_rung {
-        Ok(rung) => ladder.push(rung),
+    match secret_service_rung {
+        Ok(rung) => ladder.push(Arc::new(rung)),
         // One line, so a headless machine without a Secret Service does
         // not get this on every start.
         Err(e) => eprintln!("device-identity: secret service unavailable, using file: {e}"),
     }
-    ladder.push(&file_rung);
+    ladder.push(file_rung);
 
-    let rung = select_rung(&ladder, DEVICE_KEY_SLOT).map_err(|e| e.to_string())?;
+    let borrowed: Vec<&dyn SecretStore> = ladder
+        .iter()
+        .map(|rung| rung.as_ref() as &dyn SecretStore)
+        .collect();
+    let index = select_rung_index(&borrowed, DEVICE_KEY_SLOT).map_err(|e| e.to_string())?;
+    // The index came from searching `borrowed`, which was built from
+    // `ladder` one-to-one, so it names a rung `ladder` holds.
+    let secrets = Arc::clone(&ladder[index]);
 
-    let key_store =
-        SoftwareKeyStore::open(rung, DEVICE_KEY_SLOT, &OsRng).map_err(|e| e.to_string())?;
+    let key_store = SoftwareKeyStore::open(secrets.as_ref(), DEVICE_KEY_SLOT, &OsRng)
+        .map_err(|e| e.to_string())?;
     let identity = key_store.public_identity().map_err(|e| e.to_string())?;
 
     let (backing, reason) = describe_backing(key_store.backing());
@@ -102,11 +126,11 @@ fn open_identity<R: Runtime>(
         device_id: identity.device_id().to_string(),
         backing: backing.to_string(),
         reason,
-        storage: storage_level_name(rung.level()).to_string(),
+        storage: storage_level_name(secrets.level()).to_string(),
     };
 
     let key_store: Arc<dyn KeyStore> = Arc::new(key_store);
-    Ok((snapshot, identity, key_store))
+    Ok((snapshot, identity, key_store, secrets))
 }
 
 // Splits a Backing into the two fields the frontend renders separately:
@@ -143,7 +167,7 @@ fn storage_level_name(level: StorageLevel) -> &'static str {
 pub fn init_identity_state<R: Runtime>(app: &AppHandle<R>) -> IdentityState {
     let outcome = open_identity(app);
     match &outcome {
-        Ok((snapshot, _, _)) => println!(
+        Ok((snapshot, _, _, _)) => println!(
             "device-identity: device_id={} backing={}",
             snapshot.device_id, snapshot.backing
         ),
@@ -160,6 +184,6 @@ pub fn device_identity(state: State<'_, IdentityState>) -> Result<DeviceIdentity
     state
         .0
         .as_ref()
-        .map(|(snapshot, _, _)| snapshot.clone())
+        .map(|(snapshot, _, _, _)| snapshot.clone())
         .map_err(|e| e.clone())
 }

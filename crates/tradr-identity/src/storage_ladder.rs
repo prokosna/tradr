@@ -54,21 +54,18 @@ fn level_name(level: StorageLevel) -> &'static str {
 }
 
 /// Finds which rung of `ladder` holds a device's key, walking highest first
-/// and returning the first whose `load(slot)` holds a value, without
-/// calling `store`. A rung whose `load` errors stops the search rather
-/// than being read as empty (docs/05-security.md, "Descending the Linux
-/// ladder"). If every rung is empty, the first rung is returned.
-pub fn select_rung<'a>(
-    ladder: &[&'a dyn SecretStore],
-    slot: &str,
-) -> Result<&'a dyn SecretStore, LadderError> {
-    let Some(&first) = ladder.first() else {
+/// and returning the position of the first whose `load(slot)` holds a
+/// value, without calling `store`. A rung whose `load` errors stops the
+/// search rather than being read as empty (docs/05-security.md,
+/// "Descending the Linux ladder"). If every rung is empty, `0` is returned.
+pub fn select_rung_index(ladder: &[&dyn SecretStore], slot: &str) -> Result<usize, LadderError> {
+    if ladder.is_empty() {
         return Err(LadderError::NoRungs);
-    };
+    }
 
-    for &rung in ladder {
+    for (index, &rung) in ladder.iter().enumerate() {
         match rung.load(slot) {
-            Ok(Some(_)) => return Ok(rung),
+            Ok(Some(_)) => return Ok(index),
             Ok(None) => continue,
             Err(source) => {
                 return Err(LadderError::RungFailed {
@@ -79,5 +76,17 @@ pub fn select_rung<'a>(
         }
     }
 
-    Ok(first)
+    Ok(0)
+}
+
+/// Finds which rung of `ladder` holds a device's key (docs/05-security.md,
+/// "Descending the Linux ladder"). A thin wrapper over `select_rung_index`
+/// so the two answers cannot drift apart; reading `ladder` back at the
+/// index that index came from cannot be out of range.
+pub fn select_rung<'a>(
+    ladder: &[&'a dyn SecretStore],
+    slot: &str,
+) -> Result<&'a dyn SecretStore, LadderError> {
+    let index = select_rung_index(ladder, slot)?;
+    Ok(ladder[index])
 }
