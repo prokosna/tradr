@@ -113,7 +113,7 @@ pub async fn verify_peer_attestation(
     let own_account = sign_in_state
         .own_account()
         .ok_or_else(|| "sign in on this device before verifying a peer".to_string())?;
-    let linked_accounts = link_registry.linked_accounts().await?;
+    let linked_accounts = link_registry.linked_accounts()?;
 
     let client = oauth_client(Platform::Desktop, oauth.client_ids, oauth.client_secret)
         .map_err(|e| e.to_string())?;

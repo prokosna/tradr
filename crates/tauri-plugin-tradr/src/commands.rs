@@ -41,14 +41,19 @@ use crate::transfer::{SendRequest, SessionStreams, send_file_with_progress};
 fn peer_verifier(
     trust: Arc<PeerTrust>,
     sign_in: Arc<SignInState>,
-    links: Arc<tokio::sync::Mutex<LinkRegistry>>,
+    links: Arc<std::sync::Mutex<LinkRegistry>>,
 ) -> impl FnOnce(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>> {
     move |req: AttestationRequest| {
         Box::pin(async move {
             let own_account = sign_in.own_account();
             // Read out and drop the guard before classifying: the registry
-            // must never stay locked across `PeerTrust::classify`'s await.
-            let linked_accounts = links.lock().await.linked_accounts();
+            // must never stay locked across `PeerTrust::classify`'s await,
+            // and a `std::sync::Mutex` guard held across one is now a
+            // compile error rather than a rule to remember.
+            let linked_accounts = links
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .linked_accounts();
             trust
                 .classify(
                     req.token(),
