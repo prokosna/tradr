@@ -135,6 +135,18 @@ link_id     = BLAKE3(Link Secret)[0..16]
 
 **The window is single-use.** It closes at the first completed exchange — an approval and a decline close it alike — or at expiry, whichever comes first. A second reply arriving after that is refused the way any unexpected first frame is.
 
+#### What the window survives, and where the wait on a person is parked
+
+**"Single-use" says what closes the window and not what may close it, and the difference is reachable from the network** (DCR-076). A `LinkReply` is the first frame on a stream that carries no session, so any device that can reach this one can send any bytes it likes into that branch. **If a reply naming an unknown invite closed the window, closing someone else's would cost one connection and no credential at all** — and the person watching the QR would see nothing, because a window that closes looks exactly like one that expired.
+
+**So the window closes on the exchange it is holding and on nothing else.** The invite the reply names decides which exchange that is, before anything is verified: a reply naming the open invite takes it, and a reply naming any other leaves it exactly where it was. That is the same sentence as "an unknown invite is not among the decline reasons" read from the other side — such a reply is not this exchange, so it neither answers it nor ends it.
+
+**The wait on a person is a value parked in the window, because the answer arrives from somewhere else.** The exchange awaits a decision; the person makes it in the interface, one act later and on its own path. So the window holds the proposal and the single place an answer may be delivered, and **the first answer takes that place with it**. A second finds nothing to answer and is refused — never held for the next exchange, which is a different peer being approved by a press meant for this one.
+
+**A new invite is refused while a decision is pending, and replaces the window whenever one is not.** Showing a fresh QR is this design's own recovery from an invite that expired, so a person will reach for it; what it must never do is discard a proposal they are in the middle of reading. **The rule is one sentence: the QR on the screen is the invite this device will answer.** A window replaced while nothing waits keeps that true, and one replaced while something waits breaks it in the direction nobody can see.
+
+**A parked decision that can never be answered is a decline.** Nothing in the exchange discards one — the deadline above already ends the wait, and an answer ends it sooner — so the only thing that can is this device going away, where no wire is left to write to. It is named rather than left to fall out, because a decision channel that simply vanishes is the shape that hangs.
+
 #### What each side verifies, and the order the inviter's two acts go in
 
 **Both sides verify over the channel and neither off the payload the Attestation arrived in.** The replier holds the inviter's Attestation from the invite and the inviter holds the replier's from the `LinkReply`, and each runs it through the same steps-1-to-5 entry point against the `DeviceId` its own channel authenticated. **The key join is what makes the channel the authority rather than the payload**: the invite's `identity_pub` is already the pin the replier dialled under, so checking it against the authenticated `DeviceId` is checking that the QR and the connection name one device. Verifying a token against a key nobody proved possession of would be the whole exchange resting on a photograph.

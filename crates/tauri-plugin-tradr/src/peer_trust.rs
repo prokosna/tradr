@@ -6,10 +6,11 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use tradr_core::{BoxFuture, Clock, PublicKeyPoint, TrustTier};
+use tradr_core::{BoxFuture, Clock, DeviceId, PublicKeyPoint, TrustTier};
 use tradr_identity::{
-    AccountId, AttestationPolicy, JwksCache, Platform, ProviderProfile, Verification, google,
-    oauth_client, verify_attestation,
+    AccountId, AttestationPolicy, JwksCache, LinkPolicy, LinkVerification, Platform,
+    ProviderProfile, Verification, google, oauth_client, verify_attestation,
+    verify_link_attestation,
 };
 use tradr_oidc::fetch_jwks;
 
@@ -149,6 +150,72 @@ impl PeerTrust {
         };
 
         Ok(tier)
+    }
+
+    /// Runs docs/05's steps 1 to 5 against `token`, joined to `authenticated`
+    /// -- the `DeviceId` the channel itself authenticated, never one
+    /// recomputed from a message -- and answers with the account rather
+    /// than a `TrustTier`: step 6 is inexpressible here, since the account
+    /// is what a link exists to admit. Shares `self.cache` with `classify`.
+    pub async fn verify_link(
+        &self,
+        token: &str,
+        identity_pub: &PublicKeyPoint,
+        agreement_pub: &PublicKeyPoint,
+        authenticated: DeviceId,
+        clock: &(dyn Clock + Sync),
+    ) -> Result<AccountId, String> {
+        let policy = LinkPolicy {
+            profiles: std::slice::from_ref(&self.profile),
+            staleness_limit_secs: STALENESS_LIMIT_SECS,
+            future_skew_limit_secs: FUTURE_SKEW_LIMIT_SECS,
+        };
+
+        let outcome = {
+            let mut cache = self.lock_cache();
+            verify_link_attestation(
+                &policy,
+                &mut cache,
+                token,
+                identity_pub,
+                agreement_pub,
+                authenticated,
+                clock,
+            )
+            .map_err(|e| e.to_string())?
+        };
+
+        let account = match outcome {
+            LinkVerification::Verified(account) => account,
+            LinkVerification::JwksNeeded { jwks_uri } => {
+                let document = self.fetch.fetch(&jwks_uri).await?;
+                let refetched = {
+                    let mut cache = self.lock_cache();
+                    cache.install(&document).map_err(|e| e.to_string())?;
+                    verify_link_attestation(
+                        &policy,
+                        &mut cache,
+                        token,
+                        identity_pub,
+                        agreement_pub,
+                        authenticated,
+                        clock,
+                    )
+                    .map_err(|e| e.to_string())?
+                };
+                match refetched {
+                    LinkVerification::Verified(account) => account,
+                    LinkVerification::JwksNeeded { .. } => {
+                        return Err(
+                            "the provider's keys changed again right after a fetch; refusing a second one"
+                                .to_string(),
+                        );
+                    }
+                }
+            }
+        };
+
+        Ok(account)
     }
 }
 

@@ -21,6 +21,7 @@ pub mod handshake;
 mod identity;
 pub mod lifecycle;
 pub mod link_exchange;
+pub mod link_invite;
 pub mod link_registry;
 pub mod listener;
 #[cfg(target_os = "android")]
@@ -71,6 +72,7 @@ pub fn init<R: Runtime>(
             };
             let peer_trust_state = peer_trust::init_peer_trust_state(&oauth_config);
             let link_registry_state = link_registry::init_link_registry_state(app);
+            let link_invite_state = Arc::new(link_invite::LinkInviteState::new());
 
             lifecycle::init_lifecycle(
                 app,
@@ -78,6 +80,7 @@ pub fn init<R: Runtime>(
                 sign_in_state.clone(),
                 &peer_trust_state,
                 &link_registry_state,
+                link_invite_state.clone(),
             )?;
 
             app.manage(identity_state);
@@ -85,6 +88,7 @@ pub fn init<R: Runtime>(
             app.manage(sign_in_state);
             app.manage(peer_trust_state);
             app.manage(link_registry_state);
+            app.manage(link_invite_state);
 
             #[cfg(target_os = "android")]
             {

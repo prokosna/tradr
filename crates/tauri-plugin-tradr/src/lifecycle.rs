@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use mdns_sd::ServiceDaemon;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use tradr_core::{Capabilities, PeerList, RootId, Transport};
 use tradr_discovery::{
@@ -19,14 +19,34 @@ use tradr_transport::quic::QuicTransport;
 use tradr_vfs::NativeVfs;
 
 use crate::identity::IdentityState;
+use crate::link_invite::{
+    LinkInviteState, LinkProposalDto, LinkService, LinkServiceParts, ProposalSink,
+};
 use crate::link_registry::LinkRegistryState;
-use crate::listener::run_listener;
+use crate::listener::{LinkStreamService, run_listener};
 use crate::peer_trust::PeerTrustState;
 use crate::sign_in::SignInState;
 
 /// Returns the root identifier for the local downloads directory.
 pub fn downloads_root_id() -> RootId {
     RootId::new(1)
+}
+
+// Announces a `LinkProposal` as a Tauri event, the mechanism
+// `android.rs`'s `share-intent` and `commands.rs`'s `transfer-progress`
+// already use. `emit`'s `Result` is returned rather than discarded (rule
+// F6): unlike those fire-and-forget sites, a caller of `announce` acts on
+// a listener that has not attached yet.
+struct EmitProposalSink<R: Runtime> {
+    app: AppHandle<R>,
+}
+
+impl<R: Runtime> ProposalSink for EmitProposalSink<R> {
+    fn announce(&self, proposal: &LinkProposalDto) -> Result<(), String> {
+        self.app
+            .emit("link-proposal", proposal)
+            .map_err(|e| e.to_string())
+    }
 }
 
 /// Initializes the background network and storage services.
@@ -36,6 +56,7 @@ pub fn init_lifecycle<R: Runtime>(
     sign_in_state: Arc<SignInState>,
     peer_trust_state: &PeerTrustState,
     link_registry_state: &LinkRegistryState,
+    link_invite_state: Arc<LinkInviteState>,
 ) -> Result<(), String> {
     let key_store = match identity_state.key_store() {
         Ok(k) => k,
@@ -179,6 +200,17 @@ pub fn init_lifecycle<R: Runtime>(
     // links?;` inside the closure, rather than substituting an empty list.
     let link_registry = link_registry_state.registry();
 
+    let link_service: Arc<dyn LinkStreamService> = Arc::new(LinkService::new(
+        link_invite_state,
+        LinkServiceParts {
+            trust: peer_trust_state.peer_trust(),
+            registry: link_registry_state.registry(),
+            secrets: identity_state.secret_store(),
+        },
+        Arc::new(EmitProposalSink { app: app.clone() }),
+        Arc::new(SystemClock),
+    ));
+
     tauri::async_runtime::spawn(async move {
         if let Ok(incoming) = transport_for_listener.listen().await {
             let res = run_listener(
@@ -195,8 +227,16 @@ pub fn init_lifecycle<R: Runtime>(
                     async move {
                         let trust = peer_trust?;
                         let own_account = sign_in.own_account();
-                        let links = links?;
-                        let linked_accounts = links.lock().await.linked_accounts();
+                        // Read out and drop the guard before this block ends,
+                        // so no `std::sync::Mutex` guard is ever held across
+                        // the `.await` in `trust.classify` below.
+                        let linked_accounts = {
+                            let links = links?;
+                            let links = links
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                            links.linked_accounts()
+                        };
                         trust
                             .classify(
                                 req.token(),
@@ -209,7 +249,7 @@ pub fn init_lifecycle<R: Runtime>(
                             .await
                     }
                 },
-                None,
+                Some(link_service),
             )
             .await;
             if let Err(e) = res {

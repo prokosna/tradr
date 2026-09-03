@@ -5,16 +5,17 @@
 //! `Result` built once at startup, reported through every later use.
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Manager, Runtime};
 use tradr_identity::{AccountId, LinkRegistry};
 
 /// The outcome of loading this device's Link registry, kept as managed
-/// state so a registry that failed to load reports the error on every
-/// use rather than aborting the setup hook or being silently read as
-/// empty, which would withdraw `TrustTier::Linked` from every peer.
-pub struct LinkRegistryState(Result<Arc<tokio::sync::Mutex<LinkRegistry>>, String>);
+/// state so a failed load reports the error on every use rather than
+/// being silently read as empty, which would withdraw `TrustTier::Linked`
+/// from every peer. A plain `std::sync::Mutex`, not `tokio::sync::Mutex`:
+/// the link exchange's `record` closure is synchronous (DCR-076).
+pub struct LinkRegistryState(Result<Arc<Mutex<LinkRegistry>>, String>);
 
 impl LinkRegistryState {
     /// Loads the registry at `path`. A missing file is an empty registry
@@ -23,22 +24,25 @@ impl LinkRegistryState {
     /// needs fixing.
     pub fn load(path: &Path) -> Self {
         let outcome = LinkRegistry::load(path)
-            .map(|registry| Arc::new(tokio::sync::Mutex::new(registry)))
+            .map(|registry| Arc::new(Mutex::new(registry)))
             .map_err(|e| format!("link registry at {}: {e}", path.display()));
         Self(outcome)
     }
 
     /// The registry handle, cloned for a caller to lock and read.
-    pub fn registry(&self) -> Result<Arc<tokio::sync::Mutex<LinkRegistry>>, String> {
+    pub fn registry(&self) -> Result<Arc<Mutex<LinkRegistry>>, String> {
         self.0.clone()
     }
 
     /// Every account currently linked, read fresh from the registry on
     /// this call. Holds no copy of its own, so a Link removed between two
     /// calls is gone from the very next one.
-    pub async fn linked_accounts(&self) -> Result<Vec<AccountId>, String> {
+    pub fn linked_accounts(&self) -> Result<Vec<AccountId>, String> {
         let registry = self.registry()?;
-        let accounts = registry.lock().await.linked_accounts();
+        let accounts = registry
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .linked_accounts();
         Ok(accounts)
     }
 }

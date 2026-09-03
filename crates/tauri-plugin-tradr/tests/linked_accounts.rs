@@ -25,8 +25,8 @@ fn write(path: &Path, contents: &str) {
     std::fs::write(path, contents).expect("a fresh temp directory accepts the write");
 }
 
-#[tokio::test]
-async fn a_registry_holding_one_link_reports_exactly_that_account() {
+#[test]
+fn a_registry_holding_one_link_reports_exactly_that_account() {
     let dir = tempfile::tempdir().expect("a temp directory");
     let path = dir.path().join("links.json");
     write(&path, &links_json_with_one_link());
@@ -34,14 +34,13 @@ async fn a_registry_holding_one_link_reports_exactly_that_account() {
     let state = LinkRegistryState::load(&path);
     let accounts = state
         .linked_accounts()
-        .await
         .expect("a well-formed registry reports its accounts");
 
     assert_eq!(accounts, vec![AccountId::new(PEER_ISS, PEER_SUB)]);
 }
 
-#[tokio::test]
-async fn a_link_removed_is_gone_from_the_very_next_call() {
+#[test]
+fn a_link_removed_is_gone_from_the_very_next_call() {
     let dir = tempfile::tempdir().expect("a temp directory");
     let path = dir.path().join("links.json");
     write(&path, &links_json_with_one_link());
@@ -55,20 +54,18 @@ async fn a_link_removed_is_gone_from_the_very_next_call() {
     // read from a stale one.
     let before = state
         .linked_accounts()
-        .await
         .expect("the fixture above is well-formed");
     assert_eq!(before, vec![AccountId::new(PEER_ISS, PEER_SUB)]);
 
     let link_id = LINK_ID_HEX.parse().expect("a valid link id hex string");
     registry
         .lock()
-        .await
+        .expect("the registry mutex is never poisoned")
         .remove(&link_id, &secrets)
         .expect("the only link this registry holds can be removed");
 
     let after = state
         .linked_accounts()
-        .await
         .expect("a registry with no links is not an error");
     assert!(
         after.is_empty(),
@@ -76,28 +73,27 @@ async fn a_link_removed_is_gone_from_the_very_next_call() {
     );
 }
 
-#[tokio::test]
-async fn a_missing_links_json_is_an_empty_registry_not_an_error() {
+#[test]
+fn a_missing_links_json_is_an_empty_registry_not_an_error() {
     let dir = tempfile::tempdir().expect("a temp directory");
     let path = dir.path().join("links.json");
 
     let state = LinkRegistryState::load(&path);
     let accounts = state
         .linked_accounts()
-        .await
         .expect("a first run with no file yet must not be an error");
 
     assert!(accounts.is_empty());
 }
 
-#[tokio::test]
-async fn a_malformed_links_json_is_an_error_naming_the_file_never_an_empty_list() {
+#[test]
+fn a_malformed_links_json_is_an_error_naming_the_file_never_an_empty_list() {
     let dir = tempfile::tempdir().expect("a temp directory");
     let path = dir.path().join("links.json");
     write(&path, "not valid json at all");
 
     let state = LinkRegistryState::load(&path);
-    let outcome = state.linked_accounts().await;
+    let outcome = state.linked_accounts();
 
     let message = outcome.expect_err(
         "a malformed registry read as an empty list would silently withdraw TrustTier::Linked",
