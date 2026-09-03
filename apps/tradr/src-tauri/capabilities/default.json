@@ -27,6 +27,10 @@
 		"tradr:allow-reply-to-link-invite",
 		"tradr:allow-approve-link",
 		"tradr:allow-decline-link",
+		"tradr:allow-preview-link-invite",
+		"tradr:allow-pending-link-proposal",
+		"tradr:allow-list-links",
+		"tradr:allow-remove-link",
 		"dialog:allow-open"
 	]
 }

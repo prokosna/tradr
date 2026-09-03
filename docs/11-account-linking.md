@@ -159,6 +159,18 @@ link_id     = BLAKE3(Link Secret)[0..16]
 
 **So what a photographed QR buys is one thing: the chance to be shown to Alice as a stranger asking to link.** The approval and the Fingerprint comparison are still in the way, `half_B` was never on the screen, and no Link Secret of the real link is derivable from what the camera saw.
 
+#### Where the replier's consent goes, and why it is before the dial
+
+**The diagram has Bob verify and read the Fingerprint before he replies, and the exchange as built does both after** (DCR-077). `send_link_reply` verifies the inviter and writes the `LinkReply` in one uninterrupted call, because the replier was given no decision closure and only the inviter a `decide`. Nothing is disclosed to a stranger by that -- verification runs before the reply is written, so a device that is not the inviter never receives Bob's token -- **and the moment is still wrong**: a person reads the Fingerprint after the exchange rather than before it, and this document makes that comparison mandatory on the paste channel, where a blob can come from anyone.
+
+**The pause is before the dial and not inside the exchange.** At that point nothing has been sent, no channel exists, and the invite alone carries everything the comparison needs -- so the consent costs one local read and the exchange keeps the single uninterrupted shape [DCR-073](#how-bobs-reply-reaches-alice-and-what-authorises-the-connection) gave it. A pause inside would mean holding a QUIC channel open across a wait on a person, which is the cost the inviter's side pays because its own decision cannot be made any earlier. **The replier's can**, and that asymmetry is the reason the two sides park their waits in different places.
+
+**What the pause shows is the inviter's Fingerprint and nothing about the inviter's account.** The Fingerprint is `device_fingerprint(identity_pub, agreement_pub)` over the invite's own two keys, which is the same twelve words the inviter's screen displays beside its QR, so the comparison this document calls mandatory is a person reading one screen against another. **Naming the account would need the Attestation verified, and it cannot be verified here**: the entry point that runs steps 1 to 5 takes the `DeviceId` the channel authenticated, and before the dial there is no channel, so the only argument available would be one recomputed from the invite -- the exact shape the exchange's own tests forbid. The account arrives from the exchange, once the channel has proved which device holds the key.
+
+**The expiry is the second thing the pause shows, and it takes the allowance the reply itself takes.** An invite already dead by this device's clock is one the inviter will refuse, and saying so before the dial spends no connection; the allowance is the same clock-skew number `send_link_reply` applies, because a second one is a second thing that can disagree.
+
+**A person who does not consent has sent nothing and stored nothing.** That is the whole of what the pause buys, and it is what the diagram always said.
+
 ### What the three linking messages carry
 
 **The diagram above is a sketch of a payload and not a definition of one**, and two of its lines could not be implemented as drawn. DCR-068 settles the three messages; `proto/tradr/v1/link.proto` is where they live, and the same rule the Offer and the Hello follow applies here: **a field that decides something refuses the message; a field that only decorates it never does.**
