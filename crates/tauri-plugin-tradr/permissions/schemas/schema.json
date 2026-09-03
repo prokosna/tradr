@@ -403,6 +403,18 @@
           "markdownDescription": "Denies the get_visible_shares command without any pre-configured scope."
         },
         {
+          "description": "Enables the list_links command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-links",
+          "markdownDescription": "Enables the list_links command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_links command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-links",
+          "markdownDescription": "Denies the list_links command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_peer_directory command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-peer-directory",
@@ -439,6 +451,18 @@
           "markdownDescription": "Denies the open_link_invite command without any pre-configured scope."
         },
         {
+          "description": "Enables the pending_link_proposal command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pending-link-proposal",
+          "markdownDescription": "Enables the pending_link_proposal command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pending_link_proposal command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pending-link-proposal",
+          "markdownDescription": "Denies the pending_link_proposal command without any pre-configured scope."
+        },
+        {
           "description": "Enables the pick_share_root command without any pre-configured scope.",
           "type": "string",
           "const": "allow-pick-share-root",
@@ -451,6 +475,18 @@
           "markdownDescription": "Denies the pick_share_root command without any pre-configured scope."
         },
         {
+          "description": "Enables the preview_link_invite command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-link-invite",
+          "markdownDescription": "Enables the preview_link_invite command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_link_invite command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-link-invite",
+          "markdownDescription": "Denies the preview_link_invite command without any pre-configured scope."
+        },
+        {
           "description": "Enables the publish_sharing_shortcuts command without any pre-configured scope.",
           "type": "string",
           "const": "allow-publish-sharing-shortcuts",
@@ -461,6 +497,18 @@
           "type": "string",
           "const": "deny-publish-sharing-shortcuts",
           "markdownDescription": "Denies the publish_sharing_shortcuts command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-link",
+          "markdownDescription": "Enables the remove_link command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-link",
+          "markdownDescription": "Denies the remove_link command without any pre-configured scope."
         },
         {
           "description": "Enables the remove_static_peer command without any pre-configured scope.",

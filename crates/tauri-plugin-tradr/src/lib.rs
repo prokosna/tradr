@@ -67,6 +67,10 @@ pub fn init<R: Runtime>(
             link_commands::reply_to_link_invite,
             link_commands::approve_link,
             link_commands::decline_link,
+            link_commands::preview_link_invite,
+            link_commands::pending_link_proposal,
+            link_commands::list_links,
+            link_commands::remove_link,
         ])
         .setup(move |app, _api| {
             let identity_state = identity::init_identity_state(app);

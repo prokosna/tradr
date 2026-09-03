@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-list-links"
+description = "Enables the list_links command without any pre-configured scope."
+commands.allow = ["list_links"]
+
+[[permission]]
+identifier = "deny-list-links"
+description = "Denies the list_links command without any pre-configured scope."
+commands.deny = ["list_links"]

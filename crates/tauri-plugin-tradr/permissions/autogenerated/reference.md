@@ -244,6 +244,32 @@ Denies the get_visible_shares command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-list-links`
+
+</td>
+<td>
+
+Enables the list_links command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-list-links`
+
+</td>
+<td>
+
+Denies the list_links command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-list-peer-directory`
 
 </td>
@@ -322,6 +348,32 @@ Denies the open_link_invite command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-pending-link-proposal`
+
+</td>
+<td>
+
+Enables the pending_link_proposal command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-pending-link-proposal`
+
+</td>
+<td>
+
+Denies the pending_link_proposal command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-pick-share-root`
 
 </td>
@@ -348,6 +400,32 @@ Denies the pick_share_root command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-preview-link-invite`
+
+</td>
+<td>
+
+Enables the preview_link_invite command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-preview-link-invite`
+
+</td>
+<td>
+
+Denies the preview_link_invite command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-publish-sharing-shortcuts`
 
 </td>
@@ -367,6 +445,32 @@ Enables the publish_sharing_shortcuts command without any pre-configured scope.
 <td>
 
 Denies the publish_sharing_shortcuts command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-remove-link`
+
+</td>
+<td>
+
+Enables the remove_link command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-remove-link`
+
+</td>
+<td>
+
+Denies the remove_link command without any pre-configured scope.
 
 </td>
 </tr>

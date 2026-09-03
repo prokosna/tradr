@@ -23,6 +23,10 @@ const COMMANDS: &[&str] = &[
     "reply_to_link_invite",
     "approve_link",
     "decline_link",
+    "preview_link_invite",
+    "pending_link_proposal",
+    "list_links",
+    "remove_link",
 ];
 
 fn main() {
