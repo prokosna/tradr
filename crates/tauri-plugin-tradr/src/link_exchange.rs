@@ -6,11 +6,12 @@
 
 use std::fmt;
 use std::future::Future;
+use std::time::Duration;
 
 use tradr_core::{
     Clock, DeviceId, DisplayName, Fingerprint, HALF_SECRET_LEN, HalfSecret, Invite, LinkApprove,
     LinkDecline, LinkDeclineReason, LinkId, LinkReply, LinkSecret, PublicIdentity, PublicKeyPoint,
-    RecvStream, Rng, RngError, SendStream, TransportError,
+    RecvStream, Rng, RngError, SendStream, TransportError, UnixTime,
 };
 use tradr_identity::{AccountId, Link, derive_link_id, derive_link_secret, device_fingerprint};
 use tradr_proto::framing::{Frame, FrameDecoder, FrameError};
@@ -57,12 +58,21 @@ pub enum LinkDecision {
 }
 
 /// How a link exchange over one stream ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkOutcome {
     /// The exchange completed and both sides hold the Link.
     Linked(LinkId),
     /// The exchange completed with no Link stored on this side.
-    Declined(Option<LinkDeclineReason>),
+    Declined {
+        /// The reason written to the wire, if any -- the same coarse
+        /// value the peer was told (rule F4).
+        reason: Option<LinkDeclineReason>,
+        /// The local explanation for a decline this side chose, kept off
+        /// the wire: exactly what `verify` or `record` returned, for a
+        /// person to be shown. `None` for a user decline, an expired
+        /// invite, and on the replier's side, where nothing local decided.
+        detail: Option<String>,
+    },
 }
 
 /// Everything `serve_link_reply` and `send_link_reply` can fail with, as
@@ -169,14 +179,23 @@ pub struct ReplierParams<'a> {
     pub invite_skew_secs: u64,
 }
 
+// The whole-second budget between `now` and `deadline`, saturating at
+// zero rather than going negative once `now` is past it. No floor and no
+// padding: what `tokio::time::timeout` waits on is exactly what a clock
+// reading `now` finds left of `deadline` (DCR-075).
+fn budget_secs(deadline: UnixTime, now: UnixTime) -> Duration {
+    Duration::from_secs(deadline.elapsed_since(now).unwrap_or(0))
+}
+
 // Writes a `LinkDecline` carrying `reason` and returns the matching
-// `Declined` outcome. The one place both a failed verification and an
-// expired invite and a user decline converge, so the frame is built and
-// sent identically every time.
+// `Declined` outcome, `detail` alongside it for local display only. The
+// one place every decline converges, so the frame is built and sent
+// identically every time.
 async fn decline(
     send: &mut dyn SendStream,
     invite: &Invite,
     reason: Option<LinkDeclineReason>,
+    detail: Option<String>,
     max_frame_size: u32,
 ) -> Result<LinkOutcome, LinkExchangeError> {
     let message = LinkDecline::new(*invite.invite_id(), reason);
@@ -185,7 +204,7 @@ async fn decline(
     send.write_all(&frame_bytes)
         .await
         .map_err(LinkExchangeError::Transport)?;
-    Ok(LinkOutcome::Declined(reason))
+    Ok(LinkOutcome::Declined { reason, detail })
 }
 
 /// Serves a `LinkReply` as the inviter (docs/11, "How Bob's reply reaches
@@ -224,6 +243,7 @@ where
             send,
             invite,
             Some(LinkDeclineReason::InviteExpired),
+            None,
             params.max_frame_size,
         )
         .await;
@@ -240,11 +260,12 @@ where
     };
     let peer_account = match verify(request).await {
         Ok(account) => account,
-        Err(_) => {
+        Err(reason) => {
             return decline(
                 send,
                 invite,
                 Some(LinkDeclineReason::VerificationFailed),
+                Some(reason),
                 params.max_frame_size,
             )
             .await;
@@ -270,11 +291,29 @@ where
         peer_label,
         link_id,
     };
-    if matches!(decide(proposal).await, LinkDecision::Decline) {
+    // The wait on a person is bounded at the invite's own expiry, and no
+    // second number: a phone left face down otherwise holds this stream
+    // and the single-use window open forever (DCR-075).
+    let budget = budget_secs(invite.expires_at(), clock.now());
+    let decision = match tokio::time::timeout(budget, decide(proposal)).await {
+        Ok(decision) => decision,
+        Err(_) => {
+            return decline(
+                send,
+                invite,
+                Some(LinkDeclineReason::InviteExpired),
+                None,
+                params.max_frame_size,
+            )
+            .await;
+        }
+    };
+    if matches!(decision, LinkDecision::Decline) {
         return decline(
             send,
             invite,
             Some(LinkDeclineReason::UserDeclined),
+            None,
             params.max_frame_size,
         )
         .await;
@@ -286,8 +325,8 @@ where
     if let Some(name) = params.reply.display_name() {
         link = link.with_label(name.as_str());
     }
-    if record(link, secret).is_err() {
-        return decline(send, invite, None, params.max_frame_size).await;
+    if let Err(reason) = record(link, secret) {
+        return decline(send, invite, None, Some(reason), params.max_frame_size).await;
     }
 
     // Step 7: only now, so LinkApprove never asserts a link that does not
@@ -413,15 +452,26 @@ where
     // Step 5: exactly one frame, classified on Control, refusing anything
     // that is not LinkApprove or LinkDecline -- Classification::Ignorable
     // included, since the three linking codes are the only ones this
-    // stream carries (docs/04, "Deciding which of the two a stream is").
-    let frame = read_one_frame(recv, params.max_frame_size).await?;
+    // stream carries (docs/04). The read stops after the inviter's own
+    // wait, by the same skew allowance step 1 already took (DCR-075).
+    let deadline = UnixTime::from_secs(
+        invite
+            .expires_at()
+            .as_secs()
+            .saturating_add(i64::try_from(params.invite_skew_secs).unwrap_or(i64::MAX)),
+    );
+    let budget = budget_secs(deadline, clock.now());
+    let frame = tokio::time::timeout(budget, read_one_frame(recv, params.max_frame_size))
+        .await
+        .map_err(|_| LinkExchangeError::InviteExpired)??;
     match classify(frame.type_code(), Plane::Control) {
         Classification::Known(MessageType::LinkApprove) => {
             let approve = decode_link_approve_frame(&frame).map_err(LinkExchangeError::Frame)?;
             if approve.invite_id() != invite.invite_id() {
                 return Err(LinkExchangeError::UnknownInvite);
             }
-            let our_link_id = derive_link_id(&derive_link_secret(invite.half_secret(), &our_half));
+            let secret = derive_link_secret(invite.half_secret(), &our_half);
+            let our_link_id = derive_link_id(&secret);
             if approve.link_id() != our_link_id {
                 return Err(LinkExchangeError::LinkIdMismatch);
             }
@@ -430,7 +480,6 @@ where
             if let Some(name) = invite.display_name() {
                 link = link.with_label(name.as_str());
             }
-            let secret = derive_link_secret(invite.half_secret(), &our_half);
             record(link, secret).map_err(LinkExchangeError::RecordFailed)?;
             Ok(LinkOutcome::Linked(our_link_id))
         }
@@ -439,7 +488,10 @@ where
             if decline.invite_id() != invite.invite_id() {
                 return Err(LinkExchangeError::UnknownInvite);
             }
-            Ok(LinkOutcome::Declined(decline.reason()))
+            Ok(LinkOutcome::Declined {
+                reason: decline.reason(),
+                detail: None,
+            })
         }
         other => Err(LinkExchangeError::ProtocolViolation(format!(
             "unexpected frame on link stream: {other}"

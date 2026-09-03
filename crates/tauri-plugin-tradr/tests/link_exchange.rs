@@ -240,7 +240,10 @@ async fn an_expired_invite_is_declined_with_invite_expired() {
 
     assert!(matches!(
         outcome,
-        LinkOutcome::Declined(Some(LinkDeclineReason::InviteExpired))
+        LinkOutcome::Declined {
+            reason: Some(LinkDeclineReason::InviteExpired),
+            detail: None,
+        }
     ));
     assert_eq!(
         decline_on_wire(&h.written.lock().expect("not poisoned")),
@@ -283,10 +286,14 @@ async fn a_reply_whose_attestation_fails_is_declined_and_never_recorded() {
     .await
     .expect("a failed verification is a decline, not an error");
 
-    assert!(matches!(
+    assert_eq!(
         outcome,
-        LinkOutcome::Declined(Some(LinkDeclineReason::VerificationFailed))
-    ));
+        LinkOutcome::Declined {
+            reason: Some(LinkDeclineReason::VerificationFailed),
+            detail: Some("nonce does not bind the peer's keys".to_string()),
+        },
+        "the wire reason stays coarse and the local one is exactly what verify returned, with nothing appended to it"
+    );
     assert!(
         !*recorded.lock().expect("not poisoned"),
         "a Link is never stored for a reply whose Attestation did not verify"
@@ -396,7 +403,10 @@ async fn a_user_declined_proposal_writes_that_reason_and_stores_nothing() {
 
     assert!(matches!(
         outcome,
-        LinkOutcome::Declined(Some(LinkDeclineReason::UserDeclined))
+        LinkOutcome::Declined {
+            reason: Some(LinkDeclineReason::UserDeclined),
+            detail: None,
+        }
     ));
     assert!(!*recorded.lock().expect("not poisoned"));
 }
@@ -507,9 +517,13 @@ async fn a_store_that_fails_declines_with_no_reason_at_all() {
     .await
     .expect("a store that fails is a decline, not an error");
 
-    assert!(
-        matches!(outcome, LinkOutcome::Declined(None)),
-        "none of the three reasons is true of a store failure, and an absent reason is already a value this message defines"
+    assert_eq!(
+        outcome,
+        LinkOutcome::Declined {
+            reason: None,
+            detail: Some("the link registry could not be written".to_string()),
+        },
+        "none of the three reasons is true of a store failure, and an absent reason is already a value this message defines -- but the local side keeps why"
     );
     assert_eq!(
         decline_on_wire(&h.written.lock().expect("not poisoned")),
@@ -574,4 +588,137 @@ async fn the_stored_link_carries_the_verified_account_and_not_anything_off_the_w
         !verified,
         "nothing in this exchange compares Fingerprints, so the flag it writes is false"
     );
+}
+
+// DCR-075: the wait on a person is bounded by the invite's own expiry and
+// by no second number. Unbounded, this holds a stream and the single-use
+// window open for as long as someone leaves the phone face down, and the
+// replier blocks reading an answer that is never written.
+
+#[tokio::test(start_paused = true)]
+async fn a_wait_on_a_person_that_reaches_the_deadline_declines_and_records_nothing() {
+    let alice = identity_of(&device(1));
+    let bob = identity_of(&device(2));
+    let id = invite_id(0x01);
+    let invite = open_invite(&alice, id, NOW + 300);
+    let mut h = harness();
+
+    let recorded = Arc::new(Mutex::new(false));
+    let recorded_flag = Arc::clone(&recorded);
+
+    let outcome = serve_link_reply(
+        &mut h.send,
+        InviterParams {
+            invite: &invite,
+            reply: reply_from(&bob, id),
+            authenticated_peer: bob.device_id(),
+            max_frame_size: MAX_FRAME,
+        },
+        &FakeClock {
+            now: UnixTime::from_secs(NOW),
+        },
+        |_req: LinkAttestationRequest| async { Ok(peer_account()) },
+        |_p: LinkProposal| std::future::pending::<LinkDecision>(),
+        move |_l: Link, _s: LinkSecret| {
+            *recorded_flag.lock().expect("not poisoned") = true;
+            Ok(())
+        },
+    )
+    .await
+    .expect("a window that closes is a decline, not an error");
+
+    assert!(
+        matches!(
+            outcome,
+            LinkOutcome::Declined {
+                reason: Some(LinkDeclineReason::InviteExpired),
+                detail: None,
+            }
+        ),
+        "what ended the exchange is the invite expiring, so that is what the replier is told"
+    );
+    assert_eq!(
+        decline_on_wire(&h.written.lock().expect("not poisoned")),
+        Some((id, Some(LinkDeclineReason::InviteExpired)))
+    );
+    assert!(
+        !*recorded.lock().expect("not poisoned"),
+        "a Link is never stored for a decision nobody made"
+    );
+}
+
+// Separates the invite's own deadline from any fixed one. Both answer
+// `InviteExpired` on a window nobody answered inside; only one of them
+// ends at the moment this invite says it ends.
+#[tokio::test(start_paused = true)]
+async fn the_wait_ends_at_this_invites_deadline_and_not_at_a_fixed_one() {
+    let alice = identity_of(&device(1));
+    let bob = identity_of(&device(2));
+    let id = invite_id(0x01);
+    let invite = open_invite(&alice, id, NOW + 7);
+    let mut h = harness();
+
+    let started = tokio::time::Instant::now();
+    let outcome = serve_link_reply(
+        &mut h.send,
+        InviterParams {
+            invite: &invite,
+            reply: reply_from(&bob, id),
+            authenticated_peer: bob.device_id(),
+            max_frame_size: MAX_FRAME,
+        },
+        &FakeClock {
+            now: UnixTime::from_secs(NOW),
+        },
+        |_req: LinkAttestationRequest| async { Ok(peer_account()) },
+        |_p: LinkProposal| std::future::pending::<LinkDecision>(),
+        |_l: Link, _s: LinkSecret| Ok(()),
+    )
+    .await
+    .expect("a window that closes is a decline, not an error");
+
+    assert!(matches!(
+        outcome,
+        LinkOutcome::Declined {
+            reason: Some(LinkDeclineReason::InviteExpired),
+            ..
+        }
+    ));
+    assert_eq!(
+        tokio::time::Instant::now() - started,
+        std::time::Duration::from_secs(7),
+        "the budget is what this invite has left and carries no floor and no padding"
+    );
+}
+
+// The discrimination the two tests above need: a bound that fired
+// whatever happened would pass both of them, and this is what says it
+// does not fire on a decision that arrives.
+#[tokio::test(start_paused = true)]
+async fn a_decision_made_inside_the_window_is_not_overtaken_by_the_deadline() {
+    let alice = identity_of(&device(1));
+    let bob = identity_of(&device(2));
+    let id = invite_id(0x01);
+    let invite = open_invite(&alice, id, NOW + 300);
+    let mut h = harness();
+
+    let outcome = serve_link_reply(
+        &mut h.send,
+        InviterParams {
+            invite: &invite,
+            reply: reply_from(&bob, id),
+            authenticated_peer: bob.device_id(),
+            max_frame_size: MAX_FRAME,
+        },
+        &FakeClock {
+            now: UnixTime::from_secs(NOW),
+        },
+        |_req: LinkAttestationRequest| async { Ok(peer_account()) },
+        |_p: LinkProposal| async { LinkDecision::Approve },
+        |_l: Link, _s: LinkSecret| Ok(()),
+    )
+    .await
+    .expect("an approved reply completes");
+
+    assert!(matches!(outcome, LinkOutcome::Linked(_)));
 }

@@ -7,7 +7,7 @@
 use std::cell::{Cell, RefCell};
 
 use tradr_core::{SecretStore, SecretStoreError, StorageLevel};
-use tradr_identity::{LadderError, select_rung};
+use tradr_identity::{LadderError, select_rung, select_rung_index};
 
 /// A rung answering from memory that records what it was asked, so a test
 /// can assert what was never read as well as what was.
@@ -298,4 +298,117 @@ fn every_rung_is_asked_for_the_slot_it_was_given() {
 
     assert_eq!(secret_service.slots.borrow().as_slice(), ["another-slot"]);
     assert_eq!(file.slots.borrow().as_slice(), ["another-slot"]);
+}
+
+// DCR-075: the walk reports which rung by position, so a caller holding
+// its own rungs can keep the one that was chosen. An index naming a
+// different rung than the reference form does puts this device's other
+// secrets on a rung its Device Key is not on, and nothing anywhere fails.
+
+#[test]
+fn the_index_and_the_reference_name_one_rung() {
+    let secret_service = Rung::empty(StorageLevel::SecretService);
+    let keyring = Rung::empty(StorageLevel::SecretService);
+    let file = Rung::holding(StorageLevel::File, KEY);
+    let rungs = ladder([&secret_service, &keyring, &file]);
+
+    let index = select_rung_index(&rungs, SLOT).expect("the lowest rung holds the key");
+    let chosen = select_rung(&rungs, SLOT).expect("the lowest rung holds the key");
+
+    assert_eq!(index, 2);
+    // Identity by counter rather than by level: one load through each
+    // answer must land on the same rung, twice.
+    let (before_ss, before_keyring, before_file) =
+        (secret_service.loads(), keyring.loads(), file.loads());
+    let _ = rungs[index].load(SLOT);
+    let _ = chosen.load(SLOT);
+    assert_eq!(file.loads(), before_file + 2);
+    assert_eq!(secret_service.loads(), before_ss);
+    assert_eq!(keyring.loads(), before_keyring);
+}
+
+// The index form's own version of `the_rung_selected_is_the_rung_holding
+// _the_key`. The two upper rungs share a level deliberately, so an
+// implementation recovering the answer by matching storage levels picks
+// the wrong one of them and this is the test that says so.
+#[test]
+fn the_index_is_the_rung_that_answered_and_not_the_first() {
+    let first = Rung::empty(StorageLevel::SecretService);
+    let holder = Rung::holding(StorageLevel::SecretService, KEY);
+    let lowest = Rung::empty(StorageLevel::File);
+    let rungs = ladder([&first, &holder, &lowest]);
+
+    let index = select_rung_index(&rungs, SLOT).expect("the middle holds it");
+
+    assert_eq!(index, 1);
+    let (before_first, before_holder) = (first.loads(), holder.loads());
+    let _ = rungs[index].load(SLOT);
+    assert_eq!(holder.loads(), before_holder + 1);
+    assert_eq!(first.loads(), before_first);
+    assert_eq!(lowest.loads(), 0);
+}
+
+// A position in the ladder as given, never in an ordering derived from
+// the levels: this ladder's first rung is the lower level and holds the
+// key, so anything sorting before it answers reports 1 instead of 0.
+#[test]
+fn the_index_is_a_position_in_the_ladder_as_given() {
+    let file = Rung::holding(StorageLevel::File, KEY);
+    let secret_service = Rung::empty(StorageLevel::SecretService);
+    let rungs = ladder([&file, &secret_service]);
+
+    let index = select_rung_index(&rungs, SLOT).expect("the first rung holds the key");
+
+    assert_eq!(index, 0);
+    assert_eq!(secret_service.loads(), 0);
+}
+
+#[test]
+fn an_empty_ladder_of_three_indexes_the_highest_for_writing() {
+    let secret_service = Rung::empty(StorageLevel::SecretService);
+    let keyring = Rung::empty(StorageLevel::SecretService);
+    let file = Rung::empty(StorageLevel::File);
+    let rungs = ladder([&secret_service, &keyring, &file]);
+
+    let index = select_rung_index(&rungs, SLOT).expect("nothing holds a key");
+
+    assert_eq!(index, 0);
+}
+
+#[test]
+fn an_empty_ladder_has_no_index() {
+    let outcome = select_rung_index(&[] as &[&dyn SecretStore], SLOT);
+
+    assert!(matches!(outcome, Err(LadderError::NoRungs)));
+}
+
+#[test]
+fn a_failing_rung_has_no_index_and_stops_the_search() {
+    let secret_service = Rung::empty(StorageLevel::SecretService);
+    let keyring = Rung::failing(StorageLevel::SecretService);
+    let file = Rung::holding(StorageLevel::File, KEY);
+    let rungs = ladder([&secret_service, &keyring, &file]);
+
+    let outcome = select_rung_index(&rungs, SLOT);
+
+    assert!(matches!(
+        outcome,
+        Err(LadderError::RungFailed {
+            level: StorageLevel::SecretService,
+            ..
+        })
+    ));
+    assert_eq!(file.loads(), 0);
+}
+
+#[test]
+fn indexing_writes_to_no_rung() {
+    let secret_service = Rung::empty(StorageLevel::SecretService);
+    let file = Rung::empty(StorageLevel::File);
+    let rungs = ladder([&secret_service, &file]);
+
+    let _ = select_rung_index(&rungs, SLOT);
+
+    assert_eq!(secret_service.stores.get(), 0);
+    assert_eq!(file.stores.get(), 0);
 }

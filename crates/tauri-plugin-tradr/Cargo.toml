@@ -34,3 +34,6 @@ tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 tempfile = "3"
 rsa = { version = "0.9", features = ["sha2", "pem"] }
 sha2 = "0.10"
+# Widens the existing tokio dependency's features for tests only, so
+# `#[tokio::test(start_paused = true)]` has `Builder::start_paused` to call.
+tokio = { version = "1", features = ["test-util"] }
