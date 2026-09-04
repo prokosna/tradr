@@ -2,6 +2,9 @@
 
 This directory contains the custom checks that enforce Tradr's rules.
 
+## frontend-gate.sh
+Runs `pnpm lint`, `pnpm typecheck` and `pnpm format:check`, all three regardless of an earlier failure, so one failure never hides another. Lives in `ci/` rather than as its own CI job so that `.githooks/pre-commit` runs it, through `ci/run-all.sh`, on every commit rather than only on a pull request -- before this script existed, a `.tsx` file that failed to typecheck or that `biome format` refused could be committed with every stage the hook ran reporting green. Checks that `pnpm` is on `PATH` and that `node_modules` exists at the repository root before running any of the three, and fails rather than skips when either is missing. Takes no allowlist: `biome lint`, `tsc` and `biome format` each carry their own suppression mechanism.
+
 ## hooks-executable.sh
 DCR-036: `.githooks/pre-commit` is version-controlled so it arrives with a clone, but git file modes are not always preserved by every checkout path (a zip download, some CI checkout actions), and a non-executable hook is silently never run by git -- no error, no warning, just skipped. This is the part a repository can mechanically verify. Whether a given clone has actually pointed `core.hooksPath` at `.githooks` is a per-clone git config setting; nothing under version control can observe that, and this check does not claim to.
 

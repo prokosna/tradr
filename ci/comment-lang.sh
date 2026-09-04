@@ -48,7 +48,7 @@ is_allowed() {
 	return 1
 }
 
-files=$(find crates packages ci .githooks -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.sh' -o -path '.githooks/*' \) \
+files=$(find crates packages apps ci .githooks -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.tsx' -o -name '*.sh' -o -path '.githooks/*' \) \
 	-not -path '*/target/*' \
 	-not -path '*/node_modules/*' \
 	-not -path 'packages/protocol/src/gen/*' \

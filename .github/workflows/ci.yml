@@ -21,10 +21,11 @@ env:
   ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
 
 jobs:
-  # Mechanizes the nine checks in ci/*.sh: comment language and length,
+  # Mechanizes the ten checks in ci/*.sh: comment language and length,
   # doc visibility, the excuse-phrase grep, the invoke()/COMMANDS cross
   # check, the layer-dependency scan, the plugin-permissions three-list
-  # cross check, STATE.md/git-history agreement, and hooks-executable.
+  # cross check, STATE.md/git-history agreement, hooks-executable, and
+  # the frontend gate.
   checks:
     runs-on: ubuntu-latest
     steps:
@@ -34,6 +35,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
 
       - run: sh ci/run-all.sh
 
@@ -110,27 +120,6 @@ jobs:
 
       - name: Run no-brokr Invariant I1 verification
         run: sh ci/no-brokr.sh
-
-  # tsc and biome over the TypeScript workspace. Both `pnpm typecheck` and
-  # `pnpm lint` run `buf generate` first (packages/protocol/src/gen is
-  # gitignored), so this is also where that code generation is proven to
-  # work from a clean checkout.
-  web:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-
-      - run: pnpm typecheck
-      - run: pnpm lint
 
   # cargo tauri build, evidence for ADR-0001's first two withdrawal
   # conditions on this platform and a build-health signal for the app
