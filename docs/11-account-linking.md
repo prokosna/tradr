@@ -171,6 +171,12 @@ link_id     = BLAKE3(Link Secret)[0..16]
 
 **A person who does not consent has sent nothing and stored nothing.** That is the whole of what the pause buys, and it is what the diagram always said.
 
+#### The consent is to one blob, and the expiry it reports refuses nothing
+
+**The pause reads a blob and the reply sends one, and nothing so far says they are the same blob** (DCR-078). A paste field holds whatever it holds at the moment of the press, so a reply carrying the field's current value lets a person read one device's Fingerprint and reply to another's -- and the twelve words on the screen would be describing a device this exchange never touches. **So the reply carries the previewed blob**, captured at the pause, and text that changes afterwards discards the preview rather than standing beside it. It is the inviter's own rule one side over: "the QR on the screen is the invite this device will answer" becomes **the Fingerprint on the screen is the invite this device will reply to**.
+
+**The expiry the pause reports is shown and does not refuse the reply.** The five minutes are the inviter's to enforce and the reader's to be advised of, as the expiry section above already says, and a reader whose clock runs fast finds every fresh invite expired. A device declining to send on its own reading would therefore refuse live invites with nothing on the screen naming which of the two clocks was wrong, while sending against a genuinely dead one costs a connection and a `LinkDecline`. **The cheaper failure is the one the person can see**, so the reading is displayed and the decision stays theirs.
+
 ### What the three linking messages carry
 
 **The diagram above is a sketch of a payload and not a definition of one**, and two of its lines could not be implemented as drawn. DCR-068 settles the three messages; `proto/tradr/v1/link.proto` is where they live, and the same rule the Offer and the Hello follow applies here: **a field that decides something refuses the message; a field that only decorates it never does.**
