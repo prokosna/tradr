@@ -296,7 +296,7 @@ People and models both forget, so the machine checks. These are required and blo
 
 | Job | What it does | From |
 |---|---|---|
-| `lint` | clippy `-D warnings`, eslint, tsc, rustfmt, prettier | M0 |
+| `lint` | clippy `-D warnings`, `cargo fmt --check`, and the frontend gate below | M0 |
 | `comment-lang` | Flags non-ASCII characters inside comments, mechanizing A1 | M0 |
 | `comment-length` | Lists block comments over five lines | M0 |
 | `excuse-grep` | Greps the A4 patterns and lists every hit | M0 |
@@ -305,6 +305,15 @@ People and models both forget, so the machine checks. These are required and blo
 | **`no-brokr`** | **Tier 0 and Tier 1 integration tests pass with no Brokr running** | **M1** |
 | `hostile-paths` | The `tradr-vfs` adversarial path suite | M3 |
 | `transport-switch` | Forces path switches and confirms transfers resume | M1 |
+| **`frontend-gate`** | **`biome lint`, `tsc` and `biome format` over the TypeScript workspace** | **M6** |
+
+### The frontend gate is a check in `ci/`, not a job of its own
+
+**A job runs on a pull request and a check in `ci/` runs on every commit**, because `.githooks/pre-commit` runs `ci/run-all.sh` first. Until M6 the frontend was gated only by a job, so `cargo fmt --check`, `cargo clippy` and `cargo test --workspace` could all report green over a TypeScript file that does not compile -- measured, not reasoned about: `WI-M6-007b`'s first round was not `biome format` clean and every stage the hook runs passed.
+
+**Rules A1 to A6 are one standard, so they take the instruments they already have rather than a new one.** `comment-lang`, `comment-length` and `excuse-grep` read `apps/` and `*.tsx` for the same reason they read `crates/` and `*.rs`; a second comment checker for a second language is two places one rule can drift.
+
+**`biome format` runs over the whole repository with the one file that is not ours named as an exclusion**, never over a hand-listed set of directories. A path list stops covering a directory the day someone adds one and says nothing; an exclusion names what it excuses and shows up in a diff. The exclusion is `crates/tauri-plugin-tradr/permissions/schemas/schema.json`, which `tauri_plugin::Builder` generates.
 
 ### Every job fails. False positives go in the allowlist
 

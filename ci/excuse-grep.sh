@@ -44,7 +44,7 @@ is_allowed() {
 	return 1
 }
 
-files=$(find crates packages -type f \( -name '*.rs' -o -name '*.ts' \) \
+files=$(find crates packages apps -type f \( -name '*.rs' -o -name '*.ts' -o -name '*.tsx' \) \
 	-not -path '*/target/*' \
 	-not -path '*/node_modules/*' \
 	-not -path 'packages/protocol/src/gen/*' \
