@@ -2,6 +2,7 @@
 //! mDNS, BLE advertise and scan, static pins, Brokr presence.
 
 mod advertisement;
+mod ble;
 mod eid;
 mod mdns;
 mod static_peer;
@@ -11,6 +12,10 @@ pub use advertisement::{
     AD_STRUCTURE_OVERHEAD, ADVERTISEMENT_MAX_LEN, ADVERTISEMENT_VERSION, Advertisement,
     AdvertisementError, FLAGS_AD_LEN, PlatformCode, SERVICE_DATA_LEN, TRADR_SERVICE_UUID,
     TRADR_SERVICE_UUID_LE,
+};
+pub use ble::{
+    BLE_OBSERVATION_TTL_SECS, BLE_SOURCE_ID, BleAdvertiser, BleError, BleScanner, BleSource,
+    BroadcastSecrets, ScanReport, ScanReportError,
 };
 pub use eid::{
     BROADCAST_SECRET_LEN, BroadcastSecret, EID_LEN, EID_WINDOW_SECS, Eid, EidError, EidWindow,
