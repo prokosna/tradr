@@ -476,17 +476,25 @@ where
             let service = link_service.ok_or_else(|| {
                 ListenerError::ProtocolViolation("no invite is open on this device".to_string())
             })?;
-            service
+            let serve_res = service
                 .serve(
                     control_send.as_mut(),
                     reply,
                     channel.peer(),
                     channel.max_frame_size(),
                 )
-                .await
-                .map_err(ListenerError::LinkExchange)?;
-            // docs/04: no transfer, no browse and no offer read is
-            // reachable from a link stream, and it ends when serve returns.
+                .await;
+
+            if let Err(e) = control_send.finish().await {
+                eprintln!("listener: closing the control stream failed: {e}");
+            }
+
+            let mut dummy = [0u8; 1];
+            if let Err(e) = control_recv.read(&mut dummy).await {
+                eprintln!("listener: waiting for control stream close failed: {e}");
+            }
+
+            serve_res.map_err(ListenerError::LinkExchange)?;
             Ok(Vec::new())
         }
         other => Err(ListenerError::ProtocolViolation(format!(
