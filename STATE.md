@@ -6,7 +6,7 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.** `branch`, `work_items_landed`, and `last_commit` are no longer declared here — see [docs/10](docs/10-implementation-process.md#the-yaml-header--what-is-in-it-and-what-was-removed-dcr-060) for the one-command equivalents.
 
 ```yaml
-last_updated: 2026-09-05
+last_updated: 2026-09-06
 phase: implementing
 current_milestone: M7
 implementation_started: true
@@ -58,6 +58,8 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 ### A broken implementation hung the suite instead of failing it, found 2026-09-06 by mutating `WI-M7-003`
 
 **The mutation pass stalled, and the stall was the defect.** Nine tests, every behaviour covered, every gate green -- and four of sixteen mutations made `cargo test` await forever rather than report. Dropping `capabilities`, pinning the wall clock the EID is matched against, and snapshotting the secret set each parked the run; `EXIT=137` under a 90-second kill, with the test that hangs still printing its own name and never finishing. **Every async test ended in `source.next_event().await` with no bound**, so an implementation that stops producing an event parks the test rather than failing it.
+
+**A second instrument caught a second thing on the same Work Item, and it could only catch it in CI.** `ci/state-sync.sh` refuses a `last_updated` older than the newest commit's date, and this session crossed midnight: the commit landed dated 2026-09-06 against a header still reading 2026-09-05. **The pre-commit hook cannot see it, structurally** -- the hook runs before the commit exists, so the newest commit it compares against is the previous one, and the check passes locally and fails on the next push every time. That is not a defect in the check; it is the one class of failure the local gate is blind to by construction, and it will recur on any session that runs past midnight.
 
 **This is settled decision 22, and the precedent was in the same directory.** That decision says a test never waits, it awaits, and the only clock permitted is one `tokio::time::timeout` whose sole job is turning something that will never complete into a failure rather than a job that hangs forever -- and `crates/tradr-discovery/tests/static_peer.rs` already bounds every `next_event()` it makes, on the same trait method, four files away. The repair is one helper wrapping the single remaining call site; the mutations that hung now fail in five seconds, each named by exactly the test that names it.
 
