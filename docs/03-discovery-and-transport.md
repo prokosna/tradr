@@ -122,6 +122,40 @@ Holding N secrets costs 3N `derive_key` calls per advertisement. N stays in the 
 
 `tradr-discovery` declares `BleAdvertiser` and `BleScanner` traits with those four implementations behind them.
 
+#### The two BLE traits belong to `tradr-discovery`, and Change Drill D4 is why
+
+Rule B3 puts a trait in Layer 1 and its implementation in Layer 3, so `tradr-core` is where a trait goes by default. **These two are the exception, and the drill decides it rather than taste.** D4 retreats BLE to scan-only and budgets "one discovery implementation plus a capability flag"; if `BleAdvertiser` were declared in `tradr-core`, dropping the peripheral role would delete a trait from `tradr-core`, which is the one thing D10 forbids outright. `tradr-core` also has no reason to name either: nothing above `BleSource` knows that BLE has two roles, and `DiscoverySource` is the trait Layer 1 does declare and does consume.
+
+**A trait declared beside its only consumer is not an inverted dependency.** `BleSource` is the adapter, `BleAdvertiser` and `BleScanner` are its own ports, and the four platform implementations are the drivers behind them. Nothing points outward at any step.
+
+#### What a scanner reports, and what `BleSource` does with it
+
+**A scanner reports the ten service-data bytes and a handle, never a raw 31-byte advertisement.** That is the same finding [ADR-0019](adr/0019-a-128-bit-service-uuid-for-the-ble-advertisement.md) recorded on the advertising side: no platform API deals in AD bytes, and `bluer`, `addServiceData` and `ScanRecord.getServiceData` all hand over the service data for one UUID. The eighteen bytes of AD structure around it are constants, so a scanner that reported them would be reporting what the parser already knows.
+
+**The handle is whatever the platform calls the peripheral, and it is the observation key and the `ble-gatt` candidate address at the same time.** `bluer` gives a Bluetooth address, `btleplug` on macOS gives an opaque per-host UUID, and Android gives `BluetoothDevice.getAddress()`; the design does not care which, because the only two things done with it are reconnecting to it and telling two observations apart. **Keying on the EID instead was the obvious alternative and it is wrong twice**: an EID rotates every 15 minutes, so a stationary device would become a new peer four times an hour, and an EID is not something `ble-gatt` can dial, so the observation would carry no candidate at all. Phase 1's `handle:0x0042` is this string.
+
+**An advertisement whose EID matches no secret the device holds produces no observation.** Matching is what the EID is for: a payload nobody can match is a stranger's, and putting it in the peer list would be listing devices this account has no relationship with. A payload that is malformed, or that carries a version byte the parser does not know, is skipped the same way a malformed mDNS record is, and the source keeps scanning.
+
+**A `PeerObservation` from BLE therefore carries no Device ID and no display name.** The advertisement has room for neither — 28 bytes, and the section above accounts for all of them — so both stay absent until a connection produces them, exactly as a Static Peer's `expect_device_id` does. The platform code is parsed and then dropped rather than stored, because `PeerObservation` has no field for it and a field nothing reads is worse than an absent one.
+
+#### The secret set is read per advertisement, not captured when scanning starts
+
+The secrets a scanner matches against are the ABKs and Link Secrets the device currently holds, and that set changes while scanning runs — a link is made, a link is removed. **DCR-074 settled the identical question for Trust Tier classification and the answer is the same here**: the set is read at the moment of the match, so removing a link stops that account's devices matching on the very next advertisement rather than at the next restart. A set captured when scanning started would keep recognising a removed peer for as long as the scan runs, and would pass a test that restarts the process.
+
+#### `Lost` is an age-out, and it is evaluated when a report arrives
+
+BLE has no counterpart to mDNS's `ServiceRemoved`: a peer that walks away simply stops advertising, so something has to decide when it is gone. **`BleSource` decides, on the monotonic clock, after 30 seconds without a report for that handle.** Thirty is several advertisement intervals, so a couple of lost packets do not drop a peer, and it is far below the 15-minute rotation, so an age-out can never be confused with an EID or an address that merely rotated.
+
+**The age-out is evaluated when a scan report arrives and at no other time, which leaves one gap and it is named rather than hidden.** Doing it on a timer would need an asynchronous sleep, and Layer 1's `Clock` reads time without being able to wait for it — adding a timer port is a larger decision than this one and would not change the answer while any Tradr device is in range, because every advertisement from any of them drives the check. What it does not cover is a radio that goes completely quiet: the last peer seen stays listed until something else is heard. That is a bounded staleness in a list the user is looking at, not a path anything dials, and it is recorded as a Deferred entry with the timer port as its exit.
+
+**This is where `Clock`'s two methods earn the split.** The EID window is wall-clock, because both devices must land in the same 15-minute bucket; the age-out is monotonic, because a wall clock that steps backwards mid-scan would otherwise revive an expired peer or expire a live one.
+
+#### A BLE error says why, and one variant is the retreat
+
+`DiscoveryError` has `Closed` and `Io`, which is all Layer 1 needs to know about any source. **BLE has failures that are neither, and the interface has to be able to say so**: the adapter is off or absent, the user refused the runtime permission, or the radio cannot do the peripheral role at all. So the two traits return a `BleError` of their own, and `BleSource` narrows it to a `DiscoveryError` at the `DiscoverySource` boundary rather than widening a Layer 1 type that four sources share.
+
+**`Unsupported` is the variant D4 reads.** A platform that cannot advertise reports it once, the device runs scan-only from then on, and the capability flag is what tells peers. That is the whole retreat, expressed as a value rather than as a build configuration.
+
 ### 3. Static Peer — overlay networks and fixed IPs, Tier 1
 
 A reachable address the user registered by hand.
