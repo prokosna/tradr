@@ -177,6 +177,12 @@ link_id     = BLAKE3(Link Secret)[0..16]
 
 **The expiry the pause reports is shown and does not refuse the reply.** The five minutes are the inviter's to enforce and the reader's to be advised of, as the expiry section above already says, and a reader whose clock runs fast finds every fresh invite expired. A device declining to send on its own reading would therefore refuse live invites with nothing on the screen naming which of the two clocks was wrong, while sending against a genuinely dead one costs a connection and a `LinkDecline`. **The cheaper failure is the one the person can see**, so the reading is displayed and the decision stays theirs.
 
+#### The approval has to arrive, and recording before sending is what makes that strict
+
+**Step 7 sends `LinkApprove` and the exchange is not over when the write returns.** The order this document fixes -- record, then approve -- exists so that an approval never asserts a link the inviter does not hold, and it has a consequence the sketch never drew: **the inviter is the only side holding the Link until its last frame is delivered.** A frame lost there is not a failed link, it is a half link, and the replier cannot repair it alone because the two half secrets are gone.
+
+**So the inviter does not release the connection until the replier has seen the stream end**, which [docs/04](04-protocol.md#what-ends-a-link-stream-and-why-when-serve-returns-was-wrong) states as a protocol rule. Recovering from the half state is the user's: the inviter removes the stale Link, which discards its Link Secret, and the pair links again from a fresh invite. DCR-081.
+
 ### What the three linking messages carry
 
 **The diagram above is a sketch of a payload and not a definition of one**, and two of its lines could not be implemented as drawn. DCR-068 settles the three messages; `proto/tradr/v1/link.proto` is where they live, and the same rule the Offer and the Hello follow applies here: **a field that decides something refuses the message; a field that only decorates it never does.**

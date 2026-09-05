@@ -115,6 +115,16 @@ Three things are outside it and none is skippable: `0x00`, a code belonging to a
 
 **Both bounds on that stream stay the channel's own `max_frame_size` for its whole life**, since `HelloAck` is what would have replaced them and never arrives. That is the same rule the Hello exchange already runs under, applied to a stream that never leaves it.
 
+#### What ends a link stream, and why "when `serve` returns" was wrong
+
+**The inviter's last act is a write, and a write is not a delivery.** `LinkApprove` is the final frame of the exchange and nothing answers it, so the side that sends it has no later read to tell it the frame arrived. **Dropping the channel at that point destroys the frame**: quinn's own documentation says a connection whose handles have all been dropped "will be automatically closed with an `error_code` of 0", and that "closing the connection immediately abandons efforts to deliver data to the peer. Upon receiving CONNECTION_CLOSE the peer *may* drop any stream data not yet delivered to the application." The replier, parked on its read, is handed a closed connection instead of the approval it was promised.
+
+**So the inviter finishes its send stream and waits for the replier to close before it lets the channel go.** Two steps, and the second is the load-bearing one: `finish()` says no more frames are coming, and the read that follows returns only once the peer has seen the stream end, which is the acknowledgement this exchange otherwise lacks. **The transfer path has always done exactly this** -- it finishes the Control stream and then reads one byte it never uses -- and the link path was written as though a stream with no reply needed neither.
+
+**The state this produced is worse than a failed exchange, which is why it is a protocol rule rather than an implementation detail.** [docs/11](11-account-linking.md#removing-a-link) has the inviter record the Link *before* it sends `LinkApprove`, so that an approval never asserts a link that does not exist. A lost `LinkApprove` therefore leaves the Link stored on the inviter and absent on the replier, and the replier can never recover it: the two half secrets are ephemeral, so re-linking is the only repair, and it needs the inviter's stale record removed first. **One undelivered frame costs both sides the exchange and leaves the inviter holding a secret nobody else has.**
+
+**The replier's side needs no new rule.** It reads `LinkApprove`, records, and closes; the close is what releases the inviter. DCR-081.
+
 **What the three messages carry is settled in [docs/11](11-account-linking.md#what-the-three-linking-messages-carry), and `proto/tradr/v1/link.proto` is where they live.** They are Control-plane codes that belong to no session, which is why they are not in `control.proto` beside the messages a session exchanges. DCR-068.
 
 ## Session flow
