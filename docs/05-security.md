@@ -233,7 +233,7 @@ and every value derived from account identity takes `account_id`, never the bare
 | Derived value | Definition |
 |---|---|
 | `account_tag` | `BLAKE3(account_id \|\| salt)`, the only identifier a Brokr receives |
-| Bootstrap EID secret | `HKDF(account_id, "tradr-bootstrap-v1")`, broadcast over BLE |
+| Bootstrap EID secret | `BLAKE3::derive_key("tradr-bootstrap-v1", account_id)`, broadcast over BLE ([ADR-0018](adr/0018-blake3-derive-key-for-eids.md)) |
 | A link record's peer identity | The peer's `(iss, sub)` pair |
 
 **These are persisted and visible on the wire, which is why the pair has to be settled before any of them exists.** Changing the input afterwards changes every device's `account_tag` and bootstrap broadcast at once, and devices on either side of the change stop finding each other until all of them have updated. There is no migration; the old value cannot be recomputed from a token minted under the new rule.
@@ -638,7 +638,7 @@ BLE and `relay` are raw byte streams where TLS does not fit — its handshake ov
 | Noise pattern | `Noise_IK_P256_ChaChaPoly_BLAKE2s` | via `snow`, `use-p256` |
 | QUIC encryption | TLS 1.3, `TLS_AES_128_GCM_SHA256` | via `rustls` |
 | Hashing for integrity and identifiers | BLAKE3 | |
-| KDF | HKDF-SHA256 | EID derivation and similar |
+| KDF | `BLAKE3::derive_key` | The Link Secret (DCR-066), EIDs and the bootstrap secret ([ADR-0018](adr/0018-blake3-derive-key-for-eids.md)). **This row read `HKDF-SHA256` and contradicted [docs/11](11-account-linking.md#deriving-the-link-secret), which had already listed the EIDs as BLAKE3.** No HKDF and no SHA-2 remains anywhere in this design |
 | ID token signature | RS256, pinned by the Provider Profile | The token's `alg` header is compared against the profile, never used to select. See [above](#the-token-never-chooses-how-it-is-verified) |
 | Randomness | The OS CSPRNG via `getrandom` | |
 
