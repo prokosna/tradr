@@ -9,7 +9,7 @@ Decisions and the reasoning behind them. To change a decision, write a new ADR a
 | [0003](0003-google-attestation-as-trust-root.md) | An OIDC-nonce Attestation is the root of trust | Accepted |
 | [0004](0004-quic-as-the-bulk-transport.md) | QUIC carries bulk transfer | Accepted |
 | [0005](0005-brokr-is-optional.md) | The Brokr is an optional component | Accepted |
-| [0006](0006-blake3-for-content-integrity.md) | BLAKE3 for content integrity | Superseded by [0016](0016-bao-verified-streaming-costs-6-percent.md) |
+| [0006](0006-blake3-for-content-integrity.md) | BLAKE3 for content integrity | Superseded by [0016](0016-bao-verified-streaming-costs-6-percent.md); its KDF line by [0018](0018-blake3-derive-key-for-eids.md) |
 | [0007](0007-receiver-driven-chunk-pull.md) | The receiver pulls chunks | Accepted |
 | [0008](0008-rust-for-the-native-layer.md) | Network, disk, and keys live in Rust | Accepted |
 | [0009](0009-supervised-implementation-loop.md) | A cheap model implements, an expensive one reviews | Accepted |
@@ -21,3 +21,4 @@ Decisions and the reasoning behind them. To change a decision, write a new ADR a
 | [0015](0015-tauri-2-is-retained-after-m0.md) | Tauri 2 is retained after M0's decision point | Accepted |
 | [0016](0016-bao-verified-streaming-costs-6-percent.md) | `bao` verified streaming costs 6%, not 0.03% | Accepted |
 | [0017](0017-nativevfs-for-windows.md) | NativeVfs for Windows | Accepted |
+| [0018](0018-blake3-derive-key-for-eids.md) | BLAKE3's `derive_key` for EIDs and the bootstrap secret | Accepted |

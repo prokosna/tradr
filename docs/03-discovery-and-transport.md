@@ -70,23 +70,31 @@ Service Data:
   \- reserved                                2 bytes
 ```
 
-**Deriving an EID**:
+**Deriving an EID** ([ADR-0018](adr/0018-blake3-derive-key-for-eids.md)):
 
 ```
-EID = HKDF-Expand(secret, "tradr-eid-v1" || floor(unix_time / 900), 8)
+window = unix_time.div_euclid(900)                        i64
+EID    = BLAKE3::derive_key(context = "tradr-eid-v1",
+             key_material = secret || window_be)[0..8]
 ```
 
-`secret` is one of the following. A device computes an EID from every secret it holds and **advertises them in rotation**. A scanner computes candidate EIDs from every secret it holds and matches against what it received.
+`window_be` is that window number as **8 bytes, big-endian**. `secret` is one of the following, 32 bytes in every case. A device computes an EID from every secret it holds and **advertises them in rotation**. A scanner computes candidate EIDs from every secret it holds and matches against what it received.
 
 | secret | Purpose |
 |---|---|
 | ABK (Account Broadcast Key) | Devices of the same account |
 | Link Secret | Devices of a linked account |
-| `HKDF(account_id, "tradr-bootstrap-v1")` | First discovery, before any ABK exists |
+| `BLAKE3::derive_key("tradr-bootstrap-v1", account_id)` | First discovery, before any ABK exists |
 
-Rotation period is 15 minutes. To absorb clock skew, scanners try the `t-1`, `t`, and `t+1` windows.
+**This read `HKDF-Expand` until [ADR-0018](adr/0018-blake3-derive-key-for-eids.md), and the primitive was the smaller half of what it left open.** It named no hash, which [docs/05](05-security.md#algorithms) and [docs/11](11-account-linking.md#deriving-the-link-secret) then answered differently; and it fed HKDF-**Expand**, which takes a pseudorandom key, a bootstrap secret derived from `account_id` -- a structured, low-entropy, public string, which is exactly what HKDF-Extract exists to condition. `derive_key` takes arbitrary key material, so **one construction now covers all three secrets** instead of two written as one.
 
-Holding N secrets costs 3N HKDF comparisons per advertisement. N stays in the low tens in practice and HKDF takes microseconds, so this does not matter.
+**The window goes into the key material rather than the context, and the order and width are what make that safe.** `derive_key`'s context must be a compile-time constant by its own specification, so it cannot carry a per-window value the way HKDF's `info` did. Appending a fixed-width window to a 32-byte secret makes every input exactly 40 bytes, so no `secret || window` pair can collide with another -- **unambiguous by construction rather than by luck**, which a decimal rendering would not be.
+
+**`div_euclid` and not `/`**, because Rust's `/` truncates toward zero while `floor` does not: `-1 / 900` is `0`, so a device whose clock is set before 1970 would otherwise share the epoch's own window with every other such device, and both sides would agree with each other while doing it.
+
+Rotation period is 15 minutes. To absorb clock skew, scanners try the `t-1`, `t`, and `t+1` windows. **Two windows away is refused**, and that is the direction that matters: a wider allowance goes on recognising a device by an identifier it has already rotated away from, which is the tracking window this design bounds at 15 minutes.
+
+Holding N secrets costs 3N `derive_key` calls per advertisement. N stays in the low tens in practice and BLAKE3 takes microseconds, so this does not matter.
 
 **Why no permanent identifier goes on the air**: anyone can receive BLE advertisements. Broadcasting a fixed value would let shop receivers and passing phones track a device's movements. An EID looks like a random string that changes every 15 minutes to anyone without the matching secret.
 

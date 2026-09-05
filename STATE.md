@@ -45,6 +45,16 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 **The single most useful thing to read next is the Review record.** It carries why each Work Item went the way it did, and most of its `REVISE` entries were caused by an error in the Supervisor's own Work Order rather than by the Implementer. That ratio is the main finding of M0 so far, and the `DISCARD` entry is the sharpest instance of it.
 
+### The EID's KDF is specified two ways and both are live, found 2026-09-05 by the reading that opens M7
+
+**M6 opened by reading docs/03 against `tradr-discovery` and found `linked_accounts` had been on the wire since M0. M7 opened the same way and found a contradiction instead.** [docs/05](docs/05-security.md#algorithms)'s Algorithms table said the KDF is `HKDF-SHA256` and named EID derivation as its use; [docs/11](docs/11-account-linking.md#deriving-the-link-secret) listed "the EIDs" among the values that are BLAKE3. Both documents are current and nothing said which was right. DCR-082 and [ADR-0018](docs/adr/0018-blake3-derive-key-for-eids.md) settle it as `BLAKE3::derive_key`, and the full account is in [RECORD.md](RECORD.md).
+
+**What makes it worth a section is that the false half was load-bearing three days ago.** DCR-066 chose BLAKE3 for the Link Secret on 2026-09-02 partly *because* the EIDs were already BLAKE3 -- so its stated reason appealed to a list containing one item its own document set contradicted. **The conclusion survives and the reasoning does not**, and that is the entry: it was an argument from a premise nobody had checked, in a file whose recurring lesson is to probe for the artifact instead of for a document's opinion of it.
+
+**The route the decision took out of the live set is the part that generalises.** [ADR-0006](docs/adr/0006-blake3-for-content-integrity.md)'s closing line named the EID a deliberate HKDF exception, and that ADR is **Superseded -- by [ADR-0016](docs/adr/0016-bao-verified-streaming-costs-6-percent.md), which is about `bao`'s per-chunk overhead and says nothing about a KDF at all.** So a decision was carried out of the document set as collateral of a supersession that was not about it, and only docs/05's one-row restatement kept it readable. **Nothing in this repository can notice that**: `ci/state-sync.sh` checks that a DCR reaches `docs/`, and no check reads a superseded ADR for claims its supersession did not replace.
+
+**Two further things were undecided and neither is cosmetic.** `EID = HKDF-Expand(...)` names Expand, which takes a pseudorandom key, and the table beneath it feeds Expand a bootstrap secret derived from `account_id` -- a structured, low-entropy, **public** string, which is precisely what HKDF-Extract exists to condition. And `bootstrap_secret = HKDF(account_id, "tradr-bootstrap-v1")` "named no hash, no salt and no output length", which are DCR-066's own words about the Link Secret line, applying unchanged to a second line one milestone later. **The same omission twice is a pattern**, and the exit taken was to settle every open sub-decision in the ADR rather than the primitive alone: where the window sits, its width and byte order, and `div_euclid` against `/`.
+
 ### Every link test ran where the bug could not exist, found 2026-09-05 by running M6's criterion
 
 **Two devices, two accounts, and the replier got `transport error: the channel or stream is already closed` the instant the inviter pressed Approve.** Not a test, not a review: the `WI-M6-008` run the milestone is judged on, on the first attempt. `WI-M6-011` and DCR-081 repair it and the full account is in [RECORD.md](RECORD.md).
@@ -253,7 +263,17 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 #### Work Items
 
-Not yet cut.
+**The opening reading is done and it produced DCR-082 rather than a Work Item, which is why the table starts at the EID.** `tradr-discovery` holds mDNS, the Static Peer registry and the TXT codec; `BleAdvertiser`, `BleScanner`, the 31-byte advertisement and the EID exist nowhere, and neither does the Account Broadcast Key. `crates/tradr-core/src/clock.rs` already names "the 15-minute EID windows" in two doc comments, so the core anticipated this and nothing implements it.
+
+| ID | Content | Status | Critical |
+|---|---|---|---|
+| WI-M7-001 | **EID derivation and window matching in `tradr-discovery`**, to ADR-0018: `BroadcastSecret`, `Eid`, `EidWindow`, the three-window match, and the bootstrap secret. **A Critical Module, so its tests are written first** -- an EID that does not change with the window is a permanent identifier on the air, and nothing downstream notices, because a scanner deriving the same constant matches it perfectly | in flight | **yes** |
+| WI-M7-002 | **The 31-byte advertisement payload**: service UUID, version, EID, platform and capability flags, reserved. Encode and parse, with the budget enforced rather than assumed | planned | |
+| WI-M7-003 | **`BleAdvertiser` and `BleScanner` declared, and the `BleSource` that drives them** into `DiscoveryEvent`s. The traits are Layer 1's; the four implementations are Layer 3's, which is what keeps Change Drill D4's retreat to scan-only affordable | planned | |
+| WI-M7-004 | **Linux advertising and scanning over `bluer`**, the first of four. Linux and Android are the pair M7's completion criterion names | planned | |
+| WI-M7-005 | **Android advertising and scanning in Kotlin**, `BluetoothLeAdvertiser` and `BluetoothLeScanner`, plus the runtime permissions | planned | |
+| WI-M7-006 | **Account Broadcast Key generation, exchange and rotation** ([docs/11](docs/11-account-linking.md#distributing-the-account-broadcast-key)). Never built, and M7 is the first thing that reads one. Carries the collision rule -- earlier creation time wins, then the smaller value | planned | |
+| WI-M7-007 | **`ble-gatt` as a transport**: Noise_IK over a GATT write characteristic, 512 bytes of `max_frame_size`, and the 512 KiB prefilter that drops it from the candidate list | planned | |
 
 **What M6 leaves open, carried into M7.** None of it blocks anything.
 
