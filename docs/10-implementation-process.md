@@ -306,6 +306,17 @@ People and models both forget, so the machine checks. These are required and blo
 | `hostile-paths` | The `tradr-vfs` adversarial path suite | M3 |
 | `transport-switch` | Forces path switches and confirms transfers resume | M1 |
 | **`frontend-gate`** | **`biome lint`, `tsc` and `biome format` over the TypeScript workspace** | **M6** |
+| **`discarded-result`** | **Refuses a value bound to `_` in a production source, mechanizing F6** | **M6** |
+
+### Rule F6's instrument is a text check, because the compiler's is unusable here
+
+**F6 forbids a swallowed error and went four milestones with nothing checking it**: twenty-two `let _ =` bindings stood in `crates/tauri-plugin-tradr/src/`, every one of them through a review that passed. Three decided behaviour -- a Browse stream whose refusal and success were indistinguishable at the call site, and four writes into the chunk-resumption state a Critical Module is judged on.
+
+**The compiler already has the lint and it cannot be turned on, which was measured rather than assumed.** `clippy::let_underscore_must_use` reports twenty-five sites under `crates/*/src`, and **eight of them are `#[tauri::command]`'s own expansion** -- the span points at a command function's return type, not at a line anybody wrote -- with a ninth on a deliberately named `_guard`. Silencing those needs an `#[allow]` on every command function in the crate, which is the attribute DF-22 exists to refuse. **And a lint reads only what it compiles**: `android.rs` is behind `#[cfg(target_os = "android")]`, so a host `clippy` run sees none of its three discarded `emit` calls while a `grep` sees all three. A type-aware instrument that is blind to a whole platform and noisy on a macro is worse here than a text one.
+
+**It scans production sources only** -- `crates/*/src` and `apps/*/src-tauri/src`. Test code holds twenty-five bindings of the "this value is deliberately unused" kind, and F6 is about an error that decides behaviour going unobserved where it runs.
+
+**It takes no allowlist**, because F6 admits no exceptions and the escape hatch is already the repair: a result genuinely not worth propagating is written `if let Err(e) = ... { eprintln!(...) }`, which is one line and names itself in a diff.
 
 ### The frontend gate is a check in `ci/`, not a job of its own
 

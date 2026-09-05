@@ -598,7 +598,9 @@ where
         })
         .collect();
 
-    let _ = control_send.finish().await;
+    if let Err(e) = control_send.finish().await {
+        eprintln!("browse directory: closing the control stream failed: {e}");
+    }
 
     Ok(DirListingDto {
         entries,
@@ -678,7 +680,9 @@ where
         .await
         .map_err(|e| format!("failed to send ReadFile frame: {e}"))?;
 
-    let _ = browse_send.finish().await;
+    if let Err(e) = browse_send.finish().await {
+        eprintln!("download file: closing the browse send stream failed: {e}");
+    }
 
     let resp_frame = read_frame(browse_recv.as_mut(), channel.max_frame_size())
         .await
@@ -717,7 +721,9 @@ where
         .flush()
         .map_err(|e| format!("failed to flush destination file: {e}"))?;
 
-    let _ = control_send.finish().await;
+    if let Err(e) = control_send.finish().await {
+        eprintln!("download file: closing the control stream failed: {e}");
+    }
 
     Ok(total_bytes_written)
 }
@@ -1040,7 +1046,9 @@ pub async fn send_files<R: tauri::Runtime>(
         verify_attestation,
         move |progress| {
             use tauri::Emitter;
-            let _ = app_handle.emit("transfer-progress", &progress);
+            if let Err(e) = app_handle.emit("transfer-progress", &progress) {
+                eprintln!("emit transfer-progress event failed: {e}");
+            }
         },
     )
     .await

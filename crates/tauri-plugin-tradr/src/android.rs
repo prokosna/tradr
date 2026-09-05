@@ -123,11 +123,17 @@ pub fn demonstrate_bidirectional_calls<R: Runtime, C: serde::de::DeserializeOwne
                 file.name, file.size, file.cache_path, file.fd
             );
         }
-        let _ = app_handle.emit("share-intent", &share);
-        let _ = app_handle.emit("shared-files", &share.files);
-        if share.action == ACTION_NOTIFICATION_ACCEPT || share.action == ACTION_NOTIFICATION_DECLINE
+        if let Err(e) = app_handle.emit("share-intent", &share) {
+            eprintln!("emit share-intent event failed: {e}");
+        }
+        if let Err(e) = app_handle.emit("shared-files", &share.files) {
+            eprintln!("emit shared-files event failed: {e}");
+        }
+        if (share.action == ACTION_NOTIFICATION_ACCEPT
+            || share.action == ACTION_NOTIFICATION_DECLINE)
+            && let Err(e) = app_handle.emit("notification-action", &share)
         {
-            let _ = app_handle.emit("notification-action", &share);
+            eprintln!("emit notification-action event failed: {e}");
         }
         Ok(())
     });
