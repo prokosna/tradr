@@ -59,16 +59,27 @@ Putting the Device ID in the TXT record exposes device identity to anyone on the
 
 Advertise on an interval while scanning at the same time. Both roles run.
 
-**Advertisement payload**, fitted into the 31-byte limit:
+**Advertisement payload** ([ADR-0019](adr/0019-a-128-bit-service-uuid-for-the-ble-advertisement.md)), counted as it goes on the air rather than as a field list:
 
 ```
-Service UUID, 16-bit, one allocated value    2 bytes
-Service Data:
-  +- version                                 1 byte
-  +- EID (ephemeral identifier)              8 bytes
-  +- platform and capability flags           1 byte
-  \- reserved                                2 bytes
+Flags,  AD type 0x01                              3 bytes   written by the platform
+Service Data - 128-bit UUID, AD type 0x21        28 bytes   written by Tradr
+  +- length                                       1 byte
+  +- type, 0x21                                   1 byte
+  +- service UUID, little-endian                 16 bytes
+  \- service data                                10 bytes
+       +- version, 0x01                           1 byte
+       +- EID (ephemeral identifier)              8 bytes
+       \- platform and capability flags           1 byte
+                                                 --------
+                                                 31 bytes
 ```
+
+The service UUID is `00000001-6eed-40d6-85d3-3794eaa7b21c`, slot `0x0001` of the Tradr base UUID `0000xxxx-6eed-40d6-85d3-3794eaa7b21c`; `ble-gatt` takes slot `0x0002`. **It goes on the air least-significant byte first**, which the Core Specification requires of a 128-bit UUID in an AD structure and which is the reverse of how it is written here.
+
+The flags byte is a platform code in bits 7-4 -- `0` unknown, `1` linux, `2` win, `3` mac, `4` android, `5`-`15` unassigned -- and `Capabilities` bits 0-3 in bits 3-0, in their own positions. Those four are the transports; the rest of the bitmask arrives in `Hello`, where the peer has been authenticated. A version byte the parser does not know means the advertisement is ignored.
+
+**This read `Service UUID, 16-bit, one allocated value` and had two reserved bytes until [ADR-0019](adr/0019-a-128-bit-service-uuid-for-the-ble-advertisement.md), and the arithmetic had never been done.** There is no allocated 16-bit value and there will not be one -- the registry belongs to the Bluetooth SIG and Tradr is not a member -- and the block counted a field list summing to 14 rather than an encoding, which with a 128-bit UUID costs 28 of the 31. **Tradr's budget is 28 bytes and the encoding is exactly 28**, so the reserved bytes are gone; the room is the version byte, the eleven unassigned platform codes, and the scan response's second 31 bytes, which this design does not use.
 
 **Deriving an EID** ([ADR-0018](adr/0018-blake3-derive-key-for-eids.md)):
 

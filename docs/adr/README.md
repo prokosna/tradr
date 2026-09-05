@@ -22,3 +22,4 @@ Decisions and the reasoning behind them. To change a decision, write a new ADR a
 | [0016](0016-bao-verified-streaming-costs-6-percent.md) | `bao` verified streaming costs 6%, not 0.03% | Accepted |
 | [0017](0017-nativevfs-for-windows.md) | NativeVfs for Windows | Accepted |
 | [0018](0018-blake3-derive-key-for-eids.md) | BLAKE3's `derive_key` for EIDs and the bootstrap secret | Accepted |
+| [0019](0019-a-128-bit-service-uuid-for-the-ble-advertisement.md) | A 128-bit service UUID for the BLE advertisement, and what the 31 bytes hold | Accepted |
