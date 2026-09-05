@@ -5,8 +5,8 @@ use std::fmt;
 
 use tradr_core::{
     ChunkDataHeader, ChunkIndex, ChunkRequest, ContentHash, ContentVerifier, ItemComplete, ItemId,
-    ItemResumption, REFERENCE_CHUNK_SIZE_BYTES, RecvStream, RelPath, RootId, SendStream,
-    TransferId, TransportError, Vfs, VfsError,
+    ItemResumption, REFERENCE_CHUNK_SIZE_BYTES, RecvStream, RelPath, ResumptionError, RootId,
+    SendStream, TransferId, TransportError, Vfs, VfsError,
 };
 use tradr_integrity::{outboard, slice};
 use tradr_proto::data::{
@@ -400,19 +400,24 @@ async fn receive_file_inner(
         .stat(session.root, session.partial_file_rel)
         .await
     {
-        let full_chunks = (meta.size_bytes / REFERENCE_CHUNK_SIZE_BYTES).min(total_chunks);
-        for idx in 0..full_chunks {
-            if let Ok(chunk_sz) = resumption.chunk_size(ChunkIndex::new(idx)) {
-                let _ = resumption.record_piece(ChunkIndex::new(idx), 0, chunk_sz);
-                let _ = resumption.mark_verified(ChunkIndex::new(idx));
+        let derive_res: Result<(), ResumptionError> = (|| {
+            let full_chunks = (meta.size_bytes / REFERENCE_CHUNK_SIZE_BYTES).min(total_chunks);
+            for idx in 0..full_chunks {
+                let chunk_sz = resumption.chunk_size(ChunkIndex::new(idx))?;
+                resumption.record_piece(ChunkIndex::new(idx), 0, chunk_sz)?;
+                resumption.mark_verified(ChunkIndex::new(idx))?;
             }
-        }
-        if full_chunks < total_chunks && meta.size_bytes >= session.total_bytes {
-            let last_idx = total_chunks.saturating_sub(1);
-            if let Ok(chunk_sz) = resumption.chunk_size(ChunkIndex::new(last_idx)) {
-                let _ = resumption.record_piece(ChunkIndex::new(last_idx), 0, chunk_sz);
-                let _ = resumption.mark_verified(ChunkIndex::new(last_idx));
+            if full_chunks < total_chunks && meta.size_bytes >= session.total_bytes {
+                let last_idx = total_chunks.saturating_sub(1);
+                let chunk_sz = resumption.chunk_size(ChunkIndex::new(last_idx))?;
+                resumption.record_piece(ChunkIndex::new(last_idx), 0, chunk_sz)?;
+                resumption.mark_verified(ChunkIndex::new(last_idx))?;
             }
+            Ok(())
+        })();
+        if let Err(e) = derive_res {
+            eprintln!("transfer: deriving resumption state failed: {e}");
+            resumption = ItemResumption::new(session.item_id, session.total_bytes);
         }
     }
 

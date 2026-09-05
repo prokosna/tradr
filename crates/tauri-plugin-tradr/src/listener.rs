@@ -9,9 +9,9 @@ use std::sync::Arc;
 use tradr_core::{
     BoxFuture, Capabilities, ChunkIndex, Clock, ContentVerifier, DeviceId, DomainTag, Incoming,
     ItemAcceptance, ItemAcceptanceError, ItemResumption, KeyBinding, KeyStore, LinkReply,
-    OfferItem, PublicIdentity, REFERENCE_CHUNK_SIZE_BYTES, RecvStream, RelPath, Rng, RootId,
-    SecureChannel, SendStream, TransferAccept, TransferAcceptError, TransferId, TransferOffer,
-    TransportError, TrustTier, UnixTime, VersionRange, Vfs, VfsError,
+    OfferItem, PublicIdentity, REFERENCE_CHUNK_SIZE_BYTES, RecvStream, RelPath, ResumptionError,
+    Rng, RootId, SecureChannel, SendStream, TransferAccept, TransferAcceptError, TransferId,
+    TransferOffer, TransportError, TrustTier, UnixTime, VersionRange, Vfs, VfsError,
 };
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
@@ -269,19 +269,24 @@ pub async fn derive_item_resumption(
 
     match vfs.stat(root, &partial_path).await {
         Ok(meta) => {
-            let full_chunks = (meta.size_bytes / REFERENCE_CHUNK_SIZE_BYTES).min(total_chunks);
-            for idx in 0..full_chunks {
-                if let Ok(chunk_sz) = resumption.chunk_size(ChunkIndex::new(idx)) {
-                    let _ = resumption.record_piece(ChunkIndex::new(idx), 0, chunk_sz);
-                    let _ = resumption.mark_verified(ChunkIndex::new(idx));
+            let derive_res: Result<(), ResumptionError> = (|| {
+                let full_chunks = (meta.size_bytes / REFERENCE_CHUNK_SIZE_BYTES).min(total_chunks);
+                for idx in 0..full_chunks {
+                    let chunk_sz = resumption.chunk_size(ChunkIndex::new(idx))?;
+                    resumption.record_piece(ChunkIndex::new(idx), 0, chunk_sz)?;
+                    resumption.mark_verified(ChunkIndex::new(idx))?;
                 }
-            }
-            if full_chunks < total_chunks && meta.size_bytes >= item.size() {
-                let last_idx = total_chunks.saturating_sub(1);
-                if let Ok(chunk_sz) = resumption.chunk_size(ChunkIndex::new(last_idx)) {
-                    let _ = resumption.record_piece(ChunkIndex::new(last_idx), 0, chunk_sz);
-                    let _ = resumption.mark_verified(ChunkIndex::new(last_idx));
+                if full_chunks < total_chunks && meta.size_bytes >= item.size() {
+                    let last_idx = total_chunks.saturating_sub(1);
+                    let chunk_sz = resumption.chunk_size(ChunkIndex::new(last_idx))?;
+                    resumption.record_piece(ChunkIndex::new(last_idx), 0, chunk_sz)?;
+                    resumption.mark_verified(ChunkIndex::new(last_idx))?;
                 }
+                Ok(())
+            })();
+            if let Err(e) = derive_res {
+                eprintln!("listener: deriving resumption state failed: {e}");
+                resumption = ItemResumption::new(*item.item_id(), item.size());
             }
             Ok(resumption)
         }
@@ -435,17 +440,21 @@ where
                         placed_paths.push(placed);
                     }
 
-                    let _ = control_send.finish().await;
+                    if let Err(e) = control_send.finish().await {
+                        eprintln!("listener: closing the control stream failed: {e}");
+                    }
 
                     let mut dummy = [0u8; 1];
-                    let _ = control_recv.read(&mut dummy).await;
+                    if let Err(e) = control_recv.read(&mut dummy).await {
+                        eprintln!("listener: waiting for control stream close failed: {e}");
+                    }
 
                     Ok(placed_paths)
                 }
                 stream_res = channel.accept_bi() => {
                     if let Ok((mut browse_send, mut browse_recv)) = stream_res {
                         let codec = tradr_proto::browse::ProtoBrowseCodec::new(channel.max_frame_size());
-                        let _ = tradr_core::handle_browse_stream(
+                        if let Err(e) = tradr_core::handle_browse_stream(
                             browse_recv.as_mut(),
                             browse_send.as_mut(),
                             &codec,
@@ -453,7 +462,10 @@ where
                             params.root,
                             channel.max_frame_size(),
                         )
-                        .await;
+                        .await
+                        {
+                            eprintln!("listener: handle browse stream failed: {e}");
+                        }
                     }
                     Ok(Vec::new())
                 }

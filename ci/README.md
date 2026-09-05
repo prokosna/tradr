@@ -2,6 +2,9 @@
 
 This directory contains the custom checks that enforce Tradr's rules.
 
+## discarded-result.sh
+Mechanizes rule F6 (CLAUDE.md section 4-E): refuses any production Rust source binding a value to nothing via `let _ =`, `let _: T =`, statement-position `_ =`, or statement-position `.ok();`. Scans every `*.rs` under `crates/*/src/` and `apps/*/src-tauri/src/`, excluding `target/`, `tests/`, and `build.rs`. Takes no allowlist and has no suppression mechanism: an error genuinely not worth propagating must be reported with `if let Err(e) = ... { eprintln!(...) }` naming its context, making the decision explicit and visible in diffs.
+
 ## frontend-gate.sh
 Runs `pnpm lint`, `pnpm typecheck` and `pnpm format:check`, all three regardless of an earlier failure, so one failure never hides another. Lives in `ci/` rather than as its own CI job so that `.githooks/pre-commit` runs it, through `ci/run-all.sh`, on every commit rather than only on a pull request -- before this script existed, a `.tsx` file that failed to typecheck or that `biome format` refused could be committed with every stage the hook ran reporting green. Checks that `pnpm` is on `PATH` and that `node_modules` exists at the repository root before running any of the three, and fails rather than skips when either is missing. Takes no allowlist: `biome lint`, `tsc` and `biome format` each carry their own suppression mechanism.
 
