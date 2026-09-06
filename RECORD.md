@@ -415,6 +415,44 @@ Moved out of `STATE.md`'s current-milestone block on 2026-09-04, when that file 
 
 ## M7 findings whose Work Items have landed, moved from STATE.md on 2026-09-06
 
+### The hardware run was cut with nothing to observe, found 2026-09-06 answering how to perform it
+
+**`WI-M7-005b` asked the user to verify a radio that no code on the device ever turns on.** `WI-M7-005`'s Definition of Done said "do not wire either type into `init` or `lifecycle`" -- correctly, because wiring is `WI-M7-006`'s and `WI-M7-007`'s work -- and I then cut a hardware run against the build that instruction produces. `grep` finds exactly one reference to `ble_android` outside its own file and its tests: the `pub mod` line. **Nothing constructs `AndroidBleAdvertiser` or `AndroidBleScanner`, so installing the APK and looking would have measured nothing at all**, and it would have looked like a failure of the implementation rather than an absence of a caller.
+
+**It is the same error as the Work Order's missing test, one layer out.** There, the tests stood where the bug could not exist; here, the run stands where the code does not execute. Both are mine, and both were caught by asking what the check would actually observe rather than whether it was written down. **The repair is `WI-M7-005b` re-cut as a probe and `WI-M7-005c` as the run**, on `WI-M0-005`'s precedent -- a setup-hook probe printing to logcat what cannot be produced without the radio having answered.
+
+### M7's discovery path ran on two real radios, and it produced two findings the tests could not, 2026-09-06
+
+**Android advertised, this machine's `BluerScanner` received it, and the EID matched: 44 reports in 90 seconds.** `WI-M7-004`'s Linux scanner is the instrument rather than a generic BLE tool, so what was demonstrated is the product's own path -- `01 07b7034882877d8b 44` parsed as version 1, platform 4, `Capabilities::BLE_GATT`, and the EID re-derived here from the published seed agrees with the phone's. **Two independent devices computing the same eight bytes is what makes this more than a hex dump.**
+
+**Finding one: the handle is not stable, and it is DCR-084's stated reason that the measurement contradicts.** The identical payload arrived under **two different addresses** in one 90-second window -- `44:8C:FE:E9:F2:A4` for seven reports, then `6F:AE:BF:92:2A:78` for thirty-seven, a clean handover with no interleaving. Both are Resolvable Private Addresses, which their top two bits say. docs/03 rejected keying an observation on the EID because "an EID rotates every 15 minutes, so a stationary device would become a new peer four times an hour" -- **but the handle rotated faster than the EID did here, and the conclusion the argument reached is therefore true for a reason that is not true.** One stationary phone, one EID, two observation keys, and `BleSource` would list it twice. **This needs a DCR before `WI-M7-007` dials anything**, because a `ble-gatt` candidate carrying a rotating address is a candidate that goes stale, and the obvious repair -- merging observations whose EID matched the same secret -- is a change to what `BleSource` keys on.
+
+**Finding two: the three-window rule earned itself on hardware, by accident.** Twelve of the 44 reports failed a single-window comparison, because the 15-minute boundary was crossed mid-observation: the phone kept advertising the window it started in while the scanner had moved on. `BroadcastSecret::matches` matches it at **offset -1**, which is exactly the tolerance docs/03 specifies and the reason it exists. **A test could have asserted this and one did; what a test could not do is produce the boundary crossing by itself in ninety seconds of ordinary use.**
+
+**What is still unmeasured is the Android scanner**, and the kit cannot close it: nothing the user owns can transmit Service Data. A Mac cannot -- CoreBluetooth advertises a local name and a Service UUID list and nothing else -- and LightBlue's virtual peripheral advertises a UUID rather than Service Data, which neither of Tradr's two filters accepts. `WI-M7-005d` closes the half that contains this repository's own code; the rest waits for a second Tradr device.
+
+### CoreBluetooth may be unable to advertise Service Data at all, which would make macOS scan-only by construction
+
+**Apple documents `CBPeripheralManager.startAdvertising` as supporting two keys only** -- a local name and a Service UUID list -- and every other key is ignored. **ADR-0019 puts the EID in Service Data**, and docs/03's table says macOS advertises through `objc2` and `CBPeripheralManager`. If the restriction holds on macOS as it does on iOS, **the macOS implementation cannot advertise a Tradr advertisement at all**, Change Drill D4's retreat to scan-only becomes macOS's permanent state rather than a fallback, and `BleError::Unsupported` is what its advertiser returns forever.
+
+**This is a hypothesis from documentation and it must be measured before the macOS Work Item is cut**, which is the same discipline DCR-085 arrived at by reading BlueZ's `eir.c` after the D-Bus documentation misled it. It also decides the near-term question of what can transmit for `WI-M7-005c`: if it holds, **a Mac can only receive**, and the phone's scanner needs an Android device or a BLE dongle to hear.
+
+### A debug build is not `com.tradr.app`, and every `adb` instruction that says so fails, found 2026-09-06 by the user running one
+
+**`apps/tradr/src-tauri/gen/android/app/build.gradle.kts` sets `applicationIdSuffix = ".debug"` on the debug build type**, so the debug APK installs as **`com.tradr.app.debug`**. `adb shell pm grant com.tradr.app ...` answers `Failure [package not found]`, which reads as "the app is not installed" rather than "you named the wrong package" -- and the app is installed. **`WI-M0-005b`'s record is what made this easy to get wrong**: it quotes `pm query-activities` resolving `com.tradr.app.MainActivity`, which is the release identifier, and nothing anywhere pairs the identifier with the build type.
+
+**Every `adb` command in a Work Order or a run instruction takes `com.tradr.app.debug`**, because a debug APK is the only kind anything here installs on a phone.
+
+
+### The first Tradr advertisement that has ever gone out, and half the run is still unmeasured, 2026-09-06
+
+**`advertise: ok` on a real phone is the sharpest line M7 has produced.** `onStartSuccess` fired, which means the permission was held, the adapter answered, and the stack accepted ten bytes of Service Data without `ADVERTISE_FAILED_DATA_TOO_LARGE` -- **and `WI-M7-004`'s `BluerAdvertiser` has never once succeeded**, because this machine's controller refuses every advertisement at the MGMT layer (DF-45). Android is the first device in this project to advertise at all.
+
+**The printed payload was verified here rather than trusted.** `01610b5fbb3363acf244`: the EID `610b5fbb3363acf2` re-derives byte for byte from `BroadcastSecret::bootstrap(b"tradr-m7-probe")` at window `1987438`, the version byte is `ADVERTISEMENT_VERSION`, and the flags byte is `0x44` -- platform `4` for Android over `Capabilities::BLE_GATT`. **Two independent computations of the same eight bytes agree**, so the phone is running the encoder this repository holds and not something that merely looks like it.
+
+**`reports=0` is what the design predicts and not a defect.** A radio does not hear its own advertisements, and the `ScanFilter` matches only Tradr's UUID, so with no second Tradr device and nothing else advertising that UUID, zero is the correct answer -- **a non-zero count would have been the surprise.** What the run therefore did not measure: whether the bytes reached the air (`onStartSuccess` is the stack accepting them, not a capture), whether the scanner can receive anything at all, and the `neverForLocation` question. **That gap is my instructions': the command block read as launch-and-done while the sentence naming the second instrument was elsewhere.**
+
+
 ### A broken implementation hung the suite instead of failing it, found 2026-09-06 by mutating `WI-M7-003`
 
 **The mutation pass stalled, and the stall was the defect.** Nine tests, every behaviour covered, every gate green -- and four of sixteen mutations made `cargo test` await forever rather than report. Dropping `capabilities`, pinning the wall clock the EID is matched against, and snapshotting the secret set each parked the run; `EXIT=137` under a 90-second kill, with the test that hangs still printing its own name and never finishing. **Every async test ended in `source.next_event().await` with no bound**, so an implementation that stops producing an event parks the test rather than failing it.
