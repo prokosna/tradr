@@ -50,6 +50,17 @@ fn block(path: &std::path::Path) {
     std::fs::write(dir, b"not a directory").expect("the blocker is writable");
 }
 
+// A path that exists and is not a record: a directory standing where the
+// file goes. Windows reports a path under a regular file as `NotFound`,
+// which is the one answer these tests must not accept, so the
+// unreadable thing has to be the record's own path rather than its
+// parent.
+fn unreadable_path() -> PathBuf {
+    let path = scratch_path();
+    std::fs::create_dir_all(&path).expect("the scratch path is writable");
+    path
+}
+
 fn account(sub: &str) -> AccountId {
     AccountId::new("https://accounts.google.com", sub)
 }
@@ -830,8 +841,7 @@ fn the_record_carries_the_three_fields_docs_11_names_and_never_the_key_itself() 
 // would give if it had never had one.
 #[test]
 fn a_path_that_cannot_be_read_at_all_is_an_error_and_never_an_empty_registry() {
-    let path = blocked_path();
-    block(&path);
+    let path = unreadable_path();
 
     let err = BroadcastKeyRegistry::load(&path, &account("alice"))
         .expect_err("an unreadable path is refused");
@@ -844,8 +854,7 @@ fn a_path_that_cannot_be_read_at_all_is_an_error_and_never_an_empty_registry() {
 
 #[test]
 fn a_record_that_cannot_be_removed_fails_the_clear_rather_than_passing_it() {
-    let path = blocked_path();
-    block(&path);
+    let path = unreadable_path();
     let vault = Vault::default();
 
     let err = BroadcastKeyRegistry::clear(&path, &vault)
