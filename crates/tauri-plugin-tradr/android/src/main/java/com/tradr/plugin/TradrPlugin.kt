@@ -91,6 +91,7 @@ class StartBleAdvertisingArgs {
 @InvokeArg
 class StartBleScanArgs {
     var channel: Channel? = null
+    var selftest: Boolean = false
 }
 
 // WI-M0-005 proves both ADR-0001 call directions with Rust; WI-M0-005b adds
@@ -205,17 +206,17 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun startBleScan(invoke: Invoke) {
-        val channel = try {
-            val args = invoke.parseArgs(StartBleScanArgs::class.java)
-            args.channel
+        val args = try {
+            invoke.parseArgs(StartBleScanArgs::class.java)
         } catch (_: Exception) {
             null
         }
+        val channel = args?.channel
         if (channel == null) {
             invoke.reject("channel argument is required")
             return
         }
-        bleRadio.startScan(channel, invoke)
+        bleRadio.startScan(channel, invoke, args.selftest)
     }
 
     @Command

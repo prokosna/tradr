@@ -28,6 +28,19 @@ class BleRadio(private val context: Context) {
 
     companion object {
         const val SERVICE_DATA_LEN: Int = 10
+        const val SELF_TEST_HANDLE: String = "self-test"
+        val SELF_TEST_SERVICE_DATA: ByteArray = byteArrayOf(
+            0x01,
+            'S'.code.toByte(),
+            'E'.code.toByte(),
+            'L'.code.toByte(),
+            'F'.code.toByte(),
+            'T'.code.toByte(),
+            'E'.code.toByte(),
+            'S'.code.toByte(),
+            'T'.code.toByte(),
+            0x00,
+        )
         val TRADR_SERVICE_UUID: UUID = UUID.fromString("00000001-6eed-40d6-85d3-3794eaa7b21c")
         val TRADR_PARCEL_UUID: ParcelUuid = ParcelUuid(TRADR_SERVICE_UUID)
     }
@@ -42,6 +55,15 @@ class BleRadio(private val context: Context) {
             obj.put("code", code)
         }
         return obj
+    }
+
+    private fun makeReportPush(handle: String, serviceData: ByteArray): JSObject {
+        val encoded = Base64.encodeToString(serviceData, Base64.NO_WRAP)
+        val push = JSObject()
+        push.put("push", "report")
+        push.put("handle", handle)
+        push.put("serviceData", encoded)
+        return push
     }
 
     private fun checkAdvertisingPreconditions(adapter: BluetoothAdapter?): JSObject? {
@@ -194,7 +216,7 @@ class BleRadio(private val context: Context) {
     }
 
     @Synchronized
-    fun startScan(channel: Channel, invoke: Invoke) {
+    fun startScan(channel: Channel, invoke: Invoke, selftest: Boolean = false) {
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         val adapter = bluetoothManager?.adapter
 
@@ -238,12 +260,7 @@ class BleRadio(private val context: Context) {
                 val bytes = scanRecord.getServiceData(TRADR_PARCEL_UUID) ?: return
                 val device = result.device ?: return
                 val address = device.address ?: return
-                val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                val push = JSObject()
-                push.put("push", "report")
-                push.put("handle", address)
-                push.put("serviceData", encoded)
-                channel.send(push)
+                channel.send(makeReportPush(address, bytes))
             }
 
             override fun onScanFailed(errorCode: Int) {
@@ -256,15 +273,21 @@ class BleRadio(private val context: Context) {
 
         currentScanCallback = callback
 
+        var started = false
         try {
             scanner.startScan(listOf(filter), settings, callback)
             invoke.resolve(makeOutcome("ok"))
+            started = true
         } catch (_: SecurityException) {
             currentScanCallback = null
             invoke.resolve(makeOutcome("permissionDenied"))
         } catch (_: Exception) {
             currentScanCallback = null
             invoke.resolve(makeOutcome("adapterUnavailable"))
+        }
+
+        if (started && selftest) {
+            channel.send(makeReportPush(SELF_TEST_HANDLE, SELF_TEST_SERVICE_DATA))
         }
     }
 
