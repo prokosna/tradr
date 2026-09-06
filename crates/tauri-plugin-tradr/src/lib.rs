@@ -16,6 +16,8 @@ use tauri::{
 mod android;
 mod attestation;
 pub mod ble_android;
+#[cfg(target_os = "android")]
+mod ble_probe;
 pub mod commands;
 pub mod desktop;
 pub mod handshake;
@@ -103,6 +105,7 @@ pub fn init<R: Runtime>(
             #[cfg(target_os = "android")]
             {
                 let handle = android::demonstrate_bidirectional_calls(_api)?;
+                ble_probe::spawn_ble_probe(handle.clone());
                 app.manage(android::AndroidPluginHandle(handle));
             }
             Ok(())
