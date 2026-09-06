@@ -102,6 +102,13 @@ pub fn scan_push_entry(push: &ScanPush) -> Option<Result<ScanReport, BleError>> 
     }
 }
 
+/// Device handle reported for the Android BLE self-test push (docs/03, WI-M7-005d).
+pub const SELF_TEST_HANDLE: &str = "self-test";
+
+/// Expected service data bytes for the Android BLE self-test push (docs/03, WI-M7-005d).
+pub const SELF_TEST_SERVICE_DATA: [u8; SERVICE_DATA_LEN] =
+    [0x01, b'S', b'E', b'L', b'F', b'T', b'E', b'S', b'T', 0x00];
+
 /// Maximum capacity of the bounded queue before oldest items are evicted.
 pub const SCAN_QUEUE_CAPACITY: usize = 64;
 
@@ -172,6 +179,7 @@ struct StartAdvertisingArgs {
 #[serde(rename_all = "camelCase")]
 struct StartScanArgs {
     channel: Channel<serde_json::Value>,
+    selftest: bool,
 }
 
 /// Android advertiser forwarding to Kotlin via TradrPlugin (docs/03, DCR-086).
@@ -240,7 +248,7 @@ pub struct AndroidBleScanner<R: Runtime> {
 #[cfg(target_os = "android")]
 impl<R: Runtime> AndroidBleScanner<R> {
     /// Initializes scanner with a channel callback and starts the radio scan.
-    pub async fn new(handle: PluginHandle<R>) -> Result<Self, BleError> {
+    pub async fn new(handle: PluginHandle<R>, selftest: bool) -> Result<Self, BleError> {
         let queue = std::sync::Arc::new(ScanQueue::new());
         let queue_clone = std::sync::Arc::clone(&queue);
         let channel = Channel::new(move |body| {
@@ -253,7 +261,7 @@ impl<R: Runtime> AndroidBleScanner<R> {
         });
 
         let outcome: BleOutcome = handle
-            .run_mobile_plugin_async("startBleScan", StartScanArgs { channel })
+            .run_mobile_plugin_async("startBleScan", StartScanArgs { channel, selftest })
             .await
             .map_err(|_err| BleError::Io(std::io::ErrorKind::Other))?;
 

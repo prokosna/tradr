@@ -16,7 +16,9 @@ use tradr_discovery::{
 };
 use tradr_identity::SystemClock;
 
-use crate::ble_android::{AndroidBleAdvertiser, AndroidBleScanner};
+use crate::ble_android::{
+    AndroidBleAdvertiser, AndroidBleScanner, SELF_TEST_HANDLE, SELF_TEST_SERVICE_DATA,
+};
 
 const PROBE_ACCOUNT_ID: &[u8] = b"tradr-m7-probe";
 const PROBE_DURATION_SECS: u64 = 60;
@@ -65,7 +67,7 @@ async fn run_probe<R: Runtime>(handle: PluginHandle<R>) {
         }
     }
 
-    let mut scanner = match AndroidBleScanner::new(handle).await {
+    let mut scanner = match AndroidBleScanner::new(handle, true).await {
         Ok(scanner) => {
             println!("WI-M7-005b scan-start: ok");
             scanner
@@ -81,6 +83,7 @@ async fn run_probe<R: Runtime>(handle: PluginHandle<R>) {
 
     let mut reports_count: usize = 0;
     let mut distinct_handles = HashSet::new();
+    let mut selftest_received = false;
 
     let scan_duration = Duration::from_secs(PROBE_DURATION_SECS);
     let scan_loop = async {
@@ -90,6 +93,16 @@ async fn run_probe<R: Runtime>(handle: PluginHandle<R>) {
                     reports_count += 1;
                     distinct_handles.insert(report.handle().to_string());
                     let is_probe_payload = report.service_data() == service_data;
+                    if report.handle() == SELF_TEST_HANDLE
+                        && report.service_data() == SELF_TEST_SERVICE_DATA
+                    {
+                        selftest_received = true;
+                        println!(
+                            "WI-M7-005d selftest: handle={} service_data={}",
+                            report.handle(),
+                            to_hex(report.service_data()),
+                        );
+                    }
                     println!(
                         "WI-M7-005b report: handle={} service_data={} is_probe_payload={}",
                         report.handle(),
@@ -115,7 +128,7 @@ async fn run_probe<R: Runtime>(handle: PluginHandle<R>) {
     drop(scanner);
 
     println!(
-        "WI-M7-005b probe-end: reports={reports_count} distinct_handles={}",
+        "WI-M7-005b probe-end: reports={reports_count} distinct_handles={} selftest_received={selftest_received}",
         distinct_handles.len()
     );
 }

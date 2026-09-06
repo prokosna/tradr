@@ -7,10 +7,10 @@ use std::time::Duration;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use tauri_plugin_tradr::ble_android::{
-    BleOutcome, SCAN_QUEUE_CAPACITY, ScanPush, ScanQueue, advertise_error, outcome_error,
-    scan_error, scan_push_entry,
+    BleOutcome, SCAN_QUEUE_CAPACITY, SELF_TEST_HANDLE, SELF_TEST_SERVICE_DATA, ScanPush, ScanQueue,
+    advertise_error, outcome_error, scan_error, scan_push_entry,
 };
-use tradr_discovery::{BleError, ScanReport};
+use tradr_discovery::{BleError, SERVICE_DATA_LEN, ScanReport};
 
 #[test]
 fn advertise_error_isolates_unsupported_to_code_5() {
@@ -255,4 +255,21 @@ async fn scan_queue_awaiting_pop_completes_when_push_arrives() {
         .expect("popped result must be Ok");
 
     assert_eq!(result, rep);
+}
+
+#[test]
+fn selftest_push_literal_deserializes_and_yields_expected_report() {
+    let raw = r#"{"push":"report","handle":"self-test","serviceData":"AVNFTEZURVNUAA=="}"#;
+    let push: ScanPush = serde_json::from_str(raw).expect("must parse ScanPush");
+    let entry = scan_push_entry(&push).expect("expected Some for self-test report");
+    let report = entry.expect("expected Ok for self-test report");
+    assert_eq!(report.handle(), SELF_TEST_HANDLE);
+    assert_eq!(report.service_data(), &SELF_TEST_SERVICE_DATA);
+}
+
+#[test]
+fn selftest_service_data_matches_expected_ten_bytes() {
+    assert_eq!(SELF_TEST_SERVICE_DATA.len(), SERVICE_DATA_LEN);
+    let expected = [0x01, b'S', b'E', b'L', b'F', b'T', b'E', b'S', b'T', 0x00];
+    assert_eq!(SELF_TEST_SERVICE_DATA, expected);
 }
