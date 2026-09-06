@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import androidx.activity.result.ActivityResult
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -80,6 +81,16 @@ class ShowIncomingTransferNotificationArgs {
     var transferId: String? = null
     var senderName: String? = null
     var notificationId: Int? = null
+}
+
+@InvokeArg
+class StartBleAdvertisingArgs {
+    var serviceData: String? = null
+}
+
+@InvokeArg
+class StartBleScanArgs {
+    var channel: Channel? = null
 }
 
 // WI-M0-005 proves both ADR-0001 call directions with Rust; WI-M0-005b adds
@@ -160,6 +171,57 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
 
     // Holds the channel Rust opens once at startup so share intents can be forwarded.
     private var shareChannel: Channel? = null
+    private val bleRadio = BleRadio(activity)
+
+    @Command
+    fun startBleAdvertising(invoke: Invoke) {
+        val serviceData = try {
+            val args = invoke.parseArgs(StartBleAdvertisingArgs::class.java)
+            args.serviceData
+        } catch (_: Exception) {
+            null
+        }
+        if (serviceData == null) {
+            invoke.reject("serviceData argument is required")
+            return
+        }
+        val bytes = try {
+            Base64.decode(serviceData, Base64.NO_WRAP)
+        } catch (_: Exception) {
+            invoke.reject("serviceData is not valid base64")
+            return
+        }
+        if (bytes.size != BleRadio.SERVICE_DATA_LEN) {
+            invoke.reject("serviceData must decode to exactly ${BleRadio.SERVICE_DATA_LEN} bytes, got ${bytes.size}")
+            return
+        }
+        bleRadio.startAdvertising(bytes, invoke)
+    }
+
+    @Command
+    fun stopBleAdvertising(invoke: Invoke) {
+        bleRadio.stopAdvertising(invoke)
+    }
+
+    @Command
+    fun startBleScan(invoke: Invoke) {
+        val channel = try {
+            val args = invoke.parseArgs(StartBleScanArgs::class.java)
+            args.channel
+        } catch (_: Exception) {
+            null
+        }
+        if (channel == null) {
+            invoke.reject("channel argument is required")
+            return
+        }
+        bleRadio.startScan(channel, invoke)
+    }
+
+    @Command
+    fun stopBleScan(invoke: Invoke) {
+        bleRadio.stopScan(invoke)
+    }
 
     // Launches the platform document tree picker for selecting a directory share root.
     @Command

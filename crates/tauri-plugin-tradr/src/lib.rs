@@ -15,6 +15,7 @@ use tauri::{
 #[cfg(target_os = "android")]
 mod android;
 mod attestation;
+pub mod ble_android;
 pub mod commands;
 pub mod desktop;
 pub mod handshake;
