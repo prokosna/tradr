@@ -3,6 +3,8 @@
 
 mod advertisement;
 mod ble;
+#[cfg(target_os = "linux")]
+mod ble_linux;
 mod eid;
 mod mdns;
 mod static_peer;
@@ -17,6 +19,8 @@ pub use ble::{
     BLE_OBSERVATION_TTL_SECS, BLE_SOURCE_ID, BleAdvertiser, BleError, BleScanner, BleSource,
     BroadcastSecrets, ScanReport, ScanReportError,
 };
+#[cfg(target_os = "linux")]
+pub use ble_linux::{BluerAdvertiser, BluerScanner, ble_error, tradr_scan_report};
 pub use eid::{
     BROADCAST_SECRET_LEN, BroadcastSecret, EID_LEN, EID_WINDOW_SECS, Eid, EidError, EidWindow,
 };
