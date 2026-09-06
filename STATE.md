@@ -51,6 +51,12 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 **It is the same error as the Work Order's missing test, one layer out.** There, the tests stood where the bug could not exist; here, the run stands where the code does not execute. Both are mine, and both were caught by asking what the check would actually observe rather than whether it was written down. **The repair is `WI-M7-005b` re-cut as a probe and `WI-M7-005c` as the run**, on `WI-M0-005`'s precedent -- a setup-hook probe printing to logcat what cannot be produced without the radio having answered.
 
+### A debug build is not `com.tradr.app`, and every `adb` instruction that says so fails, found 2026-09-06 by the user running one
+
+**`apps/tradr/src-tauri/gen/android/app/build.gradle.kts` sets `applicationIdSuffix = ".debug"` on the debug build type**, so the debug APK installs as **`com.tradr.app.debug`**. `adb shell pm grant com.tradr.app ...` answers `Failure [package not found]`, which reads as "the app is not installed" rather than "you named the wrong package" -- and the app is installed. **`WI-M0-005b`'s record is what made this easy to get wrong**: it quotes `pm query-activities` resolving `com.tradr.app.MainActivity`, which is the release identifier, and nothing anywhere pairs the identifier with the build type.
+
+**Every `adb` command in a Work Order or a run instruction takes `com.tradr.app.debug`**, because a debug APK is the only kind anything here installs on a phone.
+
 ### `println!` reaches logcat, and it is `tao` rather than anything in this repository that decides so, found 2026-09-06 cutting `WI-M7-005b`
 
 **The probe's whole output depends on a fact no file here states.** Android discards an app's stdout by default, so a Rust `println!` reaching logcat is not something to assume -- and `WI-M0-005`'s record shows lines being read without saying how they got there. **`tao`'s `ndk_glue.rs` is the answer**: it `dup2`s stdout and stderr into a pipe and forwards each line through `__android_log_write` under the tag **`RustStdoutStderr`**. So `adb logcat -s RustStdoutStderr` is how every Rust line in this application is read, no logging crate is needed, and the fact is written down here because the next session will otherwise re-derive it or, worse, assume the opposite.
