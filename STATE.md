@@ -195,9 +195,13 @@ NDK_HOME=/home/prokosna/android-sdk/ndk/27.3.13750724
 
 `/home/prokosna/.local/bin/agy` v1.1.18 runs a non-interactive agent against Gemini 3.7 Flash, among other models (`agy models` lists them). Verified working on 2026-08-23: it reads and writes files and exits 0.
 
+**Dispatch it with `ci/dispatch-implementer.sh` and not by hand.**
+
 ```
-agy --model gemini-3.7-flash-high --add-dir /home/prokosna/dev/trader --print='<work order>'
+sh ci/dispatch-implementer.sh <work-order-file> [log-file]
 ```
+
+**The bare `agy` line that stood here for three weeks is gone, because it was the thing being copied and it was missing a flag.** It read `agy --model ... --add-dir ... --print='<work order>'`, and every dispatch made from it inherited a 5-minute cut-off that no Work Order carrying the gates can finish inside. The paragraphs below explain the three disciplines the script now performs; **they are recorded here as reasoning, not as things to remember**, which is the difference between this entry and the one it replaces.
 
 **The prompt must be attached to the flag with `=`.** Splitting them makes `--print` swallow `--model` as its prompt, and the CLI says so rather than failing quietly. Writing files needs no `--dangerously-skip-permissions`; print mode auto-approves.
 
@@ -205,13 +209,13 @@ agy --model gemini-3.7-flash-high --add-dir /home/prokosna/dev/trader --print='<
 
 **So `agy` can run every gate in its own Work Order, and `WI-M1-023`'s Work Order told it it could not.** **This is the failure this file records for `pkg-config` and for the `tauri-cli` cache, committed by the Supervisor against its own written warning**: the paragraph asserted a capability instead of probing for one, and the assertion outlived whatever made it true. Probe for the artifact, not for a document's opinion of it.
 
-**`agy --print-timeout` defaults to `5m0s`, and that is what every one of these timeouts was.** The paragraph below recorded the symptom three times across two Work Items -- `Error: timeout waiting for response`, mid-report, after a gate was launched -- and never named the control, which `agy --help` prints in one line. **`cargo test --workspace` alone takes minutes here and `sh ci/run-all.sh` takes more**, so a Work Order whose Definition of Done contains the gates cannot finish inside the default, and the first dispatch that did finish got there by luck of ordering. `--print-timeout 30m` is the flag. **This is the `pkg-config` failure and the `--dangerously-skip-permissions` failure a third time**: a document describing a behaviour instead of probing for the thing that decides it, and the description outliving whatever made it look inevitable.
+**`agy --print-timeout` defaults to `5m0s`, and that is what every one of these timeouts was.** The paragraph below recorded the symptom three times across two Work Items -- `Error: timeout waiting for response`, mid-report, after a gate was launched -- and never named the control, which `agy --help` prints in one line. **`cargo test --workspace` alone takes minutes here and `sh ci/run-all.sh` takes more**, so a Work Order whose Definition of Done contains the gates cannot finish inside the default, and the first dispatch that did finish got there by luck of ordering. `--print-timeout 30m` is the flag. **This is the `pkg-config` failure and the `--dangerously-skip-permissions` failure a third time**: a document describing a behaviour instead of probing for the thing that decides it, and the description outliving whatever made it look inevitable. **The first repair was a paragraph saying so, and a paragraph is what DF-30 already records as the thing that fails** -- so the flag now lives in `ci/dispatch-implementer.sh`, which is what the invocation block above hands out, and the cut-off is detected rather than described: the script greps its own log for `timeout waiting for response` and exits non-zero, because **`agy` reports that cut-off inside the log and still exits 0**, which is why three runs in one session looked like completions.
 
 **Two dispatches with the corrected flag were killed anyway and the round finished on `sonnet` through the in-session Implementer subagent**, which is the fallback the user named. What that cost is the datum, not the round: a REVISE whose whole content was mechanical -- bound nine tests, add two assertions -- and which therefore measures nothing about either model's judgement.
 
 **An `agy` run can end on its own timeout while waiting for a gate, and `WI-M7-002` is the first time it did.** The process exited 0 with `Error: timeout waiting for response` in the middle of its report, after `cargo test --workspace` and `sh ci/run-all.sh` had been launched -- so the file list arrived and the gate results never did. **The tree was complete and correct regardless**, and the Supervisor ran every gate itself during the review, which is where they are decided anyway. What it costs is the datum: a run cut off this way reports nothing about the gates, which is **the opposite of `WI-M1-023`'s failure and is the better half of the trade** -- silence, not a false claim about commands it had not run. Dispatch it in the background and read the log rather than waiting on the call.
 
-**It runs outside this session, so §3's "the Implementer never commits" is held up by the prompt alone.** A subagent's tool use is visible and subject to the session's permission mode; a plain subprocess is not. **Record `git rev-parse HEAD` before dispatching and compare after.** That detects a violation; it does not prevent one.
+**It runs outside this session, so §3's "the Implementer never commits" is held up by the prompt alone.** A subagent's tool use is visible and subject to the session's permission mode; a plain subprocess is not. **Record `git rev-parse HEAD` before dispatching and compare after.** That detects a violation; it does not prevent one. `ci/dispatch-implementer.sh` does the comparison, so the detection no longer depends on a Supervisor remembering to make it; both it and the cut-off detector were verified by being made to fire, not by being read.
 
 #### Toolchain present on the development machine
 

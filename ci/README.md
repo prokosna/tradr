@@ -2,6 +2,9 @@
 
 This directory contains the custom checks that enforce Tradr's rules.
 
+## dispatch-implementer.sh
+**Not a check.** `ci/run-all.sh` names its checks explicitly and does not run this. It is the only sanctioned way to dispatch a Work Order to the out-of-session `agy` Implementer, and it exists because three separate disciplines were recorded in `STATE.md` as things a Supervisor must remember, and one of them was forgotten three times in one session. It passes `--print-timeout` (default `30m`, `TRADR_PRINT_TIMEOUT` to override), whose own default of `5m0s` is shorter than `cargo test --workspace` plus `sh ci/run-all.sh` in this workspace, so a Work Order carrying the gates cannot finish inside it. It compares `git rev-parse HEAD` across the call and fails if it moved, since an `agy` run is a plain subprocess whose tool use nothing in the session can observe and CLAUDE.md section 3's "the Implementer never commits" is otherwise held up by the prompt alone. And it greps its own log for `timeout waiting for response` and exits non-zero, because **`agy` writes that cut-off into the log and still exits 0** -- which is what made three truncated runs look like completions. Both failure paths were verified by being made to fire rather than by being read.
+
 ## discarded-result.sh
 Mechanizes rule F6 (CLAUDE.md section 4-E): refuses any production Rust source binding a value to nothing via `let _ =`, `let _: T =`, statement-position `_ =`, or statement-position `.ok();`. Scans every `*.rs` under `crates/*/src/` and `apps/*/src-tauri/src/`, excluding `target/`, `tests/`, and `build.rs`. Takes no allowlist and has no suppression mechanism: an error genuinely not worth propagating must be reported with `if let Err(e) = ... { eprintln!(...) }` naming its context, making the decision explicit and visible in diffs.
 
