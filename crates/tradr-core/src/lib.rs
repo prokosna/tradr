@@ -6,6 +6,7 @@
 //! `PeerList`'s pure merge (docs/03). Depends on nothing beyond `std`
 //! (rule B1, invariant I4): traits declare operations Layer 3 implements.
 
+mod broadcast;
 mod browse;
 mod channel;
 mod chunk_index;
@@ -30,6 +31,10 @@ mod transport;
 mod trust_tier;
 mod vfs;
 
+pub use broadcast::{
+    ACCOUNT_BROADCAST_KEY_LEN, AccountBroadcastKey, BroadcastKeyError, CollisionOutcome,
+    resolve_collision,
+};
 pub use browse::{
     Ack, BrowseCodec, BrowseDomainError, BrowseMessage, Delete, DirListing, FsChange, FsChangeKind,
     FsEvent, ListDir, Mkdir, ReadFile, ReadFileBegin, Rename, Stat, StatResult, Watch, WriteFile,

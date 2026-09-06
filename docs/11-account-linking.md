@@ -325,3 +325,69 @@ The shared secret letting same-account devices recognize each other over BLE.
 **Rotation**: revoking a device regenerates the ABK, handed to remaining devices as they meet. The revoked device never receives the new one, so it disappears from BLE discovery.
 
 **Collision**: two devices may each independently generate an ABK, having each been "the first" somewhere. On meeting, the earlier creation time wins; on a tie, the smaller value. Every device applies the same rule, so it converges.
+
+### Where the ABK is held, and what the record carries
+
+**The five lines above are a sequence and not a definition of a store**, the same way "State after linking" was a sketch of a record before DCR-069, and DCR-089 settles it against what the code can actually write. The record is `account-broadcast-key.json` in the application data directory, beside `links.json` and `static-peers.json`, written whole through a temporary file renamed over the target.
+
+```jsonc
+{
+  "account_iss": "https://accounts.google.com",  // the account these bytes belong to
+  "account_sub": "9273...",                      // subject, unique only within that issuer
+  "created_at": 1756684800                       // seconds since the Unix epoch
+}
+```
+
+**The 32 bytes are in the OS key store and never in this file**, on the rung the Device Key and the Link Secrets are on and never on one chosen for it separately ([docs/05](05-security.md#one-rung-per-device-and-what-else-goes-on-it)), under the slot `account-broadcast-key`.
+
+**The slot name is a constant, and it is the record rather than the slot that binds the bytes to an account.** A device holds one Attestation for one `(iss, sub)`, so there is one ABK at a time and there is nothing to address a slot by. A slot named from an account digest would be a second copy of a binding the record already carries, and two copies of one fact are two things that can disagree — which is the argument `link_id` settles the other way, where the slot has many siblings and the record is the only thing that names it.
+
+**`created_at` is in the record because the collision rule compares it**, and a device that forgot when its own key was made could not apply the rule after a restart. It is an integer of seconds and not an ISO-8601 string, for the reason the Link record's own `created_at` is.
+
+#### The account binding, and the failure that has nothing to notice it
+
+**A record naming an account other than the one being asked about is refused, never silently answered and never silently replaced.** An ABK that outlived the account it was generated for is a permanent identifier on the air across exactly the change that was supposed to break it: the EIDs still rotate every 15 minutes, every match still succeeds, no handshake fails, and the device stays linkable to the account it has just left. Nothing downstream notices — which is the same shape that put EID derivation itself in [CLAUDE.md](../CLAUDE.md) section 6, and it is why this module joins it.
+
+**The repair is explicit rather than automatic.** `clear` discards both halves and leaves a device that reads as having no ABK, which is what a first run reads as. An account change that silently overwrote would be indistinguishable in every log from the state it was meant to correct.
+
+#### Generating and rotating, and the one thing nothing afterwards can see
+
+**Generation is `Rng` over 32 bytes and is nothing else.** In particular it is never `derive_key` over the account: that is the bootstrap secret, which the [docs/03](03-discovery-and-transport.md#2-ble--proximity-no-network-required-tier-0) note above calls not a secret at all, and an ABK derived from it would equal the thing the exchange exists to replace.
+
+**Rotation is generation again**: fresh bytes and a fresh `created_at`, replacing both halves at once. **A rotation whose bytes did not actually change fails nothing.** The EIDs go on rotating, the remaining devices go on matching, and the revoked device goes on matching too — so the promise [docs/05](05-security.md#that-is-also-the-revocation-mechanism)'s table makes, that the revoked one falls off BLE discovery, becomes false with no test, no gate and no handshake noticing.
+
+#### The order the two halves move in, and what a rollback restores
+
+**The secret moves first and the record second**, the rule "Removing a link" states and for the reason stated there: a record that names a state its slot does not hold is a repair someone has to find, and the ephemeral half is the one that cannot be recovered.
+
+**What differs from `add` is what a failed record write undoes.** `LinkRegistry::add` writes into a slot that held nothing and rolls back by discarding. A generation writes over a slot that may already hold a working ABK, **so its rollback restores the previous bytes rather than emptying the slot**: emptying it would turn a failed rotation into a lost ABK, and leave the device advertising a bootstrap EID while its record still claims a key. A generation over an empty slot rolls back by discarding, which is `add`'s case and the same code path with nothing to put back.
+
+**A rollback that itself fails is reported beside the failure that caused it, never instead of it** (rule F6), which is what `LinkRegistryError::SecretRollbackFailed` already does one module across.
+
+#### What a read distinguishes, and why three answers rather than two
+
+**No record is no ABK.** A first run, and the device advertises the bootstrap EID until it meets one of its own.
+
+**A record whose slot is empty is an error and not an absence.** The record asserts a key made at a stated time; a slot not holding it is the state a failed generation leaves behind. Read as "no ABK" it would put the device back on bootstrap advertising while a `created_at` it can no longer justify stays available to the collision rule. Two absences must not collapse into one answer, which is the distinction `link_secret` already draws and the distinction `load` draws between `Ok(None)` and `Err` one layer down.
+
+**A stored value that is not 32 bytes is malformed and never read as absent.** An empty slot says the key was discarded; a wrong-length one says the key store returned something nothing here ever wrote.
+
+#### The collision rule, and why a byte comparison is the right instrument here
+
+Each side sends its own key and its own `created_at`, and both apply one order over the pair: **the earlier `created_at` wins, and on a tie the smaller of the two 32-byte values under plain lexicographic comparison.** Both sides see both pairs, so neither negotiates and neither can be told a different answer than the other computes.
+
+**The rule is a total order and that is what makes it converge**, rather than merely agree pairwise. Three devices that each generated a key settle on the same one whichever pairs meet in whichever order, because every meeting keeps the minimum of the two and the minimum of a total order is reached from any sequence of pairs.
+
+**The tie-break compares secret material byte-wise, which is what `LinkSecret` refuses `PartialEq` for, and importing that refusal here would be the wrong instrument.** A constant-time comparison answers "equal or not" and this rule needs an ordering, which no constant-time primitive here produces. What that refusal protects is a secret an attacker does not hold and is probing by timing — and both operands here are already held by both sides: the comparison happens after Attestation verification has confirmed one `(iss, sub)`, inside a channel over which the peer's own key has just arrived whole. There is nothing left for the timing to leak.
+
+**So the ordering is one named function over two pairs and never a derived `PartialOrd`**, and it lives beside the type. The one comparison this design licenses is then a thing with a name, and every other place still has none to reach for.
+
+#### Where the type lives, and why it is not `BroadcastSecret`
+
+`tradr-discovery`'s `BroadcastSecret` is *what an EID is derived from*, and [docs/03](03-discovery-and-transport.md#2-ble--proximity-no-network-required-tier-0)'s table says it stands for three different things: an ABK, a Link Secret, and the bootstrap secret. **The ABK is one of the three and is a value of the account rung**, so it is `tradr-core`'s beside `LinkSecret`, and a composition root converts.
+
+**`tradr-identity` and `tradr-discovery` are siblings and neither may depend on the other** — the account rung and the radio rung meet only at the composition root, which is what [ADR-0001](adr/0001-tauri-2-as-app-shell.md)'s Change Drill D9 budget buys. A shared Layer 0 type is how both name the same 32 bytes without an edge between them.
+
+#### What the store lands without, and why that order
+
+**The exchange itself is not here.** Step 4 above — passing the ABK over the Noise channel — is a wire message and lands with the ones `Hello` already carries. The store and the rule go first because **the exchange calls the rule and the rule compares against a stored key**: an exchange landing first would have nothing to compare, nothing to persist, and no way to be wrong in a way a test could see. It is DCR-070's order for the same reason — the Link Secret's store landed before M7 became the first thing to read one.

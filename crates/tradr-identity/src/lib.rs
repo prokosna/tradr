@@ -2,6 +2,7 @@
 //! Attestation issue and verify, Noise, key storage.
 
 mod attestation;
+mod broadcast_key;
 mod google;
 pub mod hello;
 mod id_token;
@@ -18,6 +19,9 @@ mod verify;
 pub use attestation::{
     AccountId, AttestationError, AttestationPolicy, LinkPolicy, NonceBinding, ProviderProfile,
     VerifiedClaims, attestation_nonce, classify, classify_with_profile,
+};
+pub use broadcast_key::{
+    ACCOUNT_BROADCAST_KEY_SLOT, BroadcastKeyRegistry, BroadcastKeyRegistryError,
 };
 pub use google::{OAuthClient, Platform, ProviderError, google, oauth_client};
 pub use id_token::{Jwk, SignatureAlgorithm, TokenError, peek_issuer, verify_id_token};
