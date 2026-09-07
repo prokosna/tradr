@@ -32,7 +32,8 @@ mod trust_tier;
 mod vfs;
 
 pub use broadcast::{
-    ACCOUNT_BROADCAST_KEY_LEN, AccountBroadcastKey, BroadcastKeyError, CollisionOutcome,
+    ACCOUNT_BROADCAST_KEY_LEN, AccountBroadcastKey, BroadcastKeyError, BroadcastKeyOffer,
+    BroadcastKeyOfferError, CollisionOutcome, FIRST_KEY_GENERATION, next_generation,
     resolve_collision,
 };
 pub use browse::{

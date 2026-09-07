@@ -395,7 +395,7 @@ The shared secret letting same-account devices recognize each other over BLE.
 
 **The tie-break compares secret material byte-wise, which is what `LinkSecret` refuses `PartialEq` for, and importing that refusal here would be the wrong instrument.** A constant-time comparison answers "equal or not" and this rule needs an ordering, which no constant-time primitive here produces. What that refusal protects is a secret an attacker does not hold and is probing by timing — and both operands here are already held by both sides: the comparison happens after Attestation verification has confirmed one `(iss, sub)`, inside a channel over which the peer's own key has just arrived whole. There is nothing left for the timing to leak.
 
-**So the ordering is one named function over two pairs and never a derived `PartialOrd`**, and it lives beside the type. The one comparison this design licenses is then a thing with a name, and every other place still has none to reach for.
+**So the ordering is one named function over two offers and never a derived `PartialOrd`**, and it lives beside the type. The one comparison this design licenses is then a thing with a name, and every other place still has none to reach for.
 
 #### Where the type lives, and why it is not `BroadcastSecret`
 

@@ -1,8 +1,8 @@
 //! Supervisor-authored tests for the Account Broadcast Key registry,
 //! written before the implementation. A Critical Module (CLAUDE.md
-//! section 6): a rotation whose bytes did not change leaves a revoked
-//! device matching every EID the account broadcasts, and neither that
-//! nor a key read back for another account reaches any gate or log.
+//! section 6): a rotation whose bytes or generation did not change leaves
+//! a revoked device matching every EID the account broadcasts, and
+//! neither that nor a key read back for another account reaches a gate.
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use tradr_core::{
-    ACCOUNT_BROADCAST_KEY_LEN, AccountBroadcastKey, Rng, RngError, SecretStore, SecretStoreError,
-    StorageLevel, UnixTime,
+    ACCOUNT_BROADCAST_KEY_LEN, AccountBroadcastKey, BroadcastKeyOffer, FIRST_KEY_GENERATION, Rng,
+    RngError, SecretStore, SecretStoreError, StorageLevel, UnixTime,
 };
 use tradr_identity::{
     ACCOUNT_BROADCAST_KEY_SLOT, AccountId, BroadcastKeyRegistry, BroadcastKeyRegistryError,
@@ -221,6 +221,21 @@ fn load(path: &std::path::Path, sub: &str) -> BroadcastKeyRegistry {
     BroadcastKeyRegistry::load(path, &account(sub)).expect("this registry loads")
 }
 
+// A record this process did not write, so a loader's own refusals can be
+// exercised on shapes `generate` would never produce.
+fn write_record(path: &std::path::Path, json: &str) {
+    std::fs::write(path, json.as_bytes()).expect("the scratch path is writable");
+}
+
+// A peer's offer, which is what `adopt` takes: the key, the generation it
+// belongs to, and when it was made travel together so a caller cannot
+// pair one device's bytes with another's creation time.
+fn peer_offer(fill: u8, generation: u32, created_at: i64) -> BroadcastKeyOffer {
+    let key = AccountBroadcastKey::from_bytes(&[fill; ACCOUNT_BROADCAST_KEY_LEN])
+        .expect("32 bytes is a key");
+    BroadcastKeyOffer::new(key, generation, at(created_at)).expect("a well-formed offer")
+}
+
 // --- The slot, and a first run ---
 
 #[test]
@@ -238,7 +253,7 @@ fn a_missing_file_is_a_registry_holding_no_key_and_not_an_error() {
     assert_eq!(registry.created_at(), None);
     assert!(
         registry
-            .key(&vault)
+            .offer(&vault)
             .expect("an absent record reads clean")
             .is_none(),
         "a first run reported a key it never generated"
@@ -277,11 +292,11 @@ fn generate_returns_the_bytes_the_rng_produced_and_stores_exactly_those() {
     let rng = StreamRng::default();
     let mut registry = load(&path, "alice");
 
-    let key = registry
+    let generated = registry
         .generate(&rng, at(NOW), &vault)
         .expect("generation succeeds");
 
-    assert_eq!(key.as_bytes(), &stream(0));
+    assert_eq!(generated.key().as_bytes(), &stream(0));
     assert_eq!(
         vault.held(ACCOUNT_BROADCAST_KEY_SLOT).as_deref(),
         Some(stream(0).as_slice())
@@ -306,7 +321,7 @@ fn two_accounts_drawing_the_same_bytes_get_the_same_key() {
         .generate(&StreamRng::default(), at(NOW), &vault)
         .expect("bob generates");
 
-    assert_eq!(alice_key.as_bytes(), bob_key.as_bytes());
+    assert_eq!(alice_key.key().as_bytes(), bob_key.key().as_bytes());
 }
 
 #[test]
@@ -350,11 +365,12 @@ fn a_generated_key_survives_a_reload_with_its_creation_time() {
     assert_eq!(reopened.created_at(), Some(at(NOW)));
     assert_eq!(
         reopened
-            .key(&vault)
+            .offer(&vault)
             .expect("the slot reads")
             .expect("the slot holds the key")
+            .key()
             .as_bytes(),
-        generated.as_bytes()
+        generated.key().as_bytes()
     );
 }
 
@@ -397,11 +413,11 @@ fn a_second_generate_replaces_the_bytes_rather_than_returning_the_first_ones() {
         .expect("the second generation succeeds");
 
     assert_ne!(
-        first.as_bytes(),
-        second.as_bytes(),
+        first.key().as_bytes(),
+        second.key().as_bytes(),
         "the rotation handed back the key it was supposed to replace"
     );
-    assert_eq!(second.as_bytes(), &stream(1));
+    assert_eq!(second.key().as_bytes(), &stream(1));
     assert_eq!(
         vault.held(ACCOUNT_BROADCAST_KEY_SLOT).as_deref(),
         Some(stream(1).as_slice()),
@@ -430,18 +446,21 @@ fn a_rotation_replaces_the_creation_time_too() {
 // --- Adopting the peer's key, which is what the collision rule calls ---
 
 #[test]
-fn adopt_stores_the_key_and_the_creation_time_it_was_handed() {
+fn adopt_stores_every_field_of_the_offer_it_was_handed() {
     let path = scratch_path();
     let vault = Vault::default();
     let mut registry = load(&path, "alice");
-    let theirs = AccountBroadcastKey::from_bytes(&[0x5A; ACCOUNT_BROADCAST_KEY_LEN])
-        .expect("32 bytes is a key");
 
     registry
-        .adopt(&theirs, at(NOW), &vault)
+        .adopt(&peer_offer(0x5A, 4, NOW), &vault)
         .expect("adoption succeeds");
 
     assert_eq!(registry.created_at(), Some(at(NOW)));
+    assert_eq!(
+        registry.generation(),
+        Some(4),
+        "an adopting device did not take the key's own generation"
+    );
     assert_eq!(
         vault.held(ACCOUNT_BROADCAST_KEY_SLOT).as_deref(),
         Some([0x5A; ACCOUNT_BROADCAST_KEY_LEN].as_slice())
@@ -456,14 +475,13 @@ fn adopting_over_a_generated_key_replaces_both_halves() {
     registry
         .generate(&StreamRng::default(), at(LATER), &vault)
         .expect("generation succeeds");
-    let theirs = AccountBroadcastKey::from_bytes(&[0x5A; ACCOUNT_BROADCAST_KEY_LEN])
-        .expect("32 bytes is a key");
 
     registry
-        .adopt(&theirs, at(NOW), &vault)
+        .adopt(&peer_offer(0x5A, 9, NOW), &vault)
         .expect("adoption succeeds");
 
     assert_eq!(registry.created_at(), Some(at(NOW)));
+    assert_eq!(registry.generation(), Some(9));
     assert_eq!(
         vault.held(ACCOUNT_BROADCAST_KEY_SLOT).as_deref(),
         Some([0x5A; ACCOUNT_BROADCAST_KEY_LEN].as_slice())
@@ -523,7 +541,7 @@ fn clear_discards_both_halves_and_is_what_repairs_a_wrong_account() {
     assert!(vault.held(ACCOUNT_BROADCAST_KEY_SLOT).is_none());
     let bob = load(&path, "bob");
     assert_eq!(bob.created_at(), None);
-    assert!(bob.key(&vault).expect("the slot reads").is_none());
+    assert!(bob.offer(&vault).expect("the slot reads").is_none());
 }
 
 #[test]
@@ -546,7 +564,7 @@ fn clear_discards_the_secret_before_the_record() {
     );
     std::fs::write(
         &path,
-        br#"{"account_iss":"https://accounts.google.com","account_sub":"alice","created_at":1756684800}"#,
+        br#"{"account_iss":"https://accounts.google.com","account_sub":"alice","generation":1,"created_at":1756684800}"#,
     )
     .expect("the scratch path is writable");
 
@@ -577,7 +595,7 @@ fn a_record_whose_slot_is_empty_is_an_error_and_not_an_absent_key() {
         .expect("the vault discards");
 
     let err = registry
-        .key(&vault)
+        .offer(&vault)
         .expect_err("a record without its secret is a half-written state");
 
     assert!(
@@ -597,7 +615,7 @@ fn a_stored_value_of_the_wrong_length_is_malformed_and_never_read_as_absent() {
     vault.plant(ACCOUNT_BROADCAST_KEY_SLOT, &[0x11; 31]);
 
     let err = registry
-        .key(&vault)
+        .offer(&vault)
         .expect_err("31 bytes is not an account broadcast key");
 
     assert!(
@@ -617,7 +635,7 @@ fn a_secret_store_that_cannot_be_reached_is_an_error_and_never_an_absent_key() {
     let unreachable = Vault::failing_to_load();
 
     let err = registry
-        .key(&unreachable)
+        .offer(&unreachable)
         .expect_err("an unreachable store is an error");
 
     assert!(
@@ -710,11 +728,9 @@ fn an_adoption_whose_record_cannot_be_written_puts_the_previous_secret_back() {
     );
     let mut registry = load(&path, "alice");
     block(&path);
-    let theirs = AccountBroadcastKey::from_bytes(&[0x5A; ACCOUNT_BROADCAST_KEY_LEN])
-        .expect("32 bytes is a key");
 
     let _err = registry
-        .adopt(&theirs, at(NOW), &vault)
+        .adopt(&peer_offer(0x5A, 2, NOW), &vault)
         .expect_err("a record that cannot be written is refused");
 
     assert_eq!(
@@ -807,7 +823,7 @@ fn a_failed_generation_leaves_the_registry_reporting_what_is_actually_held() {
 // what a second reader of this file -- a repair, a migration -- would go
 // by. Nothing else pins them.
 #[test]
-fn the_record_carries_the_three_fields_docs_11_names_and_never_the_key_itself() {
+fn the_record_carries_the_four_fields_docs_11_names_and_never_the_key_itself() {
     let path = scratch_path();
     let vault = Vault::default();
     let mut registry = load(&path, "alice");
@@ -819,6 +835,7 @@ fn the_record_carries_the_three_fields_docs_11_names_and_never_the_key_itself() 
 
     assert!(written.contains("\"account_iss\""), "{written}");
     assert!(written.contains("\"account_sub\""), "{written}");
+    assert!(written.contains("\"generation\""), "{written}");
     assert!(written.contains("\"created_at\""), "{written}");
     assert!(
         written.contains("1756684800"),
@@ -869,4 +886,241 @@ fn a_record_that_cannot_be_removed_fails_the_clear_rather_than_passing_it() {
         1,
         "the secret was not discarded before the record was attempted"
     );
+}
+
+// --- The generation, which is what tells a rotation from a new device ---
+
+// `0` is the value an offer refuses, so the first generation cannot be
+// it: a key admitted at `0` loses every meeting it ever has.
+#[test]
+fn a_first_generation_is_the_first_generation_and_never_zero() {
+    let path = scratch_path();
+    let vault = Vault::default();
+    let mut registry = load(&path, "alice");
+
+    let generated = registry
+        .generate(&StreamRng::default(), at(NOW), &vault)
+        .expect("generation succeeds");
+
+    assert_eq!(generated.generation(), FIRST_KEY_GENERATION);
+    assert_eq!(registry.generation(), Some(FIRST_KEY_GENERATION));
+}
+
+// A rotation that kept its generation would lose to the key it replaced
+// on the older creation time, which is DCR-090's failure from the store's
+// end: the revoked device's key comes back and nothing reports it.
+#[test]
+fn a_rotation_raises_the_generation_by_one() {
+    let path = scratch_path();
+    let vault = Vault::default();
+    let rng = StreamRng::default();
+    let mut registry = load(&path, "alice");
+    registry
+        .generate(&rng, at(NOW), &vault)
+        .expect("the first generation succeeds");
+
+    let rotated = registry
+        .generate(&rng, at(LATER), &vault)
+        .expect("the rotation succeeds");
+
+    assert_eq!(rotated.generation(), FIRST_KEY_GENERATION + 1);
+    assert_eq!(registry.generation(), Some(FIRST_KEY_GENERATION + 1));
+}
+
+#[test]
+fn a_generation_survives_a_reload() {
+    let path = scratch_path();
+    let vault = Vault::default();
+    let rng = StreamRng::default();
+    let mut registry = load(&path, "alice");
+    registry
+        .generate(&rng, at(NOW), &vault)
+        .expect("the first generation succeeds");
+    registry
+        .generate(&rng, at(LATER), &vault)
+        .expect("the rotation succeeds");
+
+    assert_eq!(load(&path, "alice").generation(), Some(2));
+}
+
+// The in-memory field is set from the offer either way, so only a reload
+// reads what `adopt` actually wrote. A device that renumbered a peer's key
+// would offer the same bytes under a generation nobody else has, and the
+// account would hold one key under two numbers that each beat the other's
+// rotations.
+#[test]
+fn an_adopted_generation_and_time_are_what_the_record_holds_after_a_reload() {
+    let path = scratch_path();
+    let vault = Vault::default();
+    let mut registry = load(&path, "alice");
+
+    registry
+        .adopt(&peer_offer(0x5A, 4, NOW), &vault)
+        .expect("adoption succeeds");
+
+    let reopened = load(&path, "alice");
+    assert_eq!(reopened.generation(), Some(4));
+    assert_eq!(reopened.created_at(), Some(at(NOW)));
+}
+
+// The generation belongs to the key rather than to the device holding it,
+// so a device that adopted generation 9 rotates to 10 and not to 2.
+#[test]
+fn a_rotation_after_an_adoption_continues_the_adopted_keys_generation() {
+    let path = scratch_path();
+    let vault = Vault::default();
+    let mut registry = load(&path, "alice");
+    registry
+        .adopt(&peer_offer(0x5A, 9, NOW), &vault)
+        .expect("adoption succeeds");
+
+    let rotated = registry
+        .generate(&StreamRng::default(), at(LATER), &vault)
+        .expect("the rotation succeeds");
+
+    assert_eq!(rotated.generation(), 10);
+}
+
+// Saturating and never wrapping, because `0` is the one value that would
+// be refused when the offer carrying it is built.
+#[test]
+fn a_generation_at_the_maximum_saturates_rather_than_wrapping_to_the_refused_value() {
+    let path = scratch_path();
+    let vault = Vault::default();
+    vault.plant(
+        ACCOUNT_BROADCAST_KEY_SLOT,
+        &[0x11; ACCOUNT_BROADCAST_KEY_LEN],
+    );
+    write_record(
+        &path,
+        &format!(
+            r#"{{"account_iss":"https://accounts.google.com","account_sub":"alice","generation":{},"created_at":1756684800}}"#,
+            u32::MAX
+        ),
+    );
+    let mut registry = load(&path, "alice");
+
+    let rotated = registry
+        .generate(&StreamRng::default(), at(LATER), &vault)
+        .expect("the rotation succeeds");
+
+    assert_eq!(rotated.generation(), u32::MAX);
+}
+
+// The offer is the triple the collision rule orders, read back off a
+// record this process did not write.
+#[test]
+fn a_reloaded_registry_offers_the_key_the_generation_and_the_time_together() {
+    let path = scratch_path();
+    let vault = Vault::default();
+    vault.plant(
+        ACCOUNT_BROADCAST_KEY_SLOT,
+        &[0x33; ACCOUNT_BROADCAST_KEY_LEN],
+    );
+    write_record(
+        &path,
+        r#"{"account_iss":"https://accounts.google.com","account_sub":"alice","generation":6,"created_at":1756684800}"#,
+    );
+
+    let offered = load(&path, "alice")
+        .offer(&vault)
+        .expect("the slot reads")
+        .expect("the record names a key");
+
+    assert_eq!(offered.key().as_bytes(), &[0x33; ACCOUNT_BROADCAST_KEY_LEN]);
+    assert_eq!(offered.generation(), 6);
+    assert_eq!(offered.created_at(), at(NOW));
+}
+
+// --- What a record is refused for ---
+
+#[test]
+fn a_record_at_generation_zero_is_malformed_and_never_a_registry_at_the_first_one() {
+    let path = scratch_path();
+    write_record(
+        &path,
+        r#"{"account_iss":"https://accounts.google.com","account_sub":"alice","generation":0,"created_at":1756684800}"#,
+    );
+
+    let err = BroadcastKeyRegistry::load(&path, &account("alice"))
+        .expect_err("generation 0 is not a generation");
+
+    assert!(
+        matches!(err, BroadcastKeyRegistryError::Malformed(_)),
+        "a record at generation 0 loaded as something else: {err:?}"
+    );
+}
+
+// No serde default: a record written before the field existed is one this
+// version cannot read, and defaulting it would put the refused value into
+// a store that never wrote it.
+#[test]
+fn a_record_with_no_generation_is_malformed_and_never_defaulted() {
+    let path = scratch_path();
+    write_record(
+        &path,
+        r#"{"account_iss":"https://accounts.google.com","account_sub":"alice","created_at":1756684800}"#,
+    );
+
+    let err = BroadcastKeyRegistry::load(&path, &account("alice"))
+        .expect_err("a record with no generation is refused");
+
+    assert!(
+        matches!(err, BroadcastKeyRegistryError::Malformed(_)),
+        "a record with no generation loaded as something else: {err:?}"
+    );
+}
+
+#[test]
+fn a_record_whose_creation_time_is_the_epoch_is_malformed() {
+    let path = scratch_path();
+    write_record(
+        &path,
+        r#"{"account_iss":"https://accounts.google.com","account_sub":"alice","generation":1,"created_at":0}"#,
+    );
+
+    let err = BroadcastKeyRegistry::load(&path, &account("alice"))
+        .expect_err("the epoch is not a creation time");
+
+    assert!(
+        matches!(err, BroadcastKeyRegistryError::Malformed(_)),
+        "a record at the epoch loaded as something else: {err:?}"
+    );
+}
+
+#[test]
+fn a_record_whose_creation_time_is_before_the_epoch_is_malformed() {
+    let path = scratch_path();
+    write_record(
+        &path,
+        r#"{"account_iss":"https://accounts.google.com","account_sub":"alice","generation":1,"created_at":-1}"#,
+    );
+
+    let err = BroadcastKeyRegistry::load(&path, &account("alice"))
+        .expect_err("a time before the epoch is not a creation time");
+
+    assert!(
+        matches!(err, BroadcastKeyRegistryError::Malformed(_)),
+        "a record before the epoch loaded as something else: {err:?}"
+    );
+}
+
+// A device whose clock reads the epoch would otherwise write a key that
+// wins every tie in the account and can never be rotated away from.
+#[test]
+fn generating_at_the_epoch_is_refused_and_writes_neither_half() {
+    let path = scratch_path();
+    let vault = Vault::default();
+    let mut registry = load(&path, "alice");
+
+    let err = registry
+        .generate(&StreamRng::default(), at(0), &vault)
+        .expect_err("the epoch is not a creation time");
+
+    assert!(
+        matches!(err, BroadcastKeyRegistryError::Offer(_)),
+        "a refused creation time reported something else: {err:?}"
+    );
+    assert_eq!(vault.stores(), 0);
+    assert!(!path.exists(), "a refused generation left a record behind");
 }
