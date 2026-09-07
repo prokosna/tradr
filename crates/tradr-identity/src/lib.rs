@@ -2,6 +2,7 @@
 //! Attestation issue and verify, Noise, key storage.
 
 mod attestation;
+pub mod broadcast_exchange;
 mod broadcast_key;
 mod google;
 pub mod hello;
