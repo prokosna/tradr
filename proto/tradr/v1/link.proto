@@ -56,6 +56,15 @@ message Invite {
   int64 expires_at = 5;  // Unix seconds. Advisory only; the inviter enforces its own window
 }
 
+// The Account Broadcast Key one device offers another (docs/11, "The
+// exchange, and why it needs no roles"). Symmetric: both sides send one
+// and both read one, and the collision rule orders the two triples.
+message BroadcastKeyOffer {
+  bytes key = 1;          // 32 bytes
+  uint32 generation = 2;  // 1 or greater; 0 is what an omitted field produces
+  int64 created_at = 3;   // Unix seconds, after the epoch
+}
+
 enum LinkDeclineReason {
   LINK_DECLINE_REASON_UNSPECIFIED         = 0;
   LINK_DECLINE_REASON_USER_DECLINED       = 1;
