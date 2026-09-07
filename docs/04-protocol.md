@@ -11,14 +11,18 @@
 |  Framing: [u32 len][u8 type][payload]                  |
 +-------------------------------------------------------+
 |  Secure channel:                                       |
-|    direct-quic / holepunch-quic -> QUIC's TLS 1.3      |
-|    ble-gatt / relay / wifi-direct -> Noise_IK          |
+|    direct-quic / holepunch-quic / wifi-direct          |
+|                                 -> QUIC's TLS 1.3      |
+|    ble-gatt                     -> Noise_XX            |
+|    relay                        -> Noise_IK            |
 +-------------------------------------------------------+
 |  Transport: QUIC stream / GATT characteristic / WS     |
 +-------------------------------------------------------+
 ```
 
 [05](05-security.md#why-there-are-two-encryption-layers) explains why there are two secure-channel families. From above, both present the same thing: a mutually authenticated, forward-secret, ordered, bidirectional byte stream.
+
+**This box put `wifi-direct` on Noise and docs/05's table put it on QUIC, and the two disagreed from M0 until [ADR-0020](adr/0020-noise-xx-for-ble-gatt.md) rewrote the row above it.** docs/05 is right: `wifi-direct` is a QUIC path over a Wi-Fi Direct link, so a second encryption layer there is the duplication that section exists to refuse. **Nothing was ever built from this box**, which is why nothing failed — and is exactly why a diagram that decides something must be read as one.
 
 ## Framing
 
@@ -220,6 +224,8 @@ Cheapest first, so no signature work is spent on a peer that cannot be talked to
 3. **The `KeyBinding`.** A P-256 signature over `tradr-keybind-v1 || agreement_pub` against `identity_pub`, with `not_after` still in the future.
 4. **The Attestation**, handed out and never performed here. The Trust Tier that comes back is **ours**.
 5. **The peer's nonce signature**, in step 4: P-256 over `tradr-hello-v1 || our nonce` against their `identity_pub`. Over **our** nonce and never theirs — reflecting a peer's own nonce back proves nothing and would let a relay pass carrying no key at all.
+
+**Check 3 also runs one layer lower on a Noise path, and it is the same check against the same field.** A Noise handshake authenticates the agreement key, so a `ble-gatt` channel derives the Device ID `SecureChannel::peer` returns from an identity join carried in the handshake payload ([ADR-0020](adr/0020-noise-xx-for-ble-gatt.md)). **That does not make check 2 or check 3 redundant here**: `Hello` is transport-independent and a QUIC channel has run neither, so the exchange asks both regardless of what carried it. What it means is that a `ble-gatt` peer whose binding fails never reaches `Hello` at all.
 
 ### Why the key join earns its place
 

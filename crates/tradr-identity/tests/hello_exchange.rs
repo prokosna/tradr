@@ -466,7 +466,14 @@ fn an_expired_key_binding_is_refused() {
         .on_peer_hello(peer, device_id_of(&bob), &FixedClock::at(NOW))
         .expect_err("a binding whose not_after has passed must be refused");
 
-    assert!(matches!(refusal, HelloRefused::KeyBindingExpired { .. }));
+    // The two times are named rather than matched with `..`: the mapping
+    // from the verifier's refusal is a second place they can be swapped, and
+    // a swapped pair is a message that blames the wrong clock.
+    assert!(matches!(
+        refusal,
+        HelloRefused::KeyBindingExpired { not_after, now }
+            if not_after == UnixTime::from_secs(NOW - 1) && now == UnixTime::from_secs(NOW)
+    ));
 }
 
 #[test]

@@ -410,7 +410,8 @@ Three consequences of the feature set follow, and all three were measured rather
 
 - **`snow`'s `default-resolver` does not compile without `use-curve25519`**, whatever curve the pattern names. The `DHChoice` match in the default resolver has no wildcard arm, so a build carrying only `use-p256` fails on a curve this design rejected. The feature is enabled to satisfy the compiler; the pattern string fixes P-256 for both parties, and `DHChoice::Curve25519` is unreachable from a constant pattern.
 - **`use-getrandom` is deliberately left off, and that is what makes rule B7 mechanical here.** Without it `DefaultResolver::resolve_rng` returns `None` and a build refuses to produce a `HandshakeState` at all, so the injected `Rng` is not merely the preferred source of the ephemeral key -- it is the only source that exists. A promise a review has to keep becomes a link error.
-- **The handshake fits BLE's frame without fragmenting.** `Noise_IK_P256_ChaChaPoly_BLAKE2s` writes a 162-byte first message and an 81-byte second, both inside the 512-byte `max_frame_size` [docs/04](04-protocol.md#framing) negotiates for BLE. A transport-mode message carries at most 65535 bytes, so at most 65519 bytes of plaintext, and `snow` refuses one byte more.
+- **The handshake fits BLE's frame without fragmenting.** `Noise_XX_P256_ChaChaPoly_BLAKE2s` writes 65, 299 and 234 bytes, the last two carrying the 137-byte identity join, all inside the 512-byte `max_frame_size` [docs/04](04-protocol.md#framing) negotiates for BLE. Measured through this resolver on 2026-09-07, alongside the 162 and 81 bytes `Noise_IK` wrote before [ADR-0020](adr/0020-noise-xx-for-ble-gatt.md) replaced it. A transport-mode message carries at most 65535 bytes, so at most 65519 bytes of plaintext, and `snow` refuses one byte more.
+- **`XX` asks the resolver for nothing new, which is why the rule above is unchanged.** It transmits a static public key where `IK` only computed with one, and transmitting reads `Dh::pubkey`, which `IK` already called. `Builder::build` still resolves twice, static first.
 
 **A local failure and a peer's bad message must not arrive as the same error.** `Dh::dh` and `Random::try_fill_bytes` can only return `snow`'s own `Error::Dh` and `Error::Rng`, which carry nothing of the `KeyStoreError` or `RngError` underneath -- so a secure element that refused an operation and a peer that sent nonsense are indistinguishable at the point `snow` reports them. The implementation therefore records the underlying error where it happens and reports that in preference to the generic refusal. Losing it would be rule F6 in the one place the answer decides whether to retry or to tell the user their key store is broken.
 
@@ -545,7 +546,8 @@ RFC 6979 removes the failure mode rather than defending against it: there is no 
 | Transport | Secure channel |
 |---|---|
 | `direct-quic`, `holepunch-quic`, `wifi-direct` | QUIC's TLS 1.3 |
-| `ble-gatt`, `relay` | Noise_IK |
+| `ble-gatt` | Noise_XX ([ADR-0020](adr/0020-noise-xx-for-ble-gatt.md)) |
+| `relay` | Noise_IK, on a premise M8 has to check |
 
 QUIC already contains TLS 1.3, so stacking another encryption layer on top would be pure duplication. On QUIC paths TLS is used directly, with **a self-signed certificate whose public key is the Device Key, matched against the pinned value**. No certificate chain and no CA.
 
@@ -559,11 +561,24 @@ QUIC already contains TLS 1.3, so stacking another encryption layer on top would
 - **The serial number is a constant, for the reason the name is.** A serial derived from the Device ID hands identity the second home the constant subject was just chosen to deny, and a random one puts an `Rng` into a construction that decision otherwise keeps free of one. RFC 5280 requires serial numbers to be unique per issuer so that a chain validator can name one certificate among many; nothing here validates a chain, so nothing here reads it.
 - **The certificate carries no extensions.** It is a v3 certificate, because that is the version a TLS peer expects to parse, but every extension a CA would add — `basicConstraints`, `keyUsage`, a subject alternative name — is there to tell a chain validator something, and there is no chain validator. A subject alternative name would do worse than sit unread: it is the second place identity could live, which is what the constant subject exists to prevent.
 
-BLE and `relay` are raw byte streams where TLS does not fit — its handshake overhead is prohibitive over BLE, and on relay the WebSocket's TLS terminates at the Brokr. Those use **Noise_IK**.
+BLE and `relay` are raw byte streams where TLS does not fit — its handshake overhead is prohibitive over BLE, and on relay the WebSocket's TLS terminates at the Brokr. Those use **Noise**, and [ADR-0020](adr/0020-noise-xx-for-ble-gatt.md) is why the two do not use the same pattern.
 
-- The `IK` pattern assumes the initiator **already knows** the responder's static public key, which discovery has supplied along with the Device ID. One round trip completes mutual authentication and key agreement
-- A two-message handshake stays usable over BLE's slow round trips
+- **This bullet said the `IK` pattern's premise was met and it never was.** It read: the initiator already knows the responder's static public key, *which discovery has supplied along with the Device ID*. No source supplies one. mDNS carries an 8-byte fingerprint of the agreement key, a BLE advertisement carries no per-device identifier at all, a Static Peer carries a hostname, and nothing persists a peer's `PublicIdentity` — a `LinkRecord` stores an account, not keys. **The sentence was true of a design that had a peer key store, and this one has never had one**
+- **So `ble-gatt` is `Noise_XX`**: three messages rather than two, neither side needing the other's static key in advance, and both statics transmitted encrypted. It is what a `PeerExpectation::Unpinned` dial can actually perform, and every BLE dial is one
+- **`relay` keeps `IK` provisionally.** A Brokr rendezvous may genuinely hand a dialler the responder's key, which is the one place the premise could still be met, and M8 decides it against a Brokr that exists rather than now against none
 - On relay the Brokr sits between the endpoints and sees only Noise ciphertext
+
+#### Noise authenticates the agreement key, and `peer` must answer with a Device ID
+
+**These are two different keys and only the `KeyBinding` joins them.** A `DeviceId` is `BLAKE3(identity_pub)[0..16]`; a Noise static key is the agreement key. On a QUIC path the question does not arise, because the certificate's `SubjectPublicKeyInfo` *is* the identity key and the listening side reads the Device ID straight out of it. **There is no counterpart on a Noise path**, so a side that finished a handshake holds 65 bytes it cannot turn into the value `SecureChannel::peer` must return — and `peer` cannot fail.
+
+**The identity join therefore rides in the handshake payload**, 137 bytes in each of messages 2 and 3: `identity_pub` at 65, the `KeyBinding` signature at 64, and its `not_after` at 8. Each side runs [docs/04](04-protocol.md#what-each-side-checks-and-in-what-order)'s check 3 against the static key Noise has just authenticated — the covered key, then the signature, then expiry — and derives the Device ID from the identity key that check just vouched for.
+
+**The agreement key the binding covers is not transmitted.** The receiver reconstructs the binding over the static key Noise has just authenticated, so the covered-key comparison is true by construction and a peer replaying another device's identity and genuine signature is refused by the signature. Sending the covered key would let the peer choose what its own binding is checked against, which is the circularity the join exists to avoid.
+
+**It is the same check as `Hello`'s and it has one home.** `tradr-core` declares the port, `tradr-identity` implements it over the function `on_peer_hello` already calls, and the transport is constructed with it: `ci/layer-deps.sh` rule 4 forbids `tradr-transport` from naming `tradr-identity`, and the rule is right, because a P-256 signature check belongs beside the other five. **Checking `not_after` in both places is one date read twice against one `Clock`**, which is a different thing from the certificate's second expiry this document refuses two sections above.
+
+**What an active prober learns, and why the EID survives it.** `XX` reveals the responder's static agreement key in message 2, encrypted under an `ee` any prober can compute, and the identity join beside it. [docs/03](03-discovery-and-transport.md#2-ble--proximity-no-network-required-tier-0) says why no permanent identifier goes on the air and the threat it names is a *receiver* — shop receivers and passing phones, listening. A prober that connects and completes a handshake is not listening, and no pattern exists in which a dialler holding nothing learns nothing. Refusing message 1 unless it proves possession of an ABK or a Link Secret would close it, and [STATE.md](../STATE.md) carries it as deferred rather than built.
 
 **Both give the layer above identical guarantees**: mutually authenticated, forward secret, ordered, bidirectional. That invariant is expressed as a `SecureChannel` trait, and `tradr-core` never learns which one it is using.
 
@@ -605,7 +620,7 @@ BLE and `relay` are raw byte streams where TLS does not fit — its handshake ov
 - **Leaked**: peer IP addresses, transfer timing, approximate sizes. Traffic analysis is not defended against; padding and cover traffic are out of scope
 
 **T3 — active attacker and man-in-the-middle**
-- Public-key pinning on QUIC and Noise_IK on BLE and relay both prevent an intermediary without the key from completing a handshake
+- Public-key pinning on QUIC, and Noise on BLE and relay, both prevent an intermediary without the key from completing a handshake. **On a `Noise_XX` dial that pins nothing there is no key to be without**, and what refuses the intermediary there is the identity join: a `KeyBinding` is a signature under the identity key, and an intermediary substituting its own static key cannot produce one over it
 - The first connection is trust on first use, so **a man-in-the-middle is possible on that first contact only**. Out-of-band fingerprint verification is what detects it
 - The Attestation nonce prevents stealing a legitimate device's Attestation and presenting it with attacker-controlled keys
 
@@ -647,7 +662,7 @@ BLE and `relay` are raw byte streams where TLS does not fit — its handshake ov
 |---|---|---|
 | Device identity and signing | ECDSA P-256 | [ADR-0012](adr/0012-p256-for-device-keys.md) |
 | Key agreement | ECDH P-256 | |
-| Noise pattern | `Noise_IK_P256_ChaChaPoly_BLAKE2s` | via `snow`, `use-p256` |
+| Noise pattern | `Noise_XX_P256_ChaChaPoly_BLAKE2s` on `ble-gatt`, `Noise_IK_P256_ChaChaPoly_BLAKE2s` on `relay` | via `snow`, `use-p256`. [ADR-0020](adr/0020-noise-xx-for-ble-gatt.md) is why they differ, and why `relay`'s is provisional |
 | QUIC encryption | TLS 1.3, `TLS_AES_128_GCM_SHA256` | via `rustls` |
 | Hashing for integrity and identifiers | BLAKE3 | |
 | KDF | `BLAKE3::derive_key` | The Link Secret (DCR-066), EIDs and the bootstrap secret ([ADR-0018](adr/0018-blake3-derive-key-for-eids.md)). **This row read `HKDF-SHA256` and contradicted [docs/11](11-account-linking.md#deriving-the-link-secret), which had already listed the EIDs as BLAKE3.** No HKDF and no SHA-2 remains anywhere in this design |

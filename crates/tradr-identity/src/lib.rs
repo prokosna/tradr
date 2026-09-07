@@ -10,6 +10,7 @@ mod id_token;
 mod invite;
 mod jwks;
 mod jwks_cache;
+pub mod key_binding;
 mod link;
 mod os_rng;
 mod software_key_store;

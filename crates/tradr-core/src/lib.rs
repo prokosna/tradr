@@ -20,6 +20,7 @@ mod fingerprint;
 mod future;
 mod hello;
 mod item_id;
+mod key_binding;
 mod key_store;
 mod link;
 mod rel_path;
@@ -69,6 +70,7 @@ pub use hello::{
     VersionRange, VersionRangeError, negotiate_version,
 };
 pub use item_id::{ITEM_ID_MAX_LEN, ItemId, ItemIdError};
+pub use key_binding::{KeyBindingRefused, KeyBindingVerifier};
 pub use key_store::{
     Backing, DomainTag, KeyStore, KeyStoreError, MissingSeparation, PUBLIC_KEY_POINT_LEN,
     PublicIdentity, PublicKeyPoint, PublicKeyPointError, SecretStore, SecretStoreError, Separation,
