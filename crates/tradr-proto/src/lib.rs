@@ -17,6 +17,7 @@ pub mod hello;
 pub mod invite;
 pub mod link;
 pub mod message_type;
+pub mod mux;
 
 pub use control::{
     OfferFrameError, OfferWireError, decode_transfer_accept_frame, decode_transfer_offer_frame,
