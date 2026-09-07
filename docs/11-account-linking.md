@@ -324,7 +324,7 @@ The shared secret letting same-account devices recognize each other over BLE.
 
 **Rotation**: revoking a device regenerates the ABK, handed to remaining devices as they meet. The revoked device never receives the new one, so it disappears from BLE discovery.
 
-**Collision**: two devices may each independently generate an ABK, having each been "the first" somewhere. On meeting, the earlier creation time wins; on a tie, the smaller value. Every device applies the same rule, so it converges.
+**Collision**: two devices may each independently generate an ABK, having each been "the first" somewhere. On meeting, one order decides which survives, every device applies the same order, and so it converges. **The order is over three fields and not over the creation time alone** -- see "The order the collision rule applies" below, and DCR-090 for what the creation time alone got wrong.
 
 ### Where the ABK is held, and what the record carries
 
@@ -334,6 +334,7 @@ The shared secret letting same-account devices recognize each other over BLE.
 {
   "account_iss": "https://accounts.google.com",  // the account these bytes belong to
   "account_sub": "9273...",                      // subject, unique only within that issuer
+  "generation": 1,                               // which generation of the account key this is
   "created_at": 1756684800                       // seconds since the Unix epoch
 }
 ```
@@ -343,6 +344,8 @@ The shared secret letting same-account devices recognize each other over BLE.
 **The slot name is a constant, and it is the record rather than the slot that binds the bytes to an account.** A device holds one Attestation for one `(iss, sub)`, so there is one ABK at a time and there is nothing to address a slot by. A slot named from an account digest would be a second copy of a binding the record already carries, and two copies of one fact are two things that can disagree — which is the argument `link_id` settles the other way, where the slot has many siblings and the record is the only thing that names it.
 
 **`created_at` is in the record because the collision rule compares it**, and a device that forgot when its own key was made could not apply the rule after a restart. It is an integer of seconds and not an ISO-8601 string, for the reason the Link record's own `created_at` is.
+
+**`generation` is in the record for the same reason and answers a question `created_at` cannot**, which is whether this key replaced another on purpose. It is written by every version that can read the file and has no default: **a record with no `generation` is malformed rather than a record at generation `0`**, because `0` is the value the collision rule refuses and defaulting to it would put a refused value into a store that never wrote one.
 
 #### The account binding, and the failure that has nothing to notice it
 
@@ -372,11 +375,23 @@ The shared secret letting same-account devices recognize each other over BLE.
 
 **A stored value that is not 32 bytes is malformed and never read as absent.** An empty slot says the key was discarded; a wrong-length one says the key store returned something nothing here ever wrote.
 
-#### The collision rule, and why a byte comparison is the right instrument here
+**A record at generation `0`, or with no generation at all, is malformed on the same grounds.** Every generation this design writes is at least `1`, so `0` names a record nothing here produced -- and it is the one value that must not be read leniently, since a key admitted at generation `0` loses every meeting it ever has and is silently replaced by whatever it meets first.
 
-Each side sends its own key and its own `created_at`, and both apply one order over the pair: **the earlier `created_at` wins, and on a tie the smaller of the two 32-byte values under plain lexicographic comparison.** Both sides see both pairs, so neither negotiates and neither can be told a different answer than the other computes.
+#### The order the collision rule applies, and why a creation time alone got it backwards
 
-**The rule is a total order and that is what makes it converge**, rather than merely agree pairwise. Three devices that each generated a key settle on the same one whichever pairs meet in whichever order, because every meeting keeps the minimum of the two and the minimum of a total order is reached from any sequence of pairs.
+**A key is offered as three fields and not two: the 32 bytes, the `generation` they belong to, and the `created_at` they were made at.** Both sides send all three, and both apply one order over the triple: **the higher `generation` wins; on a tie the earlier `created_at` wins; on a tie the smaller of the two 32-byte values under plain lexicographic comparison.** Both sides see both triples, so neither negotiates and neither can be told a different answer than the other computes.
+
+**`generation` is a property of the key and not of the device holding it.** A first generation is `1`, rotation is the current generation plus one, and a device that adopts a peer's key adopts that key's generation with it. `0` is never a valid generation, for the reason `VersionRange` refuses version `0`: proto3 omits a zero-valued scalar, so an offer carrying no generation at all decodes as one carrying `0`, and a value a peer produces by sending nothing must never be a value it can win with.
+
+##### The creation time alone said rotation loses, and docs/05 promises the opposite
+
+**This rule read "the earlier `created_at` wins" until DCR-090, and that made rotation impossible to propagate.** A rotation is a new key, so its `created_at` is later than the one it replaces; under earlier-wins, the first device to meet one that missed the rotation adopts the key the rotation existed to remove, and every device converges back onto it. **Nothing fails while this happens**: both keys are well-formed, every EID derived from the survivor rotates on schedule, every match succeeds, and no handshake, gate or test has anything to report. [docs/05](05-security.md#that-is-also-the-revocation-mechanism)'s table says ABK rotation is "immediate for remaining devices; the revoked one falls off BLE discovery", and the ordering as written made that sentence false -- **the revoked device did not even have to act, because holding the older key was the winning move.**
+
+**Flipping to later-wins repairs rotation and breaks the case rotation is rare beside.** A device that has just joined the account holds no ABK, draws one, and its draw is the latest thing in the account -- so every new device would replace the account's key and force every other device to re-exchange. **The two cases are indistinguishable by creation time**, which is the whole finding: "a fresh key because a device is new" and "a fresh key because the account rotated" are the same observation, and a counter is the smallest thing that separates them. With `generation` deciding first, a draw is generation `1` and loses to any rotation, while an established generation `1` key beats a newer draw on the older `created_at` -- both cases right, from one order.
+
+**What the order does not defend against is a device that lies, and nothing here could.** A peer claiming generation `u32::MAX` wins every meeting and its key spreads across the account. That peer is an Attestation-verified device of this same account, which is a device already entitled to hold the ABK and to rotate it, so the lie gains it nothing it did not have -- **except in the one case the table above is about**, a device revoked by hand while its Attestation is still inside the 30-day staleness window. There it wins, and the two rows above ABK rotation in that table are what stop it: staleness, and manual per-device revocation. **The ordering repairs the accident and does not claim to repair the adversary**, and saying so here is cheaper than a later reader concluding it did.
+
+**The rule is a total order and that is what makes it converge**, rather than merely agree pairwise. Three devices that each generated a key settle on the same one whichever pairs meet in whichever order, because every meeting keeps the maximum of the two and the maximum of a total order is reached from any sequence of pairs.
 
 **The tie-break compares secret material byte-wise, which is what `LinkSecret` refuses `PartialEq` for, and importing that refusal here would be the wrong instrument.** A constant-time comparison answers "equal or not" and this rule needs an ordering, which no constant-time primitive here produces. What that refusal protects is a secret an attacker does not hold and is probing by timing — and both operands here are already held by both sides: the comparison happens after Attestation verification has confirmed one `(iss, sub)`, inside a channel over which the peer's own key has just arrived whole. There is nothing left for the timing to leak.
 
@@ -391,3 +406,27 @@ Each side sends its own key and its own `created_at`, and both apply one order o
 #### What the store lands without, and why that order
 
 **The exchange itself is not here.** Step 4 above — passing the ABK over the Noise channel — is a wire message and lands with the ones `Hello` already carries. The store and the rule go first because **the exchange calls the rule and the rule compares against a stored key**: an exchange landing first would have nothing to compare, nothing to persist, and no way to be wrong in a way a test could see. It is DCR-070's order for the same reason — the Link Secret's store landed before M7 became the first thing to read one.
+
+### The exchange, and why it needs no roles
+
+**Both sides send one `BroadcastKeyOffer` and both read one; neither is "the client".** That is `Hello`'s shape and it is `Hello`'s reason: two devices of one account meet as equals and there is no role to assign. It is a Control-plane message and takes `0x10` in [docs/04](04-protocol.md#the-type-byte)'s registry.
+
+**The offer always carries a key, and a device holding none draws one for the offer.** An offer that could be empty needs a rule naming which side then generates and a second message to carry the result, and it puts a second meaning on a field that a truncated write and an emptied slot both produce as well. **Drawing instead makes every offer the same shape, and the order above is what makes drawing safe**: a draw is generation `1` and loses to any rotation, and loses to an equally-numbered established key on the older `created_at`. Two devices that both draw settle on one of the two draws in this same exchange, which is the case that would otherwise deadlock -- both would leave holding different keys, both would stop advertising the bootstrap EID, and neither could find the other over BLE again.
+
+**A draw is not persisted before the order has run.** The peer's key may win, and a device that stored its draw first would have performed a rotation it immediately undoes: two writes where one suffices, and a window in which the record claims a key the account never adopted. So an exchange writes **at most once** -- the drawn key when it wins, the peer's key when it wins, and nothing at all when the stored key stands, which is every meeting after the first.
+
+**Three outcomes and they are distinct even where two of them look alike.** *Kept*: the stored key stood and nothing was written. *Generated*: there was no stored key and the drawn one won, so both halves were written. *Adopted*: the peer's key won and both halves were written through the same `adopt` and the same restoring rollback. **Kept and Generated both leave the device holding its own bytes and only one of them wrote**, and a log that cannot tell them apart cannot tell a first meeting from the thousandth.
+
+#### Which channels carry it, and whose verdict decides
+
+**The offer is sent and read only on a channel this device granted `TRUST_TIER_SAME_ACCOUNT`.** The ABK is what makes a device recognisable as *this* account's over BLE, so a linked account's device holding it could derive this account's EIDs and be taken for one of its own devices by every device of the account. The Link Secret is the value that exists for that relationship, and it is a different value on purpose.
+
+**It is this device's own verdict that gates it, never the tier the peer reported granting.** This device verified the peer's Attestation itself, and that verification is the whole of what makes the peer one of its own; consulting `HelloAck.assigned_tier` instead would make the decision depend on the peer's report about its own trust. The two agree whenever both verifications succeeded, which is the ordinary case, and **where they disagree the exchange must end without losing anything**: a peer that did not reach `SameAccount` sends no offer, the side that did reads none, and the local key stays exactly as it was. **Silence ends the exchange and is never an adoption.**
+
+#### What an offer is refused for
+
+**A key that is not 32 bytes**, refused rather than read as an absence -- the store's own rule, at the other end of the same value.
+
+**A `generation` of `0`**, which is what a peer sending no generation at all produces, and **a `created_at` at or before the epoch**, which is what a peer sending no creation time at all produces. Both are the hazard `VersionRange::ZeroIsNotAVersion` names: proto3 cannot tell an absent scalar from a zero one, so a value obtainable by sending nothing must not be a value the order can be won or lost on. A `created_at` at or before the epoch is also what a clock set before 1970 produces, and such a device would win every tie in the account forever.
+
+**A `created_at` in the future is not refused**, and neither is one implausibly far in the past but after the epoch. A bound there stops nothing an authenticated same-account device could not do honestly, and it does break the case that actually happens, which is a device whose clock is skewed.
