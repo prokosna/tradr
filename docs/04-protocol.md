@@ -105,6 +105,28 @@ There is no open frame. **A stream exists the moment a frame carrying an identif
 
 **What that costs is written down rather than discovered**: a side that opens a stream and then reads before writing has told the peer nothing, so the peer's `accept` does not return. Every exchange here has the opener write first, and the one inversion — the link stream's first frame, where the receiver reads before it writes — is on a stream the *dialler* opened and has already written to.
 
+#### What closes a multiplexed channel, and what bounds its memory
+
+**The framing layer's memory is the bytes it has actually received; the multiplexer's is not, and that is a second allocation surface.** A stream nobody has read from yet holds what has arrived for it, and a stream nobody has accepted yet holds the fact that it exists. Both are peer-controlled, and neither is bounded by anything above.
+
+| Bound | Value | Exceeding it |
+|---|---|---|
+| Undelivered bytes held for one stream | 128 times the channel's own `max_frame_size` — 64 KiB over `ble-gatt` | Fatal to the channel |
+| Streams the peer has opened that nothing has accepted | 64 | Fatal to the channel |
+
+**The per-stream bound is a multiple of `max_frame_size` rather than a number of its own**, because the quantity a plane needs buffered to make progress is one whole frame; everything beyond that is only there to keep the link busy while a reader is slow. Tying it to the value the channel already reports means a transport with a different frame size gets a proportionate window without a second table to keep in step. **The stream bound is a count and not a size** for the same reason the framing layer checks a length before reserving anything: a stream awaiting accept costs its own window, so an unbounded count multiplies the first bound by an unbounded factor. Sixty-four is generous against the concurrency this protocol actually uses — the Data plane runs four unidirectional streams by default and the Browse plane one bidirectional stream per request.
+
+**There is no reset frame, so every violation below is fatal to the channel rather than to one stream.** Four of them:
+
+- a `stream_id` in the receiver's own space naming a stream the receiver never opened
+- a `StreamData` frame on a stream the receiver opened **unidirectionally**, which only it may write to
+- any frame on a stream after that stream's `StreamFin`
+- either bound above, exceeded
+
+**By the time a mux frame exists the peer is authenticated**, so none of these is a race a well-behaved implementation can lose: each is a peer that has broken the contract or a peer that is not the implementation it claims to be. A reset frame would buy a per-stream recovery path for a case where continuing means trusting the next frame from the same sender — and it would buy the state machine that goes with it. Closing is both cheaper and more honest.
+
+**A refusal is permanent, exactly as a malformed length is.** The channel records the first refusal and answers with it forever after, so nothing later reads a stream whose byte sequence has already been decided untrustworthy. That is `FrameDecoder`'s poisoning, one layer up and for the same reason.
+
 #### `max_frame_size` bounds the plane's frames and not the mux's
 
 **These are two framings nested, and one number cannot bound both**: a 512-byte plane frame inside a mux frame makes the mux frame 521 bytes, so a `max_frame_size` that bounded the envelope would leave no legal plane frame able to travel inside it.
