@@ -1,13 +1,19 @@
-//! Noise_IK over a byte stream (WI-M7-007a).
+//! Noise_XX over a byte stream with identity join (ADR-0020).
 
 mod handshake;
 mod resolver;
 
 use std::fmt;
 
-use tradr_core::{KeyStoreError, RngError};
+use tradr_core::{KeyBindingRefused, KeyStoreError, RngError};
 
-pub use handshake::{AwaitingReply, AwaitingResponse, Initiator, NoiseSession, Responder};
+pub use handshake::{
+    AwaitingConfirmation, AwaitingReply, AwaitingResponse, Initiator, NoiseSession, ReadyToConfirm,
+    Responder,
+};
+
+/// The length of the identity join payload in bytes (ADR-0020).
+pub const IDENTITY_JOIN_LEN: usize = 137;
 
 /// The maximum plaintext length in bytes: 65535 minus the 16-byte Poly1305 tag.
 pub const MAX_PLAINTEXT_LEN: usize = 65519;
@@ -23,6 +29,10 @@ pub enum NoiseError {
     Refused,
     /// The plaintext payload exceeds `MAX_PLAINTEXT_LEN`.
     PayloadTooLarge(usize),
+    /// The local key binding does not match this device's agreement key.
+    LocalKeyBinding,
+    /// The peer's key binding was refused by the verifier.
+    PeerKeyBinding(KeyBindingRefused),
 }
 
 impl fmt::Display for NoiseError {
@@ -32,6 +42,10 @@ impl fmt::Display for NoiseError {
             Self::Rng(err) => write!(f, "rng error: {err}"),
             Self::Refused => write!(f, "noise message refused"),
             Self::PayloadTooLarge(len) => write!(f, "payload too large: {len} bytes"),
+            Self::LocalKeyBinding => {
+                write!(f, "local key binding does not cover our agreement key")
+            }
+            Self::PeerKeyBinding(refusal) => write!(f, "peer key binding refused: {refusal}"),
         }
     }
 }
@@ -41,7 +55,8 @@ impl std::error::Error for NoiseError {
         match self {
             Self::KeyStore(err) => Some(err),
             Self::Rng(err) => Some(err),
-            Self::Refused | Self::PayloadTooLarge(_) => None,
+            Self::PeerKeyBinding(err) => Some(err),
+            Self::Refused | Self::PayloadTooLarge(_) | Self::LocalKeyBinding => None,
         }
     }
 }

@@ -6,44 +6,17 @@
 
 use std::fmt;
 
-use p256::ecdsa::signature::Verifier;
-use p256::ecdsa::{Signature as EcdsaSignature, VerifyingKey};
-
+use crate::key_binding::{parse_verifying_key, signature_verifies};
 use tradr_core::{
-    Capabilities, Clock, DeviceId, DomainTag, HelloNonce, KeyBinding, KeyStore, KeyStoreError,
-    NoCommonVersion, PeerHello, PeerHelloAck, PublicIdentity, PublicKeyPoint, Rng, RngError,
-    TrustTier, UnixTime, VersionRange, negotiate_version,
+    Capabilities, Clock, DeviceId, DomainTag, HelloNonce, KeyBinding, KeyBindingRefused, KeyStore,
+    KeyStoreError, NoCommonVersion, PeerHello, PeerHelloAck, PublicIdentity, PublicKeyPoint, Rng,
+    RngError, TrustTier, UnixTime, VersionRange, negotiate_version,
 };
 
 /// The smallest `max_frame_size` a peer's `HelloAck` may advertise
 /// (docs/04, "What step 4 checks besides the signature"): the `ble-gatt`
 /// bound, below which no legal frame fits.
 pub const MIN_NEGOTIABLE_FRAME_SIZE: u32 = 512;
-
-// Parses `point` as a P-256 verifying key, refusing whatever a peer's
-// claimed identity key does not actually encode. Centralised here so
-// every check against a peer's identity key fails the same way.
-fn parse_verifying_key(point: &PublicKeyPoint) -> Result<VerifyingKey, HelloRefused> {
-    VerifyingKey::from_sec1_bytes(point.as_bytes()).map_err(|_| HelloRefused::MalformedIdentityKey)
-}
-
-// Whether `signature`, under `domain` over `message`, verifies against
-// `key`. The only failure mode this reports is "does not verify" --
-// callers attach the domain-specific refusal.
-fn signature_verifies(
-    key: &VerifyingKey,
-    domain: DomainTag,
-    message: &[u8],
-    signature: &tradr_core::Signature,
-) -> bool {
-    let Ok(payload) = domain.payload(message) else {
-        return false;
-    };
-    let Ok(raw) = EcdsaSignature::from_slice(signature.as_bytes()) else {
-        return false;
-    };
-    key.verify(payload.as_ref(), &raw).is_ok()
-}
 
 /// Step 1: our own `Hello`, and the state needed to check the peer's.
 ///
@@ -113,26 +86,24 @@ impl AwaitingPeerHello {
 
         // Check 3: the KeyBinding, in the order docs/04 states it -- the
         // covered key, then the signature, then expiry.
-        let binding = peer.key_binding();
-        if binding.agreement_pub() != peer.agreement_pub() {
-            return Err(HelloRefused::KeyBindingNotForThisAgreementKey);
-        }
-
-        let peer_identity_key = parse_verifying_key(peer.identity_pub())?;
-        if !signature_verifies(
-            &peer_identity_key,
-            DomainTag::KeyBind,
-            binding.agreement_pub().as_bytes(),
-            binding.signature(),
+        if let Err(refusal) = crate::key_binding::verify_key_binding(
+            peer.identity_pub(),
+            peer.key_binding(),
+            peer.agreement_pub(),
+            clock.now(),
         ) {
-            return Err(HelloRefused::KeyBindingSignatureInvalid);
-        }
-
-        let now = clock.now();
-        if binding.not_after() < now {
-            return Err(HelloRefused::KeyBindingExpired {
-                not_after: binding.not_after(),
-                now,
+            return Err(match refusal {
+                KeyBindingRefused::NotForThisAgreementKey => {
+                    HelloRefused::KeyBindingNotForThisAgreementKey
+                }
+                KeyBindingRefused::SignatureInvalid | KeyBindingRefused::MalformedIdentityKey => {
+                    HelloRefused::KeyBindingSignatureInvalid
+                }
+                KeyBindingRefused::Expired { not_after, now } => {
+                    HelloRefused::KeyBindingExpired { not_after, now }
+                }
+                // KeyBindingRefused is non-exhaustive; an unrecognised variant is still a refusal.
+                _ => HelloRefused::KeyBindingSignatureInvalid,
             });
         }
 
@@ -252,7 +223,8 @@ impl AwaitingPeerAck {
     /// session. Check 5 (the nonce signature) first, since it is where the
     /// numbered list puts it; then the two DCR-052 claims.
     pub fn on_peer_hello_ack(self, ack: PeerHelloAck) -> Result<Session, HelloRefused> {
-        let peer_identity_key = parse_verifying_key(&self.peer_identity_pub)?;
+        let peer_identity_key = parse_verifying_key(&self.peer_identity_pub)
+            .map_err(|_| HelloRefused::MalformedIdentityKey)?;
         if !signature_verifies(
             &peer_identity_key,
             DomainTag::Hello,
