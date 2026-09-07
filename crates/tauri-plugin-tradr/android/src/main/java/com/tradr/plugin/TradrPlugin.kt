@@ -19,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
+import app.tauri.Logger
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -324,7 +325,8 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
                         }
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                Logger.error("TradrPlugin: failed to parse sharing shortcuts peers", e)
             }
         }
 
@@ -496,7 +498,8 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
         val notificationManager = NotificationManagerCompat.from(activity)
         try {
             notificationManager.notify(notifId, builder.build())
-        } catch (_: SecurityException) {
+        } catch (e: SecurityException) {
+            Logger.error("TradrPlugin: failed to show incoming transfer notification", e)
         }
 
         invoke.resolve()
