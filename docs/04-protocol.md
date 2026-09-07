@@ -35,7 +35,7 @@
 
 - `len` covers `type` and `payload` together, big-endian, and does not include its own four bytes. It is bounded by the `max_frame_size` negotiated in `Hello` — 1 MiB by default, 512 bytes over BLE. The smallest legal frame is `len == 1`: a type byte with an empty payload
 - `type` selects the message; `payload` is its protobuf encoding
-- On QUIC the control and data planes take separate streams. BLE and relay offer a single stream, so multiplexing is done in-band with a frame variant carrying a `stream_id`
+- On QUIC the control and data planes take separate streams. BLE and relay offer a single stream, so multiplexing is done in-band with a frame variant carrying a `stream_id`, whose shape is [below](#the-in-band-multiplexing-frame)
 
 ### Which `max_frame_size` bounds which direction
 
@@ -64,6 +64,55 @@ This is the whole of the framing layer's security surface, and it is where an un
 
 It carries the `u8` verbatim in both directions and holds no registry. Which code names which message is the planes' business, settled where the frame is already in hand — which is also where "unknown message types are ignored" is applied. Framing is byte-level, so [Change Drill D5](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) does not reach it: replacing protobuf changes what a payload contains, not how it is delimited.
 
+### The in-band multiplexing frame
+
+**The `stream_id` bullet above named a frame variant and never gave it a shape, and `ble-gatt` is the first path that cannot be built without one.** DCR-094.
+
+```
++--------+--------+--------------+---------+
+| len:u32| type:u8| stream_id:u32| payload |
++--------+--------+--------------+---------+
+   BE     0x60/61       BE          bytes
+```
+
+`len` counts `type`, `stream_id` and `payload` together, so the smallest legal mux frame is `len == 5`. Two codes are assigned and the remaining thirty in the range stay unassigned:
+
+| Code | Meaning |
+|---|---|
+| `0x60` | `StreamData` — `payload` is the stream's next bytes, and may be empty |
+| `0x61` | `StreamFin` — the sender has finished writing this stream. `payload` must be empty |
+
+**An unassigned code in this range is refused, never skipped**, which is the opposite of the rule one layer above. The multiplexer is what decides *which stream* bytes belong to, so a skipped mux frame is not an ignored message: it is a hole in some stream's byte sequence, and every later byte on that stream is delivered at a shifted offset to a plane that has no way to notice. That is the malformed-length argument applied one layer up.
+
+**`stream_id` is a fixed four bytes and not a varint.** A varint is a second length-shaped field in the one layer this document calls the whole security surface of framing, and four bytes out of a 512-byte record is under one percent.
+
+#### Stream numbering is QUIC's, and stream 0 falls out of it
+
+The two low bits of `stream_id` carry what a receiver would otherwise have to be told (RFC 9000, section 2.1):
+
+| Bit | 0 | 1 |
+|---|---|---|
+| `stream_id & 0x1` | opened by the **dialling** side | opened by the **listening** side |
+| `stream_id & 0x2` | **bidirectional** | **unidirectional** |
+
+Each side allocates only inside its own space, ascending by four. **Stream 0 is therefore the dialling side's first bidirectional stream, which is the Control stream this document already requires** — "bidirectional stream 0, always exactly one" stops being an assertion and becomes the first value the scheme produces. A `stream_id` whose owner bit names the receiver's own space is **refused and the channel closes**: without that rule a peer allocates in the space this side allocates from, and stream 0 is the first thing it would take.
+
+The scheme leaves 2^30 streams per side per direction. Exhausting one is an error at `open`, never a wrap: a wrapped identifier reopens a stream that has already been finished.
+
+#### A stream is opened by its first frame
+
+There is no open frame. **A stream exists the moment a frame carrying an identifier not yet seen arrives**, exactly as a QUIC stream does. An explicit open would carry nothing the first frame does not — the owner and the directionality are in the number, and the identifier is used once — while adding a duplicate open and an out-of-order open to the refusals.
+
+**What that costs is written down rather than discovered**: a side that opens a stream and then reads before writing has told the peer nothing, so the peer's `accept` does not return. Every exchange here has the opener write first, and the one inversion — the link stream's first frame, where the receiver reads before it writes — is on a stream the *dialler* opened and has already written to.
+
+#### `max_frame_size` bounds the plane's frames and not the mux's
+
+**These are two framings nested, and one number cannot bound both**: a 512-byte plane frame inside a mux frame makes the mux frame 521 bytes, so a `max_frame_size` that bounded the envelope would leave no legal plane frame able to travel inside it.
+
+A stream is a **byte** sequence, not a frame sequence. The multiplexer chops what a stream is given into mux frames of whatever the underlying link carries in one record, and the plane's decoder reassembles its own frames out of the bytes that come back — which is what a plane already does on QUIC, where `quinn` chose the record boundaries instead. So `max_frame_size` keeps its meaning unchanged: the largest **plane** frame a side will receive, 512 over `ble-gatt`. The mux frame's own bound is the link's record size, which the channel is constructed with and never negotiates.
+
+**A mux code never appears on a plane's stream**, and `classify` already refuses one there as belonging to no plane's range. The envelope and its contents travel one layer apart.
+
 ## The three planes
 
 | Plane | Role | Streams |
@@ -82,7 +131,7 @@ Every code is listed here and nowhere else, and the ranges are by plane.
 | `0x01`-`0x1f` | Control | `0x01` `Hello`, `0x02` `HelloAck`, `0x03` `TransferOffer`, `0x04` `TransferAccept`, `0x05` `TransferReject`, `0x06` `TransferComplete`, `0x07` `TransferAbort`, `0x08` `PathChanged`, `0x09` `KeepAlive`, `0x0a` `ItemComplete`, `0x0b` `TransferProgress`, `0x0c` `LinkReply`, `0x0d` `LinkApprove`, `0x0e` `LinkDecline`, `0x10` `BroadcastKeyOffer` |
 | `0x20`-`0x3f` | Data | `0x20` `ChunkRequest`, `0x21` `ChunkRerequest`, `0x22` `ChunkData`, `0x23` `FlowControl` |
 | `0x40`-`0x5f` | Browse | `0x40` `ListDir`, `0x41` `DirListing`, `0x42` `Stat`, `0x43` `StatResult`, `0x44` `ReadFile`, `0x45` `ReadFileBegin`, `0x46` `WriteFile`, `0x47` `Mkdir`, `0x48` `Delete`, `0x49` `Rename`, `0x4a` `Ack`, `0x4b` `Watch`, `0x4c` `FsEvent` |
-| `0x60`-`0x7f` | — | Reserved for the in-band multiplexing variant the `stream_id` bullet above describes, which `ble-gatt` and `relay` need and the QUIC paths never send |
+| `0x60`-`0x7f` | — | The in-band multiplexing frame above, which `ble-gatt` and `relay` need and the QUIC paths never send: `0x60` `StreamData`, `0x61` `StreamFin`. It travels one layer below the planes, so it is never valid on a plane's stream, and an unassigned code in this range is refused rather than skipped |
 | `0x80`-`0xff` | — | Unassigned |
 
 `brokr.proto`'s messages carry no code. They travel on the Brokr's WebSocket, which is not a framed Tradr stream.
