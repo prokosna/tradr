@@ -5769,6 +5769,7 @@ dependencies = [
  "snow",
  "tokio",
  "tradr-core",
+ "tradr-proto",
  "x509-cert",
 ]
 

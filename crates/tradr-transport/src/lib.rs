@@ -2,6 +2,7 @@
 //! The Transport trait, five implementations, path selection.
 
 pub mod certificate;
+pub mod mux;
 pub mod noise;
 pub mod quic;
 pub mod tls;
