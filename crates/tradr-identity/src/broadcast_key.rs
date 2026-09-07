@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tradr_core::{
-    ACCOUNT_BROADCAST_KEY_LEN, AccountBroadcastKey, Rng, RngError, SecretStore, SecretStoreError,
-    UnixTime,
+    ACCOUNT_BROADCAST_KEY_LEN, AccountBroadcastKey, BroadcastKeyOffer, BroadcastKeyOfferError, Rng,
+    RngError, SecretStore, SecretStoreError, UnixTime, next_generation,
 };
 
 use crate::attestation::AccountId;
@@ -24,6 +24,7 @@ pub const ACCOUNT_BROADCAST_KEY_SLOT: &str = "account-broadcast-key";
 struct AccountBroadcastKeyRecord {
     account_iss: String,
     account_sub: String,
+    generation: u32,
     created_at: i64,
 }
 
@@ -42,6 +43,8 @@ pub enum BroadcastKeyRegistryError {
     Rng(RngError),
     /// The secret store failed during an operation.
     Secret(SecretStoreError),
+    /// An offer was constructed with an invalid generation or creation time.
+    Offer(BroadcastKeyOfferError),
     /// The record write failed and restoring the previous secret also failed.
     SecretRollbackFailed {
         /// Why the record write failed.
@@ -63,6 +66,7 @@ impl fmt::Display for BroadcastKeyRegistryError {
             Self::SecretMissing => write!(f, "account broadcast key slot is empty"),
             Self::Rng(source) => write!(f, "entropy source error: {source}"),
             Self::Secret(source) => write!(f, "secret store error: {source}"),
+            Self::Offer(source) => write!(f, "broadcast key offer error: {source}"),
             Self::SecretRollbackFailed { persist, restore } => write!(
                 f,
                 "{persist}, and rolling back the secret store also failed: {restore}"
@@ -78,6 +82,7 @@ impl std::error::Error for BroadcastKeyRegistryError {
             Self::Io(source) => Some(source),
             Self::Secret(source) => Some(source),
             Self::Rng(source) => Some(source),
+            Self::Offer(source) => Some(source),
             Self::SecretRollbackFailed { persist, .. } => Some(persist.as_ref()),
             Self::Malformed(_) | Self::WrongAccount | Self::SecretMissing => None,
         }
@@ -90,6 +95,7 @@ impl std::error::Error for BroadcastKeyRegistryError {
 pub struct BroadcastKeyRegistry {
     path: PathBuf,
     account: AccountId,
+    generation: Option<u32>,
     created_at: Option<UnixTime>,
 }
 
@@ -106,6 +112,7 @@ impl BroadcastKeyRegistry {
             return Ok(Self {
                 path: path.to_path_buf(),
                 account: account.clone(),
+                generation: None,
                 created_at: None,
             });
         };
@@ -117,9 +124,22 @@ impl BroadcastKeyRegistry {
             return Err(BroadcastKeyRegistryError::WrongAccount);
         }
 
+        if record.generation == 0 {
+            return Err(BroadcastKeyRegistryError::Malformed(
+                "generation must be non-zero".to_string(),
+            ));
+        }
+
+        if record.created_at <= 0 {
+            return Err(BroadcastKeyRegistryError::Malformed(
+                "created_at must be after the Unix epoch".to_string(),
+            ));
+        }
+
         Ok(Self {
             path: path.to_path_buf(),
             account: account.clone(),
+            generation: Some(record.generation),
             created_at: Some(UnixTime::from_secs(record.created_at)),
         })
     }
@@ -129,19 +149,24 @@ impl BroadcastKeyRegistry {
         &self.account
     }
 
+    /// The generation of the current key, if a record exists.
+    pub fn generation(&self) -> Option<u32> {
+        self.generation
+    }
+
     /// When the current key was created, if a record exists.
     pub fn created_at(&self) -> Option<UnixTime> {
         self.created_at
     }
 
-    /// Loads the current Account Broadcast Key from the secret store.
-    pub fn key(
+    /// Loads the current Account Broadcast Key offer from the secret store.
+    pub fn offer(
         &self,
         secrets: &dyn SecretStore,
-    ) -> Result<Option<AccountBroadcastKey>, BroadcastKeyRegistryError> {
-        if self.created_at.is_none() {
+    ) -> Result<Option<BroadcastKeyOffer>, BroadcastKeyRegistryError> {
+        let (Some(generation), Some(created_at)) = (self.generation, self.created_at) else {
             return Ok(None);
-        }
+        };
 
         let stored = secrets
             .load(ACCOUNT_BROADCAST_KEY_SLOT)
@@ -151,9 +176,14 @@ impl BroadcastKeyRegistry {
             return Err(BroadcastKeyRegistryError::SecretMissing);
         };
 
-        AccountBroadcastKey::from_bytes(&bytes)
-            .map(Some)
-            .map_err(|source| BroadcastKeyRegistryError::Malformed(source.to_string()))
+        let key = AccountBroadcastKey::from_bytes(&bytes)
+            .map_err(|source| BroadcastKeyRegistryError::Malformed(source.to_string()))?;
+
+        // load refused generation == 0 and created_at <= 0, so offer construction cannot fail.
+        let offer = BroadcastKeyOffer::new(key, generation, created_at)
+            .expect("offer inputs were validated when the record was loaded");
+
+        Ok(Some(offer))
     }
 
     /// Generates a fresh 32-byte key from `rng` and persists both halves.
@@ -162,21 +192,23 @@ impl BroadcastKeyRegistry {
         rng: &dyn Rng,
         now: UnixTime,
         secrets: &dyn SecretStore,
-    ) -> Result<AccountBroadcastKey, BroadcastKeyRegistryError> {
+    ) -> Result<BroadcastKeyOffer, BroadcastKeyRegistryError> {
         let mut bytes = [0u8; ACCOUNT_BROADCAST_KEY_LEN];
         rng.fill_bytes(&mut bytes)
             .map_err(BroadcastKeyRegistryError::Rng)?;
         let key = AccountBroadcastKey::from_bytes(&bytes)
             .expect("ACCOUNT_BROADCAST_KEY_LEN bytes is an account broadcast key");
-        self.adopt(&key, now, secrets)?;
-        Ok(key)
+        let generation = next_generation(self.generation);
+        let offer = BroadcastKeyOffer::new(key, generation, now)
+            .map_err(BroadcastKeyRegistryError::Offer)?;
+        self.adopt(&offer, secrets)?;
+        Ok(offer)
     }
 
-    /// Adopts a key and creation time supplied by a caller, persisting both halves.
+    /// Adopts a key offer supplied by a caller, persisting both halves.
     pub fn adopt(
         &mut self,
-        key: &AccountBroadcastKey,
-        created_at: UnixTime,
+        offer: &BroadcastKeyOffer,
         secrets: &dyn SecretStore,
     ) -> Result<(), BroadcastKeyRegistryError> {
         let previous = secrets
@@ -184,13 +216,14 @@ impl BroadcastKeyRegistry {
             .map_err(BroadcastKeyRegistryError::Secret)?;
 
         secrets
-            .store(ACCOUNT_BROADCAST_KEY_SLOT, key.as_bytes())
+            .store(ACCOUNT_BROADCAST_KEY_SLOT, offer.key().as_bytes())
             .map_err(BroadcastKeyRegistryError::Secret)?;
 
         let record = AccountBroadcastKeyRecord {
             account_iss: self.account.iss().to_string(),
             account_sub: self.account.sub().to_string(),
-            created_at: created_at.as_secs(),
+            generation: offer.generation(),
+            created_at: offer.created_at().as_secs(),
         };
 
         if let Err(persist_err) = persist(&self.path, &record) {
@@ -207,7 +240,8 @@ impl BroadcastKeyRegistry {
             });
         }
 
-        self.created_at = Some(created_at);
+        self.generation = Some(offer.generation());
+        self.created_at = Some(offer.created_at());
         Ok(())
     }
 

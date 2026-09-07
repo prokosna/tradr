@@ -75,7 +75,7 @@ Every code is listed here and nowhere else, and the ranges are by plane.
 | Range | Plane | Assigned |
 |---|---|---|
 | `0x00` | — | **Never valid.** A zero byte is what padding, a truncated write and an uninitialised buffer all produce, so it is the one code that must never mean a message |
-| `0x01`-`0x1f` | Control | `0x01` `Hello`, `0x02` `HelloAck`, `0x03` `TransferOffer`, `0x04` `TransferAccept`, `0x05` `TransferReject`, `0x06` `TransferComplete`, `0x07` `TransferAbort`, `0x08` `PathChanged`, `0x09` `KeepAlive`, `0x0a` `ItemComplete`, `0x0b` `TransferProgress`, `0x0c` `LinkReply`, `0x0d` `LinkApprove`, `0x0e` `LinkDecline` |
+| `0x01`-`0x1f` | Control | `0x01` `Hello`, `0x02` `HelloAck`, `0x03` `TransferOffer`, `0x04` `TransferAccept`, `0x05` `TransferReject`, `0x06` `TransferComplete`, `0x07` `TransferAbort`, `0x08` `PathChanged`, `0x09` `KeepAlive`, `0x0a` `ItemComplete`, `0x0b` `TransferProgress`, `0x0c` `LinkReply`, `0x0d` `LinkApprove`, `0x0e` `LinkDecline`, `0x10` `BroadcastKeyOffer` |
 | `0x20`-`0x3f` | Data | `0x20` `ChunkRequest`, `0x21` `ChunkRerequest`, `0x22` `ChunkData`, `0x23` `FlowControl` |
 | `0x40`-`0x5f` | Browse | `0x40` `ListDir`, `0x41` `DirListing`, `0x42` `Stat`, `0x43` `StatResult`, `0x44` `ReadFile`, `0x45` `ReadFileBegin`, `0x46` `WriteFile`, `0x47` `Mkdir`, `0x48` `Delete`, `0x49` `Rename`, `0x4a` `Ack`, `0x4b` `Watch`, `0x4c` `FsEvent` |
 | `0x60`-`0x7f` | — | Reserved for the in-band multiplexing variant the `stream_id` bullet above describes, which `ble-gatt` and `relay` need and the QUIC paths never send |
@@ -86,6 +86,12 @@ Every code is listed here and nowhere else, and the ranges are by plane.
 ### A code is assigned once and never reused
 
 Retiring a message retires its code with it, the way a removed protobuf field becomes `reserved`. A reused code is a peer of an older version decoding new bytes as the message it used to know, and protobuf's own tolerance makes that succeed quietly rather than fail.
+
+#### `0x0f` is left unassigned on purpose, and `BroadcastKeyOffer` took `0x10`
+
+**`0x0f` is this document's own worked example of an unassigned code**, in the two sections below on plane ownership and on what "ignored" covers, in `tradr-proto`'s `message_type.rs` doc comment, and in four test files. Assigning it would have rewritten the illustration of a rule rather than merely taken the next number. **Control's range has thirty-one codes still free**, so keeping one hole for the example costs a byte nobody is short of, and reclaiming it would cost six files -- which is the count a Change Drill exists to notice.
+
+It stays unassigned permanently, the way a retired code does, so nothing later has to re-derive why it was skipped.
 
 ### A code names a plane, and the wrong plane is refused rather than ignored
 
