@@ -186,12 +186,11 @@ impl BroadcastKeyRegistry {
         Ok(Some(offer))
     }
 
-    /// Generates a fresh 32-byte key from `rng` and persists both halves.
-    pub fn generate(
-        &mut self,
+    /// Draws a fresh Account Broadcast Key offer from `rng` at `now` without persisting it.
+    pub fn draw(
+        &self,
         rng: &dyn Rng,
         now: UnixTime,
-        secrets: &dyn SecretStore,
     ) -> Result<BroadcastKeyOffer, BroadcastKeyRegistryError> {
         let mut bytes = [0u8; ACCOUNT_BROADCAST_KEY_LEN];
         rng.fill_bytes(&mut bytes)
@@ -201,6 +200,17 @@ impl BroadcastKeyRegistry {
         let generation = next_generation(self.generation);
         let offer = BroadcastKeyOffer::new(key, generation, now)
             .map_err(BroadcastKeyRegistryError::Offer)?;
+        Ok(offer)
+    }
+
+    /// Generates a fresh 32-byte key from `rng` and persists both halves.
+    pub fn generate(
+        &mut self,
+        rng: &dyn Rng,
+        now: UnixTime,
+        secrets: &dyn SecretStore,
+    ) -> Result<BroadcastKeyOffer, BroadcastKeyRegistryError> {
+        let offer = self.draw(rng, now)?;
         self.adopt(&offer, secrets)?;
         Ok(offer)
     }
