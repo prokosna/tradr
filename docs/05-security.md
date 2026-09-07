@@ -402,6 +402,18 @@ Wire fields are therefore named for their role — `identity_pub` and `agreement
 
 Pinning the encoding is not cosmetic. The Attestation nonce is `BLAKE3(identity_pub || agreement_pub)`, so two implementations that disagree about how a point is encoded compute different nonces and **fail every verification against each other**, with nothing in the error to say why.
 
+#### What the `snow` resolver decides, measured 2026-09-07
+
+The bullet above says the static and ephemeral keys resolve to separate `Dh` instances. **Which instance is which is decided by call order and by nothing else**, so the rule is written here rather than left to be rediscovered: `Builder::build` calls `CryptoResolver::resolve_dh` exactly twice, the first answer becomes the static key and the second the ephemeral, and Tradr's resolver hands out the `KeyStore`-backed `Dh` on the first call only. A resolver that answered both calls the same way would still complete a handshake between two Tradr devices, because both sides would be equally wrong -- so this is a rule no functional test can be relied on to state, and it is stated here instead.
+
+Three consequences of the feature set follow, and all three were measured rather than read.
+
+- **`snow`'s `default-resolver` does not compile without `use-curve25519`**, whatever curve the pattern names. The `DHChoice` match in the default resolver has no wildcard arm, so a build carrying only `use-p256` fails on a curve this design rejected. The feature is enabled to satisfy the compiler; the pattern string fixes P-256 for both parties, and `DHChoice::Curve25519` is unreachable from a constant pattern.
+- **`use-getrandom` is deliberately left off, and that is what makes rule B7 mechanical here.** Without it `DefaultResolver::resolve_rng` returns `None` and a build refuses to produce a `HandshakeState` at all, so the injected `Rng` is not merely the preferred source of the ephemeral key -- it is the only source that exists. A promise a review has to keep becomes a link error.
+- **The handshake fits BLE's frame without fragmenting.** `Noise_IK_P256_ChaChaPoly_BLAKE2s` writes a 162-byte first message and an 81-byte second, both inside the 512-byte `max_frame_size` [docs/04](04-protocol.md#framing) negotiates for BLE. A transport-mode message carries at most 65535 bytes, so at most 65519 bytes of plaintext, and `snow` refuses one byte more.
+
+**A local failure and a peer's bad message must not arrive as the same error.** `Dh::dh` and `Random::try_fill_bytes` can only return `snow`'s own `Error::Dh` and `Error::Rng`, which carry nothing of the `KeyStoreError` or `RngError` underneath -- so a secure element that refused an operation and a peer that sent nonsense are indistinguishable at the point `snow` reports them. The implementation therefore records the underlying error where it happens and reports that in preference to the generic refusal. Losing it would be rule F6 in the one place the answer decides whether to retry or to tell the user their key store is broken.
+
 ## Every signature carries a domain tag
 
 The identity key signs in six places, and until this was written down only one of them said what it was signing for.
