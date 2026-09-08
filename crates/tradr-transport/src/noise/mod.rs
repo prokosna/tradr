@@ -1,16 +1,20 @@
 //! Noise_XX over a byte stream with identity join (ADR-0020).
 
+mod channel;
 mod handshake;
+mod link;
 mod resolver;
 
 use std::fmt;
 
 use tradr_core::{KeyBindingRefused, KeyStoreError, RngError};
 
+pub use channel::{BLE_GATT_MAX_FRAME_SIZE, NoiseChannel, NoiseChannelConfig};
 pub use handshake::{
     AwaitingConfirmation, AwaitingReply, AwaitingResponse, Initiator, NoiseSession, ReadyToConfirm,
     Responder,
 };
+pub use link::{LinkSink, LinkSource};
 
 /// The length of the identity join payload in bytes (ADR-0020).
 pub const IDENTITY_JOIN_LEN: usize = 137;
