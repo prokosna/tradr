@@ -1,7 +1,9 @@
 //! Tests for the sans-io stream multiplexer state machine (docs/04-protocol.md).
 
 use tradr_proto::framing::{Frame, FrameDecoder};
-use tradr_proto::mux::{MuxKind, StreamId, StreamOpener, encode_mux_frame, mux_frame_from_wire};
+use tradr_proto::mux::{
+    MuxFrame, MuxKind, StreamId, StreamOpener, encode_mux_frame, mux_frame_from_wire,
+};
 use tradr_transport::mux::{
     MAX_PENDING_STREAMS, MIN_RECORD_LIMIT, Multiplexer, MuxFault, MuxRefusal, ReadOutcome,
 };
@@ -13,6 +15,14 @@ fn decode_one_frame(raw: &[u8]) -> Frame {
         Ok(Some(frame)) => frame,
         Ok(None) => panic!("expected complete frame in buffer"),
         Err(err) => panic!("frame decode error: {err}"),
+    }
+}
+
+fn parse_mux_frame(raw: &[u8]) -> MuxFrame {
+    let frame = decode_one_frame(raw);
+    match mux_frame_from_wire(&frame) {
+        Ok(mf) => mf,
+        Err(err) => panic!("unexpected mux parse error: {err}"),
     }
 }
 
@@ -677,4 +687,876 @@ fn accept_order_is_first_in_first_out() {
     assert_eq!(listener.accept_unidirectional(), Some(uni_streams[1]));
     assert_eq!(listener.accept_unidirectional(), Some(uni_streams[2]));
     assert_eq!(listener.accept_unidirectional(), None);
+}
+
+#[test]
+fn retired_bidirectional_stream_refuses_further_frames_as_frame_after_fin_and_closes_channel() {
+    let mut dialler = match Multiplexer::new(StreamOpener::Dialler, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected dialler init error: {err}"),
+    };
+    let mut listener = match Multiplexer::new(StreamOpener::Listener, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected listener init error: {err}"),
+    };
+
+    let stream = match dialler.open_bidirectional() {
+        Ok(id) => id,
+        Err(err) => panic!("unexpected open error: {err}"),
+    };
+    let dialler_fin = match dialler.finish(stream) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected finish error: {err}"),
+    };
+    let dialler_fin_mf = parse_mux_frame(&dialler_fin);
+    match listener.on_frame(&dialler_fin_mf) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    let accepted = match listener.accept_bidirectional() {
+        Some(id) => id,
+        None => panic!("expected accepted stream"),
+    };
+    assert_eq!(accepted, stream);
+
+    let listener_fin = match listener.finish(accepted) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected finish error: {err}"),
+    };
+    let listener_fin_mf = parse_mux_frame(&listener_fin);
+    match dialler.on_frame(&listener_fin_mf) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    let mut buf = [0u8; 16];
+    assert_eq!(dialler.read(stream, &mut buf), Ok(ReadOutcome::Finished));
+
+    dialler.retire(stream);
+    assert_eq!(
+        dialler.read(stream, &mut buf),
+        Err(MuxFault::NoSuchStream(stream))
+    );
+
+    let extra_raw = match encode_mux_frame(MuxKind::Data, stream, b"late", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    let extra_mf = parse_mux_frame(&extra_raw);
+    assert_eq!(
+        dialler.on_frame(&extra_mf),
+        Err(MuxRefusal::FrameAfterFin(stream))
+    );
+    assert_eq!(dialler.refusal(), Some(MuxRefusal::FrameAfterFin(stream)));
+}
+
+#[test]
+fn finished_and_drained_stream_before_retire_remains_readable_and_answers_finished() {
+    let mut dialler = match Multiplexer::new(StreamOpener::Dialler, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected dialler init error: {err}"),
+    };
+    let mut listener = match Multiplexer::new(StreamOpener::Listener, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected listener init error: {err}"),
+    };
+
+    let stream = match dialler.open_bidirectional() {
+        Ok(id) => id,
+        Err(err) => panic!("unexpected open error: {err}"),
+    };
+    let dialler_fin = match dialler.finish(stream) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected finish error: {err}"),
+    };
+    let dialler_fin_mf = parse_mux_frame(&dialler_fin);
+    match listener.on_frame(&dialler_fin_mf) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+    let accepted = match listener.accept_bidirectional() {
+        Some(id) => id,
+        None => panic!("expected accepted stream"),
+    };
+    let listener_fin = match listener.finish(accepted) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected finish error: {err}"),
+    };
+    let listener_fin_mf = parse_mux_frame(&listener_fin);
+    match dialler.on_frame(&listener_fin_mf) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    let mut buf = [0u8; 16];
+    assert_eq!(dialler.read(stream, &mut buf), Ok(ReadOutcome::Finished));
+    assert_eq!(dialler.read(stream, &mut buf), Ok(ReadOutcome::Finished));
+
+    dialler.retire(stream);
+    assert_eq!(
+        dialler.read(stream, &mut buf),
+        Err(MuxFault::NoSuchStream(stream))
+    );
+}
+
+#[test]
+fn retire_called_with_buffered_bytes_does_not_forget_stream_until_drained() {
+    let mut dialler = match Multiplexer::new(StreamOpener::Dialler, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected dialler init error: {err}"),
+    };
+    let stream = match dialler.open_bidirectional() {
+        Ok(id) => id,
+        Err(err) => panic!("unexpected open error: {err}"),
+    };
+    match dialler.finish(stream) {
+        Ok(_) => {}
+        Err(err) => panic!("unexpected finish error: {err}"),
+    }
+
+    let data_raw = match encode_mux_frame(MuxKind::Data, stream, b"hello world", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    match dialler.on_frame(&parse_mux_frame(&data_raw)) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+    let fin_raw = match encode_mux_frame(MuxKind::Fin, stream, &[], 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    match dialler.on_frame(&parse_mux_frame(&fin_raw)) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    dialler.retire(stream);
+
+    let mut buf = [0u8; 5];
+    assert_eq!(dialler.read(stream, &mut buf), Ok(ReadOutcome::Read(5)));
+    assert_eq!(&buf, b"hello");
+
+    let mut remaining = [0u8; 16];
+    assert_eq!(
+        dialler.read(stream, &mut remaining),
+        Ok(ReadOutcome::Read(6))
+    );
+    assert_eq!(&remaining[..6], b" world");
+
+    assert_eq!(
+        dialler.read(stream, &mut buf),
+        Err(MuxFault::NoSuchStream(stream))
+    );
+}
+
+#[test]
+fn retire_called_before_local_finish_preserves_stream_until_finished() {
+    let mut dialler = match Multiplexer::new(StreamOpener::Dialler, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected dialler init error: {err}"),
+    };
+    let stream = match dialler.open_bidirectional() {
+        Ok(id) => id,
+        Err(err) => panic!("unexpected open error: {err}"),
+    };
+
+    let fin_raw = match encode_mux_frame(MuxKind::Fin, stream, &[], 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    match dialler.on_frame(&parse_mux_frame(&fin_raw)) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    dialler.retire(stream);
+
+    let frames = match dialler.write(stream, b"still open") {
+        Ok(f) => f,
+        Err(err) => panic!("unexpected write error: {err}"),
+    };
+    assert_eq!(frames.len(), 1);
+
+    match dialler.finish(stream) {
+        Ok(_) => {}
+        Err(err) => panic!("unexpected finish error: {err}"),
+    }
+
+    assert_eq!(
+        dialler.write(stream, b"after"),
+        Err(MuxFault::NoSuchStream(stream))
+    );
+    assert_eq!(dialler.finish(stream), Err(MuxFault::NoSuchStream(stream)));
+}
+
+#[test]
+fn retiring_unknown_twice_or_after_refusal_is_idempotent_and_does_not_panic() {
+    let mut dialler = match Multiplexer::new(StreamOpener::Dialler, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected dialler init error: {err}"),
+    };
+
+    dialler.retire(StreamId::new(42));
+    dialler.retire(StreamId::new(0));
+
+    let stream = match dialler.open_bidirectional() {
+        Ok(id) => id,
+        Err(err) => panic!("unexpected open error: {err}"),
+    };
+    match dialler.finish(stream) {
+        Ok(_) => {}
+        Err(err) => panic!("unexpected finish error: {err}"),
+    }
+    let fin_raw = match encode_mux_frame(MuxKind::Fin, stream, &[], 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    match dialler.on_frame(&parse_mux_frame(&fin_raw)) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    dialler.retire(stream);
+    let mut buf = [0u8; 16];
+    assert_eq!(
+        dialler.read(stream, &mut buf),
+        Err(MuxFault::NoSuchStream(stream))
+    );
+    dialler.retire(stream);
+    assert_eq!(
+        dialler.read(stream, &mut buf),
+        Err(MuxFault::NoSuchStream(stream))
+    );
+
+    let spoof_raw = match encode_mux_frame(MuxKind::Data, StreamId::new(4), b"spoof", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    let refusal = dialler.on_frame(&parse_mux_frame(&spoof_raw));
+    assert_eq!(
+        refusal,
+        Err(MuxRefusal::PeerAllocatedInOurSpace(StreamId::new(4)))
+    );
+
+    dialler.retire(stream);
+    dialler.retire(StreamId::new(999));
+    assert_eq!(
+        dialler.refusal(),
+        Some(MuxRefusal::PeerAllocatedInOurSpace(StreamId::new(4)))
+    );
+}
+
+#[test]
+fn peer_first_frame_three_steps_above_base_implicitly_opens_lower_unopened_streams() {
+    let mut listener = match Multiplexer::new(StreamOpener::Listener, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected listener init error: {err}"),
+    };
+
+    let stream8 = StreamId::new(8);
+    let raw = match encode_mux_frame(MuxKind::Data, stream8, b"payload on eight", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    match listener.on_frame(&parse_mux_frame(&raw)) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    assert_eq!(listener.accept_bidirectional(), Some(StreamId::new(0)));
+    assert_eq!(listener.accept_bidirectional(), Some(StreamId::new(4)));
+    assert_eq!(listener.accept_bidirectional(), Some(StreamId::new(8)));
+    assert_eq!(listener.accept_bidirectional(), None);
+
+    let mut buf = [0u8; 32];
+    assert_eq!(
+        listener.read(StreamId::new(0), &mut buf),
+        Ok(ReadOutcome::Pending)
+    );
+    assert_eq!(
+        listener.read(StreamId::new(4), &mut buf),
+        Ok(ReadOutcome::Pending)
+    );
+    assert_eq!(
+        listener.read(StreamId::new(8), &mut buf),
+        Ok(ReadOutcome::Read(16))
+    );
+    assert_eq!(&buf[..16], b"payload on eight");
+}
+
+#[test]
+fn implicit_opening_exceeding_pending_stream_cap_is_refused_with_too_many_pending_streams() {
+    assert_eq!(MAX_PENDING_STREAMS, 64);
+    let mut listener = match Multiplexer::new(StreamOpener::Listener, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected listener init error: {err}"),
+    };
+
+    let excessive_stream = StreamId::new(256);
+    let raw = match encode_mux_frame(MuxKind::Data, excessive_stream, b"overflow", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    let result = listener.on_frame(&parse_mux_frame(&raw));
+    assert_eq!(result, Err(MuxRefusal::TooManyPendingStreams));
+    assert_eq!(listener.refusal(), Some(MuxRefusal::TooManyPendingStreams));
+}
+
+#[test]
+fn implicit_opening_does_not_cross_directionality_between_bidi_and_uni() {
+    let mut listener_uni_target = match Multiplexer::new(StreamOpener::Listener, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected listener init error: {err}"),
+    };
+    let uni6 = StreamId::new(6);
+    let raw_uni = match encode_mux_frame(MuxKind::Data, uni6, b"uni data", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    match listener_uni_target.on_frame(&parse_mux_frame(&raw_uni)) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    assert_eq!(listener_uni_target.accept_bidirectional(), None);
+    let mut buf = [0u8; 16];
+    assert_eq!(
+        listener_uni_target.read(StreamId::new(0), &mut buf),
+        Err(MuxFault::NoSuchStream(StreamId::new(0)))
+    );
+    assert_eq!(
+        listener_uni_target.read(StreamId::new(4), &mut buf),
+        Err(MuxFault::NoSuchStream(StreamId::new(4)))
+    );
+    assert_eq!(
+        listener_uni_target.accept_unidirectional(),
+        Some(StreamId::new(2))
+    );
+    assert_eq!(
+        listener_uni_target.accept_unidirectional(),
+        Some(StreamId::new(6))
+    );
+    assert_eq!(listener_uni_target.accept_unidirectional(), None);
+
+    let mut listener_bidi_target = match Multiplexer::new(StreamOpener::Listener, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected listener init error: {err}"),
+    };
+    let bidi4 = StreamId::new(4);
+    let raw_bidi = match encode_mux_frame(MuxKind::Data, bidi4, b"bidi data", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    match listener_bidi_target.on_frame(&parse_mux_frame(&raw_bidi)) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    assert_eq!(listener_bidi_target.accept_unidirectional(), None);
+    assert_eq!(
+        listener_bidi_target.read(StreamId::new(2), &mut buf),
+        Err(MuxFault::NoSuchStream(StreamId::new(2)))
+    );
+    assert_eq!(
+        listener_bidi_target.accept_bidirectional(),
+        Some(StreamId::new(0))
+    );
+    assert_eq!(
+        listener_bidi_target.accept_bidirectional(),
+        Some(StreamId::new(4))
+    );
+    assert_eq!(listener_bidi_target.accept_bidirectional(), None);
+}
+
+#[test]
+fn unidirectional_stream_retires_without_unused_direction_fin() {
+    let mut listener = match Multiplexer::new(StreamOpener::Listener, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected listener init error: {err}"),
+    };
+    let peer_uni = StreamId::new(2);
+    let data_raw = match encode_mux_frame(MuxKind::Data, peer_uni, b"peer uni data", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    match listener.on_frame(&parse_mux_frame(&data_raw)) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+    let fin_raw = match encode_mux_frame(MuxKind::Fin, peer_uni, &[], 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    match listener.on_frame(&parse_mux_frame(&fin_raw)) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    assert_eq!(listener.accept_unidirectional(), Some(peer_uni));
+    let mut buf = [0u8; 32];
+    assert_eq!(listener.read(peer_uni, &mut buf), Ok(ReadOutcome::Read(13)));
+    assert_eq!(&buf[..13], b"peer uni data");
+
+    listener.retire(peer_uni);
+    assert_eq!(
+        listener.read(peer_uni, &mut buf),
+        Err(MuxFault::NoSuchStream(peer_uni))
+    );
+
+    let extra_raw = match encode_mux_frame(MuxKind::Data, peer_uni, b"more", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    assert_eq!(
+        listener.on_frame(&parse_mux_frame(&extra_raw)),
+        Err(MuxRefusal::FrameAfterFin(peer_uni))
+    );
+
+    let mut local_listener = match Multiplexer::new(StreamOpener::Listener, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected listener init error: {err}"),
+    };
+    let local_uni = match local_listener.open_unidirectional() {
+        Ok(id) => id,
+        Err(err) => panic!("unexpected open error: {err}"),
+    };
+    assert_eq!(local_uni, StreamId::new(3));
+    match local_listener.write(local_uni, b"local payload") {
+        Ok(_) => {}
+        Err(err) => panic!("unexpected write error: {err}"),
+    }
+    match local_listener.finish(local_uni) {
+        Ok(_) => {}
+        Err(err) => panic!("unexpected finish error: {err}"),
+    }
+
+    local_listener.retire(local_uni);
+    assert_eq!(
+        local_listener.write(local_uni, b"more"),
+        Err(MuxFault::NoSuchStream(local_uni))
+    );
+    assert_eq!(
+        local_listener.finish(local_uni),
+        Err(MuxFault::NoSuchStream(local_uni))
+    );
+    let peer_frame = match encode_mux_frame(MuxKind::Data, local_uni, b"echo", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    assert_eq!(
+        local_listener.on_frame(&parse_mux_frame(&peer_frame)),
+        Err(MuxRefusal::FrameAfterFin(local_uni))
+    );
+}
+
+#[test]
+fn repeated_open_finish_drain_retire_cycles_do_not_leak_streams_in_map() {
+    let mut dialler = match Multiplexer::new(StreamOpener::Dialler, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected dialler init error: {err}"),
+    };
+    let mut listener = match Multiplexer::new(StreamOpener::Listener, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected listener init error: {err}"),
+    };
+
+    let mut opened = Vec::new();
+    let mut buf = [0u8; 16];
+    for _ in 0..100 {
+        let stream = match dialler.open_bidirectional() {
+            Ok(id) => id,
+            Err(err) => panic!("unexpected open error: {err}"),
+        };
+        opened.push(stream);
+
+        let data_frames = match dialler.write(stream, b"payload") {
+            Ok(f) => f,
+            Err(err) => panic!("unexpected write error: {err}"),
+        };
+        let fin_frame = match dialler.finish(stream) {
+            Ok(b) => b,
+            Err(err) => panic!("unexpected finish error: {err}"),
+        };
+
+        for raw in data_frames {
+            let mf = parse_mux_frame(&raw);
+            match listener.on_frame(&mf) {
+                Ok(()) => {}
+                Err(err) => panic!("unexpected on_frame error: {err}"),
+            }
+        }
+        let fin_mf = parse_mux_frame(&fin_frame);
+        match listener.on_frame(&fin_mf) {
+            Ok(()) => {}
+            Err(err) => panic!("unexpected on_frame error: {err}"),
+        }
+
+        let accepted = match listener.accept_bidirectional() {
+            Some(id) => id,
+            None => panic!("expected stream to be accepted"),
+        };
+        assert_eq!(accepted, stream);
+
+        match listener.read(accepted, &mut buf) {
+            Ok(ReadOutcome::Read(7)) => {}
+            other => panic!("expected ReadOutcome::Read(7), got {other:?}"),
+        }
+        match listener.read(accepted, &mut buf) {
+            Ok(ReadOutcome::Finished) => {}
+            other => panic!("expected ReadOutcome::Finished, got {other:?}"),
+        }
+
+        let listener_fin = match listener.finish(accepted) {
+            Ok(b) => b,
+            Err(err) => panic!("unexpected finish error: {err}"),
+        };
+        let listener_fin_mf = parse_mux_frame(&listener_fin);
+        match dialler.on_frame(&listener_fin_mf) {
+            Ok(()) => {}
+            Err(err) => panic!("unexpected on_frame error: {err}"),
+        }
+
+        match dialler.read(stream, &mut buf) {
+            Ok(ReadOutcome::Finished) => {}
+            other => panic!("expected ReadOutcome::Finished, got {other:?}"),
+        }
+
+        dialler.retire(stream);
+        listener.retire(stream);
+    }
+
+    assert_eq!(opened.len(), 100);
+    for stream in &opened {
+        assert_eq!(
+            dialler.read(*stream, &mut buf),
+            Err(MuxFault::NoSuchStream(*stream))
+        );
+        assert_eq!(
+            dialler.write(*stream, b"x"),
+            Err(MuxFault::NoSuchStream(*stream))
+        );
+        assert_eq!(
+            dialler.finish(*stream),
+            Err(MuxFault::NoSuchStream(*stream))
+        );
+        assert_eq!(
+            listener.read(*stream, &mut buf),
+            Err(MuxFault::NoSuchStream(*stream))
+        );
+        assert_eq!(
+            listener.write(*stream, b"x"),
+            Err(MuxFault::NoSuchStream(*stream))
+        );
+        assert_eq!(
+            listener.finish(*stream),
+            Err(MuxFault::NoSuchStream(*stream))
+        );
+    }
+
+    assert_eq!(dialler.accept_bidirectional(), None);
+    assert_eq!(dialler.accept_unidirectional(), None);
+    assert_eq!(listener.accept_bidirectional(), None);
+    assert_eq!(listener.accept_unidirectional(), None);
+    assert_eq!(dialler.refusal(), None);
+    assert_eq!(listener.refusal(), None);
+
+    let late_raw = match encode_mux_frame(MuxKind::Data, opened[0], b"ping", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    let late_mf = parse_mux_frame(&late_raw);
+    assert_eq!(
+        dialler.on_frame(&late_mf),
+        Err(MuxRefusal::FrameAfterFin(opened[0]))
+    );
+}
+
+#[test]
+fn bidirectional_stream_retired_locally_stays_alive_for_peer_data_until_peer_fin_and_drained() {
+    let mut dialler = match Multiplexer::new(StreamOpener::Dialler, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected dialler init error: {err}"),
+    };
+
+    let stream = match dialler.open_bidirectional() {
+        Ok(id) => id,
+        Err(err) => panic!("unexpected open error: {err}"),
+    };
+
+    let dialler_frames = match dialler.write(stream, b"initial dialler request") {
+        Ok(f) => f,
+        Err(err) => panic!("unexpected write error: {err}"),
+    };
+    assert_eq!(dialler_frames.len(), 1);
+
+    let _fin_frame = match dialler.finish(stream) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected finish error: {err}"),
+    };
+
+    dialler.retire(stream);
+
+    let peer_data = b"peer response while dialler send closed";
+    let data_raw = match encode_mux_frame(MuxKind::Data, stream, peer_data, 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    let data_frame = decode_one_frame(&data_raw);
+    let mux_data = match mux_frame_from_wire(&data_frame) {
+        Ok(mf) => mf,
+        Err(err) => panic!("unexpected mux parse error: {err}"),
+    };
+    match dialler.on_frame(&mux_data) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    let mut buf = [0u8; 64];
+    let outcome1 = match dialler.read(stream, &mut buf[..13]) {
+        Ok(o) => o,
+        Err(err) => panic!("unexpected read error: {err}"),
+    };
+    assert_eq!(outcome1, ReadOutcome::Read(13));
+    assert_eq!(&buf[..13], b"peer response");
+
+    let fin_raw = match encode_mux_frame(MuxKind::Fin, stream, &[], 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    let fin_frame = decode_one_frame(&fin_raw);
+    let mux_fin = match mux_frame_from_wire(&fin_frame) {
+        Ok(mf) => mf,
+        Err(err) => panic!("unexpected mux parse error: {err}"),
+    };
+    match dialler.on_frame(&mux_fin) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    let remaining_len = peer_data.len() - 13;
+    let outcome2 = match dialler.read(stream, &mut buf) {
+        Ok(o) => o,
+        Err(err) => panic!("unexpected read error: {err}"),
+    };
+    assert_eq!(outcome2, ReadOutcome::Read(remaining_len));
+    assert_eq!(&buf[..remaining_len], &peer_data[13..]);
+
+    assert_eq!(
+        dialler.read(stream, &mut buf),
+        Err(MuxFault::NoSuchStream(stream))
+    );
+
+    let late_raw = match encode_mux_frame(MuxKind::Data, stream, b"late", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    let late_frame = decode_one_frame(&late_raw);
+    let mux_late = match mux_frame_from_wire(&late_frame) {
+        Ok(mf) => mf,
+        Err(err) => panic!("unexpected mux parse error: {err}"),
+    };
+    assert_eq!(
+        dialler.on_frame(&mux_late),
+        Err(MuxRefusal::FrameAfterFin(stream))
+    );
+    assert_eq!(dialler.refusal(), Some(MuxRefusal::FrameAfterFin(stream)));
+}
+
+#[test]
+fn dialler_receives_listener_opened_bidirectional_stream_and_can_reply() {
+    let mut dialler = match Multiplexer::new(StreamOpener::Dialler, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected dialler init error: {err}"),
+    };
+    let mut listener = match Multiplexer::new(StreamOpener::Listener, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected listener init error: {err}"),
+    };
+
+    let stream = match listener.open_bidirectional() {
+        Ok(id) => id,
+        Err(err) => panic!("unexpected open error: {err}"),
+    };
+    assert_eq!(stream, StreamId::new(1));
+
+    let listener_payload = b"listener bidirectional request";
+    let frames = match listener.write(stream, listener_payload) {
+        Ok(f) => f,
+        Err(err) => panic!("unexpected write error: {err}"),
+    };
+    let mf = parse_mux_frame(&frames[0]);
+    match dialler.on_frame(&mf) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    assert_eq!(dialler.accept_bidirectional(), Some(stream));
+    assert_eq!(dialler.accept_unidirectional(), None);
+
+    let mut buf = [0u8; 64];
+    let outcome = match dialler.read(stream, &mut buf) {
+        Ok(o) => o,
+        Err(err) => panic!("unexpected read error: {err}"),
+    };
+    assert_eq!(outcome, ReadOutcome::Read(listener_payload.len()));
+    assert_eq!(&buf[..listener_payload.len()], listener_payload);
+
+    let dialler_reply = b"dialler reply on listener bidi";
+    let reply_frames = match dialler.write(stream, dialler_reply) {
+        Ok(f) => f,
+        Err(err) => panic!("unexpected write error: {err}"),
+    };
+    let reply_mf = parse_mux_frame(&reply_frames[0]);
+    match listener.on_frame(&reply_mf) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    let mut listener_buf = [0u8; 64];
+    let listener_outcome = match listener.read(stream, &mut listener_buf) {
+        Ok(o) => o,
+        Err(err) => panic!("unexpected read error: {err}"),
+    };
+    assert_eq!(listener_outcome, ReadOutcome::Read(dialler_reply.len()));
+    assert_eq!(&listener_buf[..dialler_reply.len()], dialler_reply);
+}
+
+#[test]
+fn dialler_receives_listener_opened_unidirectional_stream_and_cannot_write() {
+    let mut dialler = match Multiplexer::new(StreamOpener::Dialler, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected dialler init error: {err}"),
+    };
+    let mut listener = match Multiplexer::new(StreamOpener::Listener, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected listener init error: {err}"),
+    };
+
+    let stream = match listener.open_unidirectional() {
+        Ok(id) => id,
+        Err(err) => panic!("unexpected open error: {err}"),
+    };
+    assert_eq!(stream, StreamId::new(3));
+
+    let listener_payload = b"listener unidirectional stream";
+    let frames = match listener.write(stream, listener_payload) {
+        Ok(f) => f,
+        Err(err) => panic!("unexpected write error: {err}"),
+    };
+    let mf = parse_mux_frame(&frames[0]);
+    match dialler.on_frame(&mf) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    assert_eq!(dialler.accept_unidirectional(), Some(stream));
+    assert_eq!(dialler.accept_bidirectional(), None);
+
+    let mut buf = [0u8; 64];
+    let outcome = match dialler.read(stream, &mut buf) {
+        Ok(o) => o,
+        Err(err) => panic!("unexpected read error: {err}"),
+    };
+    assert_eq!(outcome, ReadOutcome::Read(listener_payload.len()));
+    assert_eq!(&buf[..listener_payload.len()], listener_payload);
+
+    assert_eq!(
+        dialler.write(stream, b"illegal"),
+        Err(MuxFault::NotWritable(stream))
+    );
+}
+
+#[test]
+fn dialler_implicitly_opens_lower_listener_bidirectional_streams() {
+    let mut dialler = match Multiplexer::new(StreamOpener::Dialler, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected dialler init error: {err}"),
+    };
+
+    let stream5 = StreamId::new(5);
+    let payload = b"payload on five";
+    let raw = match encode_mux_frame(MuxKind::Data, stream5, payload, 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    let mf = parse_mux_frame(&raw);
+    match dialler.on_frame(&mf) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    assert_eq!(dialler.accept_bidirectional(), Some(StreamId::new(1)));
+    assert_eq!(dialler.accept_bidirectional(), Some(StreamId::new(5)));
+    assert_eq!(dialler.accept_bidirectional(), None);
+    assert_eq!(dialler.accept_unidirectional(), None);
+
+    let mut buf = [0u8; 32];
+    assert_eq!(
+        dialler.read(StreamId::new(1), &mut buf),
+        Ok(ReadOutcome::Pending)
+    );
+    assert_eq!(
+        dialler.read(StreamId::new(5), &mut buf),
+        Ok(ReadOutcome::Read(payload.len()))
+    );
+    assert_eq!(&buf[..payload.len()], payload);
+}
+
+#[test]
+fn peer_fin_retires_bidirectional_stream_when_send_closed_and_retired_first() {
+    let mut dialler = match Multiplexer::new(StreamOpener::Dialler, 512, 512) {
+        Ok(m) => m,
+        Err(err) => panic!("unexpected dialler init error: {err}"),
+    };
+    let stream = match dialler.open_bidirectional() {
+        Ok(id) => id,
+        Err(err) => panic!("unexpected open error: {err}"),
+    };
+
+    let dialler_frames = match dialler.write(stream, b"dialler request") {
+        Ok(f) => f,
+        Err(err) => panic!("unexpected write error: {err}"),
+    };
+    assert_eq!(dialler_frames.len(), 1);
+
+    match dialler.finish(stream) {
+        Ok(_) => {}
+        Err(err) => panic!("unexpected finish error: {err}"),
+    }
+
+    dialler.retire(stream);
+
+    let fin_raw = match encode_mux_frame(MuxKind::Fin, stream, &[], 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    let fin_mf = parse_mux_frame(&fin_raw);
+    match dialler.on_frame(&fin_mf) {
+        Ok(()) => {}
+        Err(err) => panic!("unexpected on_frame error: {err}"),
+    }
+
+    let mut buf = [0u8; 16];
+    assert_eq!(
+        dialler.read(stream, &mut buf),
+        Err(MuxFault::NoSuchStream(stream))
+    );
+    assert_eq!(
+        dialler.write(stream, b"late"),
+        Err(MuxFault::NoSuchStream(stream))
+    );
+    assert_eq!(dialler.finish(stream), Err(MuxFault::NoSuchStream(stream)));
+
+    let late_raw = match encode_mux_frame(MuxKind::Data, stream, b"late", 512) {
+        Ok(b) => b,
+        Err(err) => panic!("unexpected encode error: {err}"),
+    };
+    let late_mf = parse_mux_frame(&late_raw);
+    assert_eq!(
+        dialler.on_frame(&late_mf),
+        Err(MuxRefusal::FrameAfterFin(stream))
+    );
+    assert_eq!(dialler.refusal(), Some(MuxRefusal::FrameAfterFin(stream)));
 }

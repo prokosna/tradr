@@ -105,6 +105,10 @@ There is no open frame. **A stream exists the moment a frame carrying an identif
 
 **What that costs is written down rather than discovered**: a side that opens a stream and then reads before writing has told the peer nothing, so the peer's `accept` does not return. Every exchange here has the opener write first, and the one inversion — the link stream's first frame, where the receiver reads before it writes — is on a stream the *dialler* opened and has already written to.
 
+**A frame also opens every lower unopened identifier in its own space, which is QUIC's rule and not an addition.** Allocation order and first-frame order are different orders: a side that opens four Data streams and writes to the last of them first has allocated ascending and transmitted out of order, and nothing on the wire says the earlier identifiers exist yet. Without implicit opening the receiver would have to either accept an arbitrary identifier at any time — which is what makes a retired one indistinguishable from a fresh one, [below](#what-retires-a-stream) — or refuse a first frame that arrives out of order, which would forbid the concurrency [ADR-0007](adr/0007-receiver-driven-chunk-pull.md)'s four Data streams are for. So a frame naming identifier *N* opens *N* and every unopened identifier below it in the same space, in ascending order, and each of them is a stream awaiting accept.
+
+**The cost is bounded by a rule that already exists.** Every identifier opened this way is awaiting accept, so a peer jumping ahead spends the 64 of them the [table below](#what-closes-a-multiplexed-channel-and-what-bounds-its-memory) allows and the sixty-fifth closes the channel. That is QUIC's `MAX_STREAMS` answering the same question, and it needs no new refusal.
+
 #### What closes a multiplexed channel, and what bounds its memory
 
 **The framing layer's memory is the bytes it has actually received; the multiplexer's is not, and that is a second allocation surface.** A stream nobody has read from yet holds what has arrived for it, and a stream nobody has accepted yet holds the fact that it exists. Both are peer-controlled, and neither is bounded by anything above.
@@ -126,6 +130,28 @@ There is no open frame. **A stream exists the moment a frame carrying an identif
 **By the time a mux frame exists the peer is authenticated**, so none of these is a race a well-behaved implementation can lose: each is a peer that has broken the contract or a peer that is not the implementation it claims to be. A reset frame would buy a per-stream recovery path for a case where continuing means trusting the next frame from the same sender — and it would buy the state machine that goes with it. Closing is both cheaper and more honest.
 
 **A refusal is permanent, exactly as a malformed length is.** The channel records the first refusal and answers with it forever after, so nothing later reads a stream whose byte sequence has already been decided untrustworthy. That is `FrameDecoder`'s poisoning, one layer up and for the same reason.
+
+#### What retires a stream
+
+**The two bounds above are about concurrency and neither of them bounds a channel's whole life.** Undelivered bytes are what one stream holds and the count of 64 is what is awaiting accept, and a stream leaves that count the moment something accepts it. So a peer that opens a stream, has it accepted, finishes it and repeats satisfies both bounds throughout while the set of streams the channel remembers grows with every request. DCR-096.
+
+**A stream is retired when it is finished on the wire in both directions and released above.** Three conditions, and the last of them is not on the wire at all:
+
+| Condition | For a stream this side may not write to | For a stream the peer may not write to |
+|---|---|---|
+| The send half is closed | already true | `StreamFin` has been emitted |
+| The receive half is closed and drained | the peer's `StreamFin` has arrived and nothing buffered remains | already true |
+| The stream has been released above | the reader has let it go | the writer has let it go |
+
+**Releasing is the condition that cannot be inferred**, which is why it is stated rather than derived. A stream both sides have finished still owes its reader the end of the byte sequence, and a receiver that forgot the stream at the last `StreamFin` would answer that reader with "no such stream" instead of with the end of its input. So the transport layer's stream handles are what release it, and a channel that never lets go keeps what it is holding — which is a caller's own memory rather than a peer-controlled quantity.
+
+**Forgetting a stream is what makes a retired identifier indistinguishable from a fresh one, and a watermark is what keeps them apart.** With the identifier gone from the receiver's state, the next frame naming it reads as a stream the peer has just opened — so a refusal becomes an accepted open, which is worse than the leak it was meant to fix. **The identifiers below the highest one seen in a space are a prefix**, because a frame opens every lower identifier in its own space, so **one number per space says which identifiers have been used** and no set of them is kept:
+
+- a frame naming an identifier at or below its space's high-water mark that the receiver no longer holds is **a frame after that stream's `StreamFin`**, and closes the channel
+- a frame naming an identifier above the high-water mark of a space **the peer allocates from** opens it and every unopened identifier below it
+- a frame naming an identifier above the high-water mark of a space **the receiver allocates from** is the peer allocating where it may not, unchanged from the rule above
+
+Four spaces means four 32-bit numbers for the life of a channel, and the two the receiver allocates from are the allocator's own state rather than a second copy of it. **This adds no refusal**: every case above is one of the four this document already lists, and what the watermark decides is which of them a frame on a forgotten identifier is.
 
 #### `max_frame_size` bounds the plane's frames and not the mux's
 

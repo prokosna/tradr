@@ -152,6 +152,7 @@ struct StreamState {
     recv_buf: VecDeque<u8>,
     local_finished: bool,
     peer_finished: bool,
+    released: bool,
 }
 
 impl StreamState {
@@ -160,6 +161,7 @@ impl StreamState {
             recv_buf: VecDeque::new(),
             local_finished: false,
             peer_finished: false,
+            released: false,
         }
     }
 }
@@ -175,6 +177,7 @@ pub struct Multiplexer {
     pending_bidi: VecDeque<StreamId>,
     pending_uni: VecDeque<StreamId>,
     refusal: Option<MuxRefusal>,
+    high_water_marks: [Option<StreamId>; 4],
 }
 
 impl Multiplexer {
@@ -193,7 +196,57 @@ impl Multiplexer {
             pending_bidi: VecDeque::new(),
             pending_uni: VecDeque::new(),
             refusal: None,
+            high_water_marks: [None; 4],
         })
+    }
+
+    fn space_index(stream: StreamId) -> usize {
+        (stream.value() & 0x03) as usize
+    }
+
+    fn base_stream_id(stream: StreamId) -> StreamId {
+        StreamId::new(Self::space_index(stream) as u32)
+    }
+
+    fn high_water_mark(&self, stream: StreamId) -> Option<StreamId> {
+        self.high_water_marks[Self::space_index(stream)]
+    }
+
+    fn update_high_water_mark(&mut self, stream: StreamId) {
+        let idx = Self::space_index(stream);
+        let mark = match self.high_water_marks[idx] {
+            Some(prev) => prev.max(stream),
+            None => stream,
+        };
+        self.high_water_marks[idx] = Some(mark);
+    }
+
+    fn try_retire(&mut self, stream: StreamId) {
+        let should_remove = match self.streams.get(&stream) {
+            Some(state) => {
+                let send_closed = state.local_finished
+                    || (stream.opened_by() != self.opener && !stream.is_bidirectional());
+                let recv_closed = state.peer_finished
+                    || (stream.opened_by() == self.opener && !stream.is_bidirectional());
+                let recv_drained = state.recv_buf.is_empty();
+                state.released && send_closed && recv_closed && recv_drained
+            }
+            None => false,
+        };
+        if should_remove {
+            self.streams.remove(&stream);
+        }
+    }
+
+    /// Informs the multiplexer that caller handles dropped because the wire cannot observe when readers finish.
+    pub fn retire(&mut self, stream: StreamId) {
+        if self.refusal.is_some() {
+            return;
+        }
+        if let Some(state) = self.streams.get_mut(&stream) {
+            state.released = true;
+        }
+        self.try_retire(stream);
     }
 
     /// Allocates without emitting wire frames: the peer never hears of an opened stream until its first frame.
@@ -205,6 +258,7 @@ impl Multiplexer {
             .allocator
             .next_bidirectional()
             .map_err(|_| MuxFault::StreamIdsExhausted)?;
+        self.update_high_water_mark(stream_id);
         self.streams.insert(stream_id, StreamState::new());
         Ok(stream_id)
     }
@@ -218,6 +272,7 @@ impl Multiplexer {
             .allocator
             .next_unidirectional()
             .map_err(|_| MuxFault::StreamIdsExhausted)?;
+        self.update_high_water_mark(stream_id);
         self.streams.insert(stream_id, StreamState::new());
         Ok(stream_id)
     }
@@ -266,7 +321,10 @@ impl Multiplexer {
             return Err(MuxFault::AlreadyFinished(stream));
         }
         stream_state.local_finished = true;
-        encode_mux_frame(MuxKind::Fin, stream, &[], self.record_limit).map_err(MuxFault::Encode)
+        let frame = encode_mux_frame(MuxKind::Fin, stream, &[], self.record_limit)
+            .map_err(MuxFault::Encode)?;
+        self.try_retire(stream);
+        Ok(frame)
     }
 
     /// The only method a peer's bytes reach, making it where every refusal in docs/04 is decided.
@@ -277,20 +335,29 @@ impl Multiplexer {
         }
 
         let stream_id = frame.stream_id();
-        let stream_state = match self.streams.entry(stream_id) {
-            Entry::Occupied(entry) => {
-                if stream_id.opened_by() == self.opener && !stream_id.is_bidirectional() {
-                    let refusal = MuxRefusal::WroteToOurUnidirectionalStream(stream_id);
-                    self.refusal = Some(refusal);
-                    return Err(refusal);
-                }
-                entry.into_mut()
+        if !self.streams.contains_key(&stream_id) {
+            if self
+                .high_water_mark(stream_id)
+                .is_some_and(|hwm| stream_id <= hwm)
+            {
+                let refusal = MuxRefusal::FrameAfterFin(stream_id);
+                self.refusal = Some(refusal);
+                return Err(refusal);
             }
-            Entry::Vacant(entry) => {
-                if stream_id.opened_by() == self.opener {
-                    let refusal = MuxRefusal::PeerAllocatedInOurSpace(stream_id);
-                    self.refusal = Some(refusal);
-                    return Err(refusal);
+
+            if stream_id.opened_by() == self.opener {
+                let refusal = MuxRefusal::PeerAllocatedInOurSpace(stream_id);
+                self.refusal = Some(refusal);
+                return Err(refusal);
+            }
+
+            let mut curr = match self.high_water_mark(stream_id) {
+                Some(prev) => prev.next_in_space(),
+                None => Some(Self::base_stream_id(stream_id)),
+            };
+            while let Some(id) = curr {
+                if id >= stream_id {
+                    break;
                 }
                 let pending_count = self
                     .pending_bidi
@@ -301,14 +368,43 @@ impl Multiplexer {
                     self.refusal = Some(refusal);
                     return Err(refusal);
                 }
-                if stream_id.is_bidirectional() {
-                    self.pending_bidi.push_back(stream_id);
+                if id.is_bidirectional() {
+                    self.pending_bidi.push_back(id);
                 } else {
-                    self.pending_uni.push_back(stream_id);
+                    self.pending_uni.push_back(id);
                 }
-                entry.insert(StreamState::new())
+                self.streams.insert(id, StreamState::new());
+                self.update_high_water_mark(id);
+                curr = id.next_in_space();
             }
+
+            let pending_count = self
+                .pending_bidi
+                .len()
+                .saturating_add(self.pending_uni.len());
+            if pending_count >= MAX_PENDING_STREAMS {
+                let refusal = MuxRefusal::TooManyPendingStreams;
+                self.refusal = Some(refusal);
+                return Err(refusal);
+            }
+            if stream_id.is_bidirectional() {
+                self.pending_bidi.push_back(stream_id);
+            } else {
+                self.pending_uni.push_back(stream_id);
+            }
+            self.update_high_water_mark(stream_id);
+        }
+
+        let stream_state = match self.streams.entry(stream_id) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(StreamState::new()),
         };
+
+        if stream_id.opened_by() == self.opener && !stream_id.is_bidirectional() {
+            let refusal = MuxRefusal::WroteToOurUnidirectionalStream(stream_id);
+            self.refusal = Some(refusal);
+            return Err(refusal);
+        }
 
         if stream_state.peer_finished {
             let refusal = MuxRefusal::FrameAfterFin(stream_id);
@@ -334,6 +430,10 @@ impl Multiplexer {
             }
         }
 
+        if frame.kind() == MuxKind::Fin {
+            self.try_retire(stream_id);
+        }
+
         Ok(())
     }
 
@@ -342,28 +442,33 @@ impl Multiplexer {
         if let Some(refusal) = self.refusal {
             return Err(MuxFault::Refused(refusal));
         }
-        let stream_state = self
-            .streams
-            .get_mut(&stream)
-            .ok_or(MuxFault::NoSuchStream(stream))?;
-        if stream.opened_by() == self.opener && !stream.is_bidirectional() {
-            return Err(MuxFault::NotReadable(stream));
-        }
-        if !stream_state.recv_buf.is_empty() {
-            let to_read = buf.len().min(stream_state.recv_buf.len());
-            for (dest, byte) in buf[..to_read]
-                .iter_mut()
-                .zip(stream_state.recv_buf.drain(..to_read))
-            {
-                *dest = byte;
+        let (to_read, is_drained) = {
+            let stream_state = self
+                .streams
+                .get_mut(&stream)
+                .ok_or(MuxFault::NoSuchStream(stream))?;
+            if stream.opened_by() == self.opener && !stream.is_bidirectional() {
+                return Err(MuxFault::NotReadable(stream));
             }
-            return Ok(ReadOutcome::Read(to_read));
+            if !stream_state.recv_buf.is_empty() {
+                let to_read = buf.len().min(stream_state.recv_buf.len());
+                for (dest, byte) in buf[..to_read]
+                    .iter_mut()
+                    .zip(stream_state.recv_buf.drain(..to_read))
+                {
+                    *dest = byte;
+                }
+                (to_read, stream_state.recv_buf.is_empty())
+            } else if stream_state.peer_finished {
+                return Ok(ReadOutcome::Finished);
+            } else {
+                return Ok(ReadOutcome::Pending);
+            }
+        };
+        if is_drained {
+            self.try_retire(stream);
         }
-        if stream_state.peer_finished {
-            Ok(ReadOutcome::Finished)
-        } else {
-            Ok(ReadOutcome::Pending)
-        }
+        Ok(ReadOutcome::Read(to_read))
     }
 
     /// Returns None for both an empty queue and a closed channel; caller inspects refusal() to distinguish them.
