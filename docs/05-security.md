@@ -580,6 +580,18 @@ BLE and `relay` are raw byte streams where TLS does not fit — its handshake ov
 
 **What an active prober learns, and why the EID survives it.** `XX` reveals the responder's static agreement key in message 2, encrypted under an `ee` any prober can compute, and the identity join beside it. [docs/03](03-discovery-and-transport.md#2-ble--proximity-no-network-required-tier-0) says why no permanent identifier goes on the air and the threat it names is a *receiver* — shop receivers and passing phones, listening. A prober that connects and completes a handshake is not listening, and no pattern exists in which a dialler holding nothing learns nothing. Refusing message 1 unless it proves possession of an ABK or a Link Secret would close it, and [STATE.md](../STATE.md) carries it as deferred rather than built.
 
+#### A record's place in the sequence is its nonce, so encrypting and transmitting are one critical section
+
+**`snow` counts records per direction and that counter is the nonce**, so a receiver decrypts in arrival order and a record arriving out of the order it was encrypted in fails authentication. **That failure is indistinguishable from tampering**, which is what makes ordering a rule rather than an optimisation: nothing below the plane can tell a reordered record from a forged one, and this layer cannot either.
+
+**Both directions live in one `TransportState` and `snow` does not split it**, so one lock around the session is the arrangement that suggests itself and it is the wrong one. A reader holding it across a link read blocks every writer, and a writer holding it across a link send blocks every read -- which on a link with backpressure of its own is a stall nothing above can see. **So the lock that spans encrypting and transmitting is not the session's.** A transmit lock orders the pair, the session lock is taken inside it and released before the record reaches the link, and a reader takes the session lock alone and only once its record has arrived. Two locks, and the one both sides share is never held across a wait.
+
+**A record that fails to authenticate closes the channel**, exactly as a malformed length does one layer up. After it nothing has a known position in the sequence, so a reader that skipped it would hand the plane above a byte sequence with a hole in it -- which is the argument [docs/04](04-protocol.md#the-in-band-multiplexing-frame) already makes about an unassigned mux code, one layer down.
+
+**It is `AuthenticationFailed` and not `Closed`, and the difference is what a caller does next.** [docs/03](03-discovery-and-transport.md#what-a-transport-can-know-about-a-refusal-and-what-it-must-not-invent) gives that variant one guarantee -- the peer failed to authenticate and retrying will not change that -- while a mux refusal is an authenticated peer breaking a contract. Both shut the channel; only one says the bytes were not the peer's.
+
+**None of this is negotiated and none of it is BLE's.** The record limit is a construction parameter and the ordering rule is a property of the cipher state rather than of the link, so it holds for `relay`'s Noise_IK unchanged.
+
 **Both give the layer above identical guarantees**: mutually authenticated, forward secret, ordered, bidirectional. That invariant is expressed as a `SecureChannel` trait, and `tradr-core` never learns which one it is using.
 
 ## Trust Tiers and their powers
