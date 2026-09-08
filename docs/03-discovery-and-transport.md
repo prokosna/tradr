@@ -342,6 +342,53 @@ Implemented with `quinn`.
 
 Desktop Wi-Fi Direct APIs do not line up — Linux goes through `wpa_supplicant` P2P, Windows through WinRT, and macOS exposes nothing public — and most implementations tear down the existing Wi-Fi connection. What it breaks outweighs what it delivers. Restricted to Android pairs; anything involving a desktop relies on a shared LAN or a Brokr.
 
+### The `ble-gatt` link is two characteristics, and the ATT operation boundary means nothing
+
+The service is slot `0x0002` of the base UUID [ADR-0019](adr/0019-a-128-bit-service-uuid-for-the-ble-advertisement.md) reserved, `00000002-6eed-40d6-85d3-3794eaa7b21c`, and it holds two characteristics rather than one:
+
+```
+service 00000002-...      the ble-gatt service
+  +- 00000003-...         central -> peripheral, written by the central
+  \- 00000004-...         peripheral -> central, notified by the peripheral
+```
+
+**Two, because a characteristic has one value and two directions cannot share one.** A single characteristic that the central writes and the peripheral notifies would have each side overwriting what the other had just put there, and no ordering between the two uses.
+
+**The service UUID is not advertised.** ADR-0019 spends all 28 of Tradr's bytes on the advertisement service and its Service Data, so a central dials the handle its scan reported and discovers this service after connecting. Which end holds the server is not a preference: R1 is that this machine's Linux controller refuses every advertisement, so the peripheral is whichever side can advertise.
+
+#### No record fits one ATT operation, so each direction is a byte stream
+
+An ATT operation carries `ATT_MTU - 3` bytes and never more than 512, which is the longest an attribute value may be, and the MTU is negotiated once per connection. **The largest MTU that negotiation can reach is 517, so the largest operation is 512 bytes and the largest record this link has to move is 528** -- the 512-byte mux record [docs/04](04-protocol.md#the-in-band-multiplexing-frame) bounds, plus Poly1305's 16-byte tag. **So a record does not fit an operation even at the maximum MTU**, and at the 247 ADR-0002's throughput row assumed it carries 244, which is short of `Noise_XX`'s 299-byte second message ([ADR-0020](adr/0020-noise-xx-for-ble-gatt.md)).
+
+**A minimum MTU is therefore not the answer, and requiring one would be worse than the problem.** It would make the transport's availability depend on a negotiation neither end controls, in exactly the case -- proximity, no Wi-Fi -- where `ble-gatt` is the only path there is.
+
+**So the operation boundary carries no meaning at all and each direction is a byte stream.** A record goes on it length-prefixed:
+
+```
+[u16 len][record]        len is big-endian and counts the record alone
+```
+
+The sender chops that stream to whatever the current MTU carries; one operation may hold the tail of one record and the head of the next, and a record may span as many as the MTU requires. **The MTU is never a parameter of the framing** -- it is a platform fact that a re-negotiation may change mid-connection, and it belongs to the side that owns the radio.
+
+#### What the reassembler refuses, and why every refusal is permanent
+
+| Refused | Why |
+|---|---|
+| A length of `0` | A Noise record is never empty: the tag alone is 16 bytes |
+| A length above 528 | The bound above, and the only thing keeping the reassembly buffer bounded |
+| The link ending mid-record | A byte stream that stops between the prefix and its record ended in error, which is a different sentence from a link that ended |
+| One delivery larger than 530 | An ATT operation cannot carry more, so a larger one is not this link speaking |
+
+**Each is permanent**, the poisoning [docs/04](04-protocol.md#the-in-band-multiplexing-frame) already makes `FrameDecoder` and the multiplexer do, and for the same reason one layer down: after a refusal nothing in the byte sequence has a known position, so a reassembler that carried on would hand records above that are correctly framed and wrong.
+
+**The bound on peer-controlled memory is one pending record and one delivery**, which is the DCR-095 quantity counted at this layer. An incomplete record is at most 529 bytes, its prefix and one byte short of the longest record it may announce, and a delivery is at most 530, so the buffer never holds more than 1059.
+
+#### Loss and ordering are the Link Layer's, and flow control is not
+
+A Noise record's place in its direction's sequence is its nonce ([docs/05](05-security.md#a-records-place-in-the-sequence-is-its-nonce-so-encrypting-and-transmitting-are-one-critical-section)), so a record that arrives out of order fails authentication and closes the channel. **BLE supplies both properties below ATT**: the Link Layer retransmits until acknowledged and delivers in order, so neither is this framing's to add, and a sequence number here would detect one layer earlier something the layer above already treats as fatal.
+
+**What BLE does not supply is host-side flow control.** A stack whose buffers are full reports that it could not accept the operation rather than dropping it, and a send is complete only once the platform has accepted it. That is what `LinkSink::send_record` returning `Result` already says, and a stack that reports it could not is a link error rather than something to retry.
+
 ## Path selection
 
 The mechanism behind picking the right path automatically. **It does not pick — it races and keeps the winner.** The same idea as ICE and Happy Eyeballs.
