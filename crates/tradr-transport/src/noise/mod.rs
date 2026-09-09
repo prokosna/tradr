@@ -1,6 +1,7 @@
 //! Noise_XX over a byte stream with identity join (ADR-0020).
 
 mod channel;
+mod dial;
 mod handshake;
 mod link;
 mod record;
@@ -11,6 +12,7 @@ use std::fmt;
 use tradr_core::{KeyBindingRefused, KeyStoreError, RngError};
 
 pub use channel::{BLE_GATT_MAX_FRAME_SIZE, NoiseChannel, NoiseChannelConfig};
+pub use dial::handshake_as_initiator;
 pub use handshake::{
     AwaitingConfirmation, AwaitingReply, AwaitingResponse, Initiator, NoiseSession, ReadyToConfirm,
     Responder,

@@ -24,3 +24,6 @@ blake3 = "1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 snow = { version = "0.10", default-features = false, features = ["use-p256", "use-chacha20poly1305", "use-blake2", "use-curve25519", "std"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.17", features = ["bluetoothd"] }
