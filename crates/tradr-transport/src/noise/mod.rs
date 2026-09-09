@@ -3,6 +3,7 @@
 mod channel;
 mod handshake;
 mod link;
+mod record;
 mod resolver;
 
 use std::fmt;
@@ -15,6 +16,7 @@ pub use handshake::{
     Responder,
 };
 pub use link::{LinkSink, LinkSource};
+pub use record::{BLE_GATT_MAX_RECORD, ByteSink, ByteSource, RecordSink, RecordSource};
 
 /// The length of the identity join payload in bytes (ADR-0020).
 pub const IDENTITY_JOIN_LEN: usize = 137;
