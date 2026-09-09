@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use tradr_core::Capabilities;
+use tradr_core::{Capabilities, tradr_uuid, tradr_uuid_le};
 
 use crate::eid::{EID_LEN, Eid};
 
@@ -21,15 +21,13 @@ pub const FLAGS_AD_LEN: usize = 3;
 /// The maximum length of a legacy BLE advertisement payload (ADR-0019).
 pub const ADVERTISEMENT_MAX_LEN: usize = 31;
 
+const TRADR_ADVERTISEMENT_SLOT: u16 = 0x0001;
+
 /// The Tradr BLE service UUID in big-endian order (ADR-0019).
-pub const TRADR_SERVICE_UUID: [u8; 16] = [
-    0x00, 0x00, 0x00, 0x01, 0x6e, 0xed, 0x40, 0xd6, 0x85, 0xd3, 0x37, 0x94, 0xea, 0xa7, 0xb2, 0x1c,
-];
+pub const TRADR_SERVICE_UUID: [u8; 16] = tradr_uuid(TRADR_ADVERTISEMENT_SLOT);
 
 /// The Tradr BLE service UUID in little-endian order as written in an AD structure (ADR-0019).
-pub const TRADR_SERVICE_UUID_LE: [u8; 16] = [
-    0x1c, 0xb2, 0xa7, 0xea, 0x94, 0x37, 0xd3, 0x85, 0xd6, 0x40, 0xed, 0x6e, 0x01, 0x00, 0x00, 0x00,
-];
+pub const TRADR_SERVICE_UUID_LE: [u8; 16] = tradr_uuid_le(TRADR_ADVERTISEMENT_SLOT);
 
 const _: () =
     assert!(FLAGS_AD_LEN + AD_STRUCTURE_OVERHEAD + SERVICE_DATA_LEN <= ADVERTISEMENT_MAX_LEN);

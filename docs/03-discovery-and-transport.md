@@ -356,6 +356,21 @@ service 00000002-...      the ble-gatt service
 
 **The service UUID is not advertised.** ADR-0019 spends all 28 of Tradr's bytes on the advertisement service and its Service Data, so a central dials the handle its scan reported and discovers this service after connecting. Which end holds the server is not a preference: R1 is that this machine's Linux controller refuses every advertisement, so the peripheral is whichever side can advertise.
 
+#### The central writes without response and the peripheral notifies, and neither is a preference
+
+| Characteristic | Properties | Descriptor |
+|---|---|---|
+| `00000003-...` | `write-without-response` | none |
+| `00000004-...` | `notify` | Client Characteristic Configuration, `0x2902` |
+
+**An acknowledged write cannot reach the throughput this document's own opening table gives the link.** An ATT Write Request occupies the bearer until its Write Response arrives, so the next one leaves no earlier than the following connection event -- one operation every 30 ms at a typical interval, whatever the MTU is, which is an order of magnitude under the 5-100 KB/s the rows above assume. An unacknowledged write is several operations per event, and what makes it reliable is the Link Layer retransmitting until acknowledged, which is the same sentence as the subsection below: loss and ordering arrive from under ATT and are not this framing's to add. **A response at the ATT layer would confirm a delivery the layer beneath has already guaranteed**, at the cost of the only throughput this transport has.
+
+**The flow control this design specified is the local one, and the unacknowledged pair is the pair that has it.** The subsection below says a send is complete once the platform has accepted the operation, and that a stack whose buffers are full reports that rather than dropping it. That report is exactly what a host writing Write Commands into a full controller buffer is given, and it is the whole of what BLE offers a sender. **What it is not is end-to-end**: nothing here tells a sender that the peer's application read the bytes, and nothing needs to, because a record that fails to arrive fails authentication and closes the channel ([docs/05](05-security.md#a-records-place-in-the-sequence-is-its-nonce-so-encrypting-and-transmitting-are-one-critical-section)).
+
+**And the acknowledged forms do not tell the sender the MTU, which the framing above requires it to know.** The sender chops its byte stream to whatever the current MTU carries; BlueZ reports that number only through `AcquireWrite` and `AcquireNotify`, and grants those only to a characteristic carrying `write-without-response` and `notify` respectively. `WriteValue` neither reports the MTU nor leaves the segmentation to its caller -- it performs a long write of its own devising underneath a framing that has already decided how a record crosses an operation boundary. **So the properties are what makes the framing above implementable rather than a preference between two workable shapes.**
+
+**Only the peripheral's direction takes a descriptor.** A notification goes to a client that has subscribed and subscribing is a write to the Client Characteristic Configuration, so `00000004-...` carries one and `00000003-...` carries none: nothing subscribes to the central, which writes when it has bytes.
+
 #### No record fits one ATT operation, so each direction is a byte stream
 
 An ATT operation carries `ATT_MTU - 3` bytes and never more than 512, which is the longest an attribute value may be, and the MTU is negotiated once per connection. **The largest MTU that negotiation can reach is 517, so the largest operation is 512 bytes and the largest record this link has to move is 528** -- the 512-byte mux record [docs/04](04-protocol.md#the-in-band-multiplexing-frame) bounds, plus Poly1305's 16-byte tag. **So a record does not fit an operation even at the maximum MTU**, and at the 247 ADR-0002's throughput row assumed it carries 244, which is short of `Noise_XX`'s 299-byte second message ([ADR-0020](adr/0020-noise-xx-for-ble-gatt.md)).

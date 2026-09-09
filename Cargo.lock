@@ -5761,6 +5761,7 @@ name = "tradr-transport"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "bluer",
  "const-oid",
  "der",
  "p256",

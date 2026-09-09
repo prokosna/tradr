@@ -6,6 +6,7 @@
 //! `PeerList`'s pure merge (docs/03). Depends on nothing beyond `std`
 //! (rule B1, invariant I4): traits declare operations Layer 3 implements.
 
+mod ble_uuid;
 mod broadcast;
 mod browse;
 mod channel;
@@ -32,6 +33,7 @@ mod transport;
 mod trust_tier;
 mod vfs;
 
+pub use ble_uuid::{TRADR_BASE_UUID, tradr_uuid, tradr_uuid_le};
 pub use broadcast::{
     ACCOUNT_BROADCAST_KEY_LEN, AccountBroadcastKey, BroadcastKeyError, BroadcastKeyOffer,
     BroadcastKeyOfferError, CollisionOutcome, FIRST_KEY_GENERATION, next_generation,
