@@ -404,6 +404,16 @@ A Noise record's place in its direction's sequence is its nonce ([docs/05](05-se
 
 **What BLE does not supply is host-side flow control.** A stack whose buffers are full reports that it could not accept the operation rather than dropping it, and a send is complete only once the platform has accepted it. That is what `LinkSink::send_record` returning `Result` already says, and a stack that reports it could not is a link error rather than something to retry.
 
+#### The responder's handshake driver measures one round trip, and not the wait for a peer
+
+**The initiator's driver landed alone, and the two ends are not symmetric in what each can honestly report.** `handshake_as_initiator` runs where the dial is, and `dial` above times itself: from before it connects to after it has written the third message, which is a connect plus one round trip and every millisecond of it work this side asked for. The responder's first act is to wait, and that wait has no bound at all -- a GATT server holds a byte stream that begins whenever a central decides to write into it, which may be hours after the server started.
+
+**Timing the responder's call would therefore report how long a peer took to arrive.** That is not a property of the link, it is a property of the person holding the other phone, and the section above spends `SecureChannel::rtt` on scoring one candidate against another of the same class. A responder that reported its wait would score `ble-gatt` behind every transport that measures honestly, on a number that says nothing about the path.
+
+**So the responder measures from message 1 having been read to message 3 having been read.** That is exactly one round trip -- its own reply, and the confirmation that answered it -- and nothing that happened before the peer spoke. **The driver takes the `Clock` and returns the duration beside the session** rather than leaving the caller to time a call whose start it cannot see: the boundary being measured is inside the driver, and a caller timing the whole call would measure the wrong thing by construction.
+
+**A link that ends before message 1 or message 3 arrives is `Closed` and never an authentication failure.** Nothing was refused: the byte stream ended between records, which is what the reassembler above already distinguishes from a stream that stopped mid-record. Only a message that arrived and did not verify is `AuthenticationFailed`, and that is the same rule the initiator's driver holds.
+
 ## Path selection
 
 The mechanism behind picking the right path automatically. **It does not pick — it races and keeps the winner.** The same idea as ICE and Happy Eyeballs.

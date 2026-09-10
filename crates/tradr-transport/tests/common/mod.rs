@@ -287,6 +287,35 @@ impl LinkSink for MemorySink {
     }
 }
 
+pub struct CountingSink {
+    inner: Arc<dyn LinkSink>,
+    sends: AtomicUsize,
+}
+
+impl CountingSink {
+    pub fn new(inner: Arc<dyn LinkSink>) -> Self {
+        Self {
+            inner,
+            sends: AtomicUsize::new(0),
+        }
+    }
+
+    pub fn sends(&self) -> usize {
+        self.sends.load(Ordering::SeqCst)
+    }
+}
+
+impl LinkSink for CountingSink {
+    fn send_record<'a>(&'a self, record: &'a [u8]) -> BoxFuture<'a, Result<(), TransportError>> {
+        self.sends.fetch_add(1, Ordering::SeqCst);
+        self.inner.send_record(record)
+    }
+
+    fn close(&self) -> BoxFuture<'_, Result<(), TransportError>> {
+        self.inner.close()
+    }
+}
+
 pub struct MemorySource {
     receiver: tokio::sync::mpsc::Receiver<Vec<u8>>,
 }
