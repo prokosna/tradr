@@ -414,6 +414,36 @@ A Noise record's place in its direction's sequence is its nonce ([docs/05](05-se
 
 **A link that ends before message 1 or message 3 arrives is `Closed` and never an authentication failure.** Nothing was refused: the byte stream ended between records, which is what the reassembler above already distinguishes from a stream that stopped mid-record. Only a message that arrived and did not verify is `AuthenticationFailed`, and that is the same rule the initiator's driver holds.
 
+#### The peripheral learns its MTU from a callback, so the chop goes below the seam
+
+**The central chops above the radio and the peripheral cannot, and the asymmetry is Android's API rather than a preference.** On Linux `CharacteristicWriter::mtu()` answers the current number synchronously, so the chop happens inside the send it belongs to. A `BluetoothGattServer` is told its MTU by `onMtuChanged` on a binder thread and offers no reading at all, so a chop above the seam would hold a number that arrived earlier and may since have been replaced.
+
+**Being wrong in the large direction loses bytes with no error anywhere.** A notification carrying more than `ATT_MTU - 3` is truncated, the truncated record fails authentication several records later ([docs/05](05-security.md#a-records-place-in-the-sequence-is-its-nonce-so-encrypting-and-transmitting-are-one-critical-section)), and the failure is reported against the wrong record. Being wrong in the small direction is the 23-byte default assumed for the connection's whole life, 20 bytes an operation against the 512 the link may carry -- a transport slowed twenty-five-fold to avoid a race the side owning the radio does not have.
+
+**So `send_bytes` on Android hands Kotlin the whole byte stream and Kotlin chops it to what it currently holds.** That is the sentence the section above already wrote -- the MTU belongs to the side that owns the radio -- applied to the one platform whose radio is in another language. **It holds the Android seam's "Kotlin maps nothing" rule rather than breaking it**: a chop decides nothing, produces no `BleError` and no `ScanReport`, and what goes untested is a loop over a `ByteArray` with a number taken from the connection being written to. **A send that fails part way through its operations is a link error and never a retry**, for the reason the flow-control subsection above already gives: the bytes before it are gone and the stream's position is unknown.
+
+**One notification at a time, and the API level is why.** The overload of `notifyCharacteristicChanged` that carries the value is API 33 against a `minSdk` of 24, so below it the value is set on the characteristic and then notified -- and that characteristic is one object shared by every link the server holds. Two links notifying at once would each send what the other had just set. **The peripheral therefore serializes the notify**, which is DCR-097's rule one layer down: setting the value and sending it are one critical section for the reason encrypting and sending are.
+
+#### The inbound queue refuses, which is the opposite of what the scan queue does
+
+`onCharacteristicWriteRequest` arrives on a binder thread and `recv_bytes` is awaited on Rust's, so the two meet in a queue the way DCR-086's scan reports do. **That queue drops its oldest when full and this one must not, and what the entries are is the difference.** A scan report is a whole fact the next advertisement restates; a delivery is a span of a byte stream, and dropping one splices the bytes on either side into a record nobody sent. That record fails authentication, the channel closes, and the report names a record several later than the one the gap destroyed.
+
+**So the queue is bounded and a full queue is a permanent refusal of that link.** The bound is 8192 undelivered bytes, which is fifteen maximum deliveries and more than twice `Noise_XX`'s longest message, so a queue that fills is a reader that has stopped rather than a burst it could have absorbed. **The refusal latches**, the way the reassembler's four refusals do and for the identical reason: after a gap nothing in the byte sequence has a known position. It is `Io(OutOfMemory)` and not the reassembler's `InvalidData`, because the content was never what was wrong, and a log that cannot separate the two cannot say whether a peer sent something malformed or this device fell behind.
+
+**A delivery that cannot be decoded refuses the link as well, and it is `InvalidData` rather than `OutOfMemory`.** The rule above decides it -- a delivery that is lost splices the bytes on either side of it -- and the two refusals stay distinguishable because one is a payload this seam could not read and the other is a reader that fell behind. **That is the failure `WI-M7-005d`'s self-test exists to catch**, in the direction where it destroys a byte stream rather than one report.
+
+**The queue is Rust's and not Kotlin's**, by the rule that puts the mappings there: a bound written in Kotlin is a bound nothing can test. Kotlin pushes what arrived, and the refusal is decided where the tests are.
+
+#### A link begins at the subscription and ends at the disconnect
+
+**A connected central is not yet a link.** The peripheral cannot speak until the central has written the Client Characteristic Configuration, and `0x2902` is the only announcement of intent this service has -- neither characteristic is read, and the service is not advertised. **`WI-M7-007h` acquires notify before write for exactly this reason**, so the ordering is a property of the central this repository wrote rather than a hope about centrals in general.
+
+**Bytes arriving for a central that holds no subscription are discarded, and nothing is poisoned.** The latching above protects a byte stream's position, and a stream that has not begun has none to lose.
+
+**A disconnect, or a write disabling the configuration, ends the link**: `recv_bytes` answers `Ok(None)`, which is a byte stream ending cleanly, and the reassembler above already separates that from a stream that stopped mid-record.
+
+**How many links run at once is the controller's bound and not one this document invents.** A radio holds a handful of connections, so the memory a stranger can make this device hold is 8192 bytes times that handful. A second limit here would be a number with no measurement behind it, refusing a connection the radio had already accepted.
+
 ## Path selection
 
 The mechanism behind picking the right path automatically. **It does not pick — it races and keeps the winner.** The same idea as ICE and Happy Eyeballs.
