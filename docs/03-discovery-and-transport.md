@@ -430,6 +430,8 @@ A Noise record's place in its direction's sequence is its nonce ([docs/05](05-se
 
 **So the queue is bounded and a full queue is a permanent refusal of that link.** The bound is 8192 undelivered bytes, which is fifteen maximum deliveries and more than twice `Noise_XX`'s longest message, so a queue that fills is a reader that has stopped rather than a burst it could have absorbed. **The refusal latches**, the way the reassembler's four refusals do and for the identical reason: after a gap nothing in the byte sequence has a known position. It is `Io(OutOfMemory)` and not the reassembler's `InvalidData`, because the content was never what was wrong, and a log that cannot separate the two cannot say whether a peer sent something malformed or this device fell behind.
 
+**A delivery of zero bytes is discarded rather than queued, and that is what makes the bound above a bound.** An ATT write with no value is legal and carries no byte of the stream, so discarding it splices nothing -- while a queue that charged it nothing and still held an entry for it would be bounded in bytes and unbounded in entries, which is the quantity the bound exists to measure. Every queued delivery therefore carries at least one byte, so 8192 bounds the deliveries as well as their bytes. **The discarding is Rust's, like the bound itself**: Kotlin pushes whatever the platform handed it, a null value included, and the rule that a bound written in Kotlin cannot be tested applies to the refusal standing next to it.
+
 **A delivery that cannot be decoded refuses the link as well, and it is `InvalidData` rather than `OutOfMemory`.** The rule above decides it -- a delivery that is lost splices the bytes on either side of it -- and the two refusals stay distinguishable because one is a payload this seam could not read and the other is a reader that fell behind. **That is the failure `WI-M7-005d`'s self-test exists to catch**, in the direction where it destroys a byte stream rather than one report.
 
 **The queue is Rust's and not Kotlin's**, by the rule that puts the mappings there: a bound written in Kotlin is a bound nothing can test. Kotlin pushes what arrived, and the refusal is decided where the tests are.
@@ -442,7 +444,7 @@ A Noise record's place in its direction's sequence is its nonce ([docs/05](05-se
 
 **A disconnect, or a write disabling the configuration, ends the link**: `recv_bytes` answers `Ok(None)`, which is a byte stream ending cleanly, and the reassembler above already separates that from a stream that stopped mid-record.
 
-**How many links run at once is the controller's bound and not one this document invents.** A radio holds a handful of connections, so the memory a stranger can make this device hold is 8192 bytes times that handful. A second limit here would be a number with no measurement behind it, refusing a connection the radio had already accepted.
+**How many links run at once is the controller's bound and not one this document invents.** A radio holds a handful of connections, so the memory a stranger can make this device hold is 8192 bytes, plus the queue's own bookkeeping for at most that many deliveries, times that handful. A second limit here would be a number with no measurement behind it, refusing a connection the radio had already accepted.
 
 ## Path selection
 
