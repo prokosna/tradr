@@ -1,6 +1,5 @@
 mod common;
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tradr_core::{BoxFuture, TransportError};
@@ -44,31 +43,6 @@ async fn full_handshake_completes_and_identifies_peers() {
     assert_eq!(resp_session.peer(), pair.initiator_store.device_id());
 }
 
-struct CountingSink {
-    inner: Arc<dyn LinkSink>,
-    sends: AtomicUsize,
-}
-
-impl CountingSink {
-    fn new(inner: Arc<dyn LinkSink>) -> Self {
-        Self {
-            inner,
-            sends: AtomicUsize::new(0),
-        }
-    }
-}
-
-impl LinkSink for CountingSink {
-    fn send_record<'a>(&'a self, record: &'a [u8]) -> BoxFuture<'a, Result<(), TransportError>> {
-        self.sends.fetch_add(1, Ordering::SeqCst);
-        self.inner.send_record(record)
-    }
-
-    fn close(&self) -> BoxFuture<'_, Result<(), TransportError>> {
-        self.inner.close()
-    }
-}
-
 struct CountingSource {
     inner: Box<dyn LinkSource>,
     receives: AtomicUsize,
@@ -97,7 +71,7 @@ async fn exactly_three_records_cross_link_with_expected_count_direction_and_size
     let responder = pair.responder();
     let ((init_sink, init_source), (resp_sink, mut resp_source)) =
         common::memory_link_pair(16, false);
-    let counting_sink = CountingSink::new(init_sink);
+    let counting_sink = common::CountingSink::new(init_sink);
     let mut counting_source = CountingSource::new(init_source);
 
     let responder_task = tokio::spawn(async move {
@@ -130,7 +104,7 @@ async fn exactly_three_records_cross_link_with_expected_count_direction_and_size
         .await
         .expect("initiator handshake completes");
 
-    assert_eq!(counting_sink.sends.load(Ordering::SeqCst), 2);
+    assert_eq!(counting_sink.sends(), 2);
     assert_eq!(counting_source.receives.load(Ordering::SeqCst), 1);
 
     responder_task.await.expect("responder task joins");

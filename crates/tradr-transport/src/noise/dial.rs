@@ -2,20 +2,9 @@
 
 use tradr_core::TransportError;
 
-use super::NoiseError;
 use super::handshake::{Initiator, NoiseSession};
 use super::link::{LinkSink, LinkSource};
-
-fn map_noise_error(err: NoiseError) -> TransportError {
-    match err {
-        NoiseError::Refused | NoiseError::PeerKeyBinding(_) | NoiseError::LocalKeyBinding => {
-            TransportError::AuthenticationFailed
-        }
-        NoiseError::KeyStore(_) | NoiseError::Rng(_) | NoiseError::PayloadTooLarge(_) => {
-            TransportError::Io(std::io::ErrorKind::Other)
-        }
-    }
-}
+use super::map_noise_error;
 
 /// Completes a three-message Noise_XX handshake as the dialling initiator.
 pub async fn handshake_as_initiator(

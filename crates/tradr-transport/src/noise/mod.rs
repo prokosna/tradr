@@ -1,5 +1,6 @@
 //! Noise_XX over a byte stream with identity join (ADR-0020).
 
+mod accept;
 mod channel;
 mod dial;
 mod handshake;
@@ -9,8 +10,9 @@ mod resolver;
 
 use std::fmt;
 
-use tradr_core::{KeyBindingRefused, KeyStoreError, RngError};
+use tradr_core::{KeyBindingRefused, KeyStoreError, RngError, TransportError};
 
+pub use accept::handshake_as_responder;
 pub use channel::{BLE_GATT_MAX_FRAME_SIZE, NoiseChannel, NoiseChannelConfig};
 pub use dial::handshake_as_initiator;
 pub use handshake::{
@@ -65,6 +67,17 @@ impl std::error::Error for NoiseError {
             Self::Rng(err) => Some(err),
             Self::PeerKeyBinding(err) => Some(err),
             Self::Refused | Self::PayloadTooLarge(_) | Self::LocalKeyBinding => None,
+        }
+    }
+}
+
+fn map_noise_error(err: NoiseError) -> TransportError {
+    match err {
+        NoiseError::Refused | NoiseError::PeerKeyBinding(_) | NoiseError::LocalKeyBinding => {
+            TransportError::AuthenticationFailed
+        }
+        NoiseError::KeyStore(_) | NoiseError::Rng(_) | NoiseError::PayloadTooLarge(_) => {
+            TransportError::Io(std::io::ErrorKind::Other)
         }
     }
 }
