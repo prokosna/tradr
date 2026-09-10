@@ -95,6 +95,22 @@ class StartBleScanArgs {
     var selftest: Boolean = false
 }
 
+@InvokeArg
+class StartBleGattServerArgs {
+    var channel: Channel? = null
+}
+
+@InvokeArg
+class SendBleGattBytesArgs {
+    var handle: String? = null
+    var data: String? = null
+}
+
+@InvokeArg
+class CloseBleGattLinkArgs {
+    var handle: String? = null
+}
+
 // WI-M0-005 proves both ADR-0001 call directions with Rust; WI-M0-005b adds
 // the ACTION_SEND intent channel; WI-M2-002 adds file caching and FD interop;
 // WI-M2-003 publishes discovered peers as dynamic sharing shortcuts;
@@ -174,6 +190,7 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
     // Holds the channel Rust opens once at startup so share intents can be forwarded.
     private var shareChannel: Channel? = null
     private val bleRadio = BleRadio(activity)
+    private val bleGattServer = BleGattServer(activity)
 
     @Command
     fun startBleAdvertising(invoke: Invoke) {
@@ -223,6 +240,71 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun stopBleScan(invoke: Invoke) {
         bleRadio.stopScan(invoke)
+    }
+
+    @Command
+    fun startBleGattServer(invoke: Invoke) {
+        val args = try {
+            invoke.parseArgs(StartBleGattServerArgs::class.java)
+        } catch (e: Exception) {
+            Logger.error("TradrPlugin: failed to parse startBleGattServer args", e)
+            null
+        }
+        val channel = args?.channel
+        if (channel == null) {
+            invoke.reject("channel argument is required")
+            return
+        }
+        bleGattServer.startServer(channel, invoke)
+    }
+
+    @Command
+    fun stopBleGattServer(invoke: Invoke) {
+        bleGattServer.stopServer(invoke)
+    }
+
+    @Command
+    fun sendBleGattBytes(invoke: Invoke) {
+        val args = try {
+            invoke.parseArgs(SendBleGattBytesArgs::class.java)
+        } catch (e: Exception) {
+            Logger.error("TradrPlugin: failed to parse sendBleGattBytes args", e)
+            null
+        }
+        val handle = args?.handle
+        if (handle == null) {
+            invoke.reject("handle argument is required")
+            return
+        }
+        val data = args.data
+        if (data == null) {
+            invoke.reject("data argument is required")
+            return
+        }
+        val bytes = try {
+            Base64.decode(data, Base64.NO_WRAP)
+        } catch (e: Exception) {
+            Logger.error("TradrPlugin: invalid base64 in sendBleGattBytes", e)
+            invoke.reject("data is not valid base64")
+            return
+        }
+        bleGattServer.send(handle, bytes, invoke)
+    }
+
+    @Command
+    fun closeBleGattLink(invoke: Invoke) {
+        val args = try {
+            invoke.parseArgs(CloseBleGattLinkArgs::class.java)
+        } catch (e: Exception) {
+            Logger.error("TradrPlugin: failed to parse closeBleGattLink args", e)
+            null
+        }
+        val handle = args?.handle
+        if (handle == null) {
+            invoke.reject("handle argument is required")
+            return
+        }
+        bleGattServer.closeLink(handle, invoke)
     }
 
     // Launches the platform document tree picker for selecting a directory share root.
