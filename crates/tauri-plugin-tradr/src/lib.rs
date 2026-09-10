@@ -16,6 +16,7 @@ use tauri::{
 mod android;
 mod attestation;
 pub mod ble_android;
+pub mod ble_gatt_android;
 #[cfg(target_os = "android")]
 mod ble_probe;
 pub mod commands;
