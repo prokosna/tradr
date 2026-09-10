@@ -446,6 +446,20 @@ A Noise record's place in its direction's sequence is its nonce ([docs/05](05-se
 
 **How many links run at once is the controller's bound and not one this document invents.** A radio holds a handful of connections, so the memory a stranger can make this device hold is 8192 bytes, plus the queue's own bookkeeping for at most that many deliveries, times that handful. A second limit here would be a number with no measurement behind it, refusing a connection the radio had already accepted.
 
+#### The peripheral's `accept` composes one link, and one link's failure is not the listener's
+
+**The composition itself is the mirror of `dial` and decides nothing new.** The `0x2902` subscription above yields a handle, that handle's two byte streams go into the `[u16 len][record]` framing this section fixed, the responder's driver runs over the resulting record pair, and the session becomes a channel opening streams as the listener rather than as the dialler, reporting the round trip that driver measured. What is not the mirror is what happens when one of those handshakes fails, and what happens to every other central while one is running.
+
+**`Incoming::accept` reports the listening side's own state, and on this transport the thing that fails is one central.** A caller reads `Closed` as the listening having ended and any other error as the listening having failed, which is exactly right on `direct-quic`, where what breaks is the endpoint every peer shares. Here the commonest failure is also the most harmless: a central that subscribed and walked out of range ends its byte stream between records, which is `Closed` by the rule above. **A peripheral that reported it would stop listening for the life of the process the first time anyone wandered off**, and it would be reporting the correct error about the wrong subject.
+
+**So a link that fails its handshake is discarded and `accept` waits for the next.** What `accept` answers for is the GATT server, and that server's only failure is at its start -- `Unsupported`, `PermissionDenied`, `AdapterUnavailable` or `ServerFailed`, reported where it is started -- since nothing below reports a server that has stopped afterwards. **The listening therefore ends by the listening half being dropped and never by `accept` returning**, and that drop is what stops the server and ends every handshake still running under it.
+
+**And the handshakes run at once rather than in the order the subscriptions arrived.** The responder's wait has no bound at all, which is the subsection above's own finding; a peripheral that handshook one link at a time would hand any central the power to hold every other one out for as long as it liked, by subscribing and then writing nothing. **That is the cheapest denial this transport has**, costing a connection the radio has already accepted, and the alternative to running them at once is a handshake timeout -- the number this section has twice declined to invent. **Concurrency invents none**: one handshake per link, and links are bounded by the controller, which is the paragraph above unchanged.
+
+**A finished handshake waits in its own task rather than in a queue of its own.** A channel that completes while the caller is still busy with an earlier one is held by the task that produced it, so what is outstanding is one task per link and not a second peer-controlled quantity with a second bound to justify. Dropping the listening half ends every one of those waits along with the server they belong to.
+
+**What is testable here is the policy and not the radio, so the per-link handshake is the seam.** A stand-in that fails, that succeeds, or that never finishes drives every rule above with no GATT server, no Kotlin and no key store, which is where DCR-086 already drew this line: the decisions are Rust's, and Kotlin's half is the part that cannot be tested and therefore decides nothing.
+
 ## Path selection
 
 The mechanism behind picking the right path automatically. **It does not pick — it races and keeps the winner.** The same idea as ICE and Happy Eyeballs.

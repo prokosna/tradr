@@ -71,7 +71,8 @@ impl std::error::Error for NoiseError {
     }
 }
 
-fn map_noise_error(err: NoiseError) -> TransportError {
+/// Maps a Noise error onto the corresponding transport error.
+pub fn map_noise_error(err: NoiseError) -> TransportError {
     match err {
         NoiseError::Refused | NoiseError::PeerKeyBinding(_) | NoiseError::LocalKeyBinding => {
             TransportError::AuthenticationFailed

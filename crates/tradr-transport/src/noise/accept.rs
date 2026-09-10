@@ -14,7 +14,7 @@ pub async fn handshake_as_responder(
     responder: Responder,
     sink: &dyn LinkSink,
     source: &mut dyn LinkSource,
-    clock: &dyn Clock,
+    clock: &(dyn Clock + Sync),
 ) -> Result<(NoiseSession, Duration), TransportError> {
     let msg1 = match source.recv_record().await? {
         Some(record) => record,
