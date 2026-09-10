@@ -1,6 +1,9 @@
 //! GATT constants and framing helpers for BLE transport links (docs/03, ADR-0019).
 
-use tradr_core::{TransportError, tradr_uuid};
+use tradr_core::{TransportError, TransportId, tradr_uuid};
+
+/// The transport identifier for BLE GATT links.
+pub const BLE_GATT_TRANSPORT_ID: TransportId = TransportId::new("ble-gatt");
 
 /// The 16-bit slot for the Tradr GATT primary service UUID (ADR-0019).
 pub const BLE_GATT_SERVICE_SLOT: u16 = 0x0002;
@@ -38,6 +41,9 @@ pub fn delivery(result: std::io::Result<Vec<u8>>) -> Result<Option<Vec<u8>>, Tra
         Err(e) => Err(TransportError::Io(e.kind())),
     }
 }
+
+mod accept;
+pub use accept::accept_link;
 
 #[cfg(target_os = "linux")]
 mod linux;

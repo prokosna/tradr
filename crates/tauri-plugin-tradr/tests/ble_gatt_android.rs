@@ -1,17 +1,22 @@
-//! Unit and integration tests for Android BLE GATT server glue (docs/03, DCR-099, DCR-101).
+//! Unit and integration tests for Android BLE GATT server glue (docs/03, DCR-099, DCR-101, DCR-102).
 //! Carries no cfg so host cargo test validates mappings, queues, and registry invariants.
 
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::io::ErrorKind;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use tauri_plugin_tradr::ble_gatt_android::{
-    GATT_LINK_QUEUE_CAPACITY, GattLink, GattLinkSource, GattLinks, GattPush, GattSendOutcome,
-    GattServerOutcome, send_outcome_error, server_outcome_error,
+    GATT_LINK_QUEUE_CAPACITY, GattAcceptor, GattIncoming, GattLink, GattLinkSource, GattLinks,
+    GattPush, GattSendOutcome, GattServerOutcome, send_outcome_error, server_outcome_error,
 };
-use tradr_core::TransportError;
+use tokio::sync::Notify;
+use tradr_core::{
+    BoxFuture, DeviceId, Incoming, RecvStream, SecureChannel, SendStream, TransportError,
+    TransportId,
+};
 use tradr_transport::noise::ByteSource;
 
 // A rule that stops answering must fail this suite rather than park it (rule E1); the bound
@@ -462,4 +467,248 @@ async fn zero_length_delivery_is_discarded_and_queued_deliveries_are_bounded() {
         assert_eq!(empty_link.pop().await.unwrap(), None);
     })
     .await;
+}
+
+struct FakeSecureChannel {
+    peer_id: DeviceId,
+}
+
+impl FakeSecureChannel {
+    fn new(peer_id: DeviceId) -> Self {
+        Self { peer_id }
+    }
+}
+
+impl SecureChannel for FakeSecureChannel {
+    fn peer(&self) -> DeviceId {
+        self.peer_id
+    }
+
+    fn transport(&self) -> TransportId {
+        TransportId::new("ble-gatt")
+    }
+
+    fn rtt(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(50)
+    }
+
+    fn max_frame_size(&self) -> u32 {
+        512
+    }
+
+    fn open_bi(
+        &self,
+    ) -> BoxFuture<'_, Result<(Box<dyn SendStream>, Box<dyn RecvStream>), TransportError>> {
+        Box::pin(async { Err(TransportError::Closed) })
+    }
+
+    fn open_uni(&self) -> BoxFuture<'_, Result<Box<dyn SendStream>, TransportError>> {
+        Box::pin(async { Err(TransportError::Closed) })
+    }
+
+    fn accept_bi(
+        &self,
+    ) -> BoxFuture<'_, Result<(Box<dyn SendStream>, Box<dyn RecvStream>), TransportError>> {
+        Box::pin(async { Err(TransportError::Closed) })
+    }
+
+    fn accept_uni(&self) -> BoxFuture<'_, Result<Box<dyn RecvStream>, TransportError>> {
+        Box::pin(async { Err(TransportError::Closed) })
+    }
+
+    fn close(&self) -> BoxFuture<'_, Result<(), TransportError>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+enum FakeLinkOutcome {
+    Success(DeviceId),
+    Failure(TransportError),
+    Never,
+    SignalsStartAndDrop {
+        start_notify: Arc<Notify>,
+        drop_notify: Arc<Notify>,
+    },
+}
+
+struct FakeGattAcceptor {
+    queue: Mutex<VecDeque<String>>,
+    notify: Notify,
+    outcomes: Mutex<HashMap<String, FakeLinkOutcome>>,
+}
+
+impl FakeGattAcceptor {
+    fn new() -> Self {
+        Self {
+            queue: Mutex::new(VecDeque::new()),
+            notify: Notify::new(),
+            outcomes: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn push_link(&self, handle: impl Into<String>, outcome: FakeLinkOutcome) {
+        let handle = handle.into();
+        self.outcomes
+            .lock()
+            .unwrap()
+            .insert(handle.clone(), outcome);
+        self.queue.lock().unwrap().push_back(handle);
+        self.notify.notify_one();
+    }
+}
+
+impl GattAcceptor for FakeGattAcceptor {
+    fn next_link(&self) -> BoxFuture<'_, String> {
+        Box::pin(async move {
+            loop {
+                let notified = self.notify.notified();
+                if let Some(handle) = self.queue.lock().unwrap().pop_front() {
+                    return handle;
+                }
+                notified.await;
+            }
+        })
+    }
+
+    fn handshake(
+        self: Arc<Self>,
+        handle: String,
+    ) -> BoxFuture<'static, Result<Box<dyn SecureChannel>, TransportError>> {
+        let outcome = self
+            .outcomes
+            .lock()
+            .unwrap()
+            .remove(&handle)
+            .unwrap_or(FakeLinkOutcome::Never);
+
+        Box::pin(async move {
+            match outcome {
+                FakeLinkOutcome::Success(id) => {
+                    Ok(Box::new(FakeSecureChannel::new(id)) as Box<dyn SecureChannel>)
+                }
+                FakeLinkOutcome::Failure(err) => Err(err),
+                FakeLinkOutcome::Never => {
+                    std::future::pending::<Result<Box<dyn SecureChannel>, TransportError>>().await
+                }
+                FakeLinkOutcome::SignalsStartAndDrop {
+                    start_notify,
+                    drop_notify,
+                } => {
+                    struct DropGuard(Arc<Notify>);
+                    impl Drop for DropGuard {
+                        fn drop(&mut self) {
+                            self.0.notify_one();
+                        }
+                    }
+                    let _guard = DropGuard(drop_notify);
+                    start_notify.notify_one();
+                    std::future::pending::<Result<Box<dyn SecureChannel>, TransportError>>().await
+                }
+            }
+        })
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn failed_handshake_is_discarded_and_later_successful_link_is_accepted() {
+    let fake = Arc::new(FakeGattAcceptor::new());
+    let bad_link = "link-bad";
+    let good_link = "link-good";
+    let good_peer = DeviceId::from_identity_digest(&[0x01; 32]);
+
+    fake.push_link(
+        bad_link,
+        FakeLinkOutcome::Failure(TransportError::AuthenticationFailed),
+    );
+    fake.push_link(good_link, FakeLinkOutcome::Success(good_peer));
+
+    let mut incoming = GattIncoming::new(fake);
+    let channel = tokio::time::timeout(std::time::Duration::from_secs(5), incoming.accept())
+        .await
+        .expect("accept did not time out")
+        .expect("accept succeeds");
+    assert_eq!(channel.peer(), good_peer);
+}
+
+#[tokio::test(start_paused = true)]
+async fn hanging_handshake_does_not_block_later_link_from_being_accepted() {
+    let fake = Arc::new(FakeGattAcceptor::new());
+    let hanging_link = "link-hanging";
+    let fast_link = "link-fast";
+    let fast_peer = DeviceId::from_identity_digest(&[0x02; 32]);
+
+    fake.push_link(hanging_link, FakeLinkOutcome::Never);
+    fake.push_link(fast_link, FakeLinkOutcome::Success(fast_peer));
+
+    let mut incoming = GattIncoming::new(fake);
+    let channel = tokio::time::timeout(std::time::Duration::from_secs(5), incoming.accept())
+        .await
+        .expect("accept did not time out")
+        .expect("fast link accepted");
+    assert_eq!(channel.peer(), fast_peer);
+}
+
+#[tokio::test(start_paused = true)]
+async fn accept_does_not_resolve_while_no_handshake_has_completed() {
+    let fake = Arc::new(FakeGattAcceptor::new());
+    let mut incoming = GattIncoming::new(fake);
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), incoming.accept()).await;
+    assert!(
+        result.is_err(),
+        "accept must not resolve without completed handshake"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn dropping_incoming_aborts_handshake_still_in_flight() {
+    let fake = Arc::new(FakeGattAcceptor::new());
+    let start_notify = Arc::new(Notify::new());
+    let drop_notify = Arc::new(Notify::new());
+
+    fake.push_link(
+        "link-in-flight",
+        FakeLinkOutcome::SignalsStartAndDrop {
+            start_notify: Arc::clone(&start_notify),
+            drop_notify: Arc::clone(&drop_notify),
+        },
+    );
+
+    let started_notified = start_notify.notified();
+    let dropped_notified = drop_notify.notified();
+
+    let incoming = GattIncoming::new(fake);
+
+    tokio::time::timeout(std::time::Duration::from_secs(5), started_notified)
+        .await
+        .expect("handshake task started");
+
+    drop(incoming);
+
+    tokio::time::timeout(std::time::Duration::from_secs(5), dropped_notified)
+        .await
+        .expect("handshake future dropped on listener drop");
+}
+
+#[tokio::test(start_paused = true)]
+async fn two_successful_links_are_both_delivered_one_per_accept() {
+    let fake = Arc::new(FakeGattAcceptor::new());
+    let peer1 = DeviceId::from_identity_digest(&[0x11; 32]);
+    let peer2 = DeviceId::from_identity_digest(&[0x22; 32]);
+
+    fake.push_link("link-1", FakeLinkOutcome::Success(peer1));
+    fake.push_link("link-2", FakeLinkOutcome::Success(peer2));
+
+    let mut incoming = GattIncoming::new(fake);
+    let ch1 = tokio::time::timeout(std::time::Duration::from_secs(5), incoming.accept())
+        .await
+        .expect("first accept did not time out")
+        .expect("first accepted");
+    let ch2 = tokio::time::timeout(std::time::Duration::from_secs(5), incoming.accept())
+        .await
+        .expect("second accept did not time out")
+        .expect("second accepted");
+
+    assert_eq!(ch1.peer(), peer1);
+    assert_eq!(ch2.peer(), peer2);
 }

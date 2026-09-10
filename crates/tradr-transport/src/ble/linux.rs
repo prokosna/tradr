@@ -4,12 +4,12 @@ use std::io::ErrorKind;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
-use tradr_core::{BoxFuture, Clock, TransportError, TransportId};
+use tradr_core::{BoxFuture, Clock, TransportError};
 use tradr_proto::mux::StreamOpener;
 
 use super::{
     BLE_GATT_CENTRAL_TO_PERIPHERAL_UUID, BLE_GATT_PERIPHERAL_TO_CENTRAL_UUID,
-    BLE_GATT_SERVICE_UUID, delivery, operations,
+    BLE_GATT_SERVICE_UUID, BLE_GATT_TRANSPORT_ID, delivery, operations,
 };
 use crate::noise::{
     BLE_GATT_MAX_FRAME_SIZE, BLE_GATT_MAX_RECORD, ByteSink, ByteSource, Initiator, LinkSink,
@@ -161,7 +161,7 @@ pub async fn dial(
     let session = handshake_as_initiator(initiator, &*sink, &mut source).await?;
     let rtt = clock.monotonic_now().duration_since(start);
     let config = NoiseChannelConfig {
-        transport: TransportId::new("ble-gatt"),
+        transport: BLE_GATT_TRANSPORT_ID,
         opener: StreamOpener::Dialler,
         max_frame_size: BLE_GATT_MAX_FRAME_SIZE,
         record_limit: BLE_GATT_MAX_FRAME_SIZE,
