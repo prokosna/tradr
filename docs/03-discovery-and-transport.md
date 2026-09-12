@@ -111,6 +111,8 @@ Holding N secrets costs 3N `derive_key` calls per advertisement. N stays in the 
 
 **On the weakness of the bootstrap secret**: `account_id` is `iss || 0x00 || sub` and is not a secret, merely an opaque provider identifier with the issuer prepended. Anyone who obtains one can detect when that person's device is nearby. This is accepted — a `sub` does not normally leave the app, and **detection grants no ability to connect**, which still requires mutual Attestation. Once two same-account devices meet they exchange an ABK and stop advertising the bootstrap EID.
 
+**`account_id` has one encoding and one home.** Those bytes are `AccountId`'s own, in `tradr-identity`, and `BroadcastSecret::bootstrap` takes a byte slice precisely so that `tradr-discovery` needs no account type to derive from one. A second site assembling `iss || 0x00 || sub` would be a second definition of what an account is on the air, and the two would agree until one of them was corrected.
+
 **Per-platform implementation**: no Rust crate covers the BLE peripheral role across platforms, so this part is written three times and the fourth platform cannot do it at all. It is the least predictable work in the design — see [09](09-roadmap-and-risks.md).
 
 | OS | Advertising (peripheral) | Scanning (central) |
@@ -220,6 +222,24 @@ Rule B3 puts a trait in Layer 1 and its implementation in Layer 3, so `tradr-cor
 #### The secret set is read per advertisement, not captured when scanning starts
 
 The secrets a scanner matches against are the ABKs and Link Secrets the device currently holds, and that set changes while scanning runs — a link is made, a link is removed. **DCR-074 settled the identical question for Trust Tier classification and the answer is the same here**: the set is read at the moment of the match, so removing a link stops that account's devices matching on the very next advertisement rather than at the next restart. A set captured when scanning started would keep recognising a removed peer for as long as the scan runs, and would pass a test that restarts the process.
+
+#### What that set is made of, and the one asymmetry with advertising
+
+**Three things go in, and the composition root is the only place that can assemble them** ([docs/11](11-account-linking.md#where-the-type-lives-and-why-it-is-not-broadcastsecret)): the Account Broadcast Key this device holds, every Link Secret its Link registry holds, and the bootstrap secret derived from this device's own `account_id`. `tradr-discovery` declares the trait and owns none of the three stores, `tradr-identity` owns two of them and may not depend on `tradr-discovery`, so the conversion has exactly one site and it is the shell.
+
+**The bootstrap secret stays in the matching set after an ABK exists, and that is the asymmetry with advertising.** [docs/11](11-account-linking.md#distributing-the-account-broadcast-key)'s step 5 says two devices that have exchanged an ABK stop advertising the bootstrap EID, and that governs what goes on the air. A device that holds an ABK still has to *hear* one that does not: a phone signed in five minutes ago holds no ABK and is advertising bootstrap, and it is the one device the exchange exists to meet. **Dropping the bootstrap secret from the scanner's set would leave the exchange reachable only by devices that had already performed it.**
+
+**A device that is not signed in contributes no ABK and no bootstrap secret, and contributes its Link Secrets anyway.** The first two are derived from an account and there is none. The Link registry is keyed by Link rather than by account, which is the same set `linked_accounts` already hands to Trust Tier classification, so reading it needs no account either.
+
+**The ABK record is opened for an account, so it cannot be opened when the rest of the composition root is.** The record names the `(iss, sub)` it belongs to and a record naming another account is refused rather than answered ([docs/11](11-account-linking.md#the-account-binding-and-the-failure-that-has-nothing-to-notice-it)); the composition root runs before any sign-in and on devices that never sign in, so at that moment there is no account to check it against. **The record is therefore opened at the moment of the match**, which is what the paragraph above already requires of the set as a whole, and a device that signs in while scanning runs starts matching on the very next advertisement.
+
+**The set is ordered ABK, Link Secrets, bootstrap secret.** Nothing on the air depends on the order -- any match ends the search and the matched secret is never reported -- so it exists to make the set a value a test compares rather than a bag it searches.
+
+#### A secret that cannot be read is left out, and the cause is reported when it changes
+
+`BroadcastSecrets::secrets` returns the set and has no error channel, and widening it would carry a key store's failure into `DiscoverySource::next_event`, where the only thing Layer 1 can do with an error is stop scanning. **A source that stops because one slot was unreadable is a worse outcome than one that goes on matching the secrets it could read**, so an unreadable secret is left out of the set.
+
+**Left out is not swallowed** (rule F6). Every cause here is persistent -- a registry that failed to load, a slot the store cannot read, a stored value of the wrong length -- so a report per advertisement writes the same line every couple of seconds and no report at all loses a device that has silently stopped recognising half the peers it should. **The provider reports a cause when it changes**: once when the condition arises, once when it clears, and nothing in between.
 
 #### `Lost` is an age-out, and it is evaluated when a report arrives
 

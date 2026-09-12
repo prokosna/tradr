@@ -401,6 +401,8 @@ The shared secret letting same-account devices recognize each other over BLE.
 
 `tradr-discovery`'s `BroadcastSecret` is *what an EID is derived from*, and [docs/03](03-discovery-and-transport.md#2-ble--proximity-no-network-required-tier-0)'s table says it stands for three different things: an ABK, a Link Secret, and the bootstrap secret. **The ABK is one of the three and is a value of the account rung**, so it is `tradr-core`'s beside `LinkSecret`, and a composition root converts.
 
+**What that composition root converts, and what else goes in beside it, is [docs/03](03-discovery-and-transport.md#what-that-set-is-made-of-and-the-one-asymmetry-with-advertising).** The ABK is one of three secrets a scanner matches against, and the subsection there is where the other two and the order over them are settled.
+
 **`tradr-identity` and `tradr-discovery` are siblings and neither may depend on the other** — the account rung and the radio rung meet only at the composition root, which is what [ADR-0001](adr/0001-tauri-2-as-app-shell.md)'s Change Drill D9 budget buys. A shared Layer 0 type is how both name the same 32 bytes without an edge between them.
 
 #### What the store lands without, and why that order
