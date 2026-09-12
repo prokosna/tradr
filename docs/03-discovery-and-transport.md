@@ -468,6 +468,30 @@ A Noise record's place in its direction's sequence is its nonce ([docs/05](05-se
 
 **What is testable here is the policy and not the radio, so the per-link handshake is the seam.** A stand-in that fails, that succeeds, or that never finishes drives every rule above with no GATT server, no Kotlin and no key store, which is where DCR-086 already drew this line: the decisions are Rust's, and Kotlin's half is the part that cannot be tested and therefore decides nothing.
 
+#### `ble-gatt` is one transport with two halves, and a platform may hold either
+
+**The dialling half and the listening half are separate platform capabilities, and no platform this design targets holds both.** R1 is that this machine's Linux controller refuses every advertisement, so Linux holds the central and cannot be the peripheral; [ADR-0021](adr/0021-macos-is-scan-only-on-ble.md) settles macOS the same way for the life of the product; Android holds the peripheral, which is the end DCR-101 and DCR-102 built. **That is not four transports.** A `TransportId` names a way of reaching a peer and `ble-gatt` is one way, so splitting it by which half a platform happens to hold would put a platform fact into a value the core compares and displays.
+
+**So the transport is constructed from the halves the platform has, and a half it does not have refuses.** `connect` with no central and `listen` with no peripheral both answer `Io(ErrorKind::Unsupported)`. It is not `Unreachable`, which is a verdict about the peer and would make an absent radio look like a peer that is not there; it is not `Rejected`, which is the peer refusing; and it is not a seventh `TransportError` variant, because the six are a closed set and Change Drill D10 forbids the trait change a seventh would be. **`Unsupported` says the local platform holds no such half**, which is what a caller needs in order to stop offering the path.
+
+**The capability bit is declared from the peripheral half and never from the central.** Bit 2 below says this device supports `ble-gatt` payloads, and a peer reads it to decide whether to reach *this* device. A device that can dial and cannot be dialled must not set it, or every peer keeps a `ble-gatt` candidate for a device with nothing listening -- a dial that fails after a radio has been occupied, rather than a candidate that was never offered.
+
+**The policy sits above the platform seam, which is the cut the peripheral's `accept` already made applied to the dialling side.** What a platform supplies is a dial that ends in a channel and an abandon that tears the link down; the bound, the teardown and the order they run in are the transport's, so a stand-in drives every rule with no radio and no BlueZ.
+
+#### The dial is bounded, and the bound is what says what it tears down
+
+**DCR-087 left this transport a constraint rather than a repair**: an address the peer has rotated away from does not refuse a connection, it is scanned for until something gives up. **And the Linux central left the other half**: `connect` calls `device.connect()`, and BlueZ keeps the ACL link whether or not the handshake that followed succeeded, so a dial that failed leaves a connection nothing in this design closes.
+
+**Those are one decision, because a timeout is the only failure with nothing else to report it.** A handshake that refuses reports itself and a link that cannot be established reports itself; a dial that is still waiting reports nothing at all, and whatever ends it is the thing that has to say what it tears down.
+
+**So a dial is bounded at 10 seconds, and every failure after the dial has begun abandons the link to that address.** The abandon runs when the bound expires, when the link could not be established, and when the handshake failed, and it is unconditional: a link to an address whose dial has just failed is a link no channel exists over.
+
+**Ten seconds is chosen rather than measured, and what it is chosen against is the two numbers either side of it.** It has to exceed a connect, a service discovery and three messages paced by a connection interval, which is seconds rather than milliseconds; and it has to sit well under BlueZ's own connect timeout, which is what a rotated-away address otherwise costs and is the whole reason DCR-087 asked for a bound. **A measurement on two radios replaces it**, and until one exists the number is a bound on a failure rather than a budget for a success.
+
+**This is not the handshake timeout this document twice declined to invent.** That number would have decided how long a responder waits for a peer that has not spoken, which is a person's pace and not a path's. This one bounds a dial this side asked for, from a call this side made, and it exists for the teardown rather than for the deadline.
+
+**Phase 3's three-second race is the shorter bound and it does not replace this one.** A race that gives up abandons a handshake; it does not tear down an ACL link, because nothing told it there is one. The two answer different questions -- the race decides how long a caller waits, and this bound decides how long a radio stays occupied after the caller has stopped waiting -- and whether a dial that cannot finish inside three seconds can ever win a race is a path-selection question rather than a transport one.
+
 ## Path selection
 
 The mechanism behind picking the right path automatically. **It does not pick — it races and keeps the winner.** The same idea as ICE and Happy Eyeballs.
@@ -532,6 +556,14 @@ A `SecureChannel` therefore offers the same thing on every path: mutually authen
 - **The class weights above belong to path selection, not to the transports.** A weight is a comparison between transports, so it is a policy of the component doing the comparing. `tradr-transport` holds the table; a transport does not report its own rank
 - **A frame-size limit is the opposite case, and the channel reports it.** [docs/04](04-protocol.md#framing) negotiates `max_frame_size` in `Hello` — 1 MiB by default, 512 bytes over BLE — and that negotiation happens in Layer 1. Either the core carries a per-transport table of limits, which is the table this whole section exists to keep out of it, or the established channel says what it can carry. It says. Unlike a weight, a limit is a property of one path rather than a comparison between several
 - **A round-trip estimate is reported and never invented.** `SecureChannel::rtt` is a method rather than a value so that Phase 5 can score a path it is already running on, and a transport that measures continuously -- QUIC does -- answers with what it currently observes. **A transport that measures nothing answers with what establishing the link cost**, which is a number it holds, rather than manufacturing a moving one out of a constant. `ble-gatt` is that case: BLE offers no continuous estimate and this protocol has no ping below the planes, so the channel is constructed with the round trip its own handshake took. The scoring above is what makes that affordable -- the rtt term subtracts one point per ten milliseconds against a class weight of 50, so the comparison it decides is between candidates of the same class
+
+### The weight table and the prefilter are one module, and an unrecognised transport weighs nothing
+
+Phase 2 and Phase 4 above are two rules over the same opaque `TransportId`, so they share one home -- `tradr-transport`, which is where the bullet above already puts the table -- and both are pure, because neither touches a radio, a socket or a clock.
+
+**An unrecognised `TransportId` weighs zero rather than being refused.** A weight is a comparison and the core cannot enumerate transports, so the table is a partial function by construction; one it does not know still races and is still adopted when it is the only candidate that established, which is what an opaque identifier requires. Refusing it would make the table a second registry, and a registry disagreeing with the one that produced the candidate is a transport that can never be reached.
+
+**The prefilter drops candidates and never transports.** Phase 2's rule is about one transfer -- 512 KiB of total bytes -- so it answers with the candidate list that transfer should race, and leaves the transport available to the next one.
 
 ### A discovery source must emit an address its transport can parse
 
@@ -634,5 +666,7 @@ Carried in advertisements and in `Hello`, so each side knows what the other can 
 | 5 | Has a writable Share |
 | 6 | Currently on a metered link |
 | 7-15 | Reserved |
+
+**Bit 2 is declared from the listening half and never from the dialling one**, which the `ble-gatt` section above settles: the bit says a peer may reach this device, and a device that can only dial cannot be reached.
 
 **Bits 7 to 15 are where a new transport's bit comes from, and that is why they are reserved.** Enumerating transports on the wire is deliberate: a peer declares membership of a closed set rather than naming a transport in a string, so a peer cannot claim a transport that does not exist and a receiver never parses an open-ended value. The cost is that adding a transport touches `proto/`, and [Change Drill D10](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) counts that in its budget instead of pretending it does not happen.
