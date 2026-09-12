@@ -871,7 +871,7 @@ pub async fn connect_and_pin(
 pub async fn get_peers(
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
-    peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
+    peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
 ) -> Result<Vec<PeerInfo>, String> {
     let mut mdns = mdns_source.lock().await;
     let mut static_source = static_peer_source.lock().await;
@@ -1010,7 +1010,7 @@ pub async fn send_files<R: tauri::Runtime>(
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
-    peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
+    peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
     transport: State<'_, Arc<QuicTransport>>,
     vfs: State<'_, Arc<NativeVfs>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
@@ -1078,7 +1078,7 @@ pub async fn list_peer_directory(
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
-    peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
+    peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
     transport: State<'_, Arc<QuicTransport>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<DirListingDto, String> {
@@ -1149,7 +1149,7 @@ pub async fn download_file<R: tauri::Runtime>(
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
-    peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
+    peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
     transport: State<'_, Arc<QuicTransport>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<u64, String> {
