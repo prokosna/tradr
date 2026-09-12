@@ -111,16 +111,24 @@ Holding N secrets costs 3N `derive_key` calls per advertisement. N stays in the 
 
 **On the weakness of the bootstrap secret**: `account_id` is `iss || 0x00 || sub` and is not a secret, merely an opaque provider identifier with the issuer prepended. Anyone who obtains one can detect when that person's device is nearby. This is accepted — a `sub` does not normally leave the app, and **detection grants no ability to connect**, which still requires mutual Attestation. Once two same-account devices meet they exchange an ABK and stop advertising the bootstrap EID.
 
-**Per-platform implementation**: no Rust crate covers the BLE peripheral role across platforms, so this part is written four times. It is the least predictable work in the design — see [09](09-roadmap-and-risks.md).
+**Per-platform implementation**: no Rust crate covers the BLE peripheral role across platforms, so this part is written three times and the fourth platform cannot do it at all. It is the least predictable work in the design — see [09](09-roadmap-and-risks.md).
 
 | OS | Advertising (peripheral) | Scanning (central) |
 |---|---|---|
 | Linux | `bluer`, BlueZ over D-Bus | `bluer` |
 | Windows | `windows` crate, `BluetoothLEAdvertisementPublisher` | `btleplug` |
-| macOS | `objc2`, `CBPeripheralManager` | `btleplug` |
+| macOS | **none — see [ADR-0021](adr/0021-macos-is-scan-only-on-ble.md)** | `btleplug` |
 | Android | Kotlin, `BluetoothLeAdvertiser` | Kotlin, `BluetoothLeScanner` |
 
-`tradr-discovery` declares `BleAdvertiser` and `BleScanner` traits with those four implementations behind them.
+`tradr-discovery` declares `BleAdvertiser` and `BleScanner` traits. **Four scanners sit behind one and three advertisers behind the other**, and the subsection below is why the counts differ.
+
+#### macOS advertises nothing, and that is measured rather than assumed
+
+**CoreBluetooth will not put Service Data on the air**, so a Mac cannot transmit the advertisement [ADR-0019](adr/0019-a-128-bit-service-uuid-for-the-ble-advertisement.md) defines and [ADR-0021](adr/0021-macos-is-scan-only-on-ble.md) is the decision that follows. `startAdvertising` answers `error: nil` either way, so the fact is not visible from the Mac: it was read off a raw scanner on a second device on 2026-09-12. Offered a local name, a service UUID list and service data, the air carried Flags and the UUID list and no `0x21` structure. Offered service data alone, with the whole thirty-one bytes to itself, it carried nothing.
+
+**A Mac is therefore a central and never a peripheral.** It discovers other devices and dials them over `ble-gatt`; nothing discovers it over BLE, and two Macs never meet over BLE at all. **R1 already forced the same asymmetry on Linux** for a different reason — this project's Linux machine has a controller that refuses every advertisement — so the peripheral end being the one that *can* advertise is a property the transport already had to survive.
+
+**The three things a reader is likely to try first are all worse**, and [ADR-0021](adr/0021-macos-is-scan-only-on-ble.md) says why: the local name is honoured but would fork the wire format and cost the `setServiceData` filter that buys the battery budget; an extended advertisement is not exposed either; and passing the key speculatively to find out aborts the process inside CoreBluetooth's own XPC encoder rather than being ignored.
 
 #### Where a platform implementation lives, and what the two traits promise across all four
 
