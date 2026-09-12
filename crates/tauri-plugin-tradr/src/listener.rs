@@ -7,11 +7,11 @@ use std::future::Future;
 use std::sync::Arc;
 
 use tradr_core::{
-    BoxFuture, Capabilities, ChunkIndex, Clock, ContentVerifier, DeviceId, DomainTag, Incoming,
-    ItemAcceptance, ItemAcceptanceError, ItemResumption, KeyBinding, KeyStore, LinkReply,
-    OfferItem, PublicIdentity, REFERENCE_CHUNK_SIZE_BYTES, RecvStream, RelPath, ResumptionError,
-    Rng, RootId, SecureChannel, SendStream, TransferAccept, TransferAcceptError, TransferId,
-    TransferOffer, TransportError, TrustTier, UnixTime, VersionRange, Vfs, VfsError,
+    BoxFuture, ChunkIndex, Clock, ContentVerifier, DeviceId, DomainTag, Incoming, ItemAcceptance,
+    ItemAcceptanceError, ItemResumption, KeyBinding, KeyStore, LinkReply, OfferItem,
+    PublicIdentity, REFERENCE_CHUNK_SIZE_BYTES, RecvStream, RelPath, ResumptionError, Rng, RootId,
+    SecureChannel, SendStream, TransferAccept, TransferAcceptError, TransferId, TransferOffer,
+    TransportError, TrustTier, UnixTime, VersionRange, Vfs, VfsError,
 };
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
@@ -25,6 +25,7 @@ use tradr_proto::link::{LinkFrameError, decode_link_reply_frame};
 use tradr_proto::message_type::{Classification, MessageType, Plane, classify};
 use tradr_vfs::{NativeVfs, partial_file_rel_path};
 
+use crate::capabilities::LocalCapabilities;
 use crate::handshake::{HandshakeError, HandshakeParams, perform_handshake_after_peer_hello};
 use crate::link_exchange::{LinkExchangeError, LinkOutcome};
 use crate::peer_trust::OwnAttestation;
@@ -60,8 +61,9 @@ pub struct ListenerParams<'a> {
     pub our_key_binding: KeyBinding,
     /// Supported protocol version range.
     pub our_versions: VersionRange,
-    /// Supported transport and plane capabilities.
-    pub our_capabilities: Capabilities,
+    /// Where this device's declared capability set is read from,
+    /// fresh for each connection rather than captured once at startup.
+    pub our_capabilities: Arc<LocalCapabilities>,
 }
 
 /// Errors occurring during incoming transfer acceptance and session execution.
@@ -347,7 +349,7 @@ where
                 our_attestation_token: our_token,
                 our_key_binding: params.our_key_binding,
                 our_versions: params.our_versions,
-                our_capabilities: params.our_capabilities,
+                our_capabilities: params.our_capabilities.get(),
             };
 
             let session = perform_handshake_after_peer_hello(
@@ -583,6 +585,23 @@ where
     }
 }
 
+/// Builds the key binding for this node linking its agreement key to its identity key.
+pub fn build_key_binding(
+    key_store: &dyn KeyStore,
+    identity: &PublicIdentity,
+) -> Result<KeyBinding, HandshakeError> {
+    let clock = SystemClock;
+    let not_after = UnixTime::from_secs(clock.now().as_secs() + 30 * 24 * 3600);
+    let keybind_sig = key_store
+        .sign(DomainTag::KeyBind, identity.agreement_pub().as_bytes())
+        .map_err(HandshakeError::KeyStore)?;
+    Ok(KeyBinding::new(
+        identity.agreement_pub().clone(),
+        keybind_sig,
+        not_after,
+    ))
+}
+
 /// Runs the listener loop for incoming transfers on an `Incoming` stream.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_listener<F, Fut>(
@@ -592,6 +611,7 @@ pub async fn run_listener<F, Fut>(
     identity: PublicIdentity,
     our_attestation: Arc<dyn OwnAttestation>,
     root: RootId,
+    capabilities: Arc<LocalCapabilities>,
     verify_attestation: F,
     link_service: Option<Arc<dyn LinkStreamService>>,
 ) -> Result<(), ListenerError>
@@ -599,12 +619,7 @@ where
     F: Fn(AttestationRequest) -> Fut + Clone,
     Fut: Future<Output = Result<TrustTier, String>>,
 {
-    let clock = SystemClock;
-    let not_after = UnixTime::from_secs(clock.now().as_secs() + 30 * 24 * 3600);
-    let keybind_sig = key_store
-        .sign(DomainTag::KeyBind, identity.agreement_pub().as_bytes())
-        .map_err(HandshakeError::KeyStore)?;
-    let key_binding = KeyBinding::new(identity.agreement_pub().clone(), keybind_sig, not_after);
+    let key_binding = build_key_binding(key_store.as_ref(), &identity)?;
 
     let versions = VersionRange::new(1, 1)
         .map_err(|_| ListenerError::ProtocolViolation("invalid version range".to_string()))?;
@@ -615,7 +630,7 @@ where
         our_attestation_token: our_attestation,
         our_key_binding: key_binding,
         our_versions: versions,
-        our_capabilities: Capabilities::DIRECT_QUIC,
+        our_capabilities: capabilities,
     };
 
     listen_for_transfers(

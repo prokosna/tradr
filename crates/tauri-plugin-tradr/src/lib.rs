@@ -19,6 +19,7 @@ pub mod ble_android;
 pub mod ble_gatt_android;
 #[cfg(target_os = "android")]
 mod ble_probe;
+pub mod capabilities;
 pub mod commands;
 pub mod desktop;
 pub mod handshake;
@@ -87,7 +88,7 @@ pub fn init<R: Runtime>(
             let link_registry_state = link_registry::init_link_registry_state(app);
             let link_invite_state = Arc::new(link_invite::LinkInviteState::new());
 
-            lifecycle::init_lifecycle(
+            let _listener = lifecycle::init_lifecycle(
                 app,
                 &identity_state,
                 sign_in_state.clone(),
@@ -107,6 +108,9 @@ pub fn init<R: Runtime>(
             {
                 let handle = android::demonstrate_bidirectional_calls(_api)?;
                 ble_probe::spawn_ble_probe(handle.clone());
+                if let Some(listener) = _listener {
+                    lifecycle::spawn_ble_gatt_listener(handle.clone(), listener);
+                }
                 app.manage(android::AndroidPluginHandle(handle));
             }
             Ok(())

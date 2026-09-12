@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
+use tauri_plugin_tradr::capabilities::LocalCapabilities;
 use tauri_plugin_tradr::handshake::{HandshakeParams, perform_handshake};
 use tauri_plugin_tradr::listener::{
     ListenerError, ListenerParams, accept_and_handle_transfer, derive_item_resumption,
@@ -23,6 +24,7 @@ use tradr_identity::SoftwareKeyStore;
 use tradr_integrity::{BaoVerifier, outboard};
 use tradr_proto::control::{decode_transfer_accept_frame, encode_transfer_offer_frame};
 use tradr_proto::framing::{Frame, FrameDecoder, encode_frame};
+use tradr_proto::hello::{decode_hello_frame, encode_hello_frame};
 use tradr_vfs::NativeVfs;
 use tradr_vfs::sanitization::partial_file_rel_path;
 
@@ -409,7 +411,7 @@ async fn single_file_transfer_via_listener_end_to_end() {
         our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
-        our_capabilities: Capabilities::empty(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
     };
 
     let listener_rng = SeededRng::new(999);
@@ -559,7 +561,7 @@ async fn multiple_files_transfer_via_listener() {
         our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
-        our_capabilities: Capabilities::empty(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
     };
 
     let listener_rng = SeededRng::new(111);
@@ -748,7 +750,7 @@ async fn resumed_transfer_via_listener_skips_existing_chunks() {
         our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
-        our_capabilities: Capabilities::empty(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
     };
 
     let listener_rng = SeededRng::new(333);
@@ -917,7 +919,7 @@ async fn selective_item_acceptance_declines_filtered_items() {
         our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
-        our_capabilities: Capabilities::empty(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
     };
 
     let listener_rng = SeededRng::new(555);
@@ -1036,7 +1038,7 @@ async fn listener_refuses_when_peer_attestation_fails() {
         our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
-        our_capabilities: Capabilities::empty(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
     };
 
     let listener_rng = SeededRng::new(777);
@@ -1124,7 +1126,7 @@ async fn unknown_control_plane_messages_ignored_before_offer() {
         our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
-        our_capabilities: Capabilities::empty(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
     };
 
     let listener_rng = SeededRng::new(1212);
@@ -1274,7 +1276,7 @@ async fn accept_and_handle_transfer_from_mock_incoming() {
         our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
-        our_capabilities: Capabilities::empty(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
     };
 
     let listener_rng = SeededRng::new(5678);
@@ -1393,7 +1395,7 @@ async fn listen_for_transfers_terminates_on_closed_incoming() {
         our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
-        our_capabilities: Capabilities::empty(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
     };
 
     let listener_rng = SeededRng::new(9999);
@@ -1413,4 +1415,120 @@ async fn listen_for_transfers_terminates_on_closed_incoming() {
     .await;
 
     assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn listen_for_transfers_reads_capabilities_fresh_per_connection() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (
+        (_sender_store, sender_id, sender_binding),
+        (receiver_store, receiver_id, receiver_binding),
+    ) = create_test_identities();
+
+    let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(2);
+    let mut incoming = MockIncoming {
+        channels: incoming_rx,
+    };
+
+    let receiver_vfs = NativeVfs::new();
+    let root_receiver = RootId::new(801);
+
+    let capabilities = Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC));
+
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::clone(&capabilities),
+    };
+
+    let listener_rng = SeededRng::new(9999);
+    let sender_rng = SeededRng::new(8888);
+
+    let (sender_chan_1, listener_chan_1) =
+        mock_channel_pair(sender_id.device_id(), receiver_id.device_id(), MAX_FRAME);
+    let (sender_chan_2, listener_chan_2) =
+        mock_channel_pair(sender_id.device_id(), receiver_id.device_id(), MAX_FRAME);
+
+    let peer_task = async move {
+        incoming_tx
+            .send(Box::new(listener_chan_1))
+            .await
+            .expect("queue channel 1");
+        let (mut peer_send_1, mut peer_recv_1) = sender_chan_1.open_bi().await.expect("open bi 1");
+        let (_awaiting_1, peer_hello_1) = tradr_identity::hello::open(
+            &sender_rng,
+            VersionRange::new(1, 1).unwrap(),
+            &sender_id,
+            "mock-token-sender-1".to_string(),
+            sender_binding.clone(),
+            Capabilities::DIRECT_QUIC,
+        )
+        .expect("open hello 1");
+        let frame_bytes_1 = encode_hello_frame(&peer_hello_1, MAX_FRAME).expect("encode hello 1");
+        peer_send_1
+            .write_all(&frame_bytes_1)
+            .await
+            .expect("write hello 1");
+        let reply_frame_1 = read_frame_helper(&mut *peer_recv_1, MAX_FRAME)
+            .await
+            .expect("read reply frame 1");
+        let listener_hello_1 = decode_hello_frame(&reply_frame_1).expect("decode hello 1");
+        assert_eq!(listener_hello_1.capabilities().bits(), 1);
+        drop(peer_send_1);
+        drop(peer_recv_1);
+        drop(sender_chan_1);
+
+        capabilities.declare(Capabilities::BLE_GATT);
+
+        incoming_tx
+            .send(Box::new(listener_chan_2))
+            .await
+            .expect("queue channel 2");
+        let (mut peer_send_2, mut peer_recv_2) = sender_chan_2.open_bi().await.expect("open bi 2");
+        let (_awaiting_2, peer_hello_2) = tradr_identity::hello::open(
+            &sender_rng,
+            VersionRange::new(1, 1).unwrap(),
+            &sender_id,
+            "mock-token-sender-2".to_string(),
+            sender_binding,
+            Capabilities::DIRECT_QUIC,
+        )
+        .expect("open hello 2");
+        let frame_bytes_2 = encode_hello_frame(&peer_hello_2, MAX_FRAME).expect("encode hello 2");
+        peer_send_2
+            .write_all(&frame_bytes_2)
+            .await
+            .expect("write hello 2");
+        let reply_frame_2 = read_frame_helper(&mut *peer_recv_2, MAX_FRAME)
+            .await
+            .expect("read reply frame 2");
+        let listener_hello_2 = decode_hello_frame(&reply_frame_2).expect("decode hello 2");
+        assert_eq!(listener_hello_2.capabilities().bits(), 0b101);
+        drop(peer_send_2);
+        drop(peer_recv_2);
+        drop(sender_chan_2);
+
+        drop(incoming_tx);
+    };
+
+    let listener_task = listen_for_transfers(
+        &mut incoming,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+    );
+
+    let (_, listener_res) = tokio::join!(peer_task, listener_task);
+    assert!(listener_res.is_ok());
 }

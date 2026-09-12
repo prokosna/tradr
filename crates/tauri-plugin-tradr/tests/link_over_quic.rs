@@ -14,6 +14,7 @@ use rsa::traits::PublicKeyParts;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use sha2::Sha256;
 
+use tauri_plugin_tradr::capabilities::LocalCapabilities;
 use tauri_plugin_tradr::link_commands::{ReplierDeps, execute_send_link_reply};
 use tauri_plugin_tradr::link_exchange::{LinkDecision, LinkOutcome};
 use tauri_plugin_tradr::link_invite::{
@@ -337,7 +338,7 @@ async fn run_test() {
             our_attestation_token: Arc::new(FixedAttestation(alice_token)),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
-            our_capabilities: Capabilities::DIRECT_QUIC,
+            our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
         };
 
         let inviter_vfs = NativeVfs::new();

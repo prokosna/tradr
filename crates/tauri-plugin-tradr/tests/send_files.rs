@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tauri_plugin_tradr::capabilities::LocalCapabilities;
 use tauri_plugin_tradr::commands::execute_send_files;
 use tauri_plugin_tradr::listener::{ListenerParams, handle_incoming_channel};
 use tauri_plugin_tradr::peer_trust::OwnAttestation;
@@ -93,7 +94,7 @@ async fn send_files_end_to_end_over_quic_loopback() {
             our_attestation_token: Arc::new(FixedAttestation(String::new())),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
-            our_capabilities: Capabilities::DIRECT_QUIC,
+            our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
         };
 
         let res = handle_incoming_channel(
@@ -132,6 +133,7 @@ async fn send_files_end_to_end_over_quic_loopback() {
             &sender_id,
             sender_store.as_ref(),
             String::new(),
+            Capabilities::DIRECT_QUIC,
             |_| async { Ok(TrustTier::SameAccount) },
         ),
         rx_handle,
@@ -206,7 +208,7 @@ async fn send_files_respects_receiver_item_filtering() {
             our_attestation_token: Arc::new(FixedAttestation(String::new())),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
-            our_capabilities: Capabilities::DIRECT_QUIC,
+            our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
         };
 
         let filter = |item: &tradr_core::OfferItem| item.rel_path().as_str() != "rejected.txt";
@@ -247,6 +249,7 @@ async fn send_files_respects_receiver_item_filtering() {
             &sender_id,
             sender_store.as_ref(),
             String::new(),
+            Capabilities::DIRECT_QUIC,
             |_| async { Ok(TrustTier::SameAccount) },
         ),
         rx_handle,
@@ -282,6 +285,7 @@ async fn send_files_rejects_empty_file_list() {
         &sender_id,
         sender_store.as_ref(),
         String::new(),
+        Capabilities::DIRECT_QUIC,
         |_| async { Ok(TrustTier::SameAccount) },
     )
     .await;
