@@ -184,6 +184,34 @@ pub struct BluerCentral {
 }
 
 impl BluerCentral {
+    /// Connects to BlueZ on the default adapter to act as a BLE central.
+    pub async fn open(
+        key_store: Arc<dyn KeyStore>,
+        rng: Arc<dyn Rng + Send + Sync>,
+        verifier: Arc<dyn KeyBindingVerifier>,
+        binding: KeyBinding,
+        clock: Arc<dyn Clock + Send + Sync>,
+    ) -> Result<Self, TransportError> {
+        let session = bluer::Session::new()
+            .await
+            .map_err(|e| gatt_error(&e.kind))?;
+        let adapter = session
+            .default_adapter()
+            .await
+            .map_err(|e| gatt_error(&e.kind))?;
+        if !adapter
+            .is_powered()
+            .await
+            .map_err(|e| gatt_error(&e.kind))?
+        {
+            adapter
+                .set_powered(true)
+                .await
+                .map_err(|e| gatt_error(&e.kind))?;
+        }
+        Ok(Self::new(adapter, key_store, rng, verifier, binding, clock))
+    }
+
     /// Creates a new Linux BLE central instance.
     pub fn new(
         adapter: bluer::Adapter,

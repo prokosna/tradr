@@ -21,12 +21,21 @@ use tradr_identity::{OsRng, SoftwareKeyStore, SystemClock};
 use tradr_integrity::BaoVerifier;
 use tradr_secrets::FileStore;
 use tradr_transport::quic::QuicTransport;
+use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
 fn setup_key_store(dir: &std::path::Path) -> Arc<SoftwareKeyStore> {
     let rung = FileStore::new(dir.join("keys"));
     let store = SoftwareKeyStore::open(&rung, "device-key", &OsRng).expect("open key store");
     Arc::new(store)
+}
+
+// `resolve_peer` needs a set holding the transport a Static Peer's
+// endpoints name. Nothing here dials it.
+fn quic_only_set(dir: &std::path::Path) -> TransportSet {
+    let addr: SocketAddr = "127.0.0.1:0".parse().expect("parse addr");
+    let transport = QuicTransport::new(setup_key_store(dir), addr).expect("transport");
+    TransportSet::new(vec![Arc::new(transport) as Arc<dyn Transport>])
 }
 
 // A fixed own-attestation for tests that never exercise sign-in itself.
@@ -80,6 +89,8 @@ async fn run_test() {
     let rx_addr = receiver_transport.local_addr().expect("rx local addr");
     let sender_transport =
         QuicTransport::new(sender_store.clone(), bind_addr).expect("tx transport");
+    let sender_transports =
+        TransportSet::new(vec![Arc::new(sender_transport) as Arc<dyn Transport>]);
 
     let mut incoming = receiver_transport.listen().await.expect("rx listen");
 
@@ -156,11 +167,12 @@ async fn run_test() {
         .id()
         .to_string();
 
-    let resolved = resolve_peer(&peer_id, &list, &registry).expect("resolve static peer");
+    let resolved =
+        resolve_peer(&peer_id, &list, &registry, &sender_transports).expect("resolve static peer");
     assert_eq!(resolved.expectation, PeerExpectation::Unpinned);
 
     let registry_mutex = tokio::sync::Mutex::new(registry);
-    let channel = connect_and_pin(&sender_transport, &registry_mutex, resolved)
+    let channel = connect_and_pin(&sender_transports, &registry_mutex, resolved)
         .await
         .expect("connect and pin");
 
@@ -240,7 +252,9 @@ async fn resolve_peer_uses_the_registrys_pin_before_the_peer_list_sees_it() {
         .pin(&static_id, pinned_device)
         .expect("pin the static peer entry");
 
-    let resolved = resolve_peer(&peer_id, &list, &registry).expect("resolve static peer");
+    let transports = quic_only_set(&registry_dir.path().join("dial"));
+    let resolved =
+        resolve_peer(&peer_id, &list, &registry, &transports).expect("resolve static peer");
     assert_eq!(resolved.expectation, PeerExpectation::Device(pinned_device));
     assert_eq!(
         resolved.pin_target, None,

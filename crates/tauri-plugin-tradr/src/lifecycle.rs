@@ -19,6 +19,7 @@ use tradr_discovery::{
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
 use tradr_transport::quic::QuicTransport;
+use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
 use crate::ble_source::BleDiscovery;
@@ -37,10 +38,12 @@ use crate::sign_in::SignInState;
 use crate::ble_gatt_android::{AcceptorPeripheral, AndroidGattAcceptor};
 #[cfg(target_os = "android")]
 use tauri::plugin::PluginHandle;
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "linux"))]
 use tradr_identity::key_binding::ClockKeyBindingVerifier;
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "linux"))]
 use tradr_transport::ble::BleGattTransport;
+#[cfg(target_os = "linux")]
+use tradr_transport::ble::BluerCentral;
 
 /// Returns the root identifier for the local downloads directory.
 pub fn downloads_root_id() -> RootId {
@@ -355,15 +358,66 @@ pub fn init_lifecycle<R: Runtime>(
         }
     };
 
+    let mut transports: Vec<Arc<dyn Transport>> = vec![transport.clone() as Arc<dyn Transport>];
+    transports.extend(ble_central_transport(&listener, &key_store));
+
+    let transport_set = Arc::new(TransportSet::new(transports));
+
     app.manage(capabilities);
     app.manage(vfs);
-    app.manage(transport);
+    app.manage(transport_set);
     app.manage(tokio::sync::Mutex::new(mdns_source));
     app.manage(tokio::sync::Mutex::new(static_peer_source));
     app.manage(tokio::sync::Mutex::new(static_peer_registry));
     app.manage(peer_list);
 
     Ok(Some(LifecycleHandles { listener, ble }))
+}
+
+#[cfg(target_os = "linux")]
+fn ble_central_transport(
+    listener: &TransferListener,
+    key_store: &Arc<dyn KeyStore>,
+) -> Option<Arc<dyn Transport>> {
+    match listener.key_binding() {
+        Ok(binding) => {
+            let central_result = tauri::async_runtime::block_on(async {
+                BluerCentral::open(
+                    key_store.clone(),
+                    Arc::new(OsRng),
+                    Arc::new(ClockKeyBindingVerifier::new(Arc::new(SystemClock))),
+                    binding,
+                    Arc::new(SystemClock),
+                )
+                .await
+            });
+            match central_result {
+                Ok(central) => {
+                    let ble_transport = BleGattTransport::new(
+                        Some(Arc::new(central) as Arc<dyn tradr_transport::ble::GattCentral>),
+                        None,
+                    );
+                    Some(Arc::new(ble_transport) as Arc<dyn Transport>)
+                }
+                Err(e) => {
+                    eprintln!("lifecycle: failed to open ble central: {e}");
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("lifecycle: failed to create key binding for ble central: {e}");
+            None
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn ble_central_transport(
+    _listener: &TransferListener,
+    _key_store: &Arc<dyn KeyStore>,
+) -> Option<Arc<dyn Transport>> {
+    None
 }
 
 /// Spawns the background BLE GATT listener on Android (docs/03, DCR-104).

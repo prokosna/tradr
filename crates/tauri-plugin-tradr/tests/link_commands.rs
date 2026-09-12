@@ -842,8 +842,12 @@ fn a_device_id_no_observation_carries_is_its_own_sentence() {
     );
     let list = PeerList::new();
 
-    let err = dial_target(&invite, &list)
-        .expect_err("an empty peer list carries no observation of the inviter's device");
+    let err = dial_target(
+        &invite,
+        &list,
+        &tradr_transport::set::TransportSet::new(vec![]),
+    )
+    .expect_err("an empty peer list carries no observation of the inviter's device");
 
     let expected_id =
         DeviceId::from_identity_digest(blake3::hash(invite.identity_pub().as_bytes()).as_bytes());
