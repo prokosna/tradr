@@ -43,6 +43,10 @@ impl BroadcastSecrets for SharedSecrets {
             .expect("shared secrets lock poisoned")
             .clone()
     }
+
+    fn advertised(&self) -> Vec<BroadcastSecret> {
+        self.secrets()
+    }
 }
 
 #[derive(Clone)]

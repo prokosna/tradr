@@ -5,8 +5,9 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 
 use tradr_core::{
-    BoxFuture, Candidate, Clock, DiscoveryError, DiscoveryEvent, DiscoverySource, Monotonic,
-    ObservationId, ObservationKey, ObservationKeyError, PeerObservation, SourceId, TransportId,
+    BoxFuture, Candidate, Capabilities, Clock, DiscoveryError, DiscoveryEvent, DiscoverySource,
+    Monotonic, ObservationId, ObservationKey, ObservationKeyError, PeerObservation, SourceId,
+    TransportId,
 };
 
 use crate::advertisement::{Advertisement, SERVICE_DATA_LEN};
@@ -137,6 +138,17 @@ pub trait BleScanner: Send {
 pub trait BroadcastSecrets: Send {
     /// Returns the broadcast secrets currently held.
     fn secrets(&self) -> Vec<BroadcastSecret>;
+
+    /// The set that goes on the air.
+    fn advertised(&self) -> Vec<BroadcastSecret>;
+}
+
+/// The capability bits carried in a BLE advertisement (docs/03).
+///
+/// Read at the moment an advertisement is composed and never captured.
+pub trait DeclaredCapabilities: Send + Sync {
+    /// Returns the capability set to declare in the advertisement.
+    fn capabilities(&self) -> Capabilities;
 }
 
 // Tracks observation state and emission time for a peripheral handle.

@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicU16, Ordering};
 use tradr_core::Capabilities;
+use tradr_discovery::DeclaredCapabilities;
 
 /// The capability set this device currently declares (docs/03, "Capability flags").
 pub struct LocalCapabilities {
@@ -27,5 +28,11 @@ impl LocalCapabilities {
     /// Clears every bit in `bits`, called by the half that has just stopped.
     pub fn withdraw(&self, bits: Capabilities) {
         self.bits.fetch_and(!bits.bits(), Ordering::SeqCst);
+    }
+}
+
+impl DeclaredCapabilities for LocalCapabilities {
+    fn capabilities(&self) -> Capabilities {
+        self.get()
     }
 }
