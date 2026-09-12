@@ -7,4 +7,5 @@ pub mod mux;
 pub mod noise;
 pub mod quic;
 pub mod selection;
+pub mod set;
 pub mod tls;

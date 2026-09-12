@@ -10,8 +10,7 @@ use tauri::State;
 use tradr_core::{
     BoxFuture, Candidate, Capabilities, Clock, DiscoverySource, DomainTag, ItemId, KeyBinding,
     KeyStore, OfferItem, Peer, PeerExpectation, PeerList, PublicIdentity, RecvStream, RelPath, Rng,
-    RootId, SecureChannel, TransferId, TransferOffer, Transport, TransportId, TrustTier, UnixTime,
-    VersionRange, Vfs,
+    RootId, SecureChannel, TransferId, TransferOffer, TrustTier, UnixTime, VersionRange, Vfs,
 };
 use tradr_discovery::{
     MDNS_SOURCE_ID, MdnsSource, STATIC_PEER_SOURCE_ID, StaticPeerId, StaticPeerRegistry,
@@ -22,7 +21,7 @@ use tradr_identity::{LinkRegistry, OsRng, SystemClock};
 use tradr_integrity::outboard;
 use tradr_proto::control::{decode_transfer_accept_frame, encode_transfer_offer_frame};
 use tradr_proto::framing::{Frame, FrameDecoder, encode_frame};
-use tradr_transport::quic::QuicTransport;
+use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
 use crate::capabilities::LocalCapabilities;
@@ -763,6 +762,7 @@ pub(crate) async fn drain_peer_sources(
 /// to dial, the `PeerExpectation` to authenticate it against, and -- only
 /// for a Static Peer's first connection -- the entry to pin once the
 /// channel authenticates.
+#[derive(Debug)]
 pub struct ResolvedPeer {
     /// The candidate `connect_and_pin` dials.
     pub candidate: Candidate,
@@ -774,14 +774,20 @@ pub struct ResolvedPeer {
     pub pin_target: Option<StaticPeerId>,
 }
 
-// The candidate a resolved peer is dialled on: the direct-quic one if the
-// peer offers it, otherwise whatever this peer's first candidate is.
-pub(crate) fn pick_candidate(peer: &Peer, peer_id: &str) -> Result<Candidate, String> {
-    peer.candidates()
-        .into_iter()
-        .find(|c| c.transport() == TransportId::new("direct-quic"))
-        .or_else(|| peer.candidates().first().cloned())
-        .ok_or_else(|| format!("no candidate address found for peer {peer_id}"))
+// Until Phase 3 races, the dial is one candidate and the weight table
+// picks it without an RTT term because nothing has been dialled (docs/03).
+pub(crate) fn pick_candidate(
+    peer: &Peer,
+    peer_id: &str,
+    transports: &TransportSet,
+) -> Result<Candidate, String> {
+    let candidates = peer.candidates();
+    if candidates.is_empty() {
+        return Err(format!("no candidate address found for peer {peer_id}"));
+    }
+    transports
+        .best_candidate(&candidates)
+        .ok_or_else(|| format!("no candidate for peer {peer_id} that this device can dial"))
 }
 
 /// Resolves `peer_id`, in either form `PeerInfo::key` may carry, into a
@@ -793,13 +799,14 @@ pub fn resolve_peer(
     peer_id: &str,
     list: &PeerList,
     registry: &StaticPeerRegistry,
+    transports: &TransportSet,
 ) -> Result<ResolvedPeer, String> {
     for peer in list.peers() {
         if let Some(device_id) = peer.device_id() {
             if device_id.to_string() != peer_id {
                 continue;
             }
-            let candidate = pick_candidate(&peer, peer_id)?;
+            let candidate = pick_candidate(&peer, peer_id, transports)?;
             return Ok(ResolvedPeer {
                 candidate,
                 expectation: PeerExpectation::Device(device_id),
@@ -814,22 +821,31 @@ pub fn resolve_peer(
         if observation.id().to_string() != peer_id {
             continue;
         }
-        if observation.id().source() != STATIC_PEER_SOURCE_ID {
+
+        let source = observation.id().source();
+        if source == STATIC_PEER_SOURCE_ID {
+            let static_id = StaticPeerId::new(observation.id().key().as_str())
+                .map_err(|e| format!("malformed static peer observation key: {e}"))?;
+            let expectation = registry
+                .expectation(&static_id)
+                .ok_or_else(|| format!("no static peer entry for {peer_id}"))?;
+            let candidate = pick_candidate(&peer, peer_id, transports)?;
+            let pin_target = matches!(expectation, PeerExpectation::Unpinned).then_some(static_id);
+            return Ok(ResolvedPeer {
+                candidate,
+                expectation,
+                pin_target,
+            });
+        } else if source == tradr_discovery::BLE_SOURCE_ID {
+            let candidate = pick_candidate(&peer, peer_id, transports)?;
+            return Ok(ResolvedPeer {
+                candidate,
+                expectation: PeerExpectation::Unpinned,
+                pin_target: None,
+            });
+        } else {
             return Err(format!("peer {peer_id} has not yet been identified"));
         }
-
-        let static_id = StaticPeerId::new(observation.id().key().as_str())
-            .map_err(|e| format!("malformed static peer observation key: {e}"))?;
-        let expectation = registry
-            .expectation(&static_id)
-            .ok_or_else(|| format!("no static peer entry for {peer_id}"))?;
-        let candidate = pick_candidate(&peer, peer_id)?;
-        let pin_target = matches!(expectation, PeerExpectation::Unpinned).then_some(static_id);
-        return Ok(ResolvedPeer {
-            candidate,
-            expectation,
-            pin_target,
-        });
     }
 
     Err(format!("peer with id {peer_id} not found"))
@@ -841,11 +857,18 @@ pub fn resolve_peer(
 /// a second device answering where an earlier pin named another -- fails
 /// the dial outright rather than being discarded (rule F6).
 pub async fn connect_and_pin(
-    transport: &QuicTransport,
+    transports: &TransportSet,
     registry: &tokio::sync::Mutex<StaticPeerRegistry>,
     resolved: ResolvedPeer,
 ) -> Result<Box<dyn SecureChannel>, String> {
-    let channel = transport
+    let dialler = transports.dialler(&resolved.candidate).ok_or_else(|| {
+        format!(
+            "no transport in set can dial candidate {} at {}",
+            resolved.candidate.transport(),
+            resolved.candidate.address()
+        )
+    })?;
+    let channel = dialler
         .connect(&resolved.candidate, &resolved.expectation)
         .await
         .map_err(|e| {
@@ -1011,7 +1034,7 @@ pub async fn send_files<R: tauri::Runtime>(
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
-    transport: State<'_, Arc<QuicTransport>>,
+    transports: State<'_, Arc<TransportSet>>,
     vfs: State<'_, Arc<NativeVfs>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<Vec<String>, String> {
@@ -1025,10 +1048,10 @@ pub async fn send_files<R: tauri::Runtime>(
     let resolved = {
         let list = peer_list.lock().await;
         let registry = static_peer_registry.lock().await;
-        resolve_peer(&peer_id, &list, &registry)?
+        resolve_peer(&peer_id, &list, &registry, transports.as_ref())?
     };
     let channel =
-        connect_and_pin(transport.as_ref(), static_peer_registry.inner(), resolved).await?;
+        connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved).await?;
 
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
@@ -1079,7 +1102,7 @@ pub async fn list_peer_directory(
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
-    transport: State<'_, Arc<QuicTransport>>,
+    transports: State<'_, Arc<TransportSet>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<DirListingDto, String> {
     {
@@ -1092,10 +1115,10 @@ pub async fn list_peer_directory(
     let resolved = {
         let list = peer_list.lock().await;
         let registry = static_peer_registry.lock().await;
-        resolve_peer(&peer_id, &list, &registry)?
+        resolve_peer(&peer_id, &list, &registry, transports.as_ref())?
     };
     let channel =
-        connect_and_pin(transport.as_ref(), static_peer_registry.inner(), resolved).await?;
+        connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved).await?;
 
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
@@ -1150,7 +1173,7 @@ pub async fn download_file<R: tauri::Runtime>(
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
-    transport: State<'_, Arc<QuicTransport>>,
+    transports: State<'_, Arc<TransportSet>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<u64, String> {
     {
@@ -1163,10 +1186,10 @@ pub async fn download_file<R: tauri::Runtime>(
     let resolved = {
         let list = peer_list.lock().await;
         let registry = static_peer_registry.lock().await;
-        resolve_peer(&peer_id, &list, &registry)?
+        resolve_peer(&peer_id, &list, &registry, transports.as_ref())?
     };
     let channel =
-        connect_and_pin(transport.as_ref(), static_peer_registry.inner(), resolved).await?;
+        connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved).await?;
 
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;

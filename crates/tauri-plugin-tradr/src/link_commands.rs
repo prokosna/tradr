@@ -10,12 +10,12 @@ use tauri::State;
 
 use tradr_core::{
     Candidate, Clock, DeviceId, Invite, LinkDeclineReason, LinkId, LinkSecret, PeerExpectation,
-    PeerList, PublicIdentity, Rng, SecretStore, SecureChannel, Transport, UnixTime,
+    PeerList, PublicIdentity, Rng, SecretStore, SecureChannel, UnixTime,
 };
 use tradr_discovery::{MdnsSource, StaticPeerSource};
 use tradr_identity::{Link, LinkRegistry, OsRng, SystemClock, create_invite, device_fingerprint};
 use tradr_proto::invite::{invite_from_blob, invite_to_blob};
-use tradr_transport::quic::QuicTransport;
+use tradr_transport::set::TransportSet;
 
 use crate::attestation::FUTURE_SKEW_LIMIT_SECS;
 use crate::identity::IdentityState;
@@ -148,12 +148,17 @@ pub fn preview_link_invite(blob: String) -> Result<LinkInvitePreviewDto, String>
 }
 
 /// Resolves an invite's inviter device id to a dialable candidate from the peer list.
-pub fn dial_target(invite: &Invite, list: &PeerList) -> Result<(DeviceId, Candidate), String> {
+pub fn dial_target(
+    invite: &Invite,
+    list: &PeerList,
+    transports: &TransportSet,
+) -> Result<(DeviceId, Candidate), String> {
     let inviter_device_id =
         DeviceId::from_identity_digest(blake3::hash(invite.identity_pub().as_bytes()).as_bytes());
     for peer in list.peers() {
         if peer.device_id() == Some(inviter_device_id) {
-            let candidate = crate::commands::pick_candidate(&peer, &inviter_device_id.to_string())?;
+            let candidate =
+                crate::commands::pick_candidate(&peer, &inviter_device_id.to_string(), transports)?;
             return Ok((inviter_device_id, candidate));
         }
     }
@@ -230,7 +235,7 @@ pub async fn reply_to_link_invite(
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
-    transport: State<'_, Arc<QuicTransport>>,
+    transports: State<'_, Arc<TransportSet>>,
 ) -> Result<LinkReplyDto, String> {
     let invite = invite_from_blob(&blob).map_err(|e| e.to_string())?;
 
@@ -243,10 +248,18 @@ pub async fn reply_to_link_invite(
 
     let (inviter_device_id, candidate) = {
         let list = peer_list.lock().await;
-        dial_target(&invite, &list)?
+        dial_target(&invite, &list, transports.as_ref())?
     };
 
-    let channel = transport
+    let dialler = transports.dialler(&candidate).ok_or_else(|| {
+        format!(
+            "no transport in set can dial candidate {} at {}",
+            candidate.transport(),
+            candidate.address()
+        )
+    })?;
+
+    let channel = dialler
         .connect(&candidate, &PeerExpectation::Device(inviter_device_id))
         .await
         .map_err(|e| format!("failed to connect to peer at {}: {e}", candidate.address()))?;
