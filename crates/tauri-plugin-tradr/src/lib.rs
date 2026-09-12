@@ -17,8 +17,7 @@ mod android;
 mod attestation;
 pub mod ble_android;
 pub mod ble_gatt_android;
-#[cfg(target_os = "android")]
-mod ble_probe;
+pub mod ble_source;
 pub mod broadcast_secrets;
 pub mod capabilities;
 pub mod commands;
@@ -89,14 +88,17 @@ pub fn init<R: Runtime>(
             let link_registry_state = link_registry::init_link_registry_state(app);
             let link_invite_state = Arc::new(link_invite::LinkInviteState::new());
 
-            let _listener = lifecycle::init_lifecycle(
+            let (_listener, ble_discovery) = match lifecycle::init_lifecycle(
                 app,
                 &identity_state,
                 sign_in_state.clone(),
                 &peer_trust_state,
                 &link_registry_state,
                 link_invite_state.clone(),
-            )?;
+            )? {
+                Some(handles) => (Some(handles.listener), handles.ble),
+                None => (None, None),
+            };
 
             app.manage(identity_state);
             app.manage(oauth_config);
@@ -105,10 +107,40 @@ pub fn init<R: Runtime>(
             app.manage(link_registry_state);
             app.manage(link_invite_state);
 
+            #[cfg(target_os = "linux")]
+            if let Some(discovery) = ble_discovery {
+                ble_source::spawn_ble_discovery(
+                    discovery,
+                    Box::pin(async {
+                        tradr_discovery::BluerScanner::new()
+                            .await
+                            .map(|s| Box::new(s) as Box<dyn tradr_discovery::BleScanner>)
+                    }),
+                );
+            }
+
+            #[cfg(not(any(target_os = "linux", target_os = "android")))]
+            if let Some(discovery) = ble_discovery {
+                ble_source::spawn_ble_discovery(
+                    discovery,
+                    Box::pin(async { Err(tradr_discovery::BleError::Unsupported) }),
+                );
+            }
+
             #[cfg(target_os = "android")]
             {
                 let handle = android::demonstrate_bidirectional_calls(_api)?;
-                ble_probe::spawn_ble_probe(handle.clone());
+                if let Some(discovery) = ble_discovery {
+                    let handle_for_scan = handle.clone();
+                    ble_source::spawn_ble_discovery(
+                        discovery,
+                        Box::pin(async move {
+                            ble_android::AndroidBleScanner::new(handle_for_scan, false)
+                                .await
+                                .map(|s| Box::new(s) as Box<dyn tradr_discovery::BleScanner>)
+                        }),
+                    );
+                }
                 if let Some(listener) = _listener {
                     lifecycle::spawn_ble_gatt_listener(handle.clone(), listener);
                 }

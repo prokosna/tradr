@@ -229,7 +229,7 @@ pub async fn reply_to_link_invite(
     link_registry: State<'_, LinkRegistryState>,
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
-    peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
+    peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
     transport: State<'_, Arc<QuicTransport>>,
 ) -> Result<LinkReplyDto, String> {
     let invite = invite_from_blob(&blob).map_err(|e| e.to_string())?;

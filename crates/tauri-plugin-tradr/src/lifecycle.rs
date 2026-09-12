@@ -21,6 +21,8 @@ use tradr_identity::{OsRng, SystemClock};
 use tradr_transport::quic::QuicTransport;
 use tradr_vfs::NativeVfs;
 
+use crate::ble_source::BleDiscovery;
+use crate::broadcast_secrets::DeviceBroadcastSecrets;
 use crate::capabilities::LocalCapabilities;
 use crate::identity::IdentityState;
 use crate::link_invite::{
@@ -111,6 +113,14 @@ impl TransferListener {
     }
 }
 
+/// Handles to background lifecycle services started during initialization.
+pub struct LifecycleHandles {
+    /// The transfer listener running background protocols.
+    pub listener: Arc<TransferListener>,
+    /// The BLE discovery runner, if secrets and storage are available.
+    pub ble: Option<BleDiscovery>,
+}
+
 /// Initializes the background network and storage services.
 pub fn init_lifecycle<R: Runtime>(
     app: &AppHandle<R>,
@@ -119,7 +129,7 @@ pub fn init_lifecycle<R: Runtime>(
     peer_trust_state: &PeerTrustState,
     link_registry_state: &LinkRegistryState,
     link_invite_state: Arc<LinkInviteState>,
-) -> Result<Option<Arc<TransferListener>>, String> {
+) -> Result<Option<LifecycleHandles>, String> {
     let key_store = match identity_state.key_store() {
         Ok(k) => k,
         Err(e) => {
@@ -135,11 +145,12 @@ pub fn init_lifecycle<R: Runtime>(
         }
     };
 
-    let static_peers_path = app
+    let app_data_dir = app
         .path()
         .app_data_dir()
-        .map_err(|e| format!("could not resolve the app data directory: {e}"))?
-        .join("static-peers.json");
+        .map_err(|e| format!("could not resolve the app data directory: {e}"))?;
+    let static_peers_path = app_data_dir.join("static-peers.json");
+    let abk_path = app_data_dir.join("account-broadcast-key.json");
     // A malformed file is refused rather than replaced with an empty
     // registry, which would delete every pin the user holds (docs/03,
     // "Where the set is kept"). Swallowing it here, unlike the key
@@ -306,7 +317,7 @@ pub fn init_lifecycle<R: Runtime>(
         vfs: vfs.clone(),
         key_store: key_store.clone(),
         public_identity: public_identity.clone(),
-        our_attestation: sign_in_state,
+        our_attestation: sign_in_state.clone(),
         root: downloads_root_id(),
         capabilities: capabilities.clone(),
         verify_attestation,
@@ -323,15 +334,36 @@ pub fn init_lifecycle<R: Runtime>(
         }
     });
 
+    let peer_list = Arc::new(tokio::sync::Mutex::new(PeerList::new()));
+    let ble = match identity_state.secret_store() {
+        Ok(secret_store) => {
+            let broadcast_secrets = DeviceBroadcastSecrets::new(
+                sign_in_state.clone(),
+                link_registry_state.registry(),
+                secret_store,
+                abk_path,
+            );
+            Some(BleDiscovery::new(
+                Box::new(broadcast_secrets),
+                Box::new(SystemClock),
+                peer_list.clone(),
+            ))
+        }
+        Err(e) => {
+            eprintln!("lifecycle: secret store not available: {e}");
+            None
+        }
+    };
+
     app.manage(capabilities);
     app.manage(vfs);
     app.manage(transport);
     app.manage(tokio::sync::Mutex::new(mdns_source));
     app.manage(tokio::sync::Mutex::new(static_peer_source));
     app.manage(tokio::sync::Mutex::new(static_peer_registry));
-    app.manage(tokio::sync::Mutex::new(PeerList::new()));
+    app.manage(peer_list);
 
-    Ok(Some(listener))
+    Ok(Some(LifecycleHandles { listener, ble }))
 }
 
 /// Spawns the background BLE GATT listener on Android (docs/03, DCR-104).

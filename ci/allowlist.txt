@@ -62,3 +62,4 @@ state-sync | tests/verified_streaming.rs | Relative crate test file path cited i
 state-sync | tests/verified_transfer.rs | Relative crate test file path cited in M0 review prose
 state-sync | tests/link_over_quic.rs | Relative crate test file path cited in WI-M6-011 review prose
 state-sync | quic/error.rs | Relative crate source file path cited in WI-M6-011 review prose
+state-sync | crates/tauri-plugin-tradr/src/ble_probe.rs | DCR-107 deleted the probe in WI-M7-007o; RECORD.md names it as history and is append-only
