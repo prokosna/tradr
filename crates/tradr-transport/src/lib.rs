@@ -6,4 +6,5 @@ pub mod certificate;
 pub mod mux;
 pub mod noise;
 pub mod quic;
+pub mod selection;
 pub mod tls;

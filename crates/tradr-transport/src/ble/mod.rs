@@ -48,4 +48,7 @@ pub use accept::accept_link;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
-pub use linux::{GattByteSink, GattByteSource, connect, dial, gatt_error};
+pub use linux::{BluerCentral, GattByteSink, GattByteSource, connect, dial, gatt_error};
+
+mod transport;
+pub use transport::{BLE_GATT_DIAL_TIMEOUT, BleGattTransport, GattCentral, GattPeripheral};
