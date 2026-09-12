@@ -9,14 +9,16 @@ use std::sync::{Arc, Mutex};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use tauri_plugin_tradr::ble_gatt_android::{
-    GATT_LINK_QUEUE_CAPACITY, GattAcceptor, GattIncoming, GattLink, GattLinkSource, GattLinks,
-    GattPush, GattSendOutcome, GattServerOutcome, send_outcome_error, server_outcome_error,
+    AcceptorPeripheral, GATT_LINK_QUEUE_CAPACITY, GattAcceptor, GattIncoming, GattLink,
+    GattLinkSource, GattLinks, GattPush, GattSendOutcome, GattServerOutcome, send_outcome_error,
+    server_outcome_error,
 };
 use tokio::sync::Notify;
 use tradr_core::{
     BoxFuture, DeviceId, Incoming, RecvStream, SecureChannel, SendStream, TransportError,
     TransportId,
 };
+use tradr_transport::ble::GattPeripheral;
 use tradr_transport::noise::ByteSource;
 
 // A rule that stops answering must fail this suite rather than park it (rule E1); the bound
@@ -711,4 +713,18 @@ async fn two_successful_links_are_both_delivered_one_per_accept() {
 
     assert_eq!(ch1.peer(), peer1);
     assert_eq!(ch2.peer(), peer2);
+}
+
+#[tokio::test]
+async fn acceptor_peripheral_listens_and_yields_handshook_channel() {
+    let fake = Arc::new(FakeGattAcceptor::new());
+    let expected_peer = DeviceId::from_identity_digest(&[0x42; 32]);
+    fake.push_link("link-1", FakeLinkOutcome::Success(expected_peer));
+
+    let peripheral = AcceptorPeripheral::new(fake);
+    let mut incoming = bounded(peripheral.listen()).await.expect("listen succeeds");
+
+    let channel = bounded(incoming.accept()).await.expect("channel accepted");
+
+    assert_eq!(channel.peer(), expected_peer);
 }

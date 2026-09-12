@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, mpsc};
 use tokio::task::JoinSet;
 use tradr_core::{BoxFuture, Incoming, SecureChannel, TransportError};
+use tradr_transport::ble::GattPeripheral;
 use tradr_transport::noise::ByteSource;
 
 #[cfg(target_os = "android")]
@@ -488,6 +489,25 @@ impl Incoming for GattIncoming {
                 None => Err(TransportError::Closed),
             }
         })
+    }
+}
+
+/// The listening half of `ble-gatt`, over any `GattAcceptor` (docs/03, DCR-104).
+pub struct AcceptorPeripheral {
+    acceptor: Arc<dyn GattAcceptor>,
+}
+
+impl AcceptorPeripheral {
+    /// Listens over `acceptor`.
+    pub fn new(acceptor: Arc<dyn GattAcceptor>) -> Self {
+        Self { acceptor }
+    }
+}
+
+impl GattPeripheral for AcceptorPeripheral {
+    fn listen(&self) -> BoxFuture<'_, Result<Box<dyn Incoming>, TransportError>> {
+        let incoming: Box<dyn Incoming> = Box::new(GattIncoming::new(Arc::clone(&self.acceptor)));
+        Box::pin(std::future::ready(Ok(incoming)))
     }
 }
 

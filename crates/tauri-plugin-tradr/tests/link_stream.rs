@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use tauri_plugin_tradr::capabilities::LocalCapabilities;
 use tauri_plugin_tradr::handshake::{HandshakeParams, perform_handshake};
 use tauri_plugin_tradr::link_exchange::{
     InviterParams, LinkAttestationRequest, LinkDecision, LinkExchangeError, LinkOutcome,
@@ -1147,7 +1148,7 @@ async fn a_hello_first_frame_still_completes_the_ordinary_handshake() {
         our_attestation_token: Arc::new(FixedAttestation("receiver-token".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).expect("valid range"),
-        our_capabilities: Capabilities::empty(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
     };
 
     let hello_seen = Arc::new(Mutex::new(false));
@@ -1211,7 +1212,7 @@ async fn a_linkreply_first_frame_with_a_service_reaches_it() {
         our_attestation_token: Arc::new(FixedAttestation("receiver-token".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).expect("valid range"),
-        our_capabilities: Capabilities::empty(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
     };
     let listener_rng = SeededRng::new(2);
 
@@ -1271,7 +1272,7 @@ async fn a_linkreply_first_frame_with_no_service_is_refused() {
         our_attestation_token: Arc::new(FixedAttestation("receiver-token".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).expect("valid range"),
-        our_capabilities: Capabilities::empty(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
     };
     let listener_rng = SeededRng::new(2);
 
@@ -1318,7 +1319,7 @@ async fn an_unassigned_control_code_as_the_first_frame_is_refused() {
         our_attestation_token: Arc::new(FixedAttestation("receiver-token".to_string())),
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).expect("valid range"),
-        our_capabilities: Capabilities::empty(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
     };
     let listener_rng = SeededRng::new(2);
 

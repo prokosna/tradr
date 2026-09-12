@@ -4,6 +4,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use tauri_plugin_tradr::capabilities::LocalCapabilities;
 use tauri_plugin_tradr::commands::{execute_download_file, execute_list_peer_directory};
 use tauri_plugin_tradr::listener::{ListenerParams, handle_incoming_channel};
 use tauri_plugin_tradr::peer_trust::OwnAttestation;
@@ -88,7 +89,7 @@ async fn list_peer_directory_succeeds_over_quic_loopback() {
             our_attestation_token: Arc::new(FixedAttestation(String::new())),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
-            our_capabilities: Capabilities::DIRECT_QUIC,
+            our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
         };
 
         let res = handle_incoming_channel(
@@ -129,6 +130,7 @@ async fn list_peer_directory_succeeds_over_quic_loopback() {
             &client_id,
             client_store.as_ref(),
             String::new(),
+            Capabilities::DIRECT_QUIC,
             |_| async { Ok(TrustTier::SameAccount) },
         ),
         server_handle,
@@ -205,7 +207,7 @@ async fn list_peer_nested_directory_succeeds() {
             our_attestation_token: Arc::new(FixedAttestation(String::new())),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
-            our_capabilities: Capabilities::DIRECT_QUIC,
+            our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
         };
 
         let res = handle_incoming_channel(
@@ -246,6 +248,7 @@ async fn list_peer_nested_directory_succeeds() {
             &client_id,
             client_store.as_ref(),
             String::new(),
+            Capabilities::DIRECT_QUIC,
             |_| async { Ok(TrustTier::SameAccount) },
         ),
         server_handle,
@@ -313,7 +316,7 @@ async fn download_file_succeeds_over_quic_loopback() {
             our_attestation_token: Arc::new(FixedAttestation(String::new())),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
-            our_capabilities: Capabilities::DIRECT_QUIC,
+            our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
         };
 
         let res = handle_incoming_channel(
@@ -354,6 +357,7 @@ async fn download_file_succeeds_over_quic_loopback() {
             &client_id,
             client_store.as_ref(),
             String::new(),
+            Capabilities::DIRECT_QUIC,
             |_| async { Ok(TrustTier::SameAccount) },
         ),
         server_handle,

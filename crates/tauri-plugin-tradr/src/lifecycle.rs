@@ -8,7 +8,10 @@ use std::sync::Arc;
 use mdns_sd::ServiceDaemon;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
-use tradr_core::{Capabilities, PeerList, RootId, Transport};
+use tradr_core::{
+    BoxFuture, Capabilities, Incoming, KeyBinding, KeyStore, PeerList, PublicIdentity, RootId,
+    Transport, TrustTier,
+};
 use tradr_discovery::{
     AGREEMENT_KEY_TAG_LEN, MdnsSource, Platform, STATIC_PEER_DEFAULT_PORT, StaticPeerRegistry,
     TxtRecord, advertisement, instance_name,
@@ -18,14 +21,24 @@ use tradr_identity::{OsRng, SystemClock};
 use tradr_transport::quic::QuicTransport;
 use tradr_vfs::NativeVfs;
 
+use crate::capabilities::LocalCapabilities;
 use crate::identity::IdentityState;
 use crate::link_invite::{
     LinkInviteState, LinkProposalDto, LinkService, LinkServiceParts, ProposalSink,
 };
 use crate::link_registry::LinkRegistryState;
-use crate::listener::{LinkStreamService, run_listener};
-use crate::peer_trust::PeerTrustState;
+use crate::listener::{LinkStreamService, ListenerError, build_key_binding, run_listener};
+use crate::peer_trust::{OwnAttestation, PeerTrustState};
 use crate::sign_in::SignInState;
+
+#[cfg(target_os = "android")]
+use crate::ble_gatt_android::{AcceptorPeripheral, AndroidGattAcceptor};
+#[cfg(target_os = "android")]
+use tauri::plugin::PluginHandle;
+#[cfg(target_os = "android")]
+use tradr_identity::key_binding::ClockKeyBindingVerifier;
+#[cfg(target_os = "android")]
+use tradr_transport::ble::BleGattTransport;
 
 /// Returns the root identifier for the local downloads directory.
 pub fn downloads_root_id() -> RootId {
@@ -49,6 +62,55 @@ impl<R: Runtime> ProposalSink for EmitProposalSink<R> {
     }
 }
 
+/// Everything a transfer listener needs, so each transport runs the same loop.
+pub struct TransferListener {
+    vfs: Arc<NativeVfs>,
+    key_store: Arc<dyn KeyStore>,
+    public_identity: PublicIdentity,
+    our_attestation: Arc<dyn OwnAttestation>,
+    root: RootId,
+    capabilities: Arc<LocalCapabilities>,
+    verify_attestation: Arc<
+        dyn Fn(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>> + Send + Sync,
+    >,
+    link_service: Option<Arc<dyn LinkStreamService>>,
+}
+
+impl TransferListener {
+    /// The capability set this device declares, shared with every other declaration site.
+    pub fn capabilities(&self) -> Arc<LocalCapabilities> {
+        Arc::clone(&self.capabilities)
+    }
+
+    /// The key store used for signing key bindings and decrypting payloads.
+    pub fn key_store(&self) -> Arc<dyn KeyStore> {
+        Arc::clone(&self.key_store)
+    }
+
+    /// Builds the key binding for this node linking its agreement key to its identity key.
+    pub fn key_binding(&self) -> Result<KeyBinding, String> {
+        build_key_binding(self.key_store.as_ref(), &self.public_identity)
+            .map_err(|e| format!("failed to build key binding: {e}"))
+    }
+
+    /// Runs the accept-handshake-serve loop over `incoming` until it ends.
+    pub async fn run(&self, incoming: Box<dyn Incoming>) -> Result<(), ListenerError> {
+        let verifier = Arc::clone(&self.verify_attestation);
+        run_listener(
+            incoming,
+            Arc::clone(&self.vfs),
+            Arc::clone(&self.key_store),
+            self.public_identity.clone(),
+            Arc::clone(&self.our_attestation),
+            self.root,
+            Arc::clone(&self.capabilities),
+            move |req| verifier(req),
+            self.link_service.clone(),
+        )
+        .await
+    }
+}
+
 /// Initializes the background network and storage services.
 pub fn init_lifecycle<R: Runtime>(
     app: &AppHandle<R>,
@@ -57,19 +119,19 @@ pub fn init_lifecycle<R: Runtime>(
     peer_trust_state: &PeerTrustState,
     link_registry_state: &LinkRegistryState,
     link_invite_state: Arc<LinkInviteState>,
-) -> Result<(), String> {
+) -> Result<Option<Arc<TransferListener>>, String> {
     let key_store = match identity_state.key_store() {
         Ok(k) => k,
         Err(e) => {
             eprintln!("lifecycle: key store not available: {e}");
-            return Ok(());
+            return Ok(None);
         }
     };
     let public_identity = match identity_state.public_identity() {
         Ok(id) => id,
         Err(e) => {
             eprintln!("lifecycle: public identity not available: {e}");
-            return Ok(());
+            return Ok(None);
         }
     };
 
@@ -166,12 +228,14 @@ pub fn init_lifecycle<R: Runtime>(
     )))]
     let platform_str = "other";
 
+    let capabilities = Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC));
+
     let platform = Platform::new(platform_str).map_err(|e| e.to_string())?;
     let txt_record = TxtRecord::new(
         public_identity.device_id(),
         agreement_key_tag,
         None,
-        Capabilities::DIRECT_QUIC,
+        capabilities.get(),
         platform,
     );
 
@@ -185,20 +249,47 @@ pub fn init_lifecycle<R: Runtime>(
     let mdns_source =
         MdnsSource::browse(&daemon).map_err(|e| format!("failed to browse mdns: {e}"))?;
 
-    let transport_for_listener = transport.clone();
-    let vfs_for_listener = vfs.clone();
-    let key_store_for_listener = key_store.clone();
-    let public_identity_for_listener = public_identity.clone();
-    let our_attestation = sign_in_state.clone();
     // `peer_trust` reports its build failure through every classification
     // rather than aborting the listener: a fresh clone with no configured
     // OAuth client ids still accepts channels, it just cannot yet promote
     // any of them past the handshake.
     let peer_trust = peer_trust_state.peer_trust();
-    let sign_in_for_verify = sign_in_state;
+    let sign_in_for_verify = sign_in_state.clone();
     // Reported the same way as `peer_trust` above, through `let links =
     // links?;` inside the closure, rather than substituting an empty list.
     let link_registry = link_registry_state.registry();
+
+    let verify_attestation: Arc<
+        dyn Fn(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>> + Send + Sync,
+    > = Arc::new(move |req: AttestationRequest| {
+        let peer_trust = peer_trust.clone();
+        let sign_in = sign_in_for_verify.clone();
+        let links = link_registry.clone();
+        Box::pin(async move {
+            let trust = peer_trust?;
+            let own_account = sign_in.own_account();
+            // Read out and drop the guard before this block ends,
+            // so no `std::sync::Mutex` guard is ever held across
+            // the `.await` in `trust.classify` below.
+            let linked_accounts = {
+                let links = links?;
+                let links = links
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                links.linked_accounts()
+            };
+            trust
+                .classify(
+                    req.token(),
+                    req.identity_pub(),
+                    req.agreement_pub(),
+                    own_account.as_ref(),
+                    &linked_accounts,
+                    &SystemClock,
+                )
+                .await
+        })
+    });
 
     let link_service: Arc<dyn LinkStreamService> = Arc::new(LinkService::new(
         link_invite_state,
@@ -211,53 +302,28 @@ pub fn init_lifecycle<R: Runtime>(
         Arc::new(SystemClock),
     ));
 
+    let listener = Arc::new(TransferListener {
+        vfs: vfs.clone(),
+        key_store: key_store.clone(),
+        public_identity: public_identity.clone(),
+        our_attestation: sign_in_state,
+        root: downloads_root_id(),
+        capabilities: capabilities.clone(),
+        verify_attestation,
+        link_service: Some(link_service),
+    });
+
+    let listener_for_quic = listener.clone();
+    let transport_for_listener = transport.clone();
     tauri::async_runtime::spawn(async move {
-        if let Ok(incoming) = transport_for_listener.listen().await {
-            let res = run_listener(
-                incoming,
-                vfs_for_listener,
-                key_store_for_listener,
-                public_identity_for_listener,
-                our_attestation,
-                downloads_root_id(),
-                move |req: AttestationRequest| {
-                    let peer_trust = peer_trust.clone();
-                    let sign_in = sign_in_for_verify.clone();
-                    let links = link_registry.clone();
-                    async move {
-                        let trust = peer_trust?;
-                        let own_account = sign_in.own_account();
-                        // Read out and drop the guard before this block ends,
-                        // so no `std::sync::Mutex` guard is ever held across
-                        // the `.await` in `trust.classify` below.
-                        let linked_accounts = {
-                            let links = links?;
-                            let links = links
-                                .lock()
-                                .unwrap_or_else(|poisoned| poisoned.into_inner());
-                            links.linked_accounts()
-                        };
-                        trust
-                            .classify(
-                                req.token(),
-                                req.identity_pub(),
-                                req.agreement_pub(),
-                                own_account.as_ref(),
-                                &linked_accounts,
-                                &SystemClock,
-                            )
-                            .await
-                    }
-                },
-                Some(link_service),
-            )
-            .await;
-            if let Err(e) = res {
-                eprintln!("listener loop exited with error: {e}");
-            }
+        if let Ok(incoming) = transport_for_listener.listen().await
+            && let Err(e) = listener_for_quic.run(incoming).await
+        {
+            eprintln!("listener loop exited with error: {e}");
         }
     });
 
+    app.manage(capabilities);
     app.manage(vfs);
     app.manage(transport);
     app.manage(tokio::sync::Mutex::new(mdns_source));
@@ -265,5 +331,57 @@ pub fn init_lifecycle<R: Runtime>(
     app.manage(tokio::sync::Mutex::new(static_peer_registry));
     app.manage(tokio::sync::Mutex::new(PeerList::new()));
 
-    Ok(())
+    Ok(Some(listener))
+}
+
+/// Spawns the background BLE GATT listener on Android (docs/03, DCR-104).
+#[cfg(target_os = "android")]
+pub fn spawn_ble_gatt_listener<R: Runtime>(
+    handle: PluginHandle<R>,
+    listener: Arc<TransferListener>,
+) {
+    tauri::async_runtime::spawn(async move {
+        let binding = match listener.key_binding() {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("failed to create key binding for ble-gatt listener: {e}");
+                return;
+            }
+        };
+
+        let acceptor = match AndroidGattAcceptor::new(
+            handle,
+            listener.key_store(),
+            Arc::new(OsRng),
+            Arc::new(ClockKeyBindingVerifier::new(Arc::new(SystemClock))),
+            binding,
+            Arc::new(SystemClock),
+        )
+        .await
+        {
+            Ok(a) => Arc::new(a),
+            Err(e) => {
+                eprintln!("failed to start android gatt acceptor: {e}");
+                return;
+            }
+        };
+
+        let peripheral = Arc::new(AcceptorPeripheral::new(acceptor));
+        let transport = BleGattTransport::new(None, Some(peripheral));
+        let incoming = match transport.listen().await {
+            Ok(inc) => inc,
+            Err(e) => {
+                eprintln!("failed to listen on ble-gatt transport: {e}");
+                return;
+            }
+        };
+
+        listener.capabilities().declare(Capabilities::BLE_GATT);
+
+        if let Err(e) = listener.run(incoming).await {
+            eprintln!("ble-gatt listener loop exited with error: {e}");
+        }
+
+        listener.capabilities().withdraw(Capabilities::BLE_GATT);
+    });
 }

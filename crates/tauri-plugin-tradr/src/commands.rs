@@ -25,6 +25,7 @@ use tradr_proto::framing::{Frame, FrameDecoder, encode_frame};
 use tradr_transport::quic::QuicTransport;
 use tradr_vfs::NativeVfs;
 
+use crate::capabilities::LocalCapabilities;
 use crate::handshake::{HandshakeParams, perform_handshake};
 use crate::identity::IdentityState;
 use crate::lifecycle::downloads_root_id;
@@ -255,6 +256,7 @@ pub async fn execute_send_files_with_progress<F, Fut, G>(
     identity: &PublicIdentity,
     key_store: &(dyn KeyStore + Sync),
     attestation_token: String,
+    capabilities: Capabilities,
     verify_attestation: F,
     mut on_progress: G,
 ) -> Result<Vec<String>, String>
@@ -286,7 +288,7 @@ where
         our_attestation_token: attestation_token,
         our_key_binding,
         our_versions: VersionRange::new(1, 1).map_err(|e| e.to_string())?,
-        our_capabilities: Capabilities::DIRECT_QUIC,
+        our_capabilities: capabilities,
     };
 
     let session = perform_handshake(
@@ -484,6 +486,7 @@ pub async fn execute_send_files<F, Fut>(
     identity: &PublicIdentity,
     key_store: &(dyn KeyStore + Sync),
     attestation_token: String,
+    capabilities: Capabilities,
     verify_attestation: F,
 ) -> Result<Vec<String>, String>
 where
@@ -498,6 +501,7 @@ where
         identity,
         key_store,
         attestation_token,
+        capabilities,
         verify_attestation,
         |_| {},
     )
@@ -515,6 +519,7 @@ pub async fn execute_list_peer_directory<F, Fut>(
     identity: &PublicIdentity,
     key_store: &(dyn KeyStore + Sync),
     attestation_token: String,
+    capabilities: Capabilities,
     verify_attestation: F,
 ) -> Result<DirListingDto, String>
 where
@@ -540,7 +545,7 @@ where
         our_attestation_token: attestation_token,
         our_key_binding,
         our_versions: VersionRange::new(1, 1).map_err(|e| e.to_string())?,
-        our_capabilities: Capabilities::DIRECT_QUIC,
+        our_capabilities: capabilities,
     };
 
     let session = perform_handshake(
@@ -619,6 +624,7 @@ pub async fn execute_download_file<F, Fut>(
     identity: &PublicIdentity,
     key_store: &(dyn KeyStore + Sync),
     attestation_token: String,
+    capabilities: Capabilities,
     verify_attestation: F,
 ) -> Result<u64, String>
 where
@@ -644,7 +650,7 @@ where
         our_attestation_token: attestation_token,
         our_key_binding,
         our_versions: VersionRange::new(1, 1).map_err(|e| e.to_string())?,
-        our_capabilities: Capabilities::DIRECT_QUIC,
+        our_capabilities: capabilities,
     };
 
     let session = perform_handshake(
@@ -1007,6 +1013,7 @@ pub async fn send_files<R: tauri::Runtime>(
     peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
     transport: State<'_, Arc<QuicTransport>>,
     vfs: State<'_, Arc<NativeVfs>>,
+    capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<Vec<String>, String> {
     {
         let mut mdns = mdns_source.lock().await;
@@ -1043,6 +1050,7 @@ pub async fn send_files<R: tauri::Runtime>(
         &public_identity,
         key_store.as_ref(),
         attestation_token,
+        capabilities.get(),
         verify_attestation,
         move |progress| {
             use tauri::Emitter;
@@ -1072,6 +1080,7 @@ pub async fn list_peer_directory(
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
     peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
     transport: State<'_, Arc<QuicTransport>>,
+    capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<DirListingDto, String> {
     {
         let mut mdns = mdns_source.lock().await;
@@ -1118,6 +1127,7 @@ pub async fn list_peer_directory(
         &public_identity,
         key_store.as_ref(),
         attestation_token,
+        capabilities.get(),
         verify_attestation,
     )
     .await
@@ -1141,6 +1151,7 @@ pub async fn download_file<R: tauri::Runtime>(
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
     peer_list: State<'_, tokio::sync::Mutex<PeerList>>,
     transport: State<'_, Arc<QuicTransport>>,
+    capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<u64, String> {
     {
         let mut mdns = mdns_source.lock().await;
@@ -1183,6 +1194,7 @@ pub async fn download_file<R: tauri::Runtime>(
         &public_identity,
         key_store.as_ref(),
         attestation_token,
+        capabilities.get(),
         verify_attestation,
     )
     .await

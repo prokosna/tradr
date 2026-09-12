@@ -8,6 +8,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tauri_plugin_tradr::capabilities::LocalCapabilities;
 use tauri_plugin_tradr::commands::{connect_and_pin, execute_send_files, resolve_peer};
 use tauri_plugin_tradr::listener::{ListenerParams, handle_incoming_channel};
 use tauri_plugin_tradr::peer_trust::OwnAttestation;
@@ -101,7 +102,7 @@ async fn run_test() {
             our_attestation_token: Arc::new(FixedAttestation(String::new())),
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
-            our_capabilities: Capabilities::DIRECT_QUIC,
+            our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
         };
 
         let res = handle_incoming_channel(
@@ -173,6 +174,7 @@ async fn run_test() {
             &sender_id,
             sender_store.as_ref(),
             String::new(),
+            Capabilities::DIRECT_QUIC,
             |_| async { Ok(TrustTier::SameAccount) },
         ),
         rx_handle,
