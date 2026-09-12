@@ -34,6 +34,13 @@ pub struct DeviceBroadcastSecrets {
     last_report: Mutex<Option<String>>,
 }
 
+struct AssembledSecrets {
+    abk: Option<BroadcastSecret>,
+    links: Vec<BroadcastSecret>,
+    bootstrap: Option<BroadcastSecret>,
+    causes: Vec<String>,
+}
+
 impl DeviceBroadcastSecrets {
     /// Creates a provider matching against the ABK, Link secrets, and bootstrap secret.
     pub fn new(
@@ -52,16 +59,16 @@ impl DeviceBroadcastSecrets {
     }
 
     // Separated from reporting so cause assembly is directly testable without observing stderr.
-    fn assemble_secrets(&self) -> (Vec<BroadcastSecret>, Vec<String>) {
+    fn assemble_secrets(&self) -> AssembledSecrets {
         let mut causes = Vec::new();
         let own_account = self.own_account.own_account();
 
-        let mut abk_secret = None;
+        let mut abk = None;
         if let Some(ref account) = own_account {
             match BroadcastKeyRegistry::load(&self.abk_path, account) {
                 Ok(registry) => match registry.offer(self.secrets.as_ref()) {
                     Ok(Some(offer)) => match BroadcastSecret::from_bytes(offer.key().as_bytes()) {
-                        Ok(secret) => abk_secret = Some(secret),
+                        Ok(secret) => abk = Some(secret),
                         Err(e) => causes.push(format!("account broadcast key: {e}")),
                     },
                     Ok(None) => {}
@@ -71,7 +78,7 @@ impl DeviceBroadcastSecrets {
             }
         }
 
-        let mut link_secrets = Vec::new();
+        let mut links = Vec::new();
         match &self.link_registry {
             Ok(registry_mutex) => {
                 let registry = registry_mutex
@@ -80,7 +87,7 @@ impl DeviceBroadcastSecrets {
                 for link in registry.links() {
                     match registry.link_secret(&link.link_id(), self.secrets.as_ref()) {
                         Ok(Some(secret)) => match BroadcastSecret::from_bytes(secret.as_bytes()) {
-                            Ok(bs) => link_secrets.push(bs),
+                            Ok(bs) => links.push(bs),
                             Err(e) => causes.push(format!("link {}: {e}", link.link_id())),
                         },
                         Ok(None) => {
@@ -97,25 +104,17 @@ impl DeviceBroadcastSecrets {
             }
         }
 
-        let mut bootstrap_secret = None;
+        let mut bootstrap = None;
         if let Some(ref account) = own_account {
-            bootstrap_secret = Some(BroadcastSecret::bootstrap(&account.to_bytes()));
+            bootstrap = Some(BroadcastSecret::bootstrap(&account.to_bytes()));
         }
 
-        let mut result = Vec::with_capacity(
-            abk_secret.is_some() as usize
-                + link_secrets.len()
-                + bootstrap_secret.is_some() as usize,
-        );
-        if let Some(abk) = abk_secret {
-            result.push(abk);
+        AssembledSecrets {
+            abk,
+            links,
+            bootstrap,
+            causes,
         }
-        result.extend(link_secrets);
-        if let Some(bootstrap) = bootstrap_secret {
-            result.push(bootstrap);
-        }
-
-        (result, causes)
     }
 
     // Latches failure reports so intermittent failures log once rather than flooding on every match.
@@ -146,11 +145,35 @@ impl DeviceBroadcastSecrets {
 
 impl BroadcastSecrets for DeviceBroadcastSecrets {
     fn secrets(&self) -> Vec<BroadcastSecret> {
-        let (secrets, causes) = self.assemble_secrets();
-        if let Some(line) = self.format_report(&causes) {
+        let parts = self.assemble_secrets();
+        if let Some(line) = self.format_report(&parts.causes) {
             eprintln!("{line}");
         }
-        secrets
+        let mut result = Vec::with_capacity(
+            parts.abk.is_some() as usize + parts.links.len() + parts.bootstrap.is_some() as usize,
+        );
+        if let Some(abk) = parts.abk {
+            result.push(abk);
+        }
+        result.extend(parts.links);
+        if let Some(bootstrap) = parts.bootstrap {
+            result.push(bootstrap);
+        }
+        result
+    }
+
+    fn advertised(&self) -> Vec<BroadcastSecret> {
+        let parts = self.assemble_secrets();
+        if let Some(line) = self.format_report(&parts.causes) {
+            eprintln!("{line}");
+        }
+        let lead = parts.abk.or(parts.bootstrap);
+        let mut result = Vec::with_capacity(lead.is_some() as usize + parts.links.len());
+        if let Some(secret) = lead {
+            result.push(secret);
+        }
+        result.extend(parts.links);
+        result
     }
 }
 
@@ -272,9 +295,9 @@ mod tests {
             scratch_path("unit-abk-reg-err"),
         );
 
-        let (_, causes) = provider.assemble_secrets();
-        assert_eq!(causes.len(), 1);
-        assert!(causes[0].contains("link registry: disk failure"));
+        let parts = provider.assemble_secrets();
+        assert_eq!(parts.causes.len(), 1);
+        assert!(parts.causes[0].contains("link registry: disk failure"));
     }
 
     #[test]
@@ -296,9 +319,9 @@ mod tests {
         std::fs::write(&abk_path, json.to_string().as_bytes()).expect("write abk succeeds");
 
         let provider = DeviceBroadcastSecrets::new(own, Ok(link_reg), store, abk_path);
-        let (_, causes) = provider.assemble_secrets();
-        assert_eq!(causes.len(), 1);
-        assert!(causes[0].contains("account broadcast key:"));
+        let parts = provider.assemble_secrets();
+        assert_eq!(parts.causes.len(), 1);
+        assert!(parts.causes[0].contains("account broadcast key:"));
     }
 
     #[test]
@@ -324,9 +347,9 @@ mod tests {
             scratch_path("unit-abk-unused-err"),
         );
 
-        let (_, causes) = provider.assemble_secrets();
-        assert_eq!(causes.len(), 1);
-        assert!(causes[0].contains(&format!("link {}", link.link_id())));
+        let parts = provider.assemble_secrets();
+        assert_eq!(parts.causes.len(), 1);
+        assert!(parts.causes[0].contains(&format!("link {}", link.link_id())));
     }
 
     #[test]
@@ -352,9 +375,11 @@ mod tests {
             scratch_path("unit-abk-unused-empty"),
         );
 
-        let (_, causes) = provider.assemble_secrets();
-        assert_eq!(causes.len(), 1);
-        assert!(causes[0].contains(&format!("link {}: secret slot is empty", link.link_id())));
+        let parts = provider.assemble_secrets();
+        assert_eq!(parts.causes.len(), 1);
+        assert!(
+            parts.causes[0].contains(&format!("link {}: secret slot is empty", link.link_id()))
+        );
     }
 
     #[test]
@@ -417,11 +442,15 @@ mod tests {
         let abk_path = scratch_path("unit-abk-none");
 
         let provider = DeviceBroadcastSecrets::new(own, Ok(link_reg), store, abk_path);
-        let (secrets, causes) = provider.assemble_secrets();
+        let parts = provider.assemble_secrets();
 
-        assert_eq!(causes, Vec::<String>::new());
-        assert_eq!(secrets.len(), 1);
+        assert_eq!(parts.causes, Vec::<String>::new());
+        assert!(parts.abk.is_none());
+        assert_eq!(parts.links.len(), 0);
         let expected = BroadcastSecret::bootstrap(&account("alice").to_bytes());
-        assert_eq!(secrets[0].as_bytes(), expected.as_bytes());
+        assert_eq!(
+            parts.bootstrap.as_ref().map(|s| s.as_bytes()),
+            Some(expected.as_bytes())
+        );
     }
 }

@@ -431,3 +431,136 @@ fn abk_bytes_replaced_in_store_between_calls_yields_new_bytes() {
     assert_eq!(second.len(), 2);
     assert_eq!(second[0].as_bytes(), &abk_bytes_2);
 }
+
+#[test]
+fn with_abk_and_two_links_advertised_is_abk_then_links_with_no_bootstrap() {
+    let alice = account("alice");
+    let own = Arc::new(FakeOwnAccount::new(Some(alice.clone())));
+    let link_path = scratch_path("tradr-links-abk-two-links");
+    let mut reg = LinkRegistry::load(&link_path).expect("registry loads");
+    let store = Arc::new(MemoryStore::default());
+    let abk_path = scratch_path("tradr-abk-two-links");
+
+    let abk_bytes = [0x42u8; 32];
+    plant_abk(&abk_path, &alice, &abk_bytes, &store);
+
+    let sec1 = link_secret(0x11);
+    let link1 = make_link(&sec1, "bob");
+    reg.add(link1, &sec1, store.as_ref())
+        .expect("add link1 succeeds");
+
+    let sec2 = link_secret(0x22);
+    let link2 = make_link(&sec2, "carol");
+    reg.add(link2, &sec2, store.as_ref())
+        .expect("add link2 succeeds");
+
+    let link_reg = Arc::new(Mutex::new(reg));
+    let provider = DeviceBroadcastSecrets::new(own, Ok(link_reg), store, abk_path);
+
+    let advertised = provider.advertised();
+    assert_eq!(advertised.len(), 3);
+    assert_eq!(advertised[0].as_bytes(), &abk_bytes);
+    assert_eq!(advertised[1].as_bytes(), sec1.as_bytes());
+    assert_eq!(advertised[2].as_bytes(), sec2.as_bytes());
+
+    let bootstrap = BroadcastSecret::bootstrap(&alice.to_bytes());
+    assert!(
+        !advertised
+            .iter()
+            .any(|s| s.as_bytes() == bootstrap.as_bytes())
+    );
+
+    let secrets = provider.secrets();
+    assert_eq!(secrets.len(), 4);
+    assert_eq!(secrets[0].as_bytes(), &abk_bytes);
+    assert_eq!(secrets[1].as_bytes(), sec1.as_bytes());
+    assert_eq!(secrets[2].as_bytes(), sec2.as_bytes());
+    assert_eq!(secrets[3].as_bytes(), bootstrap.as_bytes());
+}
+
+#[test]
+fn signed_in_with_no_abk_and_one_link_advertised_is_bootstrap_then_link() {
+    let alice = account("alice");
+    let own = Arc::new(FakeOwnAccount::new(Some(alice.clone())));
+    let link_path = scratch_path("tradr-links-no-abk-one-link");
+    let mut reg = LinkRegistry::load(&link_path).expect("registry loads");
+    let store = Arc::new(MemoryStore::default());
+    let abk_path = scratch_path("tradr-abk-none-one-link");
+
+    let sec1 = link_secret(0x11);
+    let link1 = make_link(&sec1, "bob");
+    reg.add(link1, &sec1, store.as_ref())
+        .expect("add link1 succeeds");
+
+    let link_reg = Arc::new(Mutex::new(reg));
+    let provider = DeviceBroadcastSecrets::new(own, Ok(link_reg), store, abk_path);
+
+    let advertised = provider.advertised();
+    assert_eq!(advertised.len(), 2);
+    let bootstrap = BroadcastSecret::bootstrap(&alice.to_bytes());
+    assert_eq!(advertised[0].as_bytes(), bootstrap.as_bytes());
+    assert_eq!(advertised[1].as_bytes(), sec1.as_bytes());
+}
+
+#[test]
+fn not_signed_in_with_one_link_advertised_is_link_secret_alone() {
+    let own = Arc::new(FakeOwnAccount::new(None));
+    let link_path = scratch_path("tradr-links-not-signed-one-link");
+    let mut reg = LinkRegistry::load(&link_path).expect("registry loads");
+    let store = Arc::new(MemoryStore::default());
+    let abk_path = scratch_path("tradr-abk-not-signed-one-link");
+
+    let sec1 = link_secret(0x11);
+    let link1 = make_link(&sec1, "bob");
+    reg.add(link1, &sec1, store.as_ref())
+        .expect("add link1 succeeds");
+
+    let link_reg = Arc::new(Mutex::new(reg));
+    let provider = DeviceBroadcastSecrets::new(own, Ok(link_reg), store, abk_path);
+
+    let advertised = provider.advertised();
+    assert_eq!(advertised.len(), 1);
+    assert_eq!(advertised[0].as_bytes(), sec1.as_bytes());
+}
+
+#[test]
+fn not_signed_in_with_no_links_advertised_is_empty() {
+    let own = Arc::new(FakeOwnAccount::new(None));
+    let link_path = scratch_path("tradr-links-empty-unsigned");
+    let link_reg = Arc::new(Mutex::new(
+        LinkRegistry::load(&link_path).expect("registry loads"),
+    ));
+    let store = Arc::new(MemoryStore::default());
+    let abk_path = scratch_path("tradr-abk-empty-unsigned");
+
+    let provider = DeviceBroadcastSecrets::new(own, Ok(link_reg), store, abk_path);
+
+    let advertised = provider.advertised();
+    assert!(advertised.is_empty());
+}
+
+#[test]
+fn negative_with_abk_held_no_element_of_advertised_equals_bootstrap() {
+    let alice = account("alice");
+    let own = Arc::new(FakeOwnAccount::new(Some(alice.clone())));
+    let link_path = scratch_path("tradr-links-abk-held-neg");
+    let link_reg = Arc::new(Mutex::new(
+        LinkRegistry::load(&link_path).expect("registry loads"),
+    ));
+    let store = Arc::new(MemoryStore::default());
+    let abk_path = scratch_path("tradr-abk-held-neg");
+
+    let abk_bytes = [0x77u8; 32];
+    plant_abk(&abk_path, &alice, &abk_bytes, &store);
+
+    let provider = DeviceBroadcastSecrets::new(own, Ok(link_reg), store, abk_path);
+
+    let advertised = provider.advertised();
+    let bootstrap = BroadcastSecret::bootstrap(&alice.to_bytes());
+    assert!(!advertised.is_empty());
+    assert!(
+        !advertised
+            .iter()
+            .any(|s| s.as_bytes() == bootstrap.as_bytes())
+    );
+}
