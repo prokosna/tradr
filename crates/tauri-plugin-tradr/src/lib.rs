@@ -19,6 +19,7 @@ pub mod ble_android;
 pub mod ble_gatt_android;
 #[cfg(target_os = "android")]
 mod ble_probe;
+pub mod broadcast_secrets;
 pub mod capabilities;
 pub mod commands;
 pub mod desktop;

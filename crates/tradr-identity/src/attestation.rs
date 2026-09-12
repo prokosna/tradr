@@ -84,6 +84,17 @@ impl AccountId {
     pub fn sub(&self) -> &str {
         &self.sub
     }
+
+    /// Canonical wire encoding of the account identifier defined in docs/03,
+    /// centralized on `AccountId` so that discovery and identity derive
+    /// broadcast secrets from a single definition rather than separate concatenations.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(self.iss.len() + 1 + self.sub.len());
+        bytes.extend_from_slice(self.iss.as_bytes());
+        bytes.push(0x00);
+        bytes.extend_from_slice(self.sub.as_bytes());
+        bytes
+    }
 }
 
 /// Claims read from an `id_token` whose signature has already been checked
