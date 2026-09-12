@@ -1,64 +1,61 @@
-# Work Order WI-M7-007m — REVISE round 1
+# Work Order WI-M7-007m — REVISE round 2
 
 ## Role
 
 You are the **Implementer**. `CLAUDE.md` §3 and §4 bind you exactly. **Never edit** `docs/`, `STATE.md`, `RECORD.md`, `CLAUDE.md`, `AGENTS.md`, or this file. **Never commit, push, branch, stash, checkout or reset.** Leave the work in the working tree.
 
-**Your delivered tree stands and is not being discarded.** Fifteen mutations were run against it: five against `LocalCapabilities` and all five killed by exactly the tests that name them, and the rest are the three findings below. The implementation is right; two findings are the tests, and one is the Supervisor's own instruction being withdrawn.
+**Round 1 passed review and its commit has landed on this branch. Nothing in it is being discarded.** What follows is a defect CI found that no gate in the Definition of Done could have found, and the second half of this order is about that gap rather than about you.
 
-## Finding 1 — the rule this whole Work Item exists for can be reverted with the entire suite green
+## Finding — the Android half does not compile, and every gate you were given passes anyway
 
-`crates/tauri-plugin-tradr/src/listener.rs`, in `handle_incoming_channel`, reads `our_capabilities: params.our_capabilities.get()`. **Replacing that with the literal `tradr_core::Capabilities::DIRECT_QUIC` leaves `cargo test -p tauri-plugin-tradr` entirely green — measured, not assumed.** So does every weaker mutation of it.
-
-That line is the whole of DCR-105: the declared set is read where the `Hello` is composed rather than captured once, and the doc comment you wrote on `ListenerParams::our_capabilities` asserts exactly that — "fresh for each connection rather than captured once at startup". **Nothing checks the sentence.** Nineteen test sites now build an `Arc<LocalCapabilities>` and not one of them ever reads what reached the wire.
-
-### What to add
-
-One test in `crates/tauri-plugin-tradr/tests/listener.rs`, named for what it pins. It drives `listen_for_transfers` over `MockIncoming` with **two** channels and **one** `Arc<LocalCapabilities>` shared between them, declaring `Capabilities::BLE_GATT` between the first connection and the second.
-
-The peer side does not complete a handshake and does not need to. For each channel it:
-
-1. opens a bi stream,
-2. builds its own `PeerHello` through `tradr_identity::hello::open` and writes it with `tradr_proto::hello::encode_hello_frame` — the identity fixtures, `SeededRng`, `FakeClock` and `read_frame_helper` in that file are what the existing tests already use,
-3. reads the listener's reply with `read_frame_helper` and decodes it with `tradr_proto::hello::decode_hello_frame`,
-4. asserts on `capabilities().bits()`, then drops its handle.
-
-**Assert against literals, not against the constants the test exists to pin**: `1` for the first connection and `0b101` for the second. An assertion computing its expectation out of `Capabilities::DIRECT_QUIC.bits()` is the finding this milestone has now recorded four times.
-
-`listen_for_transfers` awaits each channel inline, so the two connections are strictly ordered and the test needs no `sleep` and no wall-clock wait (E3). A peer that drops mid-handshake makes `handle_incoming_channel` return an error, which that loop prints and carries on from — that is the existing behaviour and is what lets one test hold two connections.
-
-**Verify by breaking it** (E1): put the `Capabilities::DIRECT_QUIC` literal back in `handle_incoming_channel`, confirm this test and no other fails, quote the assertion failure with its left and right values, and restore the line.
-
-## Finding 2 — `TransferListener::public_identity()` has no caller
-
-`crates/tauri-plugin-tradr/src/lifecycle.rs`. `capabilities()`, `key_store()` and `key_binding()` are all called from `spawn_ble_gatt_listener`; `public_identity()` is called from nowhere in the workspace. It is public API on a public type, so no lint reports it. **Delete it** (rule F3).
-
-## Finding 3 — `app.manage(listener.clone())` is state nothing reads, and that instruction was mine
-
-`crates/tauri-plugin-tradr/src/lifecycle.rs` manages the `Arc<TransferListener>` as Tauri state. Nothing extracts it: `spawn_ble_gatt_listener` receives the listener as an argument, and no command takes it. The round-1 Work Order asked for that `manage` call and was wrong to — a managed value nobody reads is a field that looks like state being kept, which is DF-16's shape.
-
-**Delete the `app.manage(listener.clone())` line**, and with it the now-unneeded `.clone()`. `app.manage(capabilities)` **stays**: the three command wrappers read it through `State<'_, Arc<LocalCapabilities>>`.
-
-## Change nothing else
-
-`crates/tauri-plugin-tradr/src/capabilities.rs`, `commands.rs`, `ble_gatt_android.rs`, `lib.rs`, `tests/capabilities.rs` and the nineteen mechanical test-site edits are all accepted as delivered. Do not touch them. Do not touch `spawn_ble_gatt_listener`'s body, its six-step order, or the `declare`/`withdraw` placement.
-
-## Gates — all five pass, and you report the output
-
-Bounded single target first, then the workspace:
+`.github/workflows/ci.yml`'s `android-debug-smoke` job fails on the branch:
 
 ```
-cargo test -p tauri-plugin-tradr --test listener --test capabilities
+error[E0432]: unresolved import `tradr_identity::ClockKeyBindingVerifier`
+  --> crates/tauri-plugin-tradr/src/lifecycle.rs:39:5
+   |
+39 | use tradr_identity::ClockKeyBindingVerifier;
+   |     ^^^^^^^^^^^^^^^^-----------------------
+   |                     |
+   |                     no `ClockKeyBindingVerifier` in the root
+```
+
+`crates/tradr-identity/src/lib.rs` declares `pub mod key_binding;` and re-exports nothing from it, so the type's path is `tradr_identity::key_binding::ClockKeyBindingVerifier`. Every other import in that `#[cfg(target_os = "android")]` block is correct.
+
+**This is not a gate you skipped.** `cargo clippy --workspace --all-targets`, `cargo test --workspace` and `sh ci/run-all.sh` all compile for the host, and `spawn_ble_gatt_listener` is behind `#[cfg(target_os = "android")]`, so none of them ever type-checks a line of it. The Work Order named those four gates and they were all genuinely green.
+
+## Definition of Done
+
+### 1. Correct the import
+
+`crates/tauri-plugin-tradr/src/lifecycle.rs` line 39: `use tradr_identity::key_binding::ClockKeyBindingVerifier;`.
+
+**Do not re-export the type from `crates/tradr-identity/src/lib.rs`.** That crate is out of scope and the path that already exists is correct.
+
+### 2. Fix whatever else the Android target reports, and nothing else
+
+The error above is the first the compiler reached; there may be more behind it in the same `cfg` block. Fix only errors the Android target actually reports, in `crates/tauri-plugin-tradr` only. **If an Android error can only be fixed by changing something under `crates/tradr-*` or by changing behaviour rather than a path or a type, stop and report it** rather than working around it.
+
+### 3. Gates — five, and the first one is new
+
+```
+cargo check --target aarch64-linux-android -p tauri-plugin-tradr
 cargo fmt --all -- --check
 sh ci/run-all.sh
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+**The first is the one that matters here and it needs no NDK** — `cargo check` does not link, so the cross-target check runs on this machine with nothing installed beyond the `aarch64-linux-android` rustup target, which is already present. It reproduces the CI failure exactly; run it before and after your change and report both.
+
 Format files you edited with `rustfmt --edition 2024 <path>` per file.
 
 **Report the commands' actual output, never an assertion about it.** A gate you did not run is reported as NOT RUN.
 
+## Change nothing else
+
+No test changes, no new test. The behaviour of `spawn_ble_gatt_listener` does not change: this is a path, not a decision.
+
 ## Report back
 
-The files you changed; each of the three findings and whether it is addressed; **the verbatim assertion failure from Finding 1's break-and-restore**, with its left and right values; the verbatim tail of each of the five gate commands; and any Design Change Request you are raising.
+The files you changed; the verbatim output of `cargo check --target aarch64-linux-android -p tauri-plugin-tradr` **before** your change and **after** it; the verbatim tail of the other four gates; and any Design Change Request you are raising.

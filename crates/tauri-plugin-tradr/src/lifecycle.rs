@@ -36,7 +36,7 @@ use crate::ble_gatt_android::{AcceptorPeripheral, AndroidGattAcceptor};
 #[cfg(target_os = "android")]
 use tauri::plugin::PluginHandle;
 #[cfg(target_os = "android")]
-use tradr_identity::ClockKeyBindingVerifier;
+use tradr_identity::key_binding::ClockKeyBindingVerifier;
 #[cfg(target_os = "android")]
 use tradr_transport::ble::BleGattTransport;
 
