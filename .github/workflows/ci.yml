@@ -21,11 +21,12 @@ env:
   ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
 
 jobs:
-  # Mechanizes the ten checks in ci/*.sh: comment language and length,
+  # Mechanizes the thirteen checks in ci/*.sh: comment language and length,
   # doc visibility, the excuse-phrase grep, the invoke()/COMMANDS cross
   # check, the layer-dependency scan, the plugin-permissions three-list
-  # cross check, STATE.md/git-history agreement, hooks-executable, and
-  # the frontend gate.
+  # cross check, STATE.md/git-history agreement, hooks-executable,
+  # the frontend gate, discarded results, empty catch blocks, and
+  # frontend console calls.
   checks:
     runs-on: ubuntu-latest
     steps:
