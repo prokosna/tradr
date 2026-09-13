@@ -155,7 +155,7 @@ impl JwksFetch for CountingFetch {
 fn test_trust() -> Arc<PeerTrust> {
     let trust = PeerTrust::new(profile(), CountingFetch::serving(&[published_key(KID)]));
     trust
-        .install(&document(&[published_key(KID)]))
+        .install(JWKS_URI, &document(&[published_key(KID)]))
         .expect("a well-formed document");
     Arc::new(trust)
 }

@@ -71,12 +71,18 @@ impl PeerTrust {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Installs a JWKS document into the cache directly, so sign-in's own
-    /// fetch can warm the cache a peer connection will read from.
-    pub fn install(&self, document: &[u8]) -> Result<(), String> {
-        self.lock_cache()
-            .install(document)
-            .map_err(|e| e.to_string())
+    /// Installs a JWKS document into the cache directly, called by `sign_in`
+    /// so this device's own fetch warms the cache a peer connection will read
+    /// from. Refuses when `jwks_uri` does not match the cache's bound uri.
+    pub fn install(&self, jwks_uri: &str, document: &[u8]) -> Result<(), String> {
+        let mut cache = self.lock_cache();
+        if jwks_uri != cache.jwks_uri() {
+            return Err(format!(
+                "cannot install JWKS document from {jwks_uri} into cache bound to {}",
+                cache.jwks_uri()
+            ));
+        }
+        cache.install(document).map_err(|e| e.to_string())
     }
 
     /// Runs docs/05's seven steps against `token`, presented by a peer

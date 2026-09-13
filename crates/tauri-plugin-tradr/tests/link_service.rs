@@ -398,7 +398,7 @@ fn fixture(
     let secrets = Arc::new(MemoryStore::default());
     let trust = PeerTrust::new(profile(), CountingFetch::serving(&[published_key(KID)]));
     trust
-        .install(&document(&[published_key(KID)]))
+        .install(JWKS_URI, &document(&[published_key(KID)]))
         .expect("a well-formed document");
 
     let service = LinkService::new(
@@ -738,7 +738,7 @@ async fn verify_link_reads_the_cache_an_ordinary_classification_already_warmed()
     let fetch = CountingFetch::serving(&[published_key(KID)]);
     let trust = PeerTrust::new(profile(), fetch.clone());
     trust
-        .install(&document(&[published_key(KID)]))
+        .install(JWKS_URI, &document(&[published_key(KID)]))
         .expect("a well-formed document");
 
     let account = trust
@@ -769,7 +769,7 @@ async fn an_account_this_device_has_never_seen_verifies_on_the_link_path() {
     let fetch = CountingFetch::serving(&[published_key(KID)]);
     let trust = PeerTrust::new(profile(), fetch);
     trust
-        .install(&document(&[published_key(KID)]))
+        .install(JWKS_URI, &document(&[published_key(KID)]))
         .expect("a well-formed document");
 
     let account = trust
@@ -800,7 +800,7 @@ async fn a_registry_that_could_not_be_built_declines_with_no_reason() {
     let secrets = Arc::new(MemoryStore::default());
     let trust = PeerTrust::new(profile(), CountingFetch::serving(&[published_key(KID)]));
     trust
-        .install(&document(&[published_key(KID)]))
+        .install(JWKS_URI, &document(&[published_key(KID)]))
         .expect("a well-formed document");
 
     let invites = Arc::new(LinkInviteState::new());
