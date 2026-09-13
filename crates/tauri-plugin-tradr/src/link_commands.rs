@@ -15,6 +15,7 @@ use tradr_core::{
 use tradr_discovery::{MdnsSource, StaticPeerSource};
 use tradr_identity::{Link, LinkRegistry, OsRng, SystemClock, create_invite, device_fingerprint};
 use tradr_proto::invite::{invite_from_blob, invite_to_blob};
+use tradr_transport::selection::TransferSize;
 use tradr_transport::set::TransportSet;
 
 use crate::attestation::FUTURE_SKEW_LIMIT_SECS;
@@ -157,8 +158,12 @@ pub fn dial_target(
         DeviceId::from_identity_digest(blake3::hash(invite.identity_pub().as_bytes()).as_bytes());
     for peer in list.peers() {
         if peer.device_id() == Some(inviter_device_id) {
-            let candidate =
-                crate::commands::pick_candidate(&peer, &inviter_device_id.to_string(), transports)?;
+            let candidate = crate::commands::pick_candidate(
+                &peer,
+                &inviter_device_id.to_string(),
+                transports,
+                TransferSize::Bytes(0),
+            )?;
             return Ok((inviter_device_id, candidate));
         }
     }

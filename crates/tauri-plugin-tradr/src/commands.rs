@@ -21,6 +21,7 @@ use tradr_identity::{LinkRegistry, OsRng, SystemClock};
 use tradr_integrity::outboard;
 use tradr_proto::control::{decode_transfer_accept_frame, encode_transfer_offer_frame};
 use tradr_proto::framing::{Frame, FrameDecoder, encode_frame};
+use tradr_transport::selection::{TransferSize, prefilter};
 use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
@@ -245,13 +246,61 @@ fn split_absolute_path(name: &str) -> Option<(std::path::PathBuf, String)> {
     Some((parent, file_name))
 }
 
+/// One file resolved for a transfer offer.
+#[derive(Debug)]
+pub struct SendItem {
+    /// The VFS root holding this file.
+    pub root: RootId,
+    /// Path relative to `root`.
+    pub rel_path: RelPath,
+    /// File size in bytes.
+    pub size_bytes: u64,
+}
+
+/// Resolves candidate file paths to VFS roots and sizes ahead of transfer offer negotiation.
+pub async fn resolve_send_items(
+    vfs: &NativeVfs,
+    root: RootId,
+    file_names: &[String],
+) -> Result<Vec<SendItem>, String> {
+    let mut items = Vec::with_capacity(file_names.len());
+    for name in file_names {
+        let (actual_root, rel_path) = if let Some((parent, file_name)) = split_absolute_path(name) {
+            let r = RelPath::new(&file_name)
+                .map_err(|e| format!("invalid filename '{file_name}': {e}"))?;
+
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            name.hash(&mut hasher);
+            let temp_root = tradr_core::RootId::new(hasher.finish());
+
+            vfs.register_root(temp_root, parent, true)
+                .map_err(|e| format!("failed to register temp root for '{name}': {e}"))?;
+            (temp_root, r)
+        } else {
+            let r =
+                RelPath::new(name).map_err(|e| format!("invalid relative path '{name}': {e}"))?;
+            (root, r)
+        };
+        let meta = vfs
+            .stat(actual_root, &rel_path)
+            .await
+            .map_err(|e| format!("failed to stat '{name}': {e}"))?;
+        items.push(SendItem {
+            root: actual_root,
+            rel_path,
+            size_bytes: meta.size_bytes,
+        });
+    }
+    Ok(items)
+}
+
 /// Executes the sending side of a file transfer session over an open secure channel with progress callbacks.
 #[allow(clippy::too_many_arguments)]
 pub async fn execute_send_files_with_progress<F, Fut, G>(
     channel: &dyn SecureChannel,
     vfs: &NativeVfs,
-    root: RootId,
-    file_names: &[String],
+    items: &[SendItem],
     identity: &PublicIdentity,
     key_store: &(dyn KeyStore + Sync),
     attestation_token: String,
@@ -264,7 +313,7 @@ where
     Fut: Future<Output = Result<TrustTier, String>>,
     G: FnMut(TransferProgressPayload) + Send,
 {
-    if file_names.is_empty() {
+    if items.is_empty() {
         return Err("no files provided for transfer".to_string());
     }
 
@@ -303,43 +352,25 @@ where
     .map_err(|e| format!("handshake failed: {e}"))?;
 
     let transfer_id = generate_transfer_id(&OsRng)?;
-    let mut offer_items = Vec::with_capacity(file_names.len());
+    let mut offer_items = Vec::with_capacity(items.len());
 
     let mut actual_roots = std::collections::HashMap::new();
-    for (idx, name) in file_names.iter().enumerate() {
-        let (actual_root, rel_path) = if let Some((parent, file_name)) = split_absolute_path(name) {
-            let r = RelPath::new(&file_name)
-                .map_err(|e| format!("invalid filename '{file_name}': {e}"))?;
+    for (idx, item) in items.iter().enumerate() {
+        let actual_root = item.root;
+        let rel_path = item.rel_path.clone();
 
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            name.hash(&mut hasher);
-            let temp_root = tradr_core::RootId::new(hasher.finish());
-
-            vfs.register_root(temp_root, parent, true)
-                .map_err(|e| format!("failed to register temp root for '{name}': {e}"))?;
-            (temp_root, r)
-        } else {
-            let r =
-                RelPath::new(name).map_err(|e| format!("invalid relative path '{name}': {e}"))?;
-            (root, r)
-        };
-        let meta = vfs
-            .stat(actual_root, &rel_path)
-            .await
-            .map_err(|e| format!("failed to stat '{name}': {e}"))?;
         let read_handle = vfs
             .open_read(actual_root, &rel_path)
             .await
-            .map_err(|e| format!("failed to open '{name}': {e}"))?;
+            .map_err(|e| format!("failed to open '{rel_path}': {e}"))?;
 
-        let mut content = vec![0u8; meta.size_bytes as usize];
+        let mut content = vec![0u8; item.size_bytes as usize];
         let mut total_read = 0;
         while total_read < content.len() {
             let n = read_handle
                 .read_at(total_read as u64, &mut content[total_read..])
                 .await
-                .map_err(|e| format!("read error on '{name}': {e}"))?;
+                .map_err(|e| format!("read error on '{rel_path}': {e}"))?;
             if n == 0 {
                 break;
             }
@@ -350,7 +381,7 @@ where
         let item_id = ItemId::new(&format!("item_{}", idx + 1))
             .map_err(|e| format!("invalid item id: {e}"))?;
         actual_roots.insert(item_id, actual_root);
-        let offer_item = OfferItem::new(item_id, rel_path, meta.size_bytes, hash)
+        let offer_item = OfferItem::new(item_id, rel_path, item.size_bytes, hash)
             .map_err(|e| format!("invalid offer item: {e}"))?;
         offer_items.push(offer_item);
     }
@@ -411,7 +442,7 @@ where
         let actual_root = actual_roots
             .get(offer_item.item_id())
             .copied()
-            .unwrap_or(root);
+            .ok_or_else(|| format!("missing root for item {}", offer_item.item_id()))?;
         let send_req = SendRequest {
             root: actual_root,
             rel_path: offer_item.rel_path(),
@@ -492,11 +523,11 @@ where
     F: FnOnce(AttestationRequest) -> Fut,
     Fut: Future<Output = Result<TrustTier, String>>,
 {
+    let items = resolve_send_items(vfs, root, file_names).await?;
     execute_send_files_with_progress(
         channel,
         vfs,
-        root,
-        file_names,
+        &items,
         identity,
         key_store,
         attestation_token,
@@ -774,19 +805,34 @@ pub struct ResolvedPeer {
     pub pin_target: Option<StaticPeerId>,
 }
 
-// Until Phase 3 races, the dial is one candidate and the weight table
-// picks it without an RTT term because nothing has been dialled (docs/03).
+// Paths unable to carry the transfer are dropped before scoring because dialling
+// them cannot complete it. Phase 3's race is not built and one dial stands in for
+// it; the score has no RTT term because nothing has been dialled yet (docs/03).
 pub(crate) fn pick_candidate(
     peer: &Peer,
     peer_id: &str,
     transports: &TransportSet,
+    size: TransferSize,
 ) -> Result<Candidate, String> {
     let candidates = peer.candidates();
     if candidates.is_empty() {
         return Err(format!("no candidate address found for peer {peer_id}"));
     }
+    let filtered = prefilter(&candidates, size);
+    if filtered.is_empty() {
+        return Err(match size {
+            TransferSize::Bytes(n) => {
+                format!("no candidate for peer {peer_id} can carry a transfer of {n} bytes")
+            }
+            TransferSize::Unknown => {
+                format!(
+                    "no candidate for peer {peer_id} can carry a transfer whose size is not yet known"
+                )
+            }
+        });
+    }
     transports
-        .best_candidate(&candidates)
+        .best_candidate(&filtered)
         .ok_or_else(|| format!("no candidate for peer {peer_id} that this device can dial"))
 }
 
@@ -800,13 +846,14 @@ pub fn resolve_peer(
     list: &PeerList,
     registry: &StaticPeerRegistry,
     transports: &TransportSet,
+    size: TransferSize,
 ) -> Result<ResolvedPeer, String> {
     for peer in list.peers() {
         if let Some(device_id) = peer.device_id() {
             if device_id.to_string() != peer_id {
                 continue;
             }
-            let candidate = pick_candidate(&peer, peer_id, transports)?;
+            let candidate = pick_candidate(&peer, peer_id, transports, size)?;
             return Ok(ResolvedPeer {
                 candidate,
                 expectation: PeerExpectation::Device(device_id),
@@ -829,7 +876,7 @@ pub fn resolve_peer(
             let expectation = registry
                 .expectation(&static_id)
                 .ok_or_else(|| format!("no static peer entry for {peer_id}"))?;
-            let candidate = pick_candidate(&peer, peer_id, transports)?;
+            let candidate = pick_candidate(&peer, peer_id, transports, size)?;
             let pin_target = matches!(expectation, PeerExpectation::Unpinned).then_some(static_id);
             return Ok(ResolvedPeer {
                 candidate,
@@ -837,7 +884,7 @@ pub fn resolve_peer(
                 pin_target,
             });
         } else if source == tradr_discovery::BLE_SOURCE_ID {
-            let candidate = pick_candidate(&peer, peer_id, transports)?;
+            let candidate = pick_candidate(&peer, peer_id, transports, size)?;
             return Ok(ResolvedPeer {
                 candidate,
                 expectation: PeerExpectation::Unpinned,
@@ -1045,10 +1092,19 @@ pub async fn send_files<R: tauri::Runtime>(
         drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
     }
 
+    let items = resolve_send_items(vfs.as_ref(), downloads_root_id(), &files).await?;
+    let total_bytes: u64 = items.iter().map(|item| item.size_bytes).sum();
+
     let resolved = {
         let list = peer_list.lock().await;
         let registry = static_peer_registry.lock().await;
-        resolve_peer(&peer_id, &list, &registry, transports.as_ref())?
+        resolve_peer(
+            &peer_id,
+            &list,
+            &registry,
+            transports.as_ref(),
+            TransferSize::Bytes(total_bytes),
+        )?
     };
     let channel =
         connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved).await?;
@@ -1068,8 +1124,7 @@ pub async fn send_files<R: tauri::Runtime>(
     execute_send_files_with_progress(
         channel.as_ref(),
         vfs.as_ref(),
-        downloads_root_id(),
-        &files,
+        &items,
         &public_identity,
         key_store.as_ref(),
         attestation_token,
@@ -1115,7 +1170,13 @@ pub async fn list_peer_directory(
     let resolved = {
         let list = peer_list.lock().await;
         let registry = static_peer_registry.lock().await;
-        resolve_peer(&peer_id, &list, &registry, transports.as_ref())?
+        resolve_peer(
+            &peer_id,
+            &list,
+            &registry,
+            transports.as_ref(),
+            TransferSize::Bytes(0),
+        )?
     };
     let channel =
         connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved).await?;
@@ -1186,7 +1247,13 @@ pub async fn download_file<R: tauri::Runtime>(
     let resolved = {
         let list = peer_list.lock().await;
         let registry = static_peer_registry.lock().await;
-        resolve_peer(&peer_id, &list, &registry, transports.as_ref())?
+        resolve_peer(
+            &peer_id,
+            &list,
+            &registry,
+            transports.as_ref(),
+            TransferSize::Unknown,
+        )?
     };
     let channel =
         connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved).await?;

@@ -7,6 +7,15 @@ use tradr_core::{Candidate, TransportId};
 /// Maximum transfer size permitted over BLE GATT links before prefiltering drops them.
 pub const BLE_GATT_MAX_TRANSFER_BYTES: u64 = 512 * 1024;
 
+/// Payload size of an operation used to prefilter candidate transports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransferSize {
+    /// Exact byte count known ahead of dialing.
+    Bytes(u64),
+    /// Byte count unknown ahead of dialing, precluding constrained transports.
+    Unknown,
+}
+
 /// Returns the base comparison weight for a transport class.
 pub fn class_weight(transport: TransportId) -> i32 {
     match transport.as_str() {
@@ -34,8 +43,11 @@ pub fn score(transport: TransportId, rtt: Duration) -> i32 {
 }
 
 /// Filters candidate paths against transfer size constraints while preserving candidate order.
-pub fn prefilter(candidates: &[Candidate], total_bytes: u64) -> Vec<Candidate> {
-    let drop_ble = total_bytes > BLE_GATT_MAX_TRANSFER_BYTES;
+pub fn prefilter(candidates: &[Candidate], size: TransferSize) -> Vec<Candidate> {
+    let drop_ble = match size {
+        TransferSize::Bytes(n) => n > BLE_GATT_MAX_TRANSFER_BYTES,
+        TransferSize::Unknown => true,
+    };
     candidates
         .iter()
         .filter(|c| !drop_ble || c.transport() != crate::ble::BLE_GATT_TRANSPORT_ID)
