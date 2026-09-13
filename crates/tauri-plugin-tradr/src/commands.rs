@@ -87,6 +87,9 @@ pub struct PeerInfo {
     pub addresses: Vec<String>,
     /// Advertised capability bitmask.
     pub capabilities: u16,
+    /// Distinct discovery sources that reported this peer. Plural because
+    /// one Device ID seen by two sources is one peer.
+    pub sources: Vec<String>,
 }
 
 /// Information about a share visible on a peer device.
@@ -936,6 +939,18 @@ pub async fn connect_and_pin(
     Ok(channel)
 }
 
+/// Distinct discovery sources that reported `peer`, preserving observation
+/// order so the frontend can attribute provenance deterministically.
+pub fn peer_sources(peer: &Peer) -> Vec<String> {
+    let mut sources: Vec<String> = peer
+        .observations()
+        .iter()
+        .map(|o| o.id().source().as_str().to_string())
+        .collect();
+    sources.dedup();
+    sources
+}
+
 /// Polls discovered peers from every source and returns the current merged list.
 #[tauri::command]
 pub async fn get_peers(
@@ -979,6 +994,7 @@ pub async fn get_peers(
                 .first()
                 .map(|o| o.capabilities().bits())
                 .unwrap_or(0);
+            let sources = peer_sources(&peer);
 
             PeerInfo {
                 device_id,
@@ -986,6 +1002,7 @@ pub async fn get_peers(
                 display_name,
                 addresses,
                 capabilities,
+                sources,
             }
         })
         .collect();

@@ -86,6 +86,17 @@ interface PeerInfo {
 	display_name: string | null;
 	addresses: string[];
 	capabilities: number;
+	sources: string[];
+}
+
+const SOURCE_PHRASES: Record<string, string> = {
+	mdns: "on this network",
+	"static-peer": "added by hand",
+	ble: "nearby over Bluetooth",
+};
+
+function formatSource(source: string): string {
+	return SOURCE_PHRASES[source] ?? source;
 }
 
 // Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
@@ -595,7 +606,7 @@ export function App() {
 					paddingTop: "1rem",
 				}}
 			>
-				<h2>Discovered Peers</h2>
+				<h2>Peers</h2>
 				<button type="button" onClick={refreshPeers}>
 					Refresh Peers
 				</button>
@@ -603,7 +614,10 @@ export function App() {
 					<p style={{ color: "red" }}>Failed to get peers: {peerListError}</p>
 				)}
 				{peers.length === 0 ? (
-					<p>No peers discovered on local network yet.</p>
+					<p>
+						No peers found on the local network, added by hand, or nearby over
+						Bluetooth yet.
+					</p>
 				) : (
 					<ul style={{ listStyle: "none", padding: 0 }}>
 						{peers.map((peer) => {
@@ -650,6 +664,17 @@ export function App() {
 												: "(not yet identified)"}
 										</span>
 									</label>
+									{peer.sources.length > 0 && (
+										<p
+											style={{
+												margin: "0.25rem 0 0 1.5rem",
+												fontSize: "0.85em",
+												color: "#666",
+											}}
+										>
+											{peer.sources.map(formatSource).join(", ")}
+										</p>
+									)}
 									{peer.addresses.length > 0 && (
 										<p
 											style={{
@@ -679,7 +704,9 @@ export function App() {
 				<p>
 					A reachable address you register by hand, for overlay networks and
 					fixed IPs (Tailscale, WireGuard, ZeroTier). The first connection pins
-					the peer's Device ID; later connections are refused if it changes.
+					the peer's Device ID; later connections are refused if it changes. A
+					registered entry appears in the Peers list above once it is reachable,
+					and is selected there rather than here.
 				</p>
 				<div
 					style={{
@@ -929,10 +956,7 @@ export function App() {
 			>
 				<h2>Browse Peer Shares</h2>
 				{!selectedPeerId ? (
-					<p>
-						Select a peer from Discovered Peers above to browse their shared
-						files.
-					</p>
+					<p>Select a peer from Peers above to browse their shared files.</p>
 				) : (
 					<div>
 						{sharesError && (
