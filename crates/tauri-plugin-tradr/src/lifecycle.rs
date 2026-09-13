@@ -13,8 +13,8 @@ use tradr_core::{
     Transport, TrustTier,
 };
 use tradr_discovery::{
-    AGREEMENT_KEY_TAG_LEN, MdnsSource, Platform, STATIC_PEER_DEFAULT_PORT, StaticPeerRegistry,
-    TxtRecord, advertisement, instance_name,
+    AGREEMENT_KEY_TAG_LEN, DeclaredCapabilities, MdnsSource, Platform, STATIC_PEER_DEFAULT_PORT,
+    StaticPeerRegistry, TxtRecord, advertisement, instance_name,
 };
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
@@ -22,6 +22,7 @@ use tradr_transport::quic::QuicTransport;
 use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
+use crate::ble_advertising::{BleAdvertising, local_platform_code};
 use crate::ble_source::BleDiscovery;
 use crate::broadcast_secrets::DeviceBroadcastSecrets;
 use crate::capabilities::LocalCapabilities;
@@ -122,6 +123,8 @@ pub struct LifecycleHandles {
     pub listener: Arc<TransferListener>,
     /// The BLE discovery runner, if secrets and storage are available.
     pub ble: Option<BleDiscovery>,
+    /// The BLE advertising runner, if secrets and storage are available.
+    pub ble_advertising: Option<BleAdvertising>,
 }
 
 /// Initializes the background network and storage services.
@@ -338,23 +341,36 @@ pub fn init_lifecycle<R: Runtime>(
     });
 
     let peer_list = Arc::new(tokio::sync::Mutex::new(PeerList::new()));
-    let ble = match identity_state.secret_store() {
+    let (ble, ble_advertising) = match identity_state.secret_store() {
         Ok(secret_store) => {
             let broadcast_secrets = DeviceBroadcastSecrets::new(
+                sign_in_state.clone(),
+                link_registry_state.registry(),
+                secret_store.clone(),
+                abk_path.clone(),
+            );
+            let discovery = BleDiscovery::new(
+                Box::new(broadcast_secrets),
+                Box::new(SystemClock),
+                peer_list.clone(),
+            );
+            let adv_secrets = DeviceBroadcastSecrets::new(
                 sign_in_state.clone(),
                 link_registry_state.registry(),
                 secret_store,
                 abk_path,
             );
-            Some(BleDiscovery::new(
-                Box::new(broadcast_secrets),
+            let advertising = BleAdvertising::new(
+                Box::new(adv_secrets),
                 Box::new(SystemClock),
-                peer_list.clone(),
-            ))
+                capabilities.clone() as Arc<dyn DeclaredCapabilities>,
+                local_platform_code(),
+            );
+            (Some(discovery), Some(advertising))
         }
         Err(e) => {
             eprintln!("lifecycle: secret store not available: {e}");
-            None
+            (None, None)
         }
     };
 
@@ -371,7 +387,11 @@ pub fn init_lifecycle<R: Runtime>(
     app.manage(tokio::sync::Mutex::new(static_peer_registry));
     app.manage(peer_list);
 
-    Ok(Some(LifecycleHandles { listener, ble }))
+    Ok(Some(LifecycleHandles {
+        listener,
+        ble,
+        ble_advertising,
+    }))
 }
 
 #[cfg(target_os = "linux")]
