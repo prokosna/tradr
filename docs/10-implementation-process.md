@@ -307,6 +307,12 @@ People and models both forget, so the machine checks. These are required and blo
 | `transport-switch` | Forces path switches and confirms transfers resume | M1 |
 | **`frontend-gate`** | **`biome lint`, `tsc` and `biome format` over the TypeScript workspace** | **M6** |
 | **`discarded-result`** | **Refuses a value bound to `_` in a production source, mechanizing F6** | **M6** |
+| `empty-catch` | Refuses a `catch` block whose body is only whitespace or comments, mechanizing F6 in Kotlin | M7 |
+| `invoke-commands` | Checks every frontend `invoke()` literal against the plugin's `COMMANDS` list | M0 |
+| `plugin-permissions` | Cross-checks `generate_handler!`, `COMMANDS`, and the capability grants the IPC ACL reads | M5 |
+| `state-sync` | Checks `STATE.md` against git history, its own path references, and its ceiling | M1 |
+| `hooks-executable` | Refuses a `.githooks/pre-commit` that git would silently skip | M5 |
+| **`frontend-console`** | **Refuses a `console.` call in a hand-written frontend source, mechanizing F6 in TypeScript** | **M7** |
 
 ### Rule F6's instrument is a text check, because the compiler's is unusable here
 
@@ -317,6 +323,16 @@ People and models both forget, so the machine checks. These are required and blo
 **It scans production sources only** -- `crates/*/src` and `apps/*/src-tauri/src`. Test code holds twenty-five bindings of the "this value is deliberately unused" kind, and F6 is about an error that decides behaviour going unobserved where it runs.
 
 **It takes no allowlist**, because F6 admits no exceptions and the escape hatch is already the repair: a result genuinely not worth propagating is written `if let Err(e) = ... { eprintln!(...) }`, which is one line and names itself in a diff.
+
+### F6's third instrument refuses a channel rather than a shape (DCR-114)
+
+**`console` is the frontend's only way of reporting a failure that is not the interface, and nobody running the application reads it.** F-W2 is what measures that: an IPC refusal broke `Select Files` completely, the handler ended in `catch (e) { console.error(...) }`, and the button silently did nothing for three months. The refusal was reported, accurately, to a place with no reader.
+
+**So the rule is that a frontend `catch` either sets a state the interface renders or it is a swallowed error**, and `ci/frontend-console.sh` mechanizes it by refusing the channel: no `console.` call in a hand-written source under `apps/*/src/` or `packages/*/src/`. **Refusing the channel is decidable by a grep and refusing the shape is not** -- "a catch whose body only logs" needs a parser for two syntaxes, a `catch` block and a `.catch()` arrow, and biome's recommended set has no rule for either. This is the same trade `discarded-result` made for the same rule in Rust, for the reason DCR-080 gives: a text instrument that decides the whole question beats a type-aware one that decides part of it.
+
+**It over-reaches by one case and that case is worth paying.** A `console.log` that reports no failure breaks no rule and this check refuses it anyway. What it buys is that the remedy cannot be to move the log somewhere the parser is not looking, which is the escape every shape-based version of this rule leaves open. Like its two siblings it takes no allowlist: a failure genuinely not worth showing a person is a failure whose `catch` should not exist.
+
+**Placement is local, beside the control whose failure it is**, which is the idiom `Linking.tsx` already uses at every call site and `App.tsx` uses for browsing, sending and the Static Peer register. A single global notice was considered and refused: it collects four unrelated refusals into one undifferentiated banner, and it puts the message somewhere other than where the person just pressed something.
 
 ### The frontend gate is a check in `ci/`, not a job of its own
 
