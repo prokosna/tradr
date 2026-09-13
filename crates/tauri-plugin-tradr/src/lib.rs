@@ -15,6 +15,7 @@ use tauri::{
 #[cfg(target_os = "android")]
 mod android;
 mod attestation;
+pub mod ble_advertising;
 pub mod ble_android;
 pub mod ble_gatt_android;
 pub mod ble_source;
@@ -88,7 +89,7 @@ pub fn init<R: Runtime>(
             let link_registry_state = link_registry::init_link_registry_state(app);
             let link_invite_state = Arc::new(link_invite::LinkInviteState::new());
 
-            let (_listener, ble_discovery) = match lifecycle::init_lifecycle(
+            let (_listener, ble_discovery, ble_advertising) = match lifecycle::init_lifecycle(
                 app,
                 &identity_state,
                 sign_in_state.clone(),
@@ -96,8 +97,8 @@ pub fn init<R: Runtime>(
                 &link_registry_state,
                 link_invite_state.clone(),
             )? {
-                Some(handles) => (Some(handles.listener), handles.ble),
-                None => (None, None),
+                Some(handles) => (Some(handles.listener), handles.ble, handles.ble_advertising),
+                None => (None, None, None),
             };
 
             app.manage(identity_state);
@@ -118,11 +119,29 @@ pub fn init<R: Runtime>(
                     }),
                 );
             }
+            #[cfg(target_os = "linux")]
+            if let Some(advertising) = ble_advertising {
+                ble_advertising::spawn_ble_advertising(
+                    advertising,
+                    Box::pin(async {
+                        tradr_discovery::BluerAdvertiser::new()
+                            .await
+                            .map(|a| Box::new(a) as Box<dyn tradr_discovery::BleAdvertiser>)
+                    }),
+                );
+            }
 
             #[cfg(not(any(target_os = "linux", target_os = "android")))]
             if let Some(discovery) = ble_discovery {
                 ble_source::spawn_ble_discovery(
                     discovery,
+                    Box::pin(async { Err(tradr_discovery::BleError::Unsupported) }),
+                );
+            }
+            #[cfg(not(any(target_os = "linux", target_os = "android")))]
+            if let Some(advertising) = ble_advertising {
+                ble_advertising::spawn_ble_advertising(
+                    advertising,
                     Box::pin(async { Err(tradr_discovery::BleError::Unsupported) }),
                 );
             }
@@ -138,6 +157,18 @@ pub fn init<R: Runtime>(
                             ble_android::AndroidBleScanner::new(handle_for_scan, false)
                                 .await
                                 .map(|s| Box::new(s) as Box<dyn tradr_discovery::BleScanner>)
+                        }),
+                    );
+                }
+                if let Some(advertising) = ble_advertising {
+                    let handle_for_adv = handle.clone();
+                    ble_advertising::spawn_ble_advertising(
+                        advertising,
+                        Box::pin(async move {
+                            Ok(
+                                Box::new(ble_android::AndroidBleAdvertiser::new(handle_for_adv))
+                                    as Box<dyn tradr_discovery::BleAdvertiser>,
+                            )
                         }),
                     );
                 }
