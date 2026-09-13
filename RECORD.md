@@ -1643,7 +1643,10 @@ WI-M0-001c therefore drives code generation without one: `protox`, a pure-Rust p
 ```
 Android : 475695468283-v4q25lmqo6kjova3crhiutnl59jnrckk.apps.googleusercontent.com
 Desktop : 475695468283-shsoa7f59bdbta9jlubfs49jonv1m7ng.apps.googleusercontent.com
+Web     : 475695468283-oa2utjksm5690ini7sguhr0luho6q6bq.apps.googleusercontent.com
 ```
+
+**The Web client was registered on 2026-09-13 as an instrument and not as a decision.** `WI-M7-014` needs one to measure whether the credential API requires a web registration as its server client id, because assuming it does is what this file forbids. **It is in no config and in no audience set**: nothing in the product names it, and if the exit it exists to measure is closed, deleting it costs nothing. It has no redirect URI registered, deliberately -- the measurement does not use one.
 
 Both are public values and belong in the repository. Attestation verification accepts `aud` from this set, so **every device carries both** — see [docs/05](docs/05-security.md#why-step-4-compares-against-a-set).
 
@@ -1695,6 +1698,16 @@ desktop + com.example.nothing:/oauth2redirect        (control)
 **That is the impersonation the Attestation exists to prevent, and Attestation verification is structurally unable to notice it.** Every signature it checks is perfectly valid. It is the shape CLAUDE.md section 6 gives the JWKS entry -- a failure whose only witness is the module that cannot see it -- which is what makes it a trust-root decision rather than a preference.
 
 **What would refute this**: a token endpoint that authenticated an android client's code exchange, or an authorization endpoint that consulted the certificate for a browser flow. The first is contradicted by this file's own record that android clients have no secret; the second is what the probe above measured, since `curl` presented none and was refused for the redirect instead.
+
+**Which client types authenticate at the token endpoint, measured 2026-09-13 by sending a bogus authorization code with no `client_secret` and reading which of the two ways it fails.** A client that answers `client_secret is missing.` never reached the code; one that answers `invalid_grant` passed client authentication and failed on the code itself, which is the only thing wrong with the request.
+
+```
+web     -> invalid_request: client_secret is missing.
+desktop -> invalid_request: client_secret is missing.
+android -> invalid_grant: Bad Request        (client auth passed)
+```
+
+**Three things this settles, and each replaces something that had been asserted.** **The desktop client genuinely requires its secret even under PKCE**, which this file stated and had not measured -- so the cost of giving Android the desktop client is a shipped secret and there is no PKCE-only variant of it. **The android client is a true public client**, which makes the impersonation above a measurement at both ends rather than one: the scheme is claimable by any application, and the code it intercepts needs no secret to redeem. **And a fourth exit is closed before anyone proposed it**: a Web client with a registered `http://localhost` redirect would let Android reuse the loopback listener `sign_in` already has -- its custom scheme is refused outright for the `WEB` type, but its loopback is only *unregistered* rather than policy-blocked, so it looked available. The token endpoint answers that it is not: a Web client is confidential too, so that path ships a secret exactly like the desktop one.
 
 **The refusal is recorded and deliberately not written as an ADR.** Exit (c) rests on two facts no request from this machine can reach -- whether a caller-supplied `nonce` survives into the returned token, and which client id its `aud` carries -- and both need code running on a phone, which is the MacBook's job. Closing (a) by ADR before (c) is measured would leave nothing to fall back to if (c) cannot carry the nonce; if that happens, the choice returns to (a) against (b) with both costs visible, and this paragraph is the cost of (a).
 
