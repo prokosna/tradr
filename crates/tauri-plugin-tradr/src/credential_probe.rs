@@ -22,6 +22,7 @@ const CLIENT_ID_WEB: &str =
 struct ProbeCredentialArgs {
     server_client_id: String,
     nonce: String,
+    option_class: String,
 }
 
 #[derive(Deserialize)]
@@ -38,15 +39,18 @@ pub fn spawn_credential_probe<R: Runtime>(handle: PluginHandle<R>) {
     tauri::async_runtime::spawn(async move {
         // Setup returns before the Activity resumes, but the credential chooser requires a resumed Activity.
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        run_probe(&handle, CLIENT_ID_ANDROID).await;
-        run_probe(&handle, CLIENT_ID_WEB).await;
+        run_probe(&handle, "googleId", CLIENT_ID_ANDROID).await;
+        run_probe(&handle, "googleId", CLIENT_ID_WEB).await;
+        run_probe(&handle, "signInWithGoogle", CLIENT_ID_ANDROID).await;
+        run_probe(&handle, "signInWithGoogle", CLIENT_ID_WEB).await;
     });
 }
 
-async fn run_probe<R: Runtime>(handle: &PluginHandle<R>, client_id: &str) {
+async fn run_probe<R: Runtime>(handle: &PluginHandle<R>, option_class: &str, client_id: &str) {
     let args = ProbeCredentialArgs {
         server_client_id: client_id.to_string(),
         nonce: PROBE_NONCE.to_string(),
+        option_class: option_class.to_string(),
     };
 
     let result = handle
@@ -65,18 +69,18 @@ async fn run_probe<R: Runtime>(handle: &PluginHandle<R>, client_id: &str) {
                             let aud_val = claims.aud.as_deref().unwrap_or("<missing>");
                             let sub_val = claims.sub_prefix.as_deref().unwrap_or("<missing>");
                             println!(
-                                "WI-M7-014 client_id={client_id}: success=true iss={iss_val} aud={aud_val} nonce={nonce_val} nonce_matches={nonce_matches} sub_prefix={sub_val}"
+                                "WI-M7-014 option_class={option_class} client_id={client_id}: success=true iss={iss_val} aud={aud_val} nonce={nonce_val} nonce_matches={nonce_matches} sub_prefix={sub_val}"
                             );
                         }
                         Err(parse_err) => {
                             println!(
-                                "WI-M7-014 client_id={client_id}: success=false exception_class=JwtParseError message={parse_err}"
+                                "WI-M7-014 option_class={option_class} client_id={client_id}: success=false exception_class=JwtParseError message={parse_err}"
                             );
                         }
                     }
                 } else {
                     println!(
-                        "WI-M7-014 client_id={client_id}: success=false exception_class=MissingToken message=missing id_token in success response"
+                        "WI-M7-014 option_class={option_class} client_id={client_id}: success=false exception_class=MissingToken message=missing id_token in success response"
                     );
                 }
             } else {
@@ -85,13 +89,13 @@ async fn run_probe<R: Runtime>(handle: &PluginHandle<R>, client_id: &str) {
                     .unwrap_or_else(|| "UnknownError".to_string());
                 let err_msg = response.error_message.unwrap_or_default();
                 println!(
-                    "WI-M7-014 client_id={client_id}: success=false exception_class={err_class} message={err_msg}"
+                    "WI-M7-014 option_class={option_class} client_id={client_id}: success=false exception_class={err_class} message={err_msg}"
                 );
             }
         }
         Err(err) => {
             println!(
-                "WI-M7-014 client_id={client_id}: success=false exception_class=PluginInvokeError message={err}"
+                "WI-M7-014 option_class={option_class} client_id={client_id}: success=false exception_class=PluginInvokeError message={err}"
             );
         }
     }
