@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use tradr_core::{Candidate, TransportId};
-use tradr_transport::selection::{BLE_GATT_MAX_TRANSFER_BYTES, class_weight, prefilter, score};
+use tradr_transport::selection::{
+    BLE_GATT_MAX_TRANSFER_BYTES, TransferSize, class_weight, prefilter, score,
+};
 
 #[test]
 fn named_transports_match_class_weights() {
@@ -39,10 +41,16 @@ fn prefilter_boundary_at_ble_gatt_max_transfer_bytes() {
         Candidate::new(TransportId::new("ble-gatt"), "handle:0x0042").expect("valid candidate");
     let candidates = [candidate.clone()];
 
-    let at_limit = prefilter(&candidates, BLE_GATT_MAX_TRANSFER_BYTES);
+    let at_limit = prefilter(
+        &candidates,
+        TransferSize::Bytes(BLE_GATT_MAX_TRANSFER_BYTES),
+    );
     assert_eq!(at_limit, vec![candidate]);
 
-    let past_limit = prefilter(&candidates, BLE_GATT_MAX_TRANSFER_BYTES + 1);
+    let past_limit = prefilter(
+        &candidates,
+        TransferSize::Bytes(BLE_GATT_MAX_TRANSFER_BYTES + 1),
+    );
     assert!(past_limit.is_empty());
 }
 
@@ -53,7 +61,10 @@ fn prefilter_keeps_direct_quic_when_ble_gatt_dropped() {
     let ble = Candidate::new(TransportId::new("ble-gatt"), "handle:0x0042").expect("valid");
     let candidates = [direct.clone(), ble];
 
-    let kept = prefilter(&candidates, BLE_GATT_MAX_TRANSFER_BYTES + 1);
+    let kept = prefilter(
+        &candidates,
+        TransferSize::Bytes(BLE_GATT_MAX_TRANSFER_BYTES + 1),
+    );
     assert_eq!(kept, vec![direct]);
 }
 
@@ -65,6 +76,21 @@ fn prefilter_preserves_order_of_survivors() {
     let c4 = Candidate::new(TransportId::new("relay"), "relay://brokr.example/x").expect("valid");
     let candidates = [c1.clone(), c2.clone(), c3, c4.clone()];
 
-    let kept = prefilter(&candidates, BLE_GATT_MAX_TRANSFER_BYTES + 1);
+    let kept = prefilter(
+        &candidates,
+        TransferSize::Bytes(BLE_GATT_MAX_TRANSFER_BYTES + 1),
+    );
+    assert_eq!(kept, vec![c1, c2, c4]);
+}
+
+#[test]
+fn prefilter_unknown_size_drops_ble_gatt_and_preserves_order() {
+    let c1 = Candidate::new(TransportId::new("direct-quic"), "192.168.1.42:51820").expect("valid");
+    let c2 = Candidate::new(TransportId::new("wifi-direct"), "192.168.49.1:51820").expect("valid");
+    let c3 = Candidate::new(TransportId::new("ble-gatt"), "handle:0x0042").expect("valid");
+    let c4 = Candidate::new(TransportId::new("relay"), "relay://brokr.example/x").expect("valid");
+    let candidates = [c1.clone(), c2.clone(), c3, c4.clone()];
+
+    let kept = prefilter(&candidates, TransferSize::Unknown);
     assert_eq!(kept, vec![c1, c2, c4]);
 }

@@ -9,7 +9,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tauri_plugin_tradr::capabilities::LocalCapabilities;
-use tauri_plugin_tradr::commands::{connect_and_pin, execute_send_files, resolve_peer};
+use tauri_plugin_tradr::commands::{
+    connect_and_pin, execute_send_files, resolve_peer, resolve_send_items,
+};
 use tauri_plugin_tradr::listener::{ListenerParams, handle_incoming_channel};
 use tauri_plugin_tradr::peer_trust::OwnAttestation;
 use tradr_core::{
@@ -21,6 +23,7 @@ use tradr_identity::{OsRng, SoftwareKeyStore, SystemClock};
 use tradr_integrity::BaoVerifier;
 use tradr_secrets::FileStore;
 use tradr_transport::quic::QuicTransport;
+use tradr_transport::selection::TransferSize;
 use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
@@ -167,8 +170,14 @@ async fn run_test() {
         .id()
         .to_string();
 
-    let resolved =
-        resolve_peer(&peer_id, &list, &registry, &sender_transports).expect("resolve static peer");
+    let resolved = resolve_peer(
+        &peer_id,
+        &list,
+        &registry,
+        &sender_transports,
+        TransferSize::Bytes(0),
+    )
+    .expect("resolve static peer");
     assert_eq!(resolved.expectation, PeerExpectation::Unpinned);
 
     let registry_mutex = tokio::sync::Mutex::new(registry);
@@ -253,11 +262,43 @@ async fn resolve_peer_uses_the_registrys_pin_before_the_peer_list_sees_it() {
         .expect("pin the static peer entry");
 
     let transports = quic_only_set(&registry_dir.path().join("dial"));
-    let resolved =
-        resolve_peer(&peer_id, &list, &registry, &transports).expect("resolve static peer");
+    let resolved = resolve_peer(
+        &peer_id,
+        &list,
+        &registry,
+        &transports,
+        TransferSize::Bytes(0),
+    )
+    .expect("resolve static peer");
     assert_eq!(resolved.expectation, PeerExpectation::Device(pinned_device));
     assert_eq!(
         resolved.pin_target, None,
         "an entry the registry already pins has nothing left to pin"
     );
+}
+
+#[tokio::test]
+async fn resolve_send_items_sums_to_actual_file_lengths() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let vfs = NativeVfs::new();
+    let root = RootId::new(42);
+    vfs.register_root(root, dir.path().to_path_buf(), false)
+        .expect("register root");
+
+    let content_a = b"alpha payload bytes";
+    let content_b = b"beta payload carries a longer byte array";
+    assert_ne!(content_a.len(), content_b.len());
+
+    std::fs::write(dir.path().join("alpha.txt"), content_a).expect("write alpha");
+    std::fs::write(dir.path().join("beta.txt"), content_b).expect("write beta");
+
+    let files = vec!["alpha.txt".to_string(), "beta.txt".to_string()];
+    let items = resolve_send_items(&vfs, root, &files)
+        .await
+        .expect("resolve send items");
+
+    assert_eq!(items.len(), 2);
+    let total_bytes: u64 = items.iter().map(|item| item.size_bytes).sum();
+    let expected_bytes = (content_a.len() + content_b.len()) as u64;
+    assert_eq!(total_bytes, expected_bytes);
 }
