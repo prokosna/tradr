@@ -12,12 +12,14 @@ import app.tauri.annotation.InvokeArg
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 
 @InvokeArg
 class ProbeCredentialArgs {
     var serverClientId: String = ""
     var nonce: String = ""
+    var optionClass: String = ""
 }
 
 class CredentialProbe(private val activity: Activity) {
@@ -36,25 +38,35 @@ class CredentialProbe(private val activity: Activity) {
             return
         }
 
-        val googleIdOption = try {
-            // Filtering authorized accounts yields NoCredentialException without prior authorization, masking client ID refusals.
-            GetGoogleIdOption.Builder()
-                .setServerClientId(args.serverClientId)
-                .setNonce(args.nonce)
-                .setFilterByAuthorizedAccounts(false)
-                .setAutoSelectEnabled(false)
-                .build()
+        val credentialOption = try {
+            when (args.optionClass) {
+                "googleId" -> {
+                    // Filtering authorized accounts yields NoCredentialException without prior authorization, masking client ID refusals.
+                    GetGoogleIdOption.Builder()
+                        .setServerClientId(args.serverClientId)
+                        .setNonce(args.nonce)
+                        .setFilterByAuthorizedAccounts(false)
+                        .setAutoSelectEnabled(false)
+                        .build()
+                }
+                "signInWithGoogle" -> {
+                    GetSignInWithGoogleOption.Builder(args.serverClientId)
+                        .setNonce(args.nonce)
+                        .build()
+                }
+                else -> throw IllegalArgumentException("Unsupported optionClass: ${args.optionClass}")
+            }
         } catch (e: Exception) {
             val response = JSObject()
             response.put("success", false)
             response.put("errorClass", e.javaClass.name)
-            response.put("errorMessage", e.message ?: "Failed to build GoogleIdOption")
+            response.put("errorMessage", e.message ?: "Failed to build credential option")
             invoke.resolve(response)
             return
         }
 
         val request = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
+            .addCredentialOption(credentialOption)
             .build()
 
         val callback = object : CredentialManagerCallback<GetCredentialResponse, GetCredentialException> {
