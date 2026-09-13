@@ -184,8 +184,10 @@ export function App() {
 	});
 
 	const [peers, setPeers] = useState<PeerInfo[]>([]);
+	const [peerListError, setPeerListError] = useState<string | null>(null);
 	const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
 	const [stagedFiles, setStagedFiles] = useState<string[]>([]);
+	const [fileSelectError, setFileSelectError] = useState<string | null>(null);
 	const [isDragging, setIsDragging] = useState(false);
 	const [sendState, setSendState] = useState<SendState>({ status: "idle" });
 	const [progress, setProgress] = useState<TransferProgressPayload | null>(
@@ -193,6 +195,7 @@ export function App() {
 	);
 
 	const [shares, setShares] = useState<ShareInfo[]>([]);
+	const [sharesError, setSharesError] = useState<string | null>(null);
 	const [selectedShareId, setSelectedShareId] = useState<string>("");
 	const [browsePath, setBrowsePath] = useState<string>("");
 	const [browseState, setBrowseState] = useState<BrowseState>({
@@ -210,16 +213,18 @@ export function App() {
 	const loadShares = useCallback((peerId: string) => {
 		invoke<ShareInfo[]>("plugin:tradr|get_visible_shares", { peerId })
 			.then((fetchedShares) => {
+				setSharesError(null);
 				setShares(fetchedShares);
 				if (fetchedShares.length > 0 && fetchedShares[0]) {
 					setSelectedShareId(fetchedShares[0].shareId);
 				} else {
-					setSelectedShareId("017f22e2-79b0-7cc3-98c4-dc0c0c07398f");
+					setSelectedShareId("");
 				}
 			})
 			.catch((e) => {
-				console.error("Failed to load visible shares:", e);
-				setSelectedShareId("017f22e2-79b0-7cc3-98c4-dc0c0c07398f");
+				setSharesError(String(e));
+				setShares([]);
+				setSelectedShareId("");
 			});
 	}, []);
 
@@ -231,6 +236,7 @@ export function App() {
 			setSelectedShareId("");
 			setBrowsePath("");
 			setBrowseState({ status: "idle" });
+			setSharesError(null);
 		}
 	}, [selectedPeerId, loadShares]);
 
@@ -283,6 +289,7 @@ export function App() {
 	const refreshPeers = useCallback(() => {
 		invoke<PeerInfo[]>("plugin:tradr|get_peers")
 			.then((list) => {
+				setPeerListError(null);
 				setPeers(list);
 				setSelectedPeerId((prev) => {
 					if (list.length > 0 && prev === null) {
@@ -292,7 +299,9 @@ export function App() {
 					return prev;
 				});
 			})
-			.catch((e) => console.error("Failed to get peers:", e));
+			.catch((e) => {
+				setPeerListError(String(e));
+			});
 	}, []);
 
 	useEffect(() => {
@@ -397,11 +406,12 @@ export function App() {
 						const currentPeers = await invoke<PeerInfo[]>(
 							"plugin:tradr|get_peers",
 						);
+						setPeerListError(null);
 						if (currentPeers.length > 0) {
 							setSelectedPeerId(currentPeers[0]?.key || null);
 						}
 					} catch (e) {
-						console.error("Failed to get peers for share intent", e);
+						setPeerListError(String(e));
 					}
 				} else {
 					setSelectedPeerId(targetPeer);
@@ -415,7 +425,6 @@ export function App() {
 							setStagedFiles([]);
 						})
 						.catch((e) => {
-							console.error("Failed to send files from share intent", e);
 							setSendState({ status: "error", message: String(e) });
 						});
 				}
@@ -590,6 +599,9 @@ export function App() {
 				<button type="button" onClick={refreshPeers}>
 					Refresh Peers
 				</button>
+				{peerListError && (
+					<p style={{ color: "red" }}>Failed to get peers: {peerListError}</p>
+				)}
 				{peers.length === 0 ? (
 					<p>No peers discovered on local network yet.</p>
 				) : (
@@ -816,6 +828,7 @@ export function App() {
 								const selected = await open({
 									multiple: true,
 								});
+								setFileSelectError(null);
 								if (Array.isArray(selected) && selected.length > 0) {
 									setStagedFiles(selected);
 									setSendState({ status: "idle" });
@@ -824,12 +837,17 @@ export function App() {
 									setSendState({ status: "idle" });
 								}
 							} catch (e) {
-								console.error("Failed to open file dialog", e);
+								setFileSelectError(String(e));
 							}
 						}}
 					>
 						Select Files
 					</button>
+					{fileSelectError && (
+						<p style={{ color: "red" }}>
+							Failed to open file dialog: {fileSelectError}
+						</p>
+					)}
 				</div>
 
 				{stagedFiles.length > 0 && (
@@ -917,6 +935,11 @@ export function App() {
 					</p>
 				) : (
 					<div>
+						{sharesError && (
+							<p style={{ color: "red" }}>
+								Failed to load visible shares: {sharesError}
+							</p>
+						)}
 						<div
 							style={{
 								display: "flex",
@@ -942,9 +965,7 @@ export function App() {
 									</option>
 								))}
 								{shares.length === 0 && (
-									<option value="017f22e2-79b0-7cc3-98c4-dc0c0c07398f">
-										Default Share (017f22e2...)
-									</option>
+									<option value="">No shares available</option>
 								)}
 							</select>
 							<button
