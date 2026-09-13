@@ -167,7 +167,9 @@ jobs:
         run: cargo tauri build
 
   macos:
-    runs-on: macos-latest
+    # macos-latest rolled to macOS 26, where clang segfaults while linking
+    # phf_macros and the failure is reported as a compile error (2026-09-13).
+    runs-on: macos-15
     env:
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
     steps:
