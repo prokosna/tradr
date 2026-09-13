@@ -452,6 +452,15 @@ Moved out of `STATE.md`'s current-milestone block on 2026-09-04, when that file 
 | WI-M7-011 | **The advertising composition root: the task that drives `BleRotation`, and the first code here that puts an advertisement on the air.** `BleAdvertising`, `slot_outcome`, `AdvertisingReporter`, `local_platform_code` and `spawn_ble_advertising` in `crates/tauri-plugin-tradr/src/ble_advertising.rs`; a second `DeviceBroadcastSecrets` in `lifecycle.rs`; one advertiser opened per target in `lib.rs` -- `BluerAdvertiser` on Linux, `AndroidBleAdvertiser` on Android, `BleError::Unsupported` everywhere else, which is Change Drill D4's retreat arriving as a value. **`PASS` after one REVISE round; twelve mutations run, ten killed and two survivors that are DF-58 and DF-59.** **It needed no DCR**, the first M7 row of which that is true since `WI-M7-007k`: DCR-109 had settled the schedule, the set, the empty case and the retreat. The one thing left to decide was the wait after a *failed* tick, since `tick` answers a `Duration` only when it succeeds -- one slot, because a failing advertiser must not spin and this machine's fails every slot (DF-45). | done | |
 | WI-M7-012 | **The JWKS cache warmed from this device's own sign-in, to DCR-110.** `PeerTrust::install` takes the uri the document came from and refuses a mismatch before parsing; `sign_in` gains a `PeerTrustState` and installs the document it already fetches. **`PASS` after one REVISE round; six mutations run against the delivered tree, four killed and two survivors that are DF-60.** **The round was my Work Order and not the model's reading of it, which is the thirteenth time**: I built the file list from a grep over `src/` alone, so six `install` call sites in three other test files were missed and then forbidden -- and the Implementer stopped, named all six with their line numbers, and refused to edit a file the order prohibited, which is the seventh time that behaviour has appeared. **The order's Android gate was wrong too and it reported that as well**: `cargo clippy --target aarch64-linux-android --workspace -- -D warnings` fails on `apps/tradr/src-tauri/src/lib.rs` for reasons predating this Work Item, which I reproduced on `HEAD` with the tree stashed. **Its quoted mutation reproduced here exactly** -- 1 passed, 17 failed on the inverted refusal -- which is the fourth time a quoted failure has been checked rather than believed | done | |
 
+
+### One closed M7 row, moved from STATE.md on 2026-09-13 at the seventh ceiling
+
+**`WI-M7-013` landed leaving 730 bytes of headroom, and 730 bytes is one sentence.** A ceiling reached by the next session's first finding is a blocked commit at gate time, which this file records as the expensive kind of failure -- so the row comes across as the session that wrote it closes, rather than being left as a trap for whoever arrives. It is `done`, the Review record carries it in full, and nothing left in M7's table references it.
+
+| ID | Content | Status | Critical |
+|---|---|---|---|
+| WI-M7-013 | **Phase 2's prefilter gets its caller, to DCR-111.** `TransferSize` in `crates/tradr-transport/src/selection.rs` with a `Bytes` and an `Unknown` case; `prefilter` reading it; `pick_candidate` applying it before the weight table and answering a third refusal when it empties the list; `SendItem` and one shared resolution of a name into a `(RootId, RelPath)` plus a size, run ahead of the dial in `send_files` and inside `execute_send_files_with_progress` rather than twice; `Bytes(0)` for a listing and `Unknown` for a download. **`PASS` after two REVISE rounds; eight mutations run, five killed and three survivors.** **One survivor was a real gap and round 2 closed it**: nothing proved `best_candidate` scores the list the prefilter survived, because every test emptied it. **The other two are the composition root and are DF-60's shape a sixth time** -- `send_files` passing `Bytes(0)` and `download_file` passing `Bytes(0)` for `Unknown` each leave the workspace green, since the three sites that decide which size is passed are `#[tauri::command]`s | done | |
+
 ## M7 findings whose Work Items have landed, moved from STATE.md on 2026-09-07
 
 ### Two paragraphs about `WI-M7-007l`, moved here 2026-09-12 when STATE.md reached its ceiling again
@@ -1543,6 +1552,8 @@ These stood in `STATE.md`'s In flight block until `WI-M1-000h`. Every one descri
 
 > Moved out of [STATE.md](STATE.md) on 2026-09-10 under that file's ceiling rule. **It is live reference rather than a closed section: keep it current here**, and read it before dispatching a Work Order.
 
+**What STATE.md said about this move, brought across on 2026-09-13 at the eighth ceiling, because a paragraph justifying a move belongs beside what moved rather than where it used to be.** It moved here on 2026-09-10, because this file was 338 bytes under its ceiling and the rule is to move a section across rather than shorten one. **It is not a closed section and the move is not a demotion**: it is reference an arriving session reads *after* STATE.md, which is what RECORD.md is for, and it is the largest thing here that is not progress. **Read it before dispatching anything** -- it is what says which tools exist and what they can do, and a stale sentence in it has already cost two self-inflicted `REVISE` rounds by telling a Work Order that `agy` had no shell.
+
 **Linux desktop: ready.** The user installed the WebKitGTK stack on 2026-08-22 at 22:34. `pkg-config` reports `webkit2gtk-4.1` 2.52.3, `javascriptcoregtk-4.1` 2.52.3, `libsoup-3.0` 3.4.4 and `gtk+-3.0` 3.24.41, and `patchelf` is on the path. `WI-M0-003` is unblocked.
 
 **Android: ready.** The SDK lives at `/home/prokosna/android-sdk` with `build-tools;35.0.0`, `platform-tools` 37.0.1, `platforms;android-35`, `cmdline-tools/latest`, and `ndk/27.3.13750724`. The four Android Rust targets were added on 2026-08-22: `aarch64-linux-android`, `armv7-linux-androideabi`, `i686-linux-android`, `x86_64-linux-android`. OpenJDK 25.0.3 is present.
@@ -1632,7 +1643,10 @@ WI-M0-001c therefore drives code generation without one: `protox`, a pure-Rust p
 ```
 Android : 475695468283-v4q25lmqo6kjova3crhiutnl59jnrckk.apps.googleusercontent.com
 Desktop : 475695468283-shsoa7f59bdbta9jlubfs49jonv1m7ng.apps.googleusercontent.com
+Web     : 475695468283-oa2utjksm5690ini7sguhr0luho6q6bq.apps.googleusercontent.com
 ```
+
+**The Web client was registered on 2026-09-13 as an instrument and not as a decision.** `WI-M7-014` needs one to measure whether the credential API requires a web registration as its server client id, because assuming it does is what this file forbids. **It is in no config and in no audience set**: nothing in the product names it, and if the exit it exists to measure is closed, deleting it costs nothing. It has no redirect URI registered, deliberately -- the measurement does not use one.
 
 Both are public values and belong in the repository. Attestation verification accepts `aud` from this set, so **every device carries both** — see [docs/05](docs/05-security.md#why-step-4-compares-against-a-set).
 
@@ -1669,6 +1683,34 @@ desktop + com.example.nothing:/oauth2redirect        (control)
 **The control is what makes the Android rows readable.** An unregistered scheme answers `redirect_uri_mismatch` and the two spellings above answer something else, so both *are* recognised as this client's -- the mechanism is switched off, the syntax is not wrong, and choosing between the two spellings decides nothing. **The desktop client is the mirror image**: a custom scheme is available on the client that has a secret and unavailable on the client that does not, and its loopback is what Linux signs in with today.
 
 **No secret is sent by any of these.** A client secret belongs to the token exchange, not to an authorization request, so this probe can be repeated from any machine with the two public ids.
+
+**The signing fingerprint is not what those Android refusals check, and the probe is what separates them.** It ran against a client that already carries the MacBook's certificate, and `curl` presents no certificate at all, so a fingerprint cannot be the value being compared. **The control settles what is being compared instead**: an unregistered scheme answers `redirect_uri_mismatch` while both registered spellings answer `invalid_request`, so the endpoint judges the redirect at that step and branches on whether it belongs to this client. A certificate mismatch would have failed all three identically.
+
+**What the re-registration buys is the third exit and only the third.** A package name plus a signing certificate is the mechanism that *replaces* a redirect, so it is that exit's prerequisite and is already met; the custom-scheme exit rests on scheme ownership, which is why the provider disabled it, and the desktop-client exit rests on a client secret. Neither of those two consults a certificate.
+
+**And the certificate has still never been exercised by anything.** The phone's refusal is local, raised before a request leaves the device, so nothing has yet reached the step that would compare it. **So the sentence above that an APK able to sign in must be built on the MacBook is conditional on the exit chosen rather than unconditional** -- it is exactly right for the third exit, and says nothing about the other two. It was written unconditionally because at the time there was only one candidate flow, and that is the half the probe changed.
+**The console was read on 2026-09-13 and the toggle is real: "Custom URI scheme" exists on this Android client, is off, and carries Google's own line that the setting is not recommended for an Android client.** So the first exit is available, and it is refused anyway -- on the trust root rather than on effort, and the reasoning is short enough to check.
+
+**A scheme flow authorizes inside a browser, so the client's signing certificate is never consulted on that path.** That is the same fact the paragraph above establishes from the other side: the certificate is what the Play-Services-mediated flow compares, and a browser presents none. Two properties of Android then compose with it. A custom scheme may be registered by more than one application, which is why the provider disabled it; and an Android-type client is public, with no secret at all, which this file records under OAuth client IDs.
+
+**So an application on the same device may run the entire flow itself using Tradr's own android client id.** It supplies its own PKCE verifier, so PKCE defends nothing here -- PKCE binds a code to the party that *started* the exchange, and in this attack that party is the attacker. It receives an `id_token` whose `aud` is Tradr's android client and whose `nonce` is `BLAKE3` over **its own** device keys. [docs/05](docs/05-security.md#why-step-4-compares-against-a-set) accepts any `aud` from the client set, and the nonce binding is satisfied by construction, so all seven steps pass and every other device of that account classifies the holder as `SameAccount`: auto-accept on transfers, and the Share plane.
+
+**That is the impersonation the Attestation exists to prevent, and Attestation verification is structurally unable to notice it.** Every signature it checks is perfectly valid. It is the shape CLAUDE.md section 6 gives the JWKS entry -- a failure whose only witness is the module that cannot see it -- which is what makes it a trust-root decision rather than a preference.
+
+**What would refute this**: a token endpoint that authenticated an android client's code exchange, or an authorization endpoint that consulted the certificate for a browser flow. The first is contradicted by this file's own record that android clients have no secret; the second is what the probe above measured, since `curl` presented none and was refused for the redirect instead.
+
+**Which client types authenticate at the token endpoint, measured 2026-09-13 by sending a bogus authorization code with no `client_secret` and reading which of the two ways it fails.** A client that answers `client_secret is missing.` never reached the code; one that answers `invalid_grant` passed client authentication and failed on the code itself, which is the only thing wrong with the request.
+
+```
+web     -> invalid_request: client_secret is missing.
+desktop -> invalid_request: client_secret is missing.
+android -> invalid_grant: Bad Request        (client auth passed)
+```
+
+**Three things this settles, and each replaces something that had been asserted.** **The desktop client genuinely requires its secret even under PKCE**, which this file stated and had not measured -- so the cost of giving Android the desktop client is a shipped secret and there is no PKCE-only variant of it. **The android client is a true public client**, which makes the impersonation above a measurement at both ends rather than one: the scheme is claimable by any application, and the code it intercepts needs no secret to redeem. **And a fourth exit is closed before anyone proposed it**: a Web client with a registered `http://localhost` redirect would let Android reuse the loopback listener `sign_in` already has -- its custom scheme is refused outright for the `WEB` type, but its loopback is only *unregistered* rather than policy-blocked, so it looked available. The token endpoint answers that it is not: a Web client is confidential too, so that path ships a secret exactly like the desktop one.
+
+**The refusal is recorded and deliberately not written as an ADR.** Exit (c) rests on two facts no request from this machine can reach -- whether a caller-supplied `nonce` survives into the returned token, and which client id its `aud` carries -- and both need code running on a phone, which is the MacBook's job. Closing (a) by ADR before (c) is measured would leave nothing to fall back to if (c) cannot carry the nonce; if that happens, the choice returns to (a) against (b) with both costs visible, and this paragraph is the cost of (a).
+
 
 
 #### The consent screen stays in Testing
