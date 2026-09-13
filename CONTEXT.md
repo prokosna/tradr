@@ -68,6 +68,7 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 | **Static Peer** | A reachable hostname or address the user pinned by hand. How overlay networks such as Tailscale are used without a Brokr. |
 | **Rendezvous** | The Brokr's role in exchanging address candidates between peers. No file bytes pass through. |
 | **Relay** | A path where the Brokr forwards ciphertext. The Brokr never sees plaintext. |
+| **Deferred Delivery** | A Transfer the sender hands to a Brokr for a Peer that is not online, collected when that Peer next is. One direction, one Transfer, no reconciliation and no shared state -- so it is **not sync**, and it is never called that. Tier 2 only, and undesigned as of 2026-09-13. |
 
 ## Tiers
 
@@ -94,5 +95,6 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 
 - Never write "server". The optional backend is always a **Brokr**; the listening side of a transfer is the **receiver**.
 - "Connect" refers to establishing a Transport. Account linking is always **link**, never mixed with connect.
+- **Deferred Delivery is not sync**, and the difference is that nothing converges: one Transfer moves one way and the Brokr holds it in between. Write **Deferred Delivery**, never "offline sync".
 - Never write "sync". Tradr does not synchronize — see the non-goals in [docs/01-overview.md](docs/01-overview.md). It transfers and it browses.
 - "Log in" refers only to authenticating with Google. Tradr has no login of its own; attaching to a Brokr is **register**.

@@ -4,6 +4,16 @@
 
 Estimates assume one person working. M4 onward can be split when work runs in parallel.
 
+**The tail of this list was reshaped on 2026-09-13 against how this software is actually going to be used (DCR-113), and the reshape added a milestone rather than only removing work.** The deployment is private: four devices belonging to one person -- Android, Windows, Linux and a MacBook -- and no distribution to anyone else. **The first consequence is what was missing.** Every milestone here was a capability, and nothing scheduled the interface; the two interface defects still open, `WI-M5-009` and `WI-M5-010`, were both found by *running* the application rather than by any planned work. A roadmap optimised for capability had no place for "usable enough to start using", which is the condition the person running it actually set, so **M8 is now that milestone and the two that followed moved up by one.**
+
+```
+old M8  Brokr      -> M9       (kept; see the requirement it gained below)
+old M9  Finishing  -> M10      (shrunk; a private deployment deletes most of it)
+new M8  Usable interface       (the gap this reshape found)
+```
+
+**Text elsewhere that says "M8 — Brokr" or "M9 — Finishing" predates this** and means what is now M9 and M10.
+
 ### M0 — Skeleton (2 weeks)
 
 - pnpm and Cargo monorepo, code generation from `proto`, CI
@@ -86,7 +96,23 @@ M5 is cheap and resolves UC-6, so **it comes before M6 and M7**.
 
 **Done when**: with all Wi-Fi off, Linux and Android exchange text and a 200 KB image.
 
-### M8 — Brokr (3 weeks)
+### M8 — Usable interface (unestimated)
+
+**The condition on using this software at all, and the only milestone here that came from the person running it rather than from the design.** Nothing before this point scheduled the interface, and the application is in a state its own author calls too hard to use.
+
+- The two open interface defects: a refusal the frontend swallows reaching nobody (`WI-M5-009`), and a Static Peer arriving in a list that claims to show the local network (`WI-M5-010`)
+- Whatever else running the application on all four devices turns up. **The list is not written here, because the way to find it is to use the thing** -- which is the same instrument that produced the two above
+- **Done when**: the person running it sends and receives on all four devices without needing to know what a Static Peer or a Trust Tier is
+
+**No estimate.** An interface is judged by use rather than by completion criteria, and an estimate here would be a number with nothing behind it.
+
+**A command-line interface is wanted as well, and measuring what it costs turned Change Drill D9 from a hypothetical into a reading.** D9 budgets a move away from Tauri at "UI, Adapter and the binding crate swapped, the other five crates untouched", and a CLI is that swap performed for real rather than argued. The measurement, taken 2026-09-13: in `crates/tauri-plugin-tradr/src/commands.rs` **every function above the first `#[tauri::command]` names no Tauri type** -- the whole send path, the browse path, `resolve_peer`, `pick_candidate`, `connect_and_pin` and the peer-source drain -- and ten of the crate's modules mention Tauri not once, `handshake.rs`, `listener.rs`, `peer_trust.rs` and `transfer.rs` among them. Everything below that line is a thin wrapper resolving `State<'_, _>` and delegating.
+
+**So a CLI is a move rather than a rewrite**: lift the Tauri-free half into a crate of its own, leave the command wrappers and the plugin lifecycle where they are, and write a second composition root over it. `ci/layer-deps.sh` already forbids every `Cargo.toml` under `crates/` except the binding crate's from naming Tauri, so the extraction strengthens that gate instead of straining it.
+
+**Two things make it cheaper than it looks, and one makes it a design question.** The progress seam exists already -- `execute_send_files_with_progress` takes a callback, and a Tauri build emits an event through it where a CLI would draw a bar, which is the coupling a UI-shaped API would have hidden. And sign-in is a loopback listener plus a browser launch, which is what a command-line OAuth flow does anyway. **What is not settled is receiving.** A GUI is running when a transfer arrives and a command has exited, so `tradr receive` in the foreground and a background daemon are different products, and which one this is has not been decided.
+
+### M9 — Brokr (3 weeks)
 
 - Fastify and SQLite, WebSocket presence registry
 - Registration by join token and challenge signature
@@ -99,13 +125,20 @@ M5 is cheap and resolves UC-6, so **it comes before M6 and M7**.
 
 **Done when**: every Tier 0 and Tier 1 integration test passes with the Brokr stopped. That check goes into CI.
 
-### M9 — Finishing (ongoing)
+**The Brokr is wanted for a reason this list did not contain, stated 2026-09-13: exchange that is not real time.** A sender hands a transfer to the Brokr, and a receiver that is offline collects it when it next comes online, with neither side waiting on the other. **"Relay, streaming and temporary storage" above is not that**: it holds bytes for a live transfer whose other end is already connected, and it is the reason the requirement is easy to mistake for something already designed.
 
-- External security review
-- Play Store submission, which needs permission justifications
-- Linux packaging: Flatpak, AppImage, deb, rpm
-- Internationalization, Japanese and English
-- Exhaustive resumption tests across every path
+**It is not sync, and the distinction has to hold in the vocabulary as well as in the code.** [docs/01](01-overview.md)'s non-goals refuse synchronisation, and this is a queued delivery of one Transfer in one direction, with no reconciliation, no conflict and no shared state to converge. **Nothing about it is designed yet** -- how long the Brokr holds ciphertext, what bounds the queue, what the sender learns about delivery, and how it interacts with [ADR-0005](adr/0005-brokr-is-optional.md)'s promise that every Tier 0 and Tier 1 feature works with no Brokr, since this feature is definitionally Tier 2. That design happens when this milestone is cut, and the requirement is recorded here so it is not rediscovered as a surprise.
+
+### M10 — Finishing (ongoing)
+
+**A private deployment deletes most of what this milestone used to hold, and the deletions close two open decisions and two risks with them.**
+
+- **An internal security review**, not an external one. It protects one person's own files, which is reason enough to run it and not reason enough to pay a third party
+- ~~Play Store submission~~ **Dropped.** Direct APK installation. **R5 goes with it** -- a store cannot reject permissions it is never shown
+- **One Linux package, not four.** ~~Flatpak, AppImage, deb, rpm~~. **R11 and open decision 7 resolve here**: dropping AppImage is what removes the five unpinned build-time downloads, and there is nothing left to vendor or hash-pin
+- **Internationalization, Japanese and English** -- kept, and the only item on this list the private premise did not shrink, because both languages are wanted
+- **Exhaustive resumption tests across every path** -- kept unchanged. This is the correctness of the transfers themselves
+- **A signing key that outlives a machine.** ~~Apple Developer Program and Authenticode~~ are for distributing to strangers, so **open decision 8 loses its purchase and its weeks of lead time, and R9 with it**: an unsigned build costs one Gatekeeper override per macOS install and one SmartScreen click per Windows install. **What does not go away is Android.** A debug keystore is per-machine and disposable, and an Android OAuth client is bound to one package name and one certificate, so regenerating it silently breaks sign-in. A project keystore kept somewhere durable, and a client registered against it, is free and is the residue of decision 8 that a private deployment still owes
 
 ## Risks
 
