@@ -167,6 +167,31 @@ The third row is what makes the first two mean anything: the check is real, and 
 
 **Profiles remain compiled in; only the client is configured.** The issuer, the JWKS URI, the nonce binding and the permitted algorithms are a trust decision and are not settings. What a deployer supplies is which OAuth client speaks for them, never how a peer's token is verified.
 
+### Android obtains its Attestation without a redirect, and the server client id is a Web registration (DCR-112)
+
+**Every redirect an Android OAuth client may present is refused by the provider, so Android does not use one.** A custom URI scheme is disabled for the client and is refused on this design's own trust model besides -- a scheme flow authorizes in a browser, any application may claim the scheme, and an Android client redeems a code with no secret, so a second application on the device could bind its own keys into a token this document's seven steps would accept. Loopback is blocked for that client type. Giving Android the Desktop client instead means shipping the Desktop secret, which is the thing an Android artifact deliberately does not carry.
+
+**What Android uses is the platform's own credential API, which returns an ID token directly.** There is no authorization code, no redirect, no token exchange and no client secret anywhere on the path. Four facts decide whether that token is an Attestation, and each was measured on a real device rather than read:
+
+| Measured | Value |
+|---|---|
+| `nonce` | The caller's own string, verbatim -- so `BLAKE3(device_public_keys)` survives and [ADR-0003](adr/0003-google-attestation-as-trust-root.md)'s binding is constructible |
+| `aud` | The **Web** client id, never the Android one |
+| `iss` | `https://accounts.google.com`, which step 1 compares against |
+| An Android client id as the server client id | Refused, `Developer console is not set up correctly` |
+
+**So the deployment string gains a third entry and no code selects it.**
+
+```
+TRADR_OAUTH_CLIENT_IDS   desktop:<id>,android:<id>,web:<id>
+```
+
+**No platform looks itself up as `web`, and that is exactly the behaviour this section already specifies**: an entry naming a platform this build does not know contributes its id to the `aud` set and nothing else. The Web client is the one an Android token's `aud` carries, so every device must accept it; nothing presents it as its own client. **The mechanism that was written for iOS turns out to be what carries this**, which is why the client selection needs no change at all.
+
+**What `android:<id>` means afterwards is narrower than it was, and it is not nothing.** It is presented nowhere: the Android client registration authorizes the *application*, by package name and signing certificate, and that check happens between the device and the provider without passing through this string. Its only remaining effect is contributing an `aud` that nothing will ever mint. Dropping it is therefore safe and is deliberately not done here -- it is a change to a value every device holds, and it costs nothing to keep.
+
+**One Android client covers exactly one pair of package name and signing certificate.** The debug build type carries an application id suffix, so the debug package and the release package are different applications to the provider and need separate registrations; a release build signed by a different key needs its own again. **None of that reaches this string**, which is what keeps it a build-and-console matter rather than a configuration one.
+
 ### Provider profiles
 
 Everything a provider brings lives in one value -- what a peer's token is verified against, and what this device needs to obtain a token of its own. Nothing else in the codebase names a provider.
@@ -195,7 +220,9 @@ Google is the only profile shipped. **The pair `(iss, sub)` is nevertheless what
 An ID token's `exp` is typically one hour out. But what an Attestation asserts is not "signed in right now" — it is **a binding** between a key and an account.
 
 - **`exp` is ignored; the age of `iat` is what matters.** Accepted within 30 days by default, and up to 300 seconds ahead of this device's clock — see [step 5](#why-step-5-bounds-both-directions-and-why-the-future-one-is-not-bounded-at-zero)
-- Devices hold a Google refresh token and **re-mint an ID token with the same nonce every 24 hours** via a `prompt=none` silent refresh, requiring no user interaction
+- **Desktop devices** hold a Google refresh token and **re-mint an ID token with the same nonce every 24 hours** via a `prompt=none` silent refresh, requiring no user interaction
+- **Android holds no refresh token**, because the credential API above returns an ID token and nothing else. Renewal there is a second call to that API carrying the same nonce, which the nonce being a function of the device keys makes stable across calls. **Whether such a call completes without user interaction is unmeasured**, and is the next thing to measure rather than the next thing to assume: it decides whether an Android device can hold a fresh Attestation the way a desktop one does, or whether a person has to confirm one every day
+- **So `renewal` in the Provider Profile below cannot answer for a provider alone once two platforms differ on it.** The field's terms are a property of the pair, and today Google's terms are one thing through a refresh token and another through a credential API. Nothing needs restructuring while the measurement is missing, and the field is where the answer lands when it arrives
 - A healthy device therefore always presents an Attestation less than a day old
 
 ### That is also the revocation mechanism
