@@ -23,7 +23,7 @@ use tradr_oidc::{
 
 use crate::attestation::{FUTURE_SKEW_LIMIT_SECS, STALENESS_LIMIT_SECS};
 use crate::identity::IdentityState;
-use crate::peer_trust::OwnAttestation;
+use crate::peer_trust::{OwnAttestation, PeerTrustState};
 
 /// Octets of entropy behind the OAuth `state` parameter, rendered as
 /// lowercase hex.
@@ -195,6 +195,7 @@ pub async fn sign_in(
     identity_state: State<'_, IdentityState>,
     oauth: State<'_, OAuthConfig>,
     sign_in_state: State<'_, Arc<SignInState>>,
+    peer_trust_state: State<'_, PeerTrustState>,
 ) -> Result<SignInOutcome, String> {
     let _guard = sign_in_state
         .begin()
@@ -265,6 +266,9 @@ pub async fn sign_in(
         .await
         .map_err(|e| e.to_string())?;
     let keys = parse_jwks(&jwks_document).map_err(|e| e.to_string())?;
+    peer_trust_state
+        .peer_trust()?
+        .install(&profile.jwks_uri, &jwks_document)?;
 
     let claims = verify_id_token(&profile, &keys, &id_token).map_err(|e| e.to_string())?;
 

@@ -233,7 +233,7 @@ impl JwksFetch for CountingFetch {
 fn trust_holding(keys: &[Jwk], fetch: Arc<CountingFetch>) -> PeerTrust {
     let trust = PeerTrust::new(profile(), fetch);
     trust
-        .install(&document(keys))
+        .install(JWKS_URI, &document(keys))
         .expect("a well-formed document");
     trust
 }
@@ -517,5 +517,97 @@ async fn an_empty_token_is_refused() {
     assert!(
         outcome.is_err(),
         "the empty token a device carries before it signs in grants nothing"
+    );
+}
+
+// The four below are WI-M7-012's, written before the implementation
+// (CLAUDE.md section 6) against DCR-110. What they are about is the state
+// of the cache at the moment the first peer arrives, which every test
+// above reaches past by warming a fixture by hand.
+
+#[tokio::test]
+async fn a_cold_cache_cannot_classify_anyone_with_the_provider_unreachable() {
+    let peer = identity(1);
+    let fetch = CountingFetch::failing();
+    let trust = PeerTrust::new(profile(), fetch.clone());
+    let token = token(KID, OWN_SUB, AUD, &peer, NOW);
+
+    let outcome = classify(&trust, &peer, &token, Some(&own_account()), &[]).await;
+
+    assert!(
+        outcome.is_err(),
+        "this is the defect DCR-110 names: a device that went offline refuses \
+         the first peer it meets after every start"
+    );
+    assert_eq!(
+        fetch.calls(),
+        1,
+        "and it refuses it having gone to the network for a key it could have held"
+    );
+}
+
+#[tokio::test]
+async fn a_cache_warmed_at_sign_in_classifies_a_peer_with_the_provider_unreachable() {
+    let peer = identity(1);
+    let fetch = CountingFetch::failing();
+    let trust = PeerTrust::new(profile(), fetch.clone());
+    trust
+        .install(JWKS_URI, &document(&[published_key(KID)]))
+        .expect("the document this device's own sign-in already fetched");
+    let token = token(KID, OWN_SUB, AUD, &peer, NOW);
+
+    let outcome = classify(&trust, &peer, &token, Some(&own_account()), &[]).await;
+
+    assert_eq!(
+        outcome,
+        Ok(TrustTier::SameAccount),
+        "offline verification against an existing cache is what keeps Tier 0 serverless"
+    );
+    assert_eq!(
+        fetch.calls(),
+        0,
+        "a warm cache reaches no network at all, which is the whole property"
+    );
+}
+
+#[tokio::test]
+async fn a_document_offered_under_another_uri_is_refused() {
+    let trust = PeerTrust::new(profile(), CountingFetch::failing());
+
+    let outcome = trust.install(
+        "https://impostor.example/certs",
+        &document(&[published_key(KID)]),
+    );
+
+    assert!(
+        outcome.is_err(),
+        "a cache bound to one provider must not accept a document a caller \
+         says came from another"
+    );
+}
+
+#[tokio::test]
+async fn a_refused_document_installs_nothing() {
+    let peer = identity(1);
+    let fetch = CountingFetch::failing();
+    let trust = PeerTrust::new(profile(), fetch.clone());
+    let refused = trust.install(
+        "https://impostor.example/certs",
+        &document(&[published_key(KID)]),
+    );
+    assert!(refused.is_err(), "the precondition this test stands on");
+    let token = token(KID, OWN_SUB, AUD, &peer, NOW);
+
+    let outcome = classify(&trust, &peer, &token, Some(&own_account()), &[]).await;
+
+    assert!(
+        outcome.is_err(),
+        "a refusal that still installed the keys would be a refusal in the \
+         message and nowhere else"
+    );
+    assert_eq!(
+        fetch.calls(),
+        1,
+        "the cache is still cold, so the classification still reaches for a fetch"
     );
 }

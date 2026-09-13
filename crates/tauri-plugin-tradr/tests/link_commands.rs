@@ -281,7 +281,7 @@ fn fixture() -> (Fixture, tempfile::TempDir) {
     let secrets = Arc::new(MemoryStore::default());
     let trust = PeerTrust::new(profile(), Arc::new(NoFetch));
     trust
-        .install(&document(&[published_key(KID)]))
+        .install(JWKS_URI, &document(&[published_key(KID)]))
         .expect("a well-formed document");
 
     (
