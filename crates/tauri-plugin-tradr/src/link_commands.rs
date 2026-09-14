@@ -159,7 +159,7 @@ pub fn dial_target(
         DeviceId::from_identity_digest(blake3::hash(invite.identity_pub().as_bytes()).as_bytes());
     for peer in list.peers() {
         if peer.device_id() == Some(inviter_device_id) {
-            let candidate = crate::commands::pick_candidate(
+            let candidate = tradr_app::peers::pick_candidate(
                 &peer,
                 &inviter_device_id.to_string(),
                 transports,
@@ -249,7 +249,7 @@ pub async fn reply_to_link_invite(
         let mut mdns = mdns_source.lock().await;
         let mut static_source = static_peer_source.lock().await;
         let mut list = peer_list.lock().await;
-        crate::commands::drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
+        tradr_app::peers::drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
     }
 
     let (inviter_device_id, candidate) = {
