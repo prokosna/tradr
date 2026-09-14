@@ -215,10 +215,12 @@ git rev-parse --abbrev-ref HEAD
 git log --oneline -1
 
 # commits newer than last_updated (the reconciliation probe)
-git log --oneline --after="$(grep -m1 '^last_updated:' STATE.md | sed 's/last_updated: //')"
+git log --oneline --after="$(grep -m1 '^last_updated:' STATE.md | sed 's/last_updated: //') 00:00"
 ```
 
 **The status cell admits a date and the count has to admit one too, corrected 2026-09-14.** M7's and M8's rows write `**done 2026-09-14**` rather than a bare `**done**`, because a row that says when it landed is worth more than one that does not -- and the command above matched only the bare form, so it answered 128 where 132 rows were done. **Matching the date alone is not enough either**: `WI-M7-015` reads `**done 2026-09-14, never run**`, because M7's code landed and its radios never met, so the pattern has to admit whatever qualifier a cell carries rather than one shape of one. **A derived value computed wrongly is worse than a declared one that has gone stale**, because nothing about it looks out of date: DCR-060 removed these three fields on the grounds that the repository is their source of truth, and that only holds while the command reading it is right. Found by running it after `WI-M8-003` landed.
+
+**The reconciliation probe answered "nothing" on the one day it matters most, corrected 2026-09-14 arriving at `WI-M8-004`.** `git log --after="2026-09-14"` returns no commit at all while `git log --after="2026-09-14 00:00"` returns twenty-four, and both were run here rather than reasoned about. Git's approxidate fills the fields a date string leaves out **from the current clock**, not from midnight, so a bare `last_updated` resolves to this instant and the probe asks for commits newer than now. **The day `STATE.md` was last updated is the day an arriving session is most likely to find work it does not account for** -- three Work Items and two merges landed on 2026-09-14 before this one -- and on exactly that day the probe reported a file needing no reconciliation. **It is DCR-120's defect in the adjacent command, found the same way and one day later**: a derived value computed wrongly answers confidently and leaves nothing to reconcile it against, where the declared field DCR-060 removed would at least have looked stale. Appending `00:00` is the whole repair.
 
 **AGENTS.md §2-5 still requires that a progress report opens with `branch`, `work_items_landed`, and `last_commit`.** Run the commands above and include their output. The probe is the same as before: a report that carries these values was grounded in the repository; one that does not was not.
 
