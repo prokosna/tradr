@@ -23,8 +23,8 @@ use tauri_plugin_tradr::link_invite::{
     ProposalSink,
 };
 use tauri_plugin_tradr::listener::LinkStreamService;
-use tauri_plugin_tradr::peer_trust::{JwksFetch, PeerTrust};
 use tradr_app::link_exchange::LinkDecision;
+use tradr_app::peer_trust::{JwksFetch, PeerTrust};
 use tradr_core::{
     BoxFuture, Clock, HalfSecret, Invite, InviteId, KeyStore, LinkDeclineReason, LinkReply,
     LinkSecret, Monotonic, PublicIdentity, Rng, RngError, SecretStore, SecretStoreError,

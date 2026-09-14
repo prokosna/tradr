@@ -5684,12 +5684,17 @@ dependencies = [
 name = "tradr-app"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "rsa",
  "serde",
+ "serde_json",
+ "sha2",
  "tokio",
  "tradr-core",
  "tradr-discovery",
  "tradr-identity",
  "tradr-integrity",
+ "tradr-oidc",
  "tradr-proto",
  "tradr-vfs",
 ]

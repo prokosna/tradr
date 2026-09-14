@@ -19,9 +19,9 @@ use tauri_plugin_tradr::link_invite::{
     LinkInviteState, LinkProposalDto, LinkService, LinkServiceParts, ProposalSink,
 };
 use tauri_plugin_tradr::listener::{ListenerParams, handle_incoming_channel};
-use tauri_plugin_tradr::peer_trust::{JwksFetch, OwnAttestation, PeerTrust};
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::link_exchange::{LinkDecision, LinkOutcome};
+use tradr_app::peer_trust::{JwksFetch, OwnAttestation, PeerTrust};
 use tradr_core::{
     BoxFuture, Candidate, Capabilities, Clock, DomainTag, HalfSecret, Invite, InviteId, KeyBinding,
     KeyStore, Monotonic, PeerExpectation, PublicIdentity, RootId, SecretStore, SecretStoreError,

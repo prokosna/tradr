@@ -17,6 +17,8 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::State;
 
+use tradr_app::attestation::{FUTURE_SKEW_LIMIT_SECS, STALENESS_LIMIT_SECS};
+use tradr_app::peer_trust::OwnAttestation;
 #[cfg(not(target_os = "android"))]
 use tradr_core::Rng;
 use tradr_core::{Clock, PublicIdentity, TrustTier};
@@ -32,9 +34,8 @@ use tradr_oidc::{
     Pkce, authorization_url, callback_redirect_uri, exchange_code, serve_one_callback,
 };
 
-use crate::attestation::{FUTURE_SKEW_LIMIT_SECS, STALENESS_LIMIT_SECS};
 use crate::identity::IdentityState;
-use crate::peer_trust::{OwnAttestation, PeerTrustState};
+use crate::peer_trust::PeerTrustState;
 
 /// Octets of entropy behind the OAuth `state` parameter, rendered as
 /// lowercase hex.
