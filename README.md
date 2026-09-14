@@ -67,12 +67,12 @@ Branch protection is enabled on the `main` branch to require successful CI check
 
 **Tradr ships with no OAuth credentials.** Every deployment registers its own Google Cloud project, which is what makes each deployment a self-contained trust domain. See [docs/05](docs/05-security.md#oauth-client-configuration) for why.
 
-Create a project, then an OAuth client per platform you intend to build — one **Desktop app**, one **Android**. Google issues a secret for the Desktop client and none for the Android one; **that is expected, not a mistake in your setup.** A Desktop client's secret is required by Google's token endpoint even under PKCE, which was measured rather than assumed and is written up in docs/05.
+Create a project, then an OAuth client per platform you intend to build — one **Desktop app**, one **Android**, and one **Web application**, which is what an Android build presents to the credential API (see [docs/05](docs/05-security.md#android-obtains-its-attestation-without-a-redirect-and-the-server-client-id-is-a-web-registration-dcr-112)). Google issues a secret for the Desktop client and none for the Android one; **that is expected, not a mistake in your setup.** A Desktop client's secret is required by Google's token endpoint even under PKCE, which was measured rather than assumed and is written up in docs/05.
 
 Both values are baked in at build time, from the environment:
 
 ```
-TRADR_OAUTH_CLIENT_IDS=desktop:<id>,android:<id>
+TRADR_OAUTH_CLIENT_IDS=desktop:<id>,android:<id>,web:<id>
 TRADR_OAUTH_CLIENT_SECRET=<the Desktop client's secret>
 ```
 
