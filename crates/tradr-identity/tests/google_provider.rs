@@ -8,9 +8,9 @@ use tradr_identity::{OAuthClient, Platform, ProviderError, google, oauth_client}
 
 const DESKTOP_ID: &str = "111-desktop.apps.googleusercontent.com";
 const ANDROID_ID: &str = "111-android.apps.googleusercontent.com";
+const WEB_ID: &str = "111-web.apps.googleusercontent.com";
 const SECRET: &str = "a-configured-secret";
-const BOTH: &str =
-    "desktop:111-desktop.apps.googleusercontent.com,android:111-android.apps.googleusercontent.com";
+const BOTH: &str = "desktop:111-desktop.apps.googleusercontent.com,android:111-android.apps.googleusercontent.com,web:111-web.apps.googleusercontent.com";
 
 fn desktop() -> OAuthClient {
     oauth_client(Platform::Desktop, Some(BOTH), Some(SECRET)).expect("a complete deployment")
@@ -23,12 +23,16 @@ fn a_device_authenticates_as_the_client_matching_its_own_platform() {
     assert_eq!(desktop().client_id, DESKTOP_ID);
 
     let android = oauth_client(Platform::Android, Some(BOTH), None).expect("android has no secret");
-    assert_eq!(android.client_id, ANDROID_ID);
+    assert_eq!(android.client_id, WEB_ID);
 }
 
 #[test]
 fn every_id_in_the_list_is_accepted_whichever_device_reads_it() {
-    let expected = vec![DESKTOP_ID.to_string(), ANDROID_ID.to_string()];
+    let expected = vec![
+        DESKTOP_ID.to_string(),
+        ANDROID_ID.to_string(),
+        WEB_ID.to_string(),
+    ];
 
     assert_eq!(desktop().audiences, expected);
     assert_eq!(
@@ -64,7 +68,7 @@ fn a_build_the_list_does_not_name_refuses_to_start() {
 
     assert_eq!(
         oauth_client(Platform::Android, Some(&desktop_only), None),
-        Err(ProviderError::PlatformNotConfigured)
+        Err(ProviderError::PlatformNotConfigured("web"))
     );
 }
 
@@ -205,4 +209,44 @@ fn nothing_a_peer_is_verified_against_comes_from_configuration() {
     );
     assert!(profile.authorization_uri.starts_with("https://"));
     assert!(profile.token_uri.starts_with("https://"));
+}
+
+// --- Android looks itself up as web (WI-M7-015) ---
+
+#[test]
+fn android_build_selects_web_client_and_preserves_all_audiences() {
+    let client = oauth_client(Platform::Android, Some("desktop:d,android:a,web:w"), None)
+        .expect("valid deployment");
+    assert_eq!(client.client_id, "w");
+    assert_eq!(
+        client.audiences,
+        vec!["d".to_string(), "a".to_string(), "w".to_string()]
+    );
+}
+
+#[test]
+fn android_build_without_web_entry_refuses_naming_web() {
+    let err = oauth_client(Platform::Android, Some("desktop:d,android:a"), None).unwrap_err();
+    assert_eq!(err, ProviderError::PlatformNotConfigured("web"));
+    assert!(err.to_string().contains("web"));
+}
+
+#[test]
+fn android_build_with_secret_is_still_refused() {
+    assert_eq!(
+        oauth_client(
+            Platform::Android,
+            Some("desktop:d,android:a,web:w"),
+            Some("s")
+        ),
+        Err(ProviderError::UnexpectedClientSecret)
+    );
+}
+
+#[test]
+fn deployment_with_only_desktop_and_web_builds_desktop_client() {
+    let client = oauth_client(Platform::Desktop, Some("desktop:d,web:w"), Some("s"))
+        .expect("valid deployment");
+    assert_eq!(client.client_id, "d");
+    assert_eq!(client.audiences, vec!["d".to_string(), "w".to_string()]);
 }

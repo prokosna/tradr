@@ -104,11 +104,11 @@ Adding a platform means adding its client ID to that one string. **Devices that 
 **No client ID and no client secret ship with this software.** Both are configuration, supplied at runtime, and every deployment registers its own Google Cloud project. Tradr is set up by the person running it, not distributed with credentials of its own.
 
 ```
-TRADR_OAUTH_CLIENT_IDS      desktop:<id>,android:<id>   the same string on every device
+TRADR_OAUTH_CLIENT_IDS      desktop:<id>,android:<id>,web:<id>   the same string on every device
 TRADR_OAUTH_CLIENT_SECRET   this platform's secret; a Desktop client has one, an Android client none
 ```
 
-**The first is one value, identical across the deployment, and every device derives the rest from it.** A build knows which platform it is, so it looks itself up in the list to find the client it authenticates as, and takes every ID in the list as the `aud` set it accepts. Nothing is written twice and nothing differs per device but the secret.
+**The first is one value, identical across the deployment, and every device derives the rest from it.** A build knows which platform it is, so it looks itself up in the list to find the client it authenticates as, and takes every ID in the list as the `aud` set it accepts. **The label a build looks up is not always its own name**: an Android build looks up `web`, for the reason [below](#android-obtains-its-attestation-without-a-redirect-and-the-server-client-id-is-a-web-registration-dcr-112). Nothing is written twice and nothing differs per device but the secret.
 
 **That is what makes the incomplete list detectable.** An earlier draft had each device configured separately with its own ID and its own audience set, which put the same value in two places and made a forgotten entry surface only at the first connection between two devices, as a rejected peer. Now a deployment that lists `desktop:` and forgets `android:` starts its desktop devices correctly -- as a desktop-only deployment, which is what it is -- and **an Android device refuses to start at all**, saying that this build is Android and the list names no Android client. The mistake is reported where it was made.
 
@@ -180,17 +180,27 @@ The third row is what makes the first two mean anything: the check is real, and 
 | `iss` | `https://accounts.google.com`, which step 1 compares against |
 | An Android client id as the server client id | Refused, `Developer console is not set up correctly` |
 
-**So the deployment string gains a third entry and no code selects it.**
+**So the deployment string gains a third entry, and an Android build selects it as its own.**
 
 ```
 TRADR_OAUTH_CLIENT_IDS   desktop:<id>,android:<id>,web:<id>
 ```
 
-**No platform looks itself up as `web`, and that is exactly the behaviour this section already specifies**: an entry naming a platform this build does not know contributes its id to the `aud` set and nothing else. The Web client is the one an Android token's `aud` carries, so every device must accept it; nothing presents it as its own client. **The mechanism that was written for iOS turns out to be what carries this**, which is why the client selection needs no change at all.
+**An Android build looks itself up as `web`, and DCR-116 is this paragraph being corrected rather than extended.** It used to say that no code selects the entry, and that read consistently until the path was implemented: the credential API is handed a server client id, the table above measured the Android one being refused, and the Web id is therefore the value an Android build presents. The client an Android device authenticates as *is* the Web registration, so it is looked up under the label that registration is named by. **The `aud` set is untouched by that**, because it was always every id in the string and never the selected one -- which is what lets a desktop device accept an Android peer without knowing any of this.
 
 **What `android:<id>` means afterwards is narrower than it was, and it is not nothing.** It is presented nowhere: the Android client registration authorizes the *application*, by package name and signing certificate, and that check happens between the device and the provider without passing through this string. Its only remaining effect is contributing an `aud` that nothing will ever mint. Dropping it is therefore safe and is deliberately not done here -- it is a change to a value every device holds, and it costs nothing to keep.
 
 **One Android client covers exactly one pair of package name and signing certificate.** The debug build type carries an application id suffix, so the debug package and the release package are different applications to the provider and need separate registrations; a release build signed by a different key needs its own again. **None of that reaches this string**, which is what keeps it a build-and-console matter rather than a configuration one.
+
+### How an Android build obtains that token (DCR-116)
+
+**One function per platform, chosen at compile time, ending in one verification both of them share.** Desktop keeps the loopback redirect, the code and the exchange. Android builds the same nonce -- `BLAKE3` over this device's public keys, the value [ADR-0003](adr/0003-google-attestation-as-trust-root.md) binds -- hands it to the credential API together with the Web client id, and is given an ID token with no redirect anywhere on the path. **What happens to that token afterwards is the desktop path's own tail, called from both sides**: the key set is fetched and installed, the token verified against the profile, the result classified, and anything but `SameAccount` refused. A platform may differ in how a token is obtained. It may not differ in how one is trusted.
+
+**The three places that build this device's provider profile now ask which platform this is exactly once.** Signing in, verifying a pasted bundle and the `PeerTrust` built at startup each named the Desktop platform outright, which was invisible while only desktop ran and is two defects on Android: the profile would carry the wrong client id, and a Desktop client with no secret is refused at construction -- so an Android build could not have verified a peer at all, quite apart from signing in. One selected answer, three call sites, and a fourth one cannot pick a different platform by accident.
+
+**Acquisition asks for a saved credential first and falls back to the explicit sign-in.** Both option classes were measured on a device: the saved-credential class answers `NoCredentialException` where nothing was ever saved, and the explicit class is the one that completed. Ordering them that way costs one refused call on a first sign-in, and buys the renewal question an instrument inside the product rather than beside it -- **which is why the diagnostic probe is deleted by the same Work Item that lands this**. What the probe was left in the tree to measure is now measurable on the path people use.
+
+**Renewal stays unmeasured, and is deliberately not designed here.** Nothing on Android re-mints on a timer. A second sign-in on a device that has already completed one is the measurement: if the saved-credential class answers it without interaction, an Android device can hold a fresh Attestation the way a desktop one does, and if it does not, a person confirms one. The run reports which class answered, and until it reads back the `renewal` field below is unanswered for this platform.
 
 ### Provider profiles
 
@@ -221,7 +231,7 @@ An ID token's `exp` is typically one hour out. But what an Attestation asserts i
 
 - **`exp` is ignored; the age of `iat` is what matters.** Accepted within 30 days by default, and up to 300 seconds ahead of this device's clock — see [step 5](#why-step-5-bounds-both-directions-and-why-the-future-one-is-not-bounded-at-zero)
 - **Desktop devices** hold a Google refresh token and **re-mint an ID token with the same nonce every 24 hours** via a `prompt=none` silent refresh, requiring no user interaction
-- **Android holds no refresh token**, because the credential API above returns an ID token and nothing else. Renewal there is a second call to that API carrying the same nonce, which the nonce being a function of the device keys makes stable across calls. **Whether such a call completes without user interaction is unmeasured**, and is the next thing to measure rather than the next thing to assume: it decides whether an Android device can hold a fresh Attestation the way a desktop one does, or whether a person has to confirm one every day
+- **Android holds no refresh token**, because the credential API above returns an ID token and nothing else. Renewal there is a second call to that API carrying the same nonce, which the nonce being a function of the device keys makes stable across calls. **Whether such a call completes without user interaction is unmeasured**, and is the next thing to measure rather than the next thing to assume -- the instrument being the first option class the sign-in path asks for (DCR-116) rather than a probe beside it: it decides whether an Android device can hold a fresh Attestation the way a desktop one does, or whether a person has to confirm one every day
 - **So `renewal` in the Provider Profile below cannot answer for a provider alone once two platforms differ on it.** The field's terms are a property of the pair, and today Google's terms are one thing through a refresh token and another through a credential API. Nothing needs restructuring while the measurement is missing, and the field is where the answer lands when it arrives
 - A healthy device therefore always presents an Attestation less than a day old
 

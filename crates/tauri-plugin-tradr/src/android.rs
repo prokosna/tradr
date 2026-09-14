@@ -183,3 +183,51 @@ pub async fn show_incoming_transfer_notification<R: Runtime>(
         .await
         .map_err(|e| format!("failed to show incoming transfer notification: {e}"))
 }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SignInRequest<'a> {
+    server_client_id: &'a str,
+    nonce: &'a str,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SignInResponse {
+    success: bool,
+    id_token: Option<String>,
+    option_class: Option<String>,
+    error_class: Option<String>,
+    error_message: Option<String>,
+}
+
+/// Obtains an ID token from the platform credential API.
+pub async fn sign_in<R: Runtime>(
+    handle: &PluginHandle<R>,
+    server_client_id: &str,
+    nonce: &str,
+) -> Result<String, String> {
+    let request = SignInRequest {
+        server_client_id,
+        nonce,
+    };
+    let response: SignInResponse = handle
+        .run_mobile_plugin_async("signIn", request)
+        .await
+        .map_err(|e| format!("failed to invoke signIn: {e}"))?;
+
+    let option_class = response.option_class.as_deref().unwrap_or("<unknown>");
+    println!("sign_in: option_class={option_class}");
+
+    if response.success {
+        response
+            .id_token
+            .ok_or_else(|| "credential response succeeded but contained no id_token".to_string())
+    } else {
+        let err_class = response
+            .error_class
+            .unwrap_or_else(|| "UnknownError".to_string());
+        let err_msg = response.error_message.unwrap_or_default();
+        Err(format!("sign-in failed: {err_class}: {err_msg}"))
+    }
+}

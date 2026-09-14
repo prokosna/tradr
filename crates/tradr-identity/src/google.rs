@@ -46,7 +46,7 @@ pub enum ProviderError {
     DuplicatePlatform(String),
     /// No entry in `TRADR_OAUTH_CLIENT_IDS` named this build's own
     /// platform, so it has no client to authenticate as.
-    PlatformNotConfigured,
+    PlatformNotConfigured(&'static str),
     /// A Desktop client with no secret. Google's token endpoint requires it.
     MissingClientSecret,
     /// An Android client with a secret. Google issues none for that client
@@ -68,11 +68,8 @@ impl fmt::Display for ProviderError {
             Self::DuplicatePlatform(label) => {
                 write!(f, "'{label}' appears twice in TRADR_OAUTH_CLIENT_IDS")
             }
-            Self::PlatformNotConfigured => {
-                write!(
-                    f,
-                    "TRADR_OAUTH_CLIENT_IDS names no client for this platform"
-                )
+            Self::PlatformNotConfigured(label) => {
+                write!(f, "TRADR_OAUTH_CLIENT_IDS names no client for '{label}'")
             }
             Self::MissingClientSecret => {
                 write!(f, "a desktop client requires TRADR_OAUTH_CLIENT_SECRET")
@@ -91,7 +88,7 @@ impl std::error::Error for ProviderError {}
 fn platform_label(platform: Platform) -> &'static str {
     match platform {
         Platform::Desktop => "desktop",
-        Platform::Android => "android",
+        Platform::Android => "web",
     }
 }
 
@@ -160,7 +157,7 @@ pub fn oauth_client(
         .iter()
         .find(|entry| entry.label == label)
         .map(|entry| entry.id.clone())
-        .ok_or(ProviderError::PlatformNotConfigured)?;
+        .ok_or(ProviderError::PlatformNotConfigured(label))?;
 
     let client_secret = client_secret
         .filter(|value| !value.is_empty())
