@@ -14,7 +14,7 @@ use tradr_oidc::fetch_jwks;
 
 /// How old an `id_token`'s `iat` may be before verification rejects it
 /// (docs/05, "Handling expiry"). The single definition every path applies:
-/// this crate's `peer_trust`, and the plugin's `sign_in` and `link_commands`.
+/// this crate's `peer_trust` and `sign_in`, and the plugin's `link_commands`.
 pub const STALENESS_LIMIT_SECS: u64 = 30 * 24 * 60 * 60;
 /// How far ahead of this device's clock an `id_token`'s `iat` may be before
 /// verification rejects it (docs/05 step 5).

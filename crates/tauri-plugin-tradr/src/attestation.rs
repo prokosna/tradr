@@ -7,10 +7,10 @@ use std::sync::Arc;
 use tauri::State;
 
 use tradr_app::attestation::{AttestationBundle, VerifiedPeer, bundle_for, verify_peer_bundle};
+use tradr_app::sign_in::{OAuthConfig, SignInState, provider_profile};
 
 use crate::identity::IdentityState;
 use crate::link_registry::LinkRegistryState;
-use crate::sign_in::{OAuthConfig, SignInState};
 
 /// Returns what a peer needs to verify this device: the `id_token` this
 /// device's own sign-in obtained, and its two public keys as lowercase
@@ -44,7 +44,7 @@ pub async fn verify_peer_attestation(
         .own_account()
         .ok_or_else(|| "sign in on this device before verifying a peer".to_string())?;
     let linked_accounts = link_registry.linked_accounts()?;
-    let profile = crate::sign_in::provider_profile(&oauth)?;
+    let profile = provider_profile(&oauth)?;
 
     verify_peer_bundle(&bundle, &profile, &own_account, &linked_accounts).await
 }

@@ -6,11 +6,10 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use tradr_app::sign_in::SignInState;
 use tradr_core::SecretStore;
 use tradr_discovery::{BroadcastSecret, BroadcastSecrets};
 use tradr_identity::{AccountId, BroadcastKeyRegistry, LinkRegistry};
-
-use crate::sign_in::SignInState;
 
 /// Answers this device's own account identifier for broadcast matching (docs/03),
 /// read at the moment of the match and never captured.

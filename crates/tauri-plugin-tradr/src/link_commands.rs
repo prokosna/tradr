@@ -22,13 +22,13 @@ use crate::identity::IdentityState;
 use crate::link_invite::{LinkInviteState, LinkProposalDto};
 use crate::link_registry::LinkRegistryState;
 use crate::peer_trust::PeerTrustState;
-use crate::sign_in::SignInState;
 use tradr_app::attestation::FUTURE_SKEW_LIMIT_SECS;
 use tradr_app::link_exchange::{
     LinkAttestationRequest, LinkDecision, LinkExchangeError, LinkOutcome, ReplierParams,
     send_link_reply,
 };
 use tradr_app::peer_trust::PeerTrust;
+use tradr_app::sign_in::SignInState;
 
 /// What a person is shown when an invite opens: the blob the QR encodes,
 /// and this device's own Fingerprint to read aloud.

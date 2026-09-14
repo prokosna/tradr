@@ -8,4 +8,5 @@ pub mod handshake;
 pub mod link_exchange;
 pub mod peer_trust;
 pub mod share;
+pub mod sign_in;
 pub mod transfer;

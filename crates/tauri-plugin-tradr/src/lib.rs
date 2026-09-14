@@ -33,7 +33,7 @@ pub mod mobile;
 pub mod peer_trust;
 mod sign_in;
 
-use sign_in::{OAuthConfig, SignInState};
+use tradr_app::sign_in::{OAuthConfig, SignInState};
 
 /// Builds the plugin. Its setup hook opens the Device Key store once and
 /// manages `client_ids`/`client_secret`, this build's OAuth configuration

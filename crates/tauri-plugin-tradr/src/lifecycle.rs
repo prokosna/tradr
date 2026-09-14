@@ -32,9 +32,9 @@ use crate::link_invite::{
 use crate::link_registry::LinkRegistryState;
 use crate::listener::{LinkStreamService, ListenerError, build_key_binding, run_listener};
 use crate::peer_trust::PeerTrustState;
-use crate::sign_in::SignInState;
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::peer_trust::OwnAttestation;
+use tradr_app::sign_in::SignInState;
 
 #[cfg(target_os = "android")]
 use crate::ble_gatt_android::{AcceptorPeripheral, AndroidGattAcceptor};
