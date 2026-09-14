@@ -24,15 +24,15 @@ use tradr_vfs::NativeVfs;
 
 use crate::ble_advertising::{BleAdvertising, local_platform_code};
 use crate::ble_source::BleDiscovery;
-use crate::broadcast_secrets::DeviceBroadcastSecrets;
 use crate::identity::IdentityState;
-use crate::link_invite::{
+use crate::link_registry::LinkRegistryState;
+use crate::peer_trust::PeerTrustState;
+use tradr_app::broadcast_secrets::DeviceBroadcastSecrets;
+use tradr_app::capabilities::LocalCapabilities;
+use tradr_app::link_invite::{
     LinkInviteState, LinkProposalDto, LinkService, LinkServiceParts, ProposalSink,
 };
-use crate::link_registry::LinkRegistryState;
-use crate::listener::{LinkStreamService, ListenerError, build_key_binding, run_listener};
-use crate::peer_trust::PeerTrustState;
-use tradr_app::capabilities::LocalCapabilities;
+use tradr_app::listener::{LinkStreamService, ListenerError, build_key_binding, run_listener};
 use tradr_app::peer_trust::OwnAttestation;
 use tradr_app::sign_in::SignInState;
 

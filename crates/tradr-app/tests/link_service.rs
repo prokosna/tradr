@@ -18,12 +18,12 @@ use rsa::traits::PublicKeyParts;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use sha2::Sha256;
 
-use tauri_plugin_tradr::link_invite::{
+use tradr_app::link_exchange::LinkDecision;
+use tradr_app::link_invite::{
     InviteWindowError, LinkInviteState, LinkProposalDto, LinkService, LinkServiceParts,
     ProposalSink,
 };
-use tauri_plugin_tradr::listener::LinkStreamService;
-use tradr_app::link_exchange::LinkDecision;
+use tradr_app::listener::LinkStreamService;
 use tradr_app::peer_trust::{JwksFetch, PeerTrust};
 use tradr_core::{
     BoxFuture, Clock, HalfSecret, Invite, InviteId, KeyStore, LinkDeclineReason, LinkReply,
