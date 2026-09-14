@@ -381,6 +381,18 @@ Every observation from every source, merged. Four rules, and the interesting one
 
 **It lives in `tradr-core` for a second reason, and that one is not a preference.** Phase 1 of path selection reads a peer's candidates, path selection lives in `tradr-transport`, and `ci/layer-deps.sh` permits an implementation crate only `tradr-core` and `tradr-proto`. A `Peer` declared in `tradr-discovery` is a `Peer` that `tradr-transport` cannot name.
 
+### What the peer list owes the interface, and the one fact its DTO was dropping (DCR-115)
+
+**Three of the four rules above are about merging and the fourth is about trust; none of them says what a person is shown**, and `PeerInfo` -- the DTO `get_peers` hands the frontend -- is where the choice the third rule delegates actually gets made. It picks one name out of the observations, unions the candidates, and drops everything else. **What it drops that nothing else carries is which source saw the peer.**
+
+**Reading that out of `key` works exactly while a peer is anonymous and stops the moment it is not**, which is the worst shape available: `PeerInfo::key` is an `ObservationId`, `<source>/<key>`, for a peer nothing has identified, and the Device ID hex for one that has. An interface deriving provenance from it would be right in every test that uses an unidentified peer and wrong for every peer a person actually sends to.
+
+**So `PeerInfo` carries `sources`**: the distinct `SourceId` names of `peer.observations()`, in that slice's own order, which `ObservationId`'s `(source, key)` ordering already makes deterministic. **Plural rather than singular, because the first rule above makes it plural** -- a device on the LAN that is also a hand-registered Static Peer is one peer with two observations, and naming one of them would be choosing which of two true things to say.
+
+**The interface renders a source as a phrase rather than as its wire token**, since `static-peer` is vocabulary from this document and not from the person reading the screen: `mdns` is "on this network", `static-peer` is "added by hand", `ble` is "nearby over Bluetooth". **A source it does not recognise renders its own name rather than nothing** -- the Brokr presence registry is the fourth source and arrives with Tier 2, and a peer that silently loses its provenance is the defect this rules on.
+
+**And the section stops claiming to be something it is not.** "Discovered Peers", whose empty state read "No peers discovered on local network yet", is the whole of F-W3: the list is every source's answer and the heading named one of them, so a hand-registered peer arriving there read as a bug in the register rather than as the feature working.
+
 ## Transports
 
 | ID | What it is | Tier | Typical throughput | Where it applies |

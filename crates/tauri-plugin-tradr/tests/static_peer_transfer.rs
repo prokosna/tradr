@@ -10,15 +10,16 @@ use std::time::Duration;
 
 use tauri_plugin_tradr::capabilities::LocalCapabilities;
 use tauri_plugin_tradr::commands::{
-    connect_and_pin, execute_send_files, resolve_peer, resolve_send_items,
+    connect_and_pin, execute_send_files, peer_sources, resolve_peer, resolve_send_items,
 };
 use tauri_plugin_tradr::listener::{ListenerParams, handle_incoming_channel};
 use tauri_plugin_tradr::peer_trust::OwnAttestation;
 use tradr_core::{
-    Capabilities, Clock, DeviceId, DiscoverySource, DomainTag, KeyBinding, KeyStore,
-    PeerExpectation, PeerList, RootId, Transport, TrustTier, UnixTime, VersionRange,
+    Capabilities, Clock, DeviceId, DiscoveryEvent, DiscoverySource, DomainTag, KeyBinding,
+    KeyStore, ObservationId, ObservationKey, PeerExpectation, PeerList, PeerObservation, RootId,
+    Transport, TrustTier, UnixTime, VersionRange,
 };
-use tradr_discovery::{STATIC_PEER_SOURCE_ID, StaticPeerRegistry};
+use tradr_discovery::{MDNS_SOURCE_ID, STATIC_PEER_SOURCE_ID, StaticPeerRegistry};
 use tradr_identity::{OsRng, SoftwareKeyStore, SystemClock};
 use tradr_integrity::BaoVerifier;
 use tradr_secrets::FileStore;
@@ -301,4 +302,59 @@ async fn resolve_send_items_sums_to_actual_file_lengths() {
     let total_bytes: u64 = items.iter().map(|item| item.size_bytes).sum();
     let expected_bytes = (content_a.len() + content_b.len()) as u64;
     assert_eq!(total_bytes, expected_bytes);
+}
+
+#[test]
+fn peer_sources_merges_distinct_sources_in_observation_order() {
+    let mut list = PeerList::new();
+    let shared_device = DeviceId::from_bytes(&[1u8; 16]).expect("valid device id");
+
+    let static_key = ObservationKey::new("static-peer-1").expect("valid key");
+    let static_obs = PeerObservation::new(
+        ObservationId::new(STATIC_PEER_SOURCE_ID, static_key),
+        Vec::new(),
+    )
+    .with_device_id(shared_device);
+
+    let mdns_key = ObservationKey::new("mdns-peer-1").expect("valid key");
+    let mdns_obs = PeerObservation::new(ObservationId::new(MDNS_SOURCE_ID, mdns_key), Vec::new())
+        .with_device_id(shared_device);
+
+    list.apply(STATIC_PEER_SOURCE_ID, DiscoveryEvent::Observed(static_obs))
+        .expect("apply static");
+    list.apply(MDNS_SOURCE_ID, DiscoveryEvent::Observed(mdns_obs))
+        .expect("apply mdns");
+
+    let peers = list.peers();
+    assert_eq!(
+        peers.len(),
+        1,
+        "observations sharing a device id merge into one peer"
+    );
+    let sources = peer_sources(&peers[0]);
+    assert_eq!(sources, vec!["mdns", "static-peer"]);
+}
+
+#[test]
+fn peer_sources_deduplicates_repeated_source() {
+    let mut list = PeerList::new();
+    let shared_device = DeviceId::from_bytes(&[2u8; 16]).expect("valid device id");
+
+    let key_1 = ObservationKey::new("mdns-inst-1").expect("valid key");
+    let obs_1 = PeerObservation::new(ObservationId::new(MDNS_SOURCE_ID, key_1), Vec::new())
+        .with_device_id(shared_device);
+
+    let key_2 = ObservationKey::new("mdns-inst-2").expect("valid key");
+    let obs_2 = PeerObservation::new(ObservationId::new(MDNS_SOURCE_ID, key_2), Vec::new())
+        .with_device_id(shared_device);
+
+    list.apply(MDNS_SOURCE_ID, DiscoveryEvent::Observed(obs_1))
+        .expect("apply mdns 1");
+    list.apply(MDNS_SOURCE_ID, DiscoveryEvent::Observed(obs_2))
+        .expect("apply mdns 2");
+
+    let peers = list.peers();
+    assert_eq!(peers.len(), 1, "two observations from same source merge");
+    let sources = peer_sources(&peers[0]);
+    assert_eq!(sources, vec!["mdns"]);
 }
