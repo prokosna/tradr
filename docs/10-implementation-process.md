@@ -208,7 +208,7 @@ git rev-parse --abbrev-ref HEAD
 # work_items_landed — count of done Work Item rows
 { cat STATE.md; cat RECORD.md; } | awk '
   /^#+[ \t]+/ { h=$0; sub(/^#+[ \t]+/,"",h) }
-  h == "Work Items" && /^\| WI-M[0-9]+-/ && /\*\*done\*\*/ { n++ }
+  h == "Work Items" && /^\| WI-M[0-9]+-/ && /\*\*done(\*\*|[ ,])/ { n++ }
   END { print n+0 }'
 
 # last_commit — the newest commit on this branch
@@ -217,6 +217,8 @@ git log --oneline -1
 # commits newer than last_updated (the reconciliation probe)
 git log --oneline --after="$(grep -m1 '^last_updated:' STATE.md | sed 's/last_updated: //')"
 ```
+
+**The status cell admits a date and the count has to admit one too, corrected 2026-09-14.** M7's and M8's rows write `**done 2026-09-14**` rather than a bare `**done**`, because a row that says when it landed is worth more than one that does not -- and the command above matched only the bare form, so it answered 128 where 132 rows were done. **Matching the date alone is not enough either**: `WI-M7-015` reads `**done 2026-09-14, never run**`, because M7's code landed and its radios never met, so the pattern has to admit whatever qualifier a cell carries rather than one shape of one. **A derived value computed wrongly is worse than a declared one that has gone stale**, because nothing about it looks out of date: DCR-060 removed these three fields on the grounds that the repository is their source of truth, and that only holds while the command reading it is right. Found by running it after `WI-M8-003` landed.
 
 **AGENTS.md §2-5 still requires that a progress report opens with `branch`, `work_items_landed`, and `last_commit`.** Run the commands above and include their output. The probe is the same as before: a report that carries these values was grounded in the repository; one that does not was not.
 
