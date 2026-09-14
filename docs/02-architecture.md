@@ -130,8 +130,19 @@ tradr/
     +-- tradr-integrity/        #   Verified streaming against a content hash. The only crate naming bao
     +-- tradr-oidc/             #   JWKS fetch, OAuth loopback and token exchange. Speaks HTTP
     +-- tradr-secrets/          #   Where a Device Key is actually held. Speaks D-Bus and the keyring
+    +-- tradr-app/              #   The shell-free half of the composition root. Names no Tauri type
     \-- tauri-plugin-tradr/     #   Exposes the above as Tauri commands; holds the Kotlin side
 ```
+
+### Where the shell-free half lives
+
+`crates/tradr-app/` holds everything the application does that does not depend on which shell is showing it: the handshake after a connection opens, the transfer sessions on either side of it, the linking exchange, the capability set a device publishes, and the share-intent payloads. **`apps/tradr/` is the Tauri shell and `crates/tradr-app/` is the application it shows**, which is the whole of the distinction between the two names.
+
+**It exists because a CLI was measured rather than argued about** ([docs/09](09-roadmap-and-risks.md)). Every function in `commands.rs` above the first `#[tauri::command]` names no Tauri type and ten of the plugin crate's modules mention Tauri not once, so the second front end is a move; **what the measurement did not check is whether a crate could hold them**. It could not: `ci/layer-deps.sh` lets an implementation crate depend only on `tradr-core` and `tradr-proto`, and this half reaches six internal crates. So DCR-118 makes the composition tier two crates rather than one, and check 4 exempts both.
+
+**`tradr-app` is not exempt from the `tauri` confinement, and that is the point of the split rather than a detail of it.** Change Drill D9 asks how far a move off Tauri reaches; the answer used to be a grep somebody ran once, which [CLAUDE.md](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) already records as the wrong instrument, since a doc comment explaining why a file is D9-safe defeats it. **A manifest that may not name `tauri` cannot be defeated that way**: the day someone reaches for a `tauri::State` inside this crate, the build fails before the gate does.
+
+**The split falls where `tradr-oidc`'s and `tradr-secrets`' did, and for the opposite reason.** Those two moved *out* of a crate because a dependency could not be reached through `tradr-core`; this one moves out because a dependency could not be reached at all -- `tauri` -- and confining what may reach it is what a second front end needs. The composition root keeps what a shell decides: the `#[tauri::command]` wrappers, the plugin lifecycle, the Kotlin side, and the state Tauri manages.
 
 ### Where the talk to an identity provider lives
 
@@ -190,9 +201,12 @@ Crate dependencies, what appears in each `Cargo.toml`:
        tradr-transport, tradr-identity and tradr-discovery
        also depend on tradr-proto for the wire encoding
 
-       tauri-plugin-tradr -> all six         <- the composition root, and the
-                                                only place implementations are
-                                                bound to the traits
+       tradr-app          -> all six         <- the composition tier. tradr-app
+       tauri-plugin-tradr -> all six + tradr-app   holds what no shell decides
+                                                and may not name tauri at all;
+                                                tauri-plugin-tradr holds the
+                                                commands, the lifecycle and the
+                                                Kotlin side
 ```
 
 ### Where the protobuf codec lives
@@ -205,7 +219,7 @@ The check is mechanical, the same shape as D9's: `grep -rl prost crates/` must r
 
 **Every arrow points at `tradr-core`, and none leaves it.** An implementation crate depends on the core to implement its traits; the core never names an implementation. `tradr-transport` does not depend on `tradr-identity` either — what it needs from keys arrives through `KeyStore`, which is what keeps Change Drill D3 confined to `transport/quic/`.
 
-The wiring happens once, in `tauri-plugin-tradr`. That crate is the only one that knows which implementations exist, which is why swapping the app shell (D9) reaches no further than it.
+The wiring happens in the composition tier, and only there. `tauri-plugin-tradr` is the only crate that knows a shell exists, which is why swapping the app shell (D9) reaches no further than it; `tradr-app` is the only other crate that may reach more than `tradr-core` and `tradr-proto`, and it may not name `tauri`.
 
 **Every Layer 1 trait is declared in `tradr-core` and nowhere else.** `Transport`, `SecureChannel`, `Vfs`, `KeyStore`, `Clock` and `Rng` all live there, along with the stream traits `SecureChannel` hands out; `tradr-transport` and `tradr-vfs` hold implementations of them and declare none of their own. Reading a trait's name in an implementation crate's directory listing is not a statement about where it is declared, and putting a declaration beside its implementations would collapse rule B3 quietly, since everything would still compile.
 

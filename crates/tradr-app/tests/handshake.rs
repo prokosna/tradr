@@ -4,7 +4,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use tauri_plugin_tradr::handshake::{HandshakeError, HandshakeParams, perform_handshake};
+use tradr_app::handshake::{HandshakeError, HandshakeParams, perform_handshake};
 use tradr_core::{
     BoxFuture, Capabilities, Clock, DeviceId, DomainTag, KeyBinding, KeyStore, Monotonic,
     PublicIdentity, RecvStream, Rng, RngError, SendStream, TransportError, TrustTier, UnixTime,

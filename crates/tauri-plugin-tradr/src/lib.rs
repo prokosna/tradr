@@ -20,23 +20,18 @@ pub mod ble_android;
 pub mod ble_gatt_android;
 pub mod ble_source;
 pub mod broadcast_secrets;
-pub mod capabilities;
 pub mod commands;
 pub mod desktop;
-pub mod handshake;
 mod identity;
 pub mod lifecycle;
 pub mod link_commands;
-pub mod link_exchange;
 pub mod link_invite;
 pub mod link_registry;
 pub mod listener;
 #[cfg(target_os = "android")]
 pub mod mobile;
 pub mod peer_trust;
-pub mod share;
 mod sign_in;
-pub mod transfer;
 
 use sign_in::{OAuthConfig, SignInState};
 

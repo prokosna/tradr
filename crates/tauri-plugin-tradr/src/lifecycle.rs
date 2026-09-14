@@ -25,7 +25,6 @@ use tradr_vfs::NativeVfs;
 use crate::ble_advertising::{BleAdvertising, local_platform_code};
 use crate::ble_source::BleDiscovery;
 use crate::broadcast_secrets::DeviceBroadcastSecrets;
-use crate::capabilities::LocalCapabilities;
 use crate::identity::IdentityState;
 use crate::link_invite::{
     LinkInviteState, LinkProposalDto, LinkService, LinkServiceParts, ProposalSink,
@@ -34,6 +33,7 @@ use crate::link_registry::LinkRegistryState;
 use crate::listener::{LinkStreamService, ListenerError, build_key_binding, run_listener};
 use crate::peer_trust::{OwnAttestation, PeerTrustState};
 use crate::sign_in::SignInState;
+use tradr_app::capabilities::LocalCapabilities;
 
 #[cfg(target_os = "android")]
 use crate::ble_gatt_android::{AcceptorPeripheral, AndroidGattAcceptor};

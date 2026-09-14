@@ -63,3 +63,6 @@ state-sync | tests/verified_transfer.rs | Relative crate test file path cited in
 state-sync | tests/link_over_quic.rs | Relative crate test file path cited in WI-M6-011 review prose
 state-sync | quic/error.rs | Relative crate source file path cited in WI-M6-011 review prose
 state-sync | crates/tauri-plugin-tradr/src/ble_probe.rs | DCR-107 deleted the probe in WI-M7-007o; RECORD.md names it as history and is append-only
+state-sync | crates/tauri-plugin-tradr/src/transfer.rs | WI-M8-001 moved the module to crates/tradr-app; RECORD.md names it as history and is append-only
+state-sync | crates/tauri-plugin-tradr/tests/handshake.rs | WI-M8-001 moved the test to crates/tradr-app; RECORD.md names it as history and is append-only
+state-sync | crates/tauri-plugin-tradr/tests/link_exchange.rs | WI-M8-001 moved the test to crates/tradr-app; RECORD.md names it as history and is append-only

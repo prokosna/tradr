@@ -3,7 +3,7 @@
 //! Verifies that wrong-plane frames, zero codes, and out-of-order control codes
 //! are refused with ProtocolViolation, while unassigned in-plane codes are skipped.
 
-use tauri_plugin_tradr::transfer::{
+use tradr_app::transfer::{
     ReceiveRequest, SendRequest, SessionStreams, TransferSessionError, receive_file, send_file,
 };
 use tradr_core::{

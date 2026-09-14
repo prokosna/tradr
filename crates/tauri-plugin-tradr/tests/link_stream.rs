@@ -8,16 +8,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use tauri_plugin_tradr::capabilities::LocalCapabilities;
-use tauri_plugin_tradr::handshake::{HandshakeParams, perform_handshake};
-use tauri_plugin_tradr::link_exchange::{
-    InviterParams, LinkAttestationRequest, LinkDecision, LinkExchangeError, LinkOutcome,
-    LinkProposal, ReplierParams, send_link_reply, serve_link_reply,
-};
 use tauri_plugin_tradr::listener::{
     LinkStreamService, ListenerError, ListenerParams, handle_incoming_channel,
 };
 use tauri_plugin_tradr::peer_trust::OwnAttestation;
+use tradr_app::capabilities::LocalCapabilities;
+use tradr_app::handshake::{HandshakeParams, perform_handshake};
+use tradr_app::link_exchange::{
+    InviterParams, LinkAttestationRequest, LinkDecision, LinkExchangeError, LinkOutcome,
+    LinkProposal, ReplierParams, send_link_reply, serve_link_reply,
+};
 use tradr_core::{
     BoxFuture, Capabilities, Clock, DeviceId, DomainTag, HalfSecret, Invite, InviteId, KeyBinding,
     KeyStore, LinkApprove, LinkDecline, LinkDeclineReason, LinkId, LinkReply, LinkSecret,

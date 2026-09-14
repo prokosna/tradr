@@ -3,7 +3,7 @@
 //! verifying partial-file chunk writes, fsync syncs, and atomic collision renames.
 //! See docs/04-protocol.md and AGENTS.md.
 
-use tauri_plugin_tradr::transfer::{
+use tradr_app::transfer::{
     ReceiveRequest, SendRequest, SessionStreams, TransferSessionError, receive_file, send_file,
 };
 use tradr_core::{

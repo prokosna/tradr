@@ -10,6 +10,7 @@ members = [
     "crates/tradr-vfs",
     "crates/tradr-integrity",
     "crates/tradr-secrets",
+    "crates/tradr-app",
     "crates/tauri-plugin-tradr",
     "apps/tradr/src-tauri",
 ]

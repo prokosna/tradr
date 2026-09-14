@@ -4,9 +4,7 @@
 //! that speaks the wire directly, because a well-behaved `send_file` cannot
 //! produce the frames that matter here.
 
-use tauri_plugin_tradr::transfer::{
-    ReceiveRequest, SendRequest, SessionStreams, receive_file, send_file,
-};
+use tradr_app::transfer::{ReceiveRequest, SendRequest, SessionStreams, receive_file, send_file};
 use tradr_core::{
     BoxFuture, ChunkDataHeader, ChunkIndex, ItemId, RecvStream, RelPath, RootId, SendStream,
     TransferId, TransportError,

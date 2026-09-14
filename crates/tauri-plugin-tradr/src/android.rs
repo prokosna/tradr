@@ -10,7 +10,7 @@ use tauri::{
 };
 
 use crate::commands::ShowIncomingTransferNotificationArgs;
-use crate::share::{
+use tradr_app::share::{
     ACTION_NOTIFICATION_ACCEPT, ACTION_NOTIFICATION_DECLINE, PeerShortcut, PickShareRootResponse,
     ShareIntent,
 };

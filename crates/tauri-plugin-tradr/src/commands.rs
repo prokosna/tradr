@@ -25,14 +25,14 @@ use tradr_transport::selection::{TransferSize, prefilter};
 use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
-use crate::capabilities::LocalCapabilities;
-use crate::handshake::{HandshakeParams, perform_handshake};
 use crate::identity::IdentityState;
 use crate::lifecycle::downloads_root_id;
 use crate::link_registry::LinkRegistryState;
 use crate::peer_trust::{PeerTrust, PeerTrustState};
 use crate::sign_in::SignInState;
-use crate::transfer::{SendRequest, SessionStreams, send_file_with_progress};
+use tradr_app::capabilities::LocalCapabilities;
+use tradr_app::handshake::{HandshakeParams, perform_handshake};
+use tradr_app::transfer::{SendRequest, SessionStreams, send_file_with_progress};
 
 // Builds the closure `perform_handshake` calls once the peer's Hello
 // arrives: reads `own_account` fresh at call time and delegates to
@@ -1311,7 +1311,7 @@ pub async fn download_file<R: tauri::Runtime>(
 #[tauri::command]
 pub async fn publish_sharing_shortcuts<R: tauri::Runtime>(
     #[allow(unused_variables)] app: tauri::AppHandle<R>,
-    #[allow(unused_variables)] peers: Vec<crate::share::PeerShortcut>,
+    #[allow(unused_variables)] peers: Vec<tradr_app::share::PeerShortcut>,
 ) -> Result<(), String> {
     if peers.is_empty() {
         return Ok(());

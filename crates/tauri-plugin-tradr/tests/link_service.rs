@@ -18,13 +18,13 @@ use rsa::traits::PublicKeyParts;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use sha2::Sha256;
 
-use tauri_plugin_tradr::link_exchange::LinkDecision;
 use tauri_plugin_tradr::link_invite::{
     InviteWindowError, LinkInviteState, LinkProposalDto, LinkService, LinkServiceParts,
     ProposalSink,
 };
 use tauri_plugin_tradr::listener::LinkStreamService;
 use tauri_plugin_tradr::peer_trust::{JwksFetch, PeerTrust};
+use tradr_app::link_exchange::LinkDecision;
 use tradr_core::{
     BoxFuture, Clock, HalfSecret, Invite, InviteId, KeyStore, LinkDeclineReason, LinkReply,
     LinkSecret, Monotonic, PublicIdentity, Rng, RngError, SecretStore, SecretStoreError,
@@ -475,7 +475,7 @@ async fn the_channels_device_id_decides_and_never_one_recomputed_from_the_reply(
         .expect("a refused verification is a completed exchange, not an error");
 
     match outcome {
-        tauri_plugin_tradr::link_exchange::LinkOutcome::Declined { reason, detail } => {
+        tradr_app::link_exchange::LinkOutcome::Declined { reason, detail } => {
             assert_eq!(reason, Some(LinkDeclineReason::VerificationFailed));
             assert!(
                 detail.is_some(),
@@ -524,7 +524,7 @@ async fn a_reply_the_channel_authenticated_links_and_records_the_secret_first() 
     let expected_id = derive_link_id(&expected_secret);
     assert_eq!(
         outcome,
-        tauri_plugin_tradr::link_exchange::LinkOutcome::Linked(expected_id)
+        tradr_app::link_exchange::LinkOutcome::Linked(expected_id)
     );
 
     let registry = f.registry.lock().expect("not poisoned");
@@ -580,7 +580,7 @@ async fn a_reply_naming_another_invite_leaves_the_window_open() {
         .expect_err("a reply naming another invite is refused, never declined");
     assert!(matches!(
         refusal,
-        tauri_plugin_tradr::link_exchange::LinkExchangeError::UnknownInvite
+        tradr_app::link_exchange::LinkExchangeError::UnknownInvite
     ));
 
     assert!(
@@ -835,7 +835,7 @@ async fn a_registry_that_could_not_be_built_declines_with_no_reason() {
         .expect("a failed store is a completed exchange, not an error");
 
     match outcome {
-        tauri_plugin_tradr::link_exchange::LinkOutcome::Declined { reason, detail } => {
+        tradr_app::link_exchange::LinkOutcome::Declined { reason, detail } => {
             assert_eq!(
                 reason, None,
                 "none of the three reasons is true of a failed store"
@@ -879,7 +879,7 @@ async fn a_wait_that_reaches_the_deadline_leaves_no_parked_decision_behind() {
         .expect("a deadline reached is a completed exchange, not an error");
 
     match outcome {
-        tauri_plugin_tradr::link_exchange::LinkOutcome::Declined { reason, detail } => {
+        tradr_app::link_exchange::LinkOutcome::Declined { reason, detail } => {
             assert_eq!(reason, Some(LinkDeclineReason::InviteExpired));
             assert_eq!(detail, None, "the window closing is nobody's local failure");
         }

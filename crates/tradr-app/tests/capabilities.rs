@@ -1,4 +1,4 @@
-use tauri_plugin_tradr::capabilities::LocalCapabilities;
+use tradr_app::capabilities::LocalCapabilities;
 use tradr_core::Capabilities;
 
 #[test]
