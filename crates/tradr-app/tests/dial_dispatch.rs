@@ -6,7 +6,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use tauri_plugin_tradr::commands::{ResolvedPeer, connect_and_pin, resolve_peer};
+use tradr_app::peers::{ResolvedPeer, connect_and_pin, resolve_peer};
 use tradr_core::{
     BoxFuture, Candidate, DeviceId, DiscoveryEvent, Incoming, ObservationId, ObservationKey,
     PeerExpectation, PeerList, PeerObservation, SecureChannel, SourceId, Transport, TransportError,

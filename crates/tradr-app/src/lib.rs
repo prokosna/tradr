@@ -10,6 +10,7 @@ pub mod link_exchange;
 pub mod link_invite;
 pub mod listener;
 pub mod peer_trust;
+pub mod peers;
 pub mod share;
 pub mod sign_in;
 pub mod transfer;

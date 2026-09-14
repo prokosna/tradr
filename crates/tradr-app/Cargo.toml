@@ -11,6 +11,7 @@ tradr-proto = { path = "../tradr-proto" }
 tradr-identity = { path = "../tradr-identity" }
 tradr-oidc = { path = "../tradr-oidc" }
 tradr-discovery = { path = "../tradr-discovery" }
+tradr-transport = { path = "../tradr-transport" }
 tradr-integrity = { path = "../tradr-integrity" }
 tradr-vfs = { path = "../tradr-vfs" }
 serde = { version = "1", features = ["derive"] }
