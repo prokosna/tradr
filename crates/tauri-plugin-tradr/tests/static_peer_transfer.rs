@@ -12,8 +12,8 @@ use tauri_plugin_tradr::commands::{
     connect_and_pin, execute_send_files, peer_sources, resolve_peer, resolve_send_items,
 };
 use tauri_plugin_tradr::listener::{ListenerParams, handle_incoming_channel};
-use tauri_plugin_tradr::peer_trust::OwnAttestation;
 use tradr_app::capabilities::LocalCapabilities;
+use tradr_app::peer_trust::OwnAttestation;
 use tradr_core::{
     Capabilities, Clock, DeviceId, DiscoveryEvent, DiscoverySource, DomainTag, KeyBinding,
     KeyStore, ObservationId, ObservationKey, PeerExpectation, PeerList, PeerObservation, RootId,

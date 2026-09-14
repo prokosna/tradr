@@ -18,7 +18,7 @@ use rsa::traits::PublicKeyParts;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use sha2::Sha256;
 
-use tauri_plugin_tradr::peer_trust::{JwksFetch, PeerTrust};
+use tradr_app::peer_trust::{JwksFetch, PeerTrust};
 use tradr_core::{
     BoxFuture, Clock, KeyStore, Monotonic, PublicIdentity, Rng, RngError, TrustTier, UnixTime,
 };

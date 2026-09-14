@@ -19,8 +19,8 @@ use rsa::{RsaPrivateKey, RsaPublicKey};
 use sha2::Sha256;
 
 use tauri_plugin_tradr::link_commands::{ReplierDeps, dial_target, execute_send_link_reply};
-use tauri_plugin_tradr::peer_trust::{JwksFetch, PeerTrust};
 use tradr_app::link_exchange::{LinkExchangeError, LinkOutcome};
+use tradr_app::peer_trust::{JwksFetch, PeerTrust};
 use tradr_core::{
     BoxFuture, Clock, DeviceId, HalfSecret, Invite, InviteId, KeyStore, LinkApprove, LinkDecline,
     LinkDeclineReason, Monotonic, PeerList, PublicIdentity, RecvStream, Rng, RngError, SecretStore,

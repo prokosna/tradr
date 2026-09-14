@@ -9,11 +9,16 @@ publish.workspace = true
 tradr-core = { path = "../tradr-core" }
 tradr-proto = { path = "../tradr-proto" }
 tradr-identity = { path = "../tradr-identity" }
+tradr-oidc = { path = "../tradr-oidc" }
 tradr-discovery = { path = "../tradr-discovery" }
 tradr-integrity = { path = "../tradr-integrity" }
 tradr-vfs = { path = "../tradr-vfs" }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tokio = { version = "1", features = ["time"] }
 
 [dev-dependencies]
+base64 = "0.22"
+rsa = { version = "0.9", features = ["sha2", "pem"] }
+sha2 = "0.10"
 tokio = { version = "1", features = ["sync", "rt", "macros", "test-util"] }

@@ -16,10 +16,10 @@ use tradr_core::{
 use tradr_identity::{Link, LinkRegistry};
 
 use crate::listener::LinkStreamService;
-use crate::peer_trust::PeerTrust;
 use tradr_app::link_exchange::{
     InviterParams, LinkDecision, LinkExchangeError, LinkOutcome, LinkProposal, serve_link_reply,
 };
+use tradr_app::peer_trust::PeerTrust;
 
 /// What the inviter's device shows a person for one replier, and what
 /// `WI-M6-006f`'s command surface serializes to the frontend.
