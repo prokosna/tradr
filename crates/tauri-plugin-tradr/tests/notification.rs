@@ -2,9 +2,7 @@
 
 use tauri_plugin_tradr::commands::ShowIncomingTransferNotificationArgs;
 use tauri_plugin_tradr::desktop;
-use tauri_plugin_tradr::share::{
-    ACTION_NOTIFICATION_ACCEPT, ACTION_NOTIFICATION_DECLINE, ShareIntent,
-};
+use tradr_app::share::{ACTION_NOTIFICATION_ACCEPT, ACTION_NOTIFICATION_DECLINE, ShareIntent};
 
 #[test]
 fn deserialize_notification_accept_intent_with_transfer_id() {

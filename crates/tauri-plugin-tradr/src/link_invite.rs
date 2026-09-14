@@ -15,11 +15,11 @@ use tradr_core::{
 };
 use tradr_identity::{Link, LinkRegistry};
 
-use crate::link_exchange::{
-    InviterParams, LinkDecision, LinkExchangeError, LinkOutcome, LinkProposal, serve_link_reply,
-};
 use crate::listener::LinkStreamService;
 use crate::peer_trust::PeerTrust;
+use tradr_app::link_exchange::{
+    InviterParams, LinkDecision, LinkExchangeError, LinkOutcome, LinkProposal, serve_link_reply,
+};
 
 /// What the inviter's device shows a person for one replier, and what
 /// `WI-M6-006f`'s command surface serializes to the frontend.
@@ -273,7 +273,7 @@ impl LinkStreamService for LinkService {
 
             let trust = self.parts.trust.clone();
             let clock_for_verify = self.clock.clone();
-            let verify = move |request: crate::link_exchange::LinkAttestationRequest| async move {
+            let verify = move |request: tradr_app::link_exchange::LinkAttestationRequest| async move {
                 let trust = trust?;
                 trust
                     .verify_link(

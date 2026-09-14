@@ -121,9 +121,10 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 	fi
 
 	# Check 4: implementation crates may depend internally only on
-	# tradr-core and tradr-proto (tauri-plugin-tradr is exempt).
+	# tradr-core and tradr-proto (tauri-plugin-tradr and tradr-app are
+	# exempt: they are the composition tier).
 	# App manifests may depend internally only on tauri-plugin-tradr.
-	if [ "$m" != "crates/tauri-plugin-tradr/Cargo.toml" ]; then
+	if [ "$m" != "crates/tauri-plugin-tradr/Cargo.toml" ] && [ "$m" != "crates/tradr-app/Cargo.toml" ]; then
 		case "$m" in
 			apps/*)
 				allowed_keys="tauri-plugin-tradr"

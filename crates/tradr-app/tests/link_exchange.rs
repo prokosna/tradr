@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use tauri_plugin_tradr::link_exchange::{
+use tradr_app::link_exchange::{
     InviterParams, LinkAttestationRequest, LinkDecision, LinkOutcome, LinkProposal,
     serve_link_reply,
 };

@@ -1,6 +1,6 @@
 //! Integration tests for share intent payloads (WI-M2-002).
 
-use tauri_plugin_tradr::share::{ShareIntent, SharedFilePayload};
+use tradr_app::share::{ShareIntent, SharedFilePayload};
 
 #[test]
 fn deserialize_share_intent_with_cached_file() {
@@ -140,7 +140,7 @@ fn deserialize_share_intent_with_target_device() {
 
 #[test]
 fn serialize_round_trip_peer_shortcut() {
-    use tauri_plugin_tradr::share::PeerShortcut;
+    use tradr_app::share::PeerShortcut;
 
     let shortcut = PeerShortcut {
         device_id: "0123456789abcdef0123456789abcdef".to_string(),
@@ -160,7 +160,7 @@ fn serialize_round_trip_peer_shortcut() {
 
 #[test]
 fn deserialize_pick_share_root_response_with_uri() {
-    use tauri_plugin_tradr::share::PickShareRootResponse;
+    use tradr_app::share::PickShareRootResponse;
 
     let json =
         r#"{"uri":"content://com.android.externalstorage.documents/tree/primary%3ADocuments"}"#;
@@ -173,7 +173,7 @@ fn deserialize_pick_share_root_response_with_uri() {
 
 #[test]
 fn deserialize_pick_share_root_response_when_cancelled() {
-    use tauri_plugin_tradr::share::PickShareRootResponse;
+    use tradr_app::share::PickShareRootResponse;
 
     let json = r#"{"uri":null}"#;
     let parsed: PickShareRootResponse = serde_json::from_str(json).expect("valid response");
@@ -187,7 +187,7 @@ fn deserialize_pick_share_root_response_when_cancelled() {
 
 #[test]
 fn serialize_round_trip_pick_share_root_response() {
-    use tauri_plugin_tradr::share::PickShareRootResponse;
+    use tradr_app::share::PickShareRootResponse;
 
     let response = PickShareRootResponse {
         uri: Some("content://media/external/file/100".to_string()),

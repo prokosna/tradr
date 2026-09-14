@@ -5129,6 +5129,7 @@ dependencies = [
  "tauri-plugin",
  "tempfile",
  "tokio",
+ "tradr-app",
  "tradr-core",
  "tradr-discovery",
  "tradr-identity",
@@ -5677,6 +5678,20 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-tradr",
  "tauri-plugin-updater",
+]
+
+[[package]]
+name = "tradr-app"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tokio",
+ "tradr-core",
+ "tradr-discovery",
+ "tradr-identity",
+ "tradr-integrity",
+ "tradr-proto",
+ "tradr-vfs",
 ]
 
 [[package]]
