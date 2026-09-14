@@ -29,10 +29,10 @@ use crate::identity::IdentityState;
 use crate::lifecycle::downloads_root_id;
 use crate::link_registry::LinkRegistryState;
 use crate::peer_trust::PeerTrustState;
-use crate::sign_in::SignInState;
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::handshake::{HandshakeParams, perform_handshake};
 use tradr_app::peer_trust::PeerTrust;
+use tradr_app::sign_in::SignInState;
 use tradr_app::transfer::{SendRequest, SessionStreams, send_file_with_progress};
 
 // Builds the closure `perform_handshake` calls once the peer's Hello

@@ -4,8 +4,7 @@
 use std::sync::Arc;
 
 use tradr_app::peer_trust::{HttpsJwksFetch, PeerTrust};
-
-use crate::sign_in::OAuthConfig;
+use tradr_app::sign_in::{OAuthConfig, provider_profile};
 
 /// The outcome of building this device's `PeerTrust`, kept as managed
 /// state so a clone with no configured OAuth client ids reports the error
@@ -23,7 +22,7 @@ impl PeerTrustState {
 // the paste-a-bundle flow, so a live connection classifies against the
 // identical provider set.
 fn build_peer_trust(oauth: &OAuthConfig) -> Result<Arc<PeerTrust>, String> {
-    let profile = crate::sign_in::provider_profile(oauth)?;
+    let profile = provider_profile(oauth)?;
     Ok(Arc::new(PeerTrust::new(profile, Arc::new(HttpsJwksFetch))))
 }
 
