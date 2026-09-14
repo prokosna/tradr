@@ -6,12 +6,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use tauri_plugin_tradr::listener::{
+use tradr_app::capabilities::LocalCapabilities;
+use tradr_app::handshake::{HandshakeParams, perform_handshake};
+use tradr_app::listener::{
     ListenerError, ListenerParams, accept_and_handle_transfer, derive_item_resumption,
     handle_incoming_channel, listen_for_transfers,
 };
-use tradr_app::capabilities::LocalCapabilities;
-use tradr_app::handshake::{HandshakeParams, perform_handshake};
 use tradr_app::peer_trust::OwnAttestation;
 use tradr_app::transfer::{SendRequest, SessionStreams, send_file};
 use tradr_core::{

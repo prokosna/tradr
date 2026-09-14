@@ -19,15 +19,12 @@ pub mod ble_advertising;
 pub mod ble_android;
 pub mod ble_gatt_android;
 pub mod ble_source;
-pub mod broadcast_secrets;
 pub mod commands;
 pub mod desktop;
 mod identity;
 pub mod lifecycle;
 pub mod link_commands;
-pub mod link_invite;
 pub mod link_registry;
-pub mod listener;
 #[cfg(target_os = "android")]
 pub mod mobile;
 pub mod peer_trust;
@@ -82,7 +79,7 @@ pub fn init<R: Runtime>(
             };
             let peer_trust_state = peer_trust::init_peer_trust_state(&oauth_config);
             let link_registry_state = link_registry::init_link_registry_state(app);
-            let link_invite_state = Arc::new(link_invite::LinkInviteState::new());
+            let link_invite_state = Arc::new(tradr_app::link_invite::LinkInviteState::new());
 
             let (_listener, ble_discovery, ble_advertising) = match lifecycle::init_lifecycle(
                 app,

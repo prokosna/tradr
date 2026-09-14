@@ -19,7 +19,6 @@ use tradr_transport::selection::TransferSize;
 use tradr_transport::set::TransportSet;
 
 use crate::identity::IdentityState;
-use crate::link_invite::{LinkInviteState, LinkProposalDto};
 use crate::link_registry::LinkRegistryState;
 use crate::peer_trust::PeerTrustState;
 use tradr_app::attestation::FUTURE_SKEW_LIMIT_SECS;
@@ -27,6 +26,7 @@ use tradr_app::link_exchange::{
     LinkAttestationRequest, LinkDecision, LinkExchangeError, LinkOutcome, ReplierParams,
     send_link_reply,
 };
+use tradr_app::link_invite::{LinkInviteState, LinkProposalDto};
 use tradr_app::peer_trust::PeerTrust;
 use tradr_app::sign_in::SignInState;
 

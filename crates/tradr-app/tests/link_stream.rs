@@ -8,14 +8,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use tauri_plugin_tradr::listener::{
-    LinkStreamService, ListenerError, ListenerParams, handle_incoming_channel,
-};
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::handshake::{HandshakeParams, perform_handshake};
 use tradr_app::link_exchange::{
     InviterParams, LinkAttestationRequest, LinkDecision, LinkExchangeError, LinkOutcome,
     LinkProposal, ReplierParams, send_link_reply, serve_link_reply,
+};
+use tradr_app::listener::{
+    LinkStreamService, ListenerError, ListenerParams, handle_incoming_channel,
 };
 use tradr_app::peer_trust::OwnAttestation;
 use tradr_core::{

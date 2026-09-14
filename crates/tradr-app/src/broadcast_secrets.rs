@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use tradr_app::sign_in::SignInState;
+use crate::sign_in::SignInState;
 use tradr_core::SecretStore;
 use tradr_discovery::{BroadcastSecret, BroadcastSecrets};
 use tradr_identity::{AccountId, BroadcastKeyRegistry, LinkRegistry};

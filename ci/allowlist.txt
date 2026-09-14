@@ -66,3 +66,4 @@ state-sync | crates/tauri-plugin-tradr/src/ble_probe.rs | DCR-107 deleted the pr
 state-sync | crates/tauri-plugin-tradr/src/transfer.rs | WI-M8-001 moved the module to crates/tradr-app; RECORD.md names it as history and is append-only
 state-sync | crates/tauri-plugin-tradr/tests/handshake.rs | WI-M8-001 moved the test to crates/tradr-app; RECORD.md names it as history and is append-only
 state-sync | crates/tauri-plugin-tradr/tests/link_exchange.rs | WI-M8-001 moved the test to crates/tradr-app; RECORD.md names it as history and is append-only
+state-sync | crates/tauri-plugin-tradr/tests/link_service.rs | WI-M8-004 moved the test to crates/tradr-app; RECORD.md names it as history and is append-only

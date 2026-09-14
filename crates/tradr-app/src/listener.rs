@@ -25,11 +25,11 @@ use tradr_proto::link::{LinkFrameError, decode_link_reply_frame};
 use tradr_proto::message_type::{Classification, MessageType, Plane, classify};
 use tradr_vfs::{NativeVfs, partial_file_rel_path};
 
-use tradr_app::capabilities::LocalCapabilities;
-use tradr_app::handshake::{HandshakeError, HandshakeParams, perform_handshake_after_peer_hello};
-use tradr_app::link_exchange::{LinkExchangeError, LinkOutcome};
-use tradr_app::peer_trust::OwnAttestation;
-use tradr_app::transfer::{ReceiveRequest, SessionStreams, TransferSessionError, receive_file};
+use crate::capabilities::LocalCapabilities;
+use crate::handshake::{HandshakeError, HandshakeParams, perform_handshake_after_peer_hello};
+use crate::link_exchange::{LinkExchangeError, LinkOutcome};
+use crate::peer_trust::OwnAttestation;
+use crate::transfer::{ReceiveRequest, SessionStreams, TransferSessionError, receive_file};
 
 /// Serves a Control stream that opened with a `LinkReply` (docs/04). A
 /// listener with none refuses such a stream, which is what a device with

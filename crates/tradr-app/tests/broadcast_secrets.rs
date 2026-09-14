@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tauri_plugin_tradr::broadcast_secrets::{DeviceBroadcastSecrets, OwnAccount};
+use tradr_app::broadcast_secrets::{DeviceBroadcastSecrets, OwnAccount};
 use tradr_core::{LinkSecret, SecretStore, SecretStoreError, StorageLevel, UnixTime};
 use tradr_discovery::{BroadcastSecret, BroadcastSecrets};
 use tradr_identity::{
