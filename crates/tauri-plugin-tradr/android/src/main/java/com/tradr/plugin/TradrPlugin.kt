@@ -191,7 +191,7 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
     private var shareChannel: Channel? = null
     private val bleRadio = BleRadio(activity)
     private val bleGattServer = BleGattServer(activity)
-    private val credentialProbe = CredentialProbe(activity)
+    private val credentialSignIn = CredentialSignIn(activity)
 
     @Command
     fun startBleAdvertising(invoke: Invoke) {
@@ -359,8 +359,8 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
-    fun probeCredential(invoke: Invoke) {
-        credentialProbe.getCredential(invoke)
+    fun signIn(invoke: Invoke) {
+        credentialSignIn.signIn(invoke)
     }
 
     // Direction 2, Kotlin initiates a call into Rust: acknowledge immediately, then

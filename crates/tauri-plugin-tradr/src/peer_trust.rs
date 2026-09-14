@@ -8,9 +8,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use tradr_core::{BoxFuture, Clock, DeviceId, PublicKeyPoint, TrustTier};
 use tradr_identity::{
-    AccountId, AttestationPolicy, JwksCache, LinkPolicy, LinkVerification, Platform,
-    ProviderProfile, Verification, google, oauth_client, verify_attestation,
-    verify_link_attestation,
+    AccountId, AttestationPolicy, JwksCache, LinkPolicy, LinkVerification, ProviderProfile,
+    Verification, verify_attestation, verify_link_attestation,
 };
 use tradr_oidc::fetch_jwks;
 
@@ -241,9 +240,7 @@ impl PeerTrustState {
 // the paste-a-bundle flow, so a live connection classifies against the
 // identical provider set.
 fn build_peer_trust(oauth: &OAuthConfig) -> Result<Arc<PeerTrust>, String> {
-    let client = oauth_client(Platform::Desktop, oauth.client_ids, oauth.client_secret)
-        .map_err(|e| e.to_string())?;
-    let profile = google(client);
+    let profile = crate::sign_in::provider_profile(oauth)?;
     Ok(Arc::new(PeerTrust::new(profile, Arc::new(HttpsJwksFetch))))
 }
 

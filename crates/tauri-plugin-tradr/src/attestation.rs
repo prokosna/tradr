@@ -11,8 +11,7 @@ use tauri::State;
 
 use tradr_core::PublicKeyPoint;
 use tradr_identity::{
-    AttestationPolicy, JwksCache, Platform, SystemClock, Verification, google, oauth_client,
-    verify_attestation, verify_id_token,
+    AttestationPolicy, JwksCache, SystemClock, Verification, verify_attestation, verify_id_token,
 };
 use tradr_oidc::fetch_jwks;
 
@@ -115,9 +114,7 @@ pub async fn verify_peer_attestation(
         .ok_or_else(|| "sign in on this device before verifying a peer".to_string())?;
     let linked_accounts = link_registry.linked_accounts()?;
 
-    let client = oauth_client(Platform::Desktop, oauth.client_ids, oauth.client_secret)
-        .map_err(|e| e.to_string())?;
-    let profile = google(client);
+    let profile = crate::sign_in::provider_profile(&oauth)?;
     let mut cache = JwksCache::new(&profile.jwks_uri);
     let policy = AttestationPolicy {
         profiles: std::slice::from_ref(&profile),

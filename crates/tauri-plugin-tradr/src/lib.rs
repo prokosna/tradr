@@ -22,8 +22,6 @@ pub mod ble_source;
 pub mod broadcast_secrets;
 pub mod capabilities;
 pub mod commands;
-#[cfg(target_os = "android")]
-mod credential_probe;
 pub mod desktop;
 pub mod handshake;
 mod identity;
@@ -151,7 +149,6 @@ pub fn init<R: Runtime>(
             #[cfg(target_os = "android")]
             {
                 let handle = android::demonstrate_bidirectional_calls(_api)?;
-                credential_probe::spawn_credential_probe(handle.clone());
                 if let Some(discovery) = ble_discovery {
                     let handle_for_scan = handle.clone();
                     ble_source::spawn_ble_discovery(
