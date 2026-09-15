@@ -321,3 +321,21 @@ where
 
     Ok(total_bytes_written)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_recv::CountingRecvStream;
+
+    #[tokio::test]
+    async fn read_frame_refuses_oversized_announcement_before_payload() {
+        let max = 64u32;
+        let announced = max + 1;
+        let mut stream = CountingRecvStream::new(announced.to_be_bytes().to_vec());
+        let result = read_frame(&mut stream, max).await;
+        let msg = result.expect_err("expected oversized frame refusal");
+        assert!(msg.contains(&format!("frame oversized: {announced} > {max}")));
+        // Distinguishes prefix refusal from decoder-side refusal after payload read.
+        assert_eq!(stream.read_count(), 1);
+    }
+}
