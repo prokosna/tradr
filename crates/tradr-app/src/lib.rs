@@ -7,6 +7,7 @@ pub mod broadcast_secrets;
 pub mod browse;
 pub mod capabilities;
 pub mod handshake;
+pub mod identity;
 pub mod link_exchange;
 pub mod link_invite;
 pub mod listener;
