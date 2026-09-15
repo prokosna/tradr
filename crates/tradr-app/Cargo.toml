@@ -14,6 +14,7 @@ tradr-discovery = { path = "../tradr-discovery" }
 tradr-transport = { path = "../tradr-transport" }
 tradr-integrity = { path = "../tradr-integrity" }
 tradr-vfs = { path = "../tradr-vfs" }
+tradr-secrets = { path = "../tradr-secrets" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "sync", "time"] }
@@ -24,4 +25,3 @@ rsa = { version = "0.9", features = ["sha2", "pem"] }
 sha2 = "0.10"
 tempfile = "3"
 tokio = { version = "1", features = ["sync", "rt", "macros", "test-util"] }
-tradr-secrets = { path = "../tradr-secrets" }

@@ -68,3 +68,4 @@ state-sync | crates/tauri-plugin-tradr/tests/handshake.rs | WI-M8-001 moved the 
 state-sync | crates/tauri-plugin-tradr/tests/link_exchange.rs | WI-M8-001 moved the test to crates/tradr-app; RECORD.md names it as history and is append-only
 state-sync | crates/tauri-plugin-tradr/tests/link_service.rs | WI-M8-004 moved the test to crates/tradr-app; RECORD.md names it as history and is append-only
 state-sync | apps/tradr-cli | The CLI's home, decided by DCR-124; the crate itself arrives in WI-M8-012
+state-sync | origin/main | A git ref named in DF-73 and DF-74, not a repository path
