@@ -7,7 +7,7 @@ use tauri::State;
 
 use tradr_core::{PeerList, RelPath};
 use tradr_discovery::{MdnsSource, StaticPeerId, StaticPeerRegistry, StaticPeerSource};
-use tradr_identity::OsRng;
+use tradr_identity::{OsRng, SystemClock};
 use tradr_transport::selection::TransferSize;
 use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
@@ -152,6 +152,7 @@ pub async fn send_files<R: tauri::Runtime>(
         peer_trust_state.peer_trust()?,
         sign_in_state.inner().clone(),
         link_registry.registry()?,
+        Arc::new(SystemClock),
     );
 
     let app_handle = app.clone();
@@ -224,6 +225,7 @@ pub async fn list_peer_directory(
         peer_trust_state.peer_trust()?,
         sign_in_state.inner().clone(),
         link_registry.registry()?,
+        Arc::new(SystemClock),
     );
 
     let parsed_share_id: tradr_core::ShareId = share_id
@@ -301,6 +303,7 @@ pub async fn download_file<R: tauri::Runtime>(
         peer_trust_state.peer_trust()?,
         sign_in_state.inner().clone(),
         link_registry.registry()?,
+        Arc::new(SystemClock),
     );
 
     let parsed_share_id: tradr_core::ShareId = share_id

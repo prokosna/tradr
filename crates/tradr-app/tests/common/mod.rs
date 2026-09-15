@@ -1,8 +1,12 @@
-//! The fake identity provider both Critical Module test files stand on:
+//! The fake identity provider every Critical Module test file stands on:
 //! one RSA key, the JWKS document publishing it, and tokens signed with
 //! it. Shared rather than copied because there is one provider here, not
 //! one per test binary -- a second copy of a signing key is a second
 //! thing to keep in step (DF-29).
+
+// Compiled separately into each test binary, so an item one binary does
+// not reach is dead code in that binary alone.
+#![allow(dead_code)]
 
 use std::cell::Cell;
 use std::sync::Arc;
@@ -74,14 +78,21 @@ impl Rng for CountingRng {
     }
 }
 
+/// The key store behind `identity(seed)`, for a test that has to sign as
+/// that device rather than only name it.
+pub fn device_store(seed: u8) -> SoftwareKeyStore {
+    SoftwareKeyStore::generate(&CountingRng {
+        next: Cell::new(seed),
+    })
+    .expect("these seeds are valid P-256 scalars")
+}
+
 /// A device identity derived from `seed`, so two calls with different
 /// seeds are two devices and the same seed is the same device.
 pub fn identity(seed: u8) -> PublicIdentity {
-    let store = SoftwareKeyStore::generate(&CountingRng {
-        next: Cell::new(seed),
-    })
-    .expect("these seeds are valid P-256 scalars");
-    store.public_identity().expect("a generated store")
+    device_store(seed)
+        .public_identity()
+        .expect("a generated store")
 }
 
 fn private_key() -> RsaPrivateKey {

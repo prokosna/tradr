@@ -11,8 +11,8 @@ use serde::Serialize;
 use tradr_core::{BoxFuture, Clock, PublicIdentity, TrustTier};
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{
-    AccountId, AttestationPolicy, LinkRegistry, Platform, ProviderProfile, SystemClock,
-    classify_with_profile, google, oauth_client, parse_jwks, verify_id_token,
+    AccountId, AttestationPolicy, LinkRegistry, Platform, ProviderProfile, classify_with_profile,
+    google, oauth_client, parse_jwks, verify_id_token,
 };
 
 use crate::attestation::{FUTURE_SKEW_LIMIT_SECS, STALENESS_LIMIT_SECS};
@@ -204,6 +204,7 @@ pub fn peer_verifier(
     trust: Arc<PeerTrust>,
     sign_in: Arc<SignInState>,
     links: Arc<std::sync::Mutex<LinkRegistry>>,
+    clock: Arc<dyn Clock + Send + Sync>,
 ) -> impl FnOnce(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>> {
     move |req: AttestationRequest| {
         Box::pin(async move {
@@ -223,7 +224,7 @@ pub fn peer_verifier(
                     req.agreement_pub(),
                     own_account.as_ref(),
                     &linked_accounts,
-                    &SystemClock,
+                    &*clock,
                 )
                 .await
         })
