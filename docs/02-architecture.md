@@ -112,6 +112,7 @@ tradr/
 |   |   +-- src/                #   UI entry point, React
 |   |   \-- src-tauri/          #   Rust entry point, command definitions, capabilities
 |   |       \-- gen/android/    #   Android project, Kotlin glue. Tauri generates it here
+|   +-- tradr-cli/              # The command-line front end. Desktop only, and may not name tauri
 |   \-- brokr/                  # The optional backend, TypeScript and Fastify
 |
 +-- packages/                   # TypeScript workspace, pnpm
@@ -143,6 +144,18 @@ tradr/
 **`tradr-app` is not exempt from the `tauri` confinement, and that is the point of the split rather than a detail of it.** Change Drill D9 asks how far a move off Tauri reaches; the answer used to be a grep somebody ran once, which [CLAUDE.md](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) already records as the wrong instrument, since a doc comment explaining why a file is D9-safe defeats it. **A manifest that may not name `tauri` cannot be defeated that way**: the day someone reaches for a `tauri::State` inside this crate, the build fails before the gate does.
 
 **The split falls where `tradr-oidc`'s and `tradr-secrets`' did, and for the opposite reason.** Those two moved *out* of a crate because a dependency could not be reached through `tradr-core`; this one moves out because a dependency could not be reached at all -- `tauri` -- and confining what may reach it is what a second front end needs. The composition root keeps what a shell decides: the `#[tauri::command]` wrappers, the plugin lifecycle, the Kotlin side, and the state Tauri manages.
+
+### Two front ends, one device
+
+**A CLI beside the GUI is a second front end over one installation rather than a second installation, decided 2026-09-15 by DCR-124.** [CONTEXT.md](../CONTEXT.md) defines a Device as one installation holding one key pair and one Attestation, and Change Drill D9 asks what moving off Tauri costs: **a swap that changed the Device Key would not be a swap at all**, since the machine would arrive at every peer as a stranger and every Link would name a device that no longer answers, with nothing failing while it happened. So both front ends open one Device Key out of one application data directory.
+
+**What that settles first is where the rung is chosen.** [docs/05](05-security.md#one-rung-per-device-and-what-else-goes-on-it) says the storage ladder is searched once and the rung it answers with is kept beside the `KeyStore` it opened; that search has exactly one call site today and it sits in a file naming `tauri::AppHandle`. A second front end building its own ladder would be a second search, and the two answer differently the first time a Secret Service session is present for one process and absent for the other -- **two Device Keys on one machine, and no build, test or handshake failing to say so**. The search, the open, and what `backing()` is then allowed to report move into `tradr-app`, and **the ladder is passed in rather than built inside**: a rung is a D-Bus session on this platform, so a caller that cannot supply its own rungs cannot be tested at all.
+
+**The application data directory is the other half of one device, and it is resolved in one place.** Tauri answers `app_data_dir()` from the identifier in `tauri.conf.json`, which is `com.tradr.app` and resolves on this machine to `~/.local/share/com.tradr.app`. On Android that answer is the platform's and there is no second front end to disagree with it; on desktop both front ends read one function in `tradr-app` rather than two computations that happen to agree.
+
+**What it costs is recorded here rather than discovered later**: two front ends may run at once, and then one device advertises itself twice. The QUIC bind already falls back to an ephemeral port when the default is taken ([docs/03](03-discovery-and-transport.md)), and mDNS then shows one `DeviceId` under two instance names. Nothing arrives while `tradr receive` is not running (DCR-123), so the overlap is something a person chooses rather than the resting state.
+
+**`apps/tradr-cli/` is where the second front end goes, and `ci/layer-deps.sh` is what makes that more than a directory name.** Check 3 exempted every manifest under `apps/` from the `tauri` confinement, on the reading that an app is the Tauri app; a CLI under that blanket would be Tauri-free only because nobody had reached for a Tauri type yet, which is the grep [CLAUDE.md](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) already records as the wrong instrument. The exemption narrows to `apps/tradr/`, so the second front end is refused `tauri` by the same manifest scan that holds `tradr-app` to it. Check 4 becomes per-app for the same reason: the Tauri app reaches implementation crates through `tauri-plugin-tradr` and the CLI reaches them through `tradr-app`, and neither may reach one directly.
 
 ### Where the talk to an identity provider lives
 
