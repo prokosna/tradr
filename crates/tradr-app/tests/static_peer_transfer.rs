@@ -8,11 +8,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tauri_plugin_tradr::commands::{execute_send_files, resolve_send_items};
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::listener::{ListenerParams, handle_incoming_channel};
 use tradr_app::peer_trust::OwnAttestation;
 use tradr_app::peers::{connect_and_pin, peer_sources, resolve_peer};
+use tradr_app::send::{execute_send_files, resolve_send_items};
 use tradr_core::{
     Capabilities, Clock, DeviceId, DiscoveryEvent, DiscoverySource, DomainTag, KeyBinding,
     KeyStore, ObservationId, ObservationKey, PeerExpectation, PeerList, PeerObservation, RootId,
