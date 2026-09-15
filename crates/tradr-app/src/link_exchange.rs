@@ -498,3 +498,29 @@ where
         ))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_recv::CountingRecvStream;
+
+    #[tokio::test]
+    async fn read_one_frame_refuses_oversized_announcement_before_payload() {
+        let max = 64u32;
+        let announced = max + 1;
+        let mut stream = CountingRecvStream::new(announced.to_be_bytes().to_vec());
+        let result = read_one_frame(&mut stream, max).await;
+        match result {
+            Err(LinkExchangeError::Framing(FrameError::Oversized {
+                announced: actual_announced,
+                limit: actual_limit,
+            })) => {
+                assert_eq!(actual_announced, announced as u64);
+                assert_eq!(actual_limit, max);
+            }
+            other => panic!("expected oversized frame refusal, got {other:?}"),
+        }
+        // Distinguishes prefix refusal from decoder-side refusal after payload read.
+        assert_eq!(stream.read_count(), 1);
+    }
+}

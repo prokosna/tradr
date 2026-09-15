@@ -477,4 +477,17 @@ mod tests {
             .expect("a drive-letter path must be recognised as absolute");
         assert_eq!(file_name, "20260830_配置図.pdf");
     }
+
+    #[tokio::test]
+    async fn read_frame_refuses_oversized_announcement_before_payload() {
+        let max = 64u32;
+        let announced = max + 1;
+        let mut stream =
+            crate::test_recv::CountingRecvStream::new(announced.to_be_bytes().to_vec());
+        let result = super::read_frame(&mut stream, max).await;
+        let msg = result.expect_err("expected oversized frame refusal");
+        assert!(msg.contains(&format!("frame oversized: {announced} > {max}")));
+        // Distinguishes prefix refusal from decoder-side refusal after payload read.
+        assert_eq!(stream.read_count(), 1);
+    }
 }
