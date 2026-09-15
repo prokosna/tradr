@@ -4,6 +4,7 @@
 
 pub mod attestation;
 pub mod broadcast_secrets;
+pub mod browse;
 pub mod capabilities;
 pub mod handshake;
 pub mod link_exchange;

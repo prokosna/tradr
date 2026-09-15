@@ -24,3 +24,4 @@ rsa = { version = "0.9", features = ["sha2", "pem"] }
 sha2 = "0.10"
 tempfile = "3"
 tokio = { version = "1", features = ["sync", "rt", "macros", "test-util"] }
+tradr-secrets = { path = "../tradr-secrets" }

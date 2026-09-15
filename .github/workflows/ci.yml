@@ -291,7 +291,13 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # Google removed the obsolete `tools` package from the SDK
+      # repository, and the action installs it by default, so the default
+      # fails at `sdkmanager tools`. The two components this job needs
+      # arrive from its own `sdkmanager --install` step below.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       # Makes ANDROID_HOME available to the `${{ env.* }}` expressions
       # below, rather than assuming the action's own export reaches that
       # context too.
@@ -362,7 +368,13 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # Google removed the obsolete `tools` package from the SDK
+      # repository, and the action installs it by default, so the default
+      # fails at `sdkmanager tools`. The two components this job needs
+      # arrive from its own `sdkmanager --install` step below.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       # Makes ANDROID_HOME available to the `${{ env.* }}` expressions
       # below, rather than assuming the action's own export reaches that
       # context too.
