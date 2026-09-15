@@ -237,3 +237,43 @@ pub fn peer_sources(peer: &Peer) -> Vec<String> {
     sources.dedup();
     sources
 }
+
+/// Projects a discovered peer into the presentation view the frontend consumes.
+pub fn peer_info(peer: &Peer) -> PeerInfo {
+    let device_id = peer
+        .device_id()
+        .map(|id| id.to_string())
+        .unwrap_or_default();
+    let key = match peer.device_id() {
+        Some(id) => id.to_string(),
+        None => peer
+            .observations()
+            .first()
+            .map(|o| o.id().to_string())
+            .unwrap_or_default(),
+    };
+    let display_name = peer
+        .observations()
+        .iter()
+        .find_map(|o| o.display_name().map(|n| n.as_str().to_string()));
+    let addresses = peer
+        .candidates()
+        .iter()
+        .map(|c| c.address().to_string())
+        .collect();
+    let capabilities = peer
+        .observations()
+        .first()
+        .map(|o| o.capabilities().bits())
+        .unwrap_or(0);
+    let sources = peer_sources(peer);
+
+    PeerInfo {
+        device_id,
+        key,
+        display_name,
+        addresses,
+        capabilities,
+        sources,
+    }
+}

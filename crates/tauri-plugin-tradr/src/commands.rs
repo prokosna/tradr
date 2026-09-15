@@ -21,7 +21,7 @@ use tradr_app::browse::{
 };
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::peers::{
-    PeerInfo, StaticPeerInfo, connect_and_pin, drain_peer_sources, peer_sources, resolve_peer,
+    PeerInfo, StaticPeerInfo, connect_and_pin, drain_peer_sources, peer_info, resolve_peer,
 };
 use tradr_app::send::{execute_send_files_with_progress, resolve_send_items};
 use tradr_app::sign_in::{SignInState, peer_verifier};
@@ -39,50 +39,7 @@ pub async fn get_peers(
 
     drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
 
-    let peers = list
-        .peers()
-        .into_iter()
-        .map(|peer| {
-            let device_id = peer
-                .device_id()
-                .map(|id| id.to_string())
-                .unwrap_or_default();
-            let key = match peer.device_id() {
-                Some(id) => id.to_string(),
-                None => peer
-                    .observations()
-                    .first()
-                    .map(|o| o.id().to_string())
-                    .unwrap_or_default(),
-            };
-            let display_name = peer
-                .observations()
-                .iter()
-                .find_map(|o| o.display_name().map(|n| n.as_str().to_string()));
-            let addresses = peer
-                .candidates()
-                .iter()
-                .map(|c| c.address().to_string())
-                .collect();
-            let capabilities = peer
-                .observations()
-                .first()
-                .map(|o| o.capabilities().bits())
-                .unwrap_or(0);
-            let sources = peer_sources(&peer);
-
-            PeerInfo {
-                device_id,
-                key,
-                display_name,
-                addresses,
-                capabilities,
-                sources,
-            }
-        })
-        .collect();
-
-    Ok(peers)
+    Ok(list.peers().iter().map(peer_info).collect())
 }
 
 /// Lists every Static Peer entry currently registered.
