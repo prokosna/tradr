@@ -3,15 +3,16 @@
 //! account classification. The browser, loopback socket, and Android bridge
 //! stay in the composition root.
 
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 
-use tradr_core::{Clock, PublicIdentity, TrustTier};
+use tradr_core::{BoxFuture, Clock, PublicIdentity, TrustTier};
+use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{
-    AccountId, AttestationPolicy, Platform, ProviderProfile, classify_with_profile, google,
-    oauth_client, parse_jwks, verify_id_token,
+    AccountId, AttestationPolicy, LinkRegistry, Platform, ProviderProfile, SystemClock,
+    classify_with_profile, google, oauth_client, parse_jwks, verify_id_token,
 };
 
 use crate::attestation::{FUTURE_SKEW_LIMIT_SECS, STALENESS_LIMIT_SECS};
@@ -192,4 +193,39 @@ pub async fn finish_sign_in(
     sign_in_state.set_signed_in(outcome.clone(), id_token);
 
     Ok(outcome)
+}
+
+// Builds the closure `perform_handshake` calls once the peer's Hello
+// arrives: reads `own_account` fresh at call time and delegates to
+// `PeerTrust::classify`. A free function rather than four inlined copies,
+// since every call site builds the identical closure over its own
+// `trust`/`sign_in` pair.
+pub fn peer_verifier(
+    trust: Arc<PeerTrust>,
+    sign_in: Arc<SignInState>,
+    links: Arc<std::sync::Mutex<LinkRegistry>>,
+) -> impl FnOnce(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>> {
+    move |req: AttestationRequest| {
+        Box::pin(async move {
+            let own_account = sign_in.own_account();
+            // Read out and drop the guard before classifying: the registry
+            // must never stay locked across `PeerTrust::classify`'s await,
+            // and a `std::sync::Mutex` guard held across one is now a
+            // compile error rather than a rule to remember.
+            let linked_accounts = links
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .linked_accounts();
+            trust
+                .classify(
+                    req.token(),
+                    req.identity_pub(),
+                    req.agreement_pub(),
+                    own_account.as_ref(),
+                    &linked_accounts,
+                    &SystemClock,
+                )
+                .await
+        })
+    }
 }

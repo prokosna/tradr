@@ -6,10 +6,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tauri_plugin_tradr::commands::execute_send_files;
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::listener::{ListenerParams, handle_incoming_channel};
 use tradr_app::peer_trust::OwnAttestation;
+use tradr_app::send::execute_send_files;
 use tradr_core::{
     Candidate, Capabilities, Clock, DomainTag, KeyBinding, KeyStore, PeerExpectation, RelPath,
     RootId, Transport, TransportId, TrustTier, UnixTime, VersionRange,
