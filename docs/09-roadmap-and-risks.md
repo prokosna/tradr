@@ -124,6 +124,8 @@ M5 is cheap and resolves UC-6, so **it comes before M6 and M7**.
 
 **What one device does not mean is one sign-in, decided 2026-09-16 by DCR-127 after the sentence above claimed it did**: nothing shares a sign-in and nothing was written to, `SignInState` is held in memory for the life of a process, and a `tradr receive` composed over the tree as it stood would bind, advertise, accept a channel and then refuse every transfer on it. Each front end signs in for itself and the command does it first, which is [docs/02](02-architecture.md#two-front-ends-one-device) again.
 
+**What the command accepts, and where it gets a client id, were the two questions phase 4 had left, both settled 2026-09-17.** DCR-129 answers the first and it is open decision 9 arriving as an implementation question: an account that is neither this device's own nor linked never reaches an offer, because the handshake refuses it, so `tradr receive` accepts everything the peers that do reach one send -- the GUI's own answer -- and a prompt on stdin is refused rather than postponed, since the listener loop owns the terminal and two transfers can arrive at once. DCR-128 answers the second: a build script bakes a value because a GUI has no environment to read, a command has one, so the CLI reads the deployment's two variables at run time and bakes nothing. See [docs/02](02-architecture.md#two-front-ends-one-device) and [docs/05](05-security.md#oauth-client-configuration).
+
 ### M9 — Brokr (3 weeks)
 
 - Fastify and SQLite, WebSocket presence registry
