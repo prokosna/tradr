@@ -5120,7 +5120,6 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "mdns-sd",
- "open",
  "rsa",
  "serde",
  "serde_json",
@@ -5134,7 +5133,6 @@ dependencies = [
  "tradr-discovery",
  "tradr-identity",
  "tradr-integrity",
- "tradr-oidc",
  "tradr-proto",
  "tradr-secrets",
  "tradr-transport",
@@ -5686,6 +5684,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "dirs",
+ "open",
  "rsa",
  "serde",
  "serde_json",
