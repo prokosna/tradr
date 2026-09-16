@@ -2,23 +2,17 @@
 //! registers VFS roots, binds the QUIC transport, starts mDNS advertisement and browsing,
 //! and runs the background transfer listener.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
-use mdns_sd::ServiceDaemon;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use tradr_core::{
     BoxFuture, Capabilities, Incoming, KeyBinding, KeyStore, PeerList, PublicIdentity, RootId,
     Transport, TrustTier,
 };
-use tradr_discovery::{
-    AGREEMENT_KEY_TAG_LEN, DeclaredCapabilities, MdnsSource, Platform, STATIC_PEER_DEFAULT_PORT,
-    StaticPeerRegistry, TxtRecord, advertisement, instance_name,
-};
+use tradr_discovery::{DeclaredCapabilities, MdnsSource, StaticPeerRegistry};
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
-use tradr_transport::quic::QuicTransport;
 use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
@@ -33,6 +27,9 @@ use tradr_app::link_invite::{
     LinkInviteState, LinkProposalDto, LinkService, LinkServiceParts, ProposalSink,
 };
 use tradr_app::listener::{LinkStreamService, ListenerError, build_key_binding, run_listener};
+use tradr_app::network::{
+    bind_quic_transport, device_txt_record, mdns_daemon, register_advertisement,
+};
 use tradr_app::peer_trust::OwnAttestation;
 use tradr_app::sign_in::SignInState;
 
@@ -176,89 +173,20 @@ pub fn init_lifecycle<R: Runtime>(
     vfs.register_root(downloads_root_id(), downloads_dir, false)
         .map_err(|e| format!("could not register downloads root: {e}"))?;
 
-    // docs/03, "The default port, and why it is not 51820": 21820 is the
-    // fixed number a Static Peer's dialling side can rely on with no way
-    // to be told otherwise. The bind falls back to an ephemeral port
-    // whenever the default is already taken, which is every time two
-    // instances run on the same machine.
-    let default_addr: SocketAddr = format!("0.0.0.0:{STATIC_PEER_DEFAULT_PORT}")
-        .parse()
-        .map_err(|e: std::net::AddrParseError| e.to_string())?;
-    let ephemeral_addr: SocketAddr = "0.0.0.0:0"
-        .parse()
-        .map_err(|e: std::net::AddrParseError| e.to_string())?;
-    let transport = Arc::new(
-        match tauri::async_runtime::block_on(async {
-            QuicTransport::new(key_store.clone(), default_addr)
-        }) {
-            Ok(t) => t,
-            Err(e) => {
-                eprintln!(
-                    "lifecycle: default quic port {STATIC_PEER_DEFAULT_PORT} unavailable ({e}), falling back to an ephemeral port"
-                );
-                tauri::async_runtime::block_on(async {
-                    QuicTransport::new(key_store.clone(), ephemeral_addr)
-                })
-                .map_err(|e| format!("failed to start quic transport: {e}"))?
-            }
-        },
-    );
+    let transport =
+        tauri::async_runtime::block_on(async { bind_quic_transport(key_store.clone()) })?;
     let local_addr = transport
         .local_addr()
         .map_err(|e| format!("failed to get quic local address: {e}"))?;
     let bound_port = local_addr.port();
 
-    let daemon = ServiceDaemon::new().map_err(|e| format!("failed to start mdns daemon: {e}"))?;
-
-    let predicate = mdns_sd::IfPredicate::new(|i| {
-        let n = &i.name;
-        n.starts_with("veth")
-            || n.starts_with("br-")
-            || n.starts_with("docker")
-            || n.starts_with("vnet")
-            || n.starts_with("virbr")
-    });
-    daemon
-        .disable_interface(mdns_sd::IfKind::Predicate(predicate))
-        .map_err(|e| format!("failed to filter mdns interfaces: {e}"))?;
-
-    let agreement_hash = blake3::hash(public_identity.agreement_pub().as_bytes());
-    let mut agreement_key_tag = [0u8; AGREEMENT_KEY_TAG_LEN];
-    agreement_key_tag.copy_from_slice(&agreement_hash.as_bytes()[..AGREEMENT_KEY_TAG_LEN]);
-
-    #[cfg(target_os = "linux")]
-    let platform_str = "linux";
-    #[cfg(target_os = "macos")]
-    let platform_str = "mac";
-    #[cfg(target_os = "windows")]
-    let platform_str = "win";
-    #[cfg(target_os = "android")]
-    let platform_str = "android";
-    #[cfg(not(any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    )))]
-    let platform_str = "other";
+    let daemon = mdns_daemon()?;
 
     let capabilities = Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC));
 
-    let platform = Platform::new(platform_str).map_err(|e| e.to_string())?;
-    let txt_record = TxtRecord::new(
-        public_identity.device_id(),
-        agreement_key_tag,
-        None,
-        capabilities.get(),
-        platform,
-    );
+    let txt_record = device_txt_record(&public_identity, capabilities.get())?;
 
-    let inst_name = instance_name(&OsRng).map_err(|e| e.to_string())?;
-    let service_info = advertisement(&inst_name, bound_port, &txt_record)
-        .map_err(|e| format!("failed to build advertisement: {e}"))?;
-    daemon
-        .register(service_info)
-        .map_err(|e| format!("failed to register service info: {e}"))?;
+    register_advertisement(&daemon, bound_port, &txt_record, &OsRng)?;
 
     let mdns_source =
         MdnsSource::browse(&daemon).map_err(|e| format!("failed to browse mdns: {e}"))?;

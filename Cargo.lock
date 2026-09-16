@@ -5119,7 +5119,6 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "blake3",
- "mdns-sd",
  "rsa",
  "serde",
  "serde_json",
@@ -5683,7 +5682,9 @@ name = "tradr-app"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "blake3",
  "dirs",
+ "mdns-sd",
  "open",
  "rsa",
  "serde",
