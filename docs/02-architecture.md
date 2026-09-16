@@ -112,7 +112,8 @@ tradr/
 |   |   +-- src/                #   UI entry point, React
 |   |   \-- src-tauri/          #   Rust entry point, command definitions, capabilities
 |   |       \-- gen/android/    #   Android project, Kotlin glue. Tauri generates it here
-|   +-- tradr-cli/              # The command-line front end. Desktop only, and may not name tauri
+|   +-- tradr-cli/              # The command-line front end. Desktop only, may not name tauri,
+|                               #   and builds a binary named tradr-cli rather than tradr
 |   \-- brokr/                  # The optional backend, TypeScript and Fastify
 |
 +-- packages/                   # TypeScript workspace, pnpm
@@ -154,6 +155,8 @@ tradr/
 **The application data directory is the other half of one device, and it is resolved in one place.** Tauri answers `app_data_dir()` from the identifier in `tauri.conf.json`, which is `com.tradr.app` and resolves on this machine to `~/.local/share/com.tradr.app`. On Android that answer is the platform's and there is no second front end to disagree with it; on desktop both front ends read one function in `tradr-app` rather than two computations that happen to agree.
 
 **What it costs is recorded here rather than discovered later**: two front ends may run at once, and then one device advertises itself twice. The QUIC bind already falls back to an ephemeral port when the default is taken ([docs/03](03-discovery-and-transport.md)), and mDNS then shows one `DeviceId` under two instance names. Nothing arrives while `tradr receive` is not running (DCR-123), so the overlap is something a person chooses rather than the resting state.
+
+**The binary the CLI package builds is `tradr-cli`, and the name a person types is a packaging question rather than this one, decided 2026-09-16 by DCR-125.** The Tauri app's package is already named `tradr` and already builds a binary of that name, so a second `[[bin]]` called `tradr` shares one output path in the workspace target directory. **Cargo does not refuse that, which is why it is written down here**: it warns `output filename collision`, builds both, and leaves whichever linked last sitting under `target/debug/` as `tradr` -- measured rather than assumed, and the 431 MB Tauri binary is what answered afterwards. A warning is not a gate, and a front end that is sometimes the other front end is the kind of defect no test names. So the target keeps its package's name, `cargo run -p tradr-cli -- device` is how it is driven from the workspace, and **the `tradr device` and `tradr receive` spellings this document and [docs/09](09-roadmap-and-risks.md) use are what an installed Tradr offers** -- one Linux package is M10's line, and installing this target under the name `tradr` is that package's job.
 
 **`apps/tradr-cli/` is where the second front end goes, and `ci/layer-deps.sh` is what makes that more than a directory name.** Check 3 exempted every manifest under `apps/` from the `tauri` confinement, on the reading that an app is the Tauri app; a CLI under that blanket would be Tauri-free only because nobody had reached for a Tauri type yet, which is the grep [CLAUDE.md](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) already records as the wrong instrument. The exemption narrows to `apps/tradr/`, so the second front end is refused `tauri` by the same manifest scan that holds `tradr-app` to it. Check 4 becomes per-app for the same reason: the Tauri app reaches implementation crates through `tauri-plugin-tradr` and the CLI reaches them through `tradr-app`, and neither may reach one directly.
 
