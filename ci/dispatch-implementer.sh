@@ -37,11 +37,15 @@ fi
 
 cd "$ROOT_DIR" || exit 1
 
-# An agy run is a plain subprocess rather than a subagent, so nothing in the
-# session can observe its tool use and CLAUDE.md section 3's "the Implementer
-# never commits" is held up by the prompt alone. Comparing HEAD across the
-# call detects a violation; it does not prevent one.
+# Tracking branch commits prevents a mid-run merge from reading as an Implementer commit.
 head_before=$(git rev-parse HEAD)
+has_origin_main=1
+if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
+	echo "dispatch-implementer: origin/main does not resolve, falling back to HEAD comparison" >&2
+	has_origin_main=0
+else
+	commits_before=$(git log --format=%H HEAD --not origin/main)
+fi
 
 echo "dispatching $ORDER"
 echo "  model         $MODEL"
@@ -60,14 +64,38 @@ head_after=$(git rev-parse HEAD)
 echo "  HEAD after    $head_after"
 echo "  exit          $status"
 
-if [ "$head_before" != "$head_after" ]; then
-	echo "IMPLEMENTER COMMITTED: HEAD moved $head_before -> $head_after (CLAUDE.md section 3)" >&2
-	exit 1
+if [ "$has_origin_main" -eq 1 ]; then
+	commits_after=$(git log --format=%H HEAD --not origin/main)
+	new_commits=""
+	for c in $commits_after; do
+		found=0
+		for b in $commits_before; do
+			if [ "$c" = "$b" ]; then
+				found=1
+				break
+			fi
+		done
+		if [ "$found" -eq 0 ]; then
+			new_commits="$new_commits $c"
+		fi
+	done
+	if [ -n "$new_commits" ]; then
+		echo "IMPLEMENTER COMMITTED:" >&2
+		for c in $new_commits; do
+			git log --oneline -1 "$c" >&2
+		done
+		exit 1
+	fi
+else
+	if [ "$head_before" != "$head_after" ]; then
+		echo "IMPLEMENTER COMMITTED: HEAD moved $head_before -> $head_after (CLAUDE.md section 3)" >&2
+		exit 1
+	fi
 fi
 
 # agy reports its own cut-off inside the log and still exits 0, so the exit
 # status alone does not say whether the gate results in the report are real.
-if grep -q "timeout waiting for response" "$LOG" 2>/dev/null; then
+if grep -Eq "timeout waiting for response|print timeout after" "$LOG" 2>/dev/null; then
 	echo "RUN WAS CUT OFF by agy's own print timeout ($PRINT_TIMEOUT): the report is incomplete" >&2
 	echo "raise TRADR_PRINT_TIMEOUT and dispatch again, or review the tree directly" >&2
 	exit 1

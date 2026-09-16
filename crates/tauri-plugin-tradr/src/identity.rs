@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, Runtime, State};
+use tauri::{AppHandle, Runtime, State};
 
 use tradr_app::identity::{
     DeviceIdentity, describe_backing, open_device_identity, platform_ladder, storage_level_name,
@@ -64,11 +64,8 @@ impl IdentityState {
 // Builds the storage ladder, opens the Device Key through it, and turns
 // the result into a snapshot plus the opened DeviceIdentity.
 fn open_identity<R: Runtime>(app: &AppHandle<R>) -> Result<OpenedIdentity, String> {
-    let keys_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("could not resolve the app data directory: {e}"))?
-        .join("keys");
+    let dir = crate::paths::app_data_dir(app)?;
+    let keys_dir = tradr_app::paths::device_keys_dir(&dir);
 
     let ladder = platform_ladder(keys_dir);
     let identity = open_device_identity(&ladder, &OsRng)?;

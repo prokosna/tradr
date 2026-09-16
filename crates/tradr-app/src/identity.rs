@@ -11,6 +11,9 @@ use tradr_secrets::FileStore;
 #[cfg(target_os = "linux")]
 use tradr_secrets::SecretServiceStore;
 
+/// The OS randomness source, re-exported because `ci/layer-deps.sh` check 4 permits an app exactly one path dependency.
+pub use tradr_identity::OsRng;
+
 /// The slot every rung of the storage ladder uses for the Device Key.
 pub const DEVICE_KEY_SLOT: &str = "device-key";
 

@@ -5685,6 +5685,7 @@ name = "tradr-app"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "dirs",
  "rsa",
  "serde",
  "serde_json",
@@ -5700,6 +5701,13 @@ dependencies = [
  "tradr-secrets",
  "tradr-transport",
  "tradr-vfs",
+]
+
+[[package]]
+name = "tradr-cli"
+version = "0.1.0"
+dependencies = [
+ "tradr-app",
 ]
 
 [[package]]
