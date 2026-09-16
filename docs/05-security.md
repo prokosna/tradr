@@ -116,6 +116,10 @@ TRADR_OAUTH_CLIENT_SECRET   this platform's secret; a Desktop client has one, an
 
 **The secret stays out of that list.** Putting each platform's secret beside its ID would be the tidier string, and would place the Desktop client's secret in the environment of every Android device, which never uses it. A value not present cannot leak.
 
+**Where each front end reads the two values differs, and only one of them is what this section describes, 2026-09-17 by DCR-128.** "Supplied at runtime" is true of a command and was never true of the GUI: a desktop launcher, an Android activity and a double-clicked binary each start with whatever environment a session manager hands them, and none of them is a shell someone exported a variable into. So `apps/tradr/src-tauri/build.rs` bakes both values into the artifact with `cargo::rustc-env` and the app reads them back with `option_env!` -- the concession the shell forces rather than the design -- while **`tradr-cli` reads `TRADR_OAUTH_CLIENT_IDS` and `TRADR_OAUTH_CLIENT_SECRET` out of the process environment when the command runs, and bakes nothing**.
+
+**A second copy of the build script was the other answer and it is worse than the duplication it looks like.** It would bake whatever the environment held at the moment the CLI was compiled, so a person who exports the deployment's correct string and runs `tradr receive` would be refused by a stale one, with nothing anywhere saying that the value being used is not the value they set. **What a missing variable costs instead is one error naming it**: `TRADR_OAUTH_CLIENT_IDS is not set` is already the text `oauth_client` writes, and for the CLI it now names something a person can act on directly.
+
 **Each deployment is therefore its own trust domain**, unable to authenticate against anyone else's. That was previously a consequence of overriding a shipped default; it is now the only mode, and it is the point rather than a side effect.
 
 **Why nothing ships.** Committing a working client so that a clone builds and runs is the obvious convenience, and it was the earlier decision here. Three things cost more than it is worth:
