@@ -11,6 +11,7 @@ pub mod identity;
 pub mod link_exchange;
 pub mod link_invite;
 pub mod listener;
+pub mod paths;
 pub mod peer_trust;
 pub mod peers;
 pub mod send;

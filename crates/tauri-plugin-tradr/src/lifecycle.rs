@@ -152,10 +152,7 @@ pub fn init_lifecycle<R: Runtime>(
         }
     };
 
-    let app_data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("could not resolve the app data directory: {e}"))?;
+    let app_data_dir = crate::paths::app_data_dir(app)?;
     let static_peers_path = app_data_dir.join("static-peers.json");
     let abk_path = app_data_dir.join("account-broadcast-key.json");
     // A malformed file is refused rather than replaced with an empty
@@ -168,8 +165,7 @@ pub fn init_lifecycle<R: Runtime>(
             .map_err(|e| format!("static peer registry not available: {e}"))?;
 
     let downloads_dir = app.path().download_dir().unwrap_or_else(|_| {
-        app.path()
-            .app_data_dir()
+        crate::paths::app_data_dir(app)
             .map(|p| p.join("downloads"))
             .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/tradr-downloads"))
     });

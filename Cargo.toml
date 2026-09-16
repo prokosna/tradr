@@ -13,6 +13,7 @@ members = [
     "crates/tradr-app",
     "crates/tauri-plugin-tradr",
     "apps/tradr/src-tauri",
+    "apps/tradr-cli",
 ]
 
 [workspace.package]

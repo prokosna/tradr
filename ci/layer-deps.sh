@@ -88,11 +88,12 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 			done
 	fi
 
-	# Check 3: tauri confinement (Change Drill D9). crates/tauri-plugin-tradr
-	# is the composition root; every manifest under apps/ is the Tauri app
-	# itself. Both are exempt.
+	# Check 3: Change Drill D9 confines Tauri to its composition root
+	# (tauri-plugin-tradr) and the Tauri app itself (apps/tradr/*). DCR-124
+	# narrowed the earlier apps/* exemption so second front ends cannot name
+	# tauri.
 	case "$m" in
-		crates/tauri-plugin-tradr/Cargo.toml | apps/*) ;;
+		crates/tauri-plugin-tradr/Cargo.toml | apps/tradr/*) ;;
 		*)
 			awk '/^[ \t]*"?tauri(-[A-Za-z0-9_]+)?"?[ \t]*=/ { print FNR }' "$m" \
 				| while IFS= read -r ln; do
@@ -120,15 +121,19 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 			done
 	fi
 
-	# Check 4: implementation crates may depend internally only on
-	# tradr-core and tradr-proto (tauri-plugin-tradr and tradr-app are
-	# exempt: they are the composition tier).
-	# App manifests may depend internally only on tauri-plugin-tradr.
+	# Check 4: tauri-plugin-tradr and tradr-app are exempt because they are
+	# the composition tier. Implementation crates may depend internally only
+	# on tradr-core and tradr-proto; apps/tradr/* depends internally only on
+	# tauri-plugin-tradr, and other app manifests only on tradr-app.
 	if [ "$m" != "crates/tauri-plugin-tradr/Cargo.toml" ] && [ "$m" != "crates/tradr-app/Cargo.toml" ]; then
 		case "$m" in
-			apps/*)
+			apps/tradr/*)
 				allowed_keys="tauri-plugin-tradr"
-				message="an app crate may depend internally only on tauri-plugin-tradr"
+				message="a manifest under apps/tradr/ may depend internally only on tauri-plugin-tradr"
+				;;
+			apps/*)
+				allowed_keys="tradr-app"
+				message="a manifest outside apps/tradr/ may depend internally only on tradr-app"
 				;;
 			*)
 				allowed_keys="tradr-core tradr-proto"

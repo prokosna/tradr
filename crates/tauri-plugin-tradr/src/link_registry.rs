@@ -7,7 +7,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
 use tradr_identity::{AccountId, LinkRegistry};
 
 /// The outcome of loading this device's Link registry, kept as managed
@@ -51,10 +51,8 @@ impl LinkRegistryState {
 /// beside `static-peers.json` in the app data directory. A path that
 /// cannot be resolved becomes this state's `Err`, never a panic.
 pub(crate) fn init_link_registry_state<R: Runtime>(app: &AppHandle<R>) -> LinkRegistryState {
-    match app.path().app_data_dir() {
+    match crate::paths::app_data_dir(app) {
         Ok(dir) => LinkRegistryState::load(&dir.join("links.json")),
-        Err(e) => LinkRegistryState(Err(format!(
-            "could not resolve the app data directory: {e}"
-        ))),
+        Err(e) => LinkRegistryState(Err(e)),
     }
 }

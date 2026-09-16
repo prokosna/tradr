@@ -27,6 +27,7 @@ pub mod link_commands;
 pub mod link_registry;
 #[cfg(target_os = "android")]
 pub mod mobile;
+mod paths;
 pub mod peer_trust;
 mod sign_in;
 
