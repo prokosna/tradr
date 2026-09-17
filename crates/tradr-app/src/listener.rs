@@ -14,8 +14,6 @@ use tradr_core::{
     TransportError, TrustTier, UnixTime, VersionRange, Vfs, VfsError,
 };
 use tradr_identity::hello::AttestationRequest;
-use tradr_identity::{OsRng, SystemClock};
-use tradr_integrity::BaoVerifier;
 use tradr_proto::control::{
     OfferFrameError, decode_transfer_offer_frame, encode_transfer_accept_frame,
 };
@@ -45,6 +43,18 @@ pub trait LinkStreamService: Send + Sync {
         authenticated_peer: DeviceId,
         max_frame_size: u32,
     ) -> BoxFuture<'a, Result<LinkOutcome, LinkExchangeError>>;
+}
+
+/// The ambient services the listener loop is handed rather than reaches
+/// for, so a caller can pin all three.
+#[derive(Clone, Copy)]
+pub struct ListenerServices<'a> {
+    /// Randomness for the Hello handshake.
+    pub rng: &'a (dyn Rng + Sync),
+    /// The clock Attestation freshness and key-binding expiry are read against.
+    pub clock: &'a (dyn Clock + Sync),
+    /// Verifies received content against its Content Hash.
+    pub verifier: &'a (dyn ContentVerifier + Sync),
 }
 
 /// Configuration parameters for the listener half of the composition root.
@@ -597,8 +607,8 @@ where
 pub fn build_key_binding(
     key_store: &dyn KeyStore,
     identity: &PublicIdentity,
+    clock: &(dyn Clock + Sync),
 ) -> Result<KeyBinding, HandshakeError> {
-    let clock = SystemClock;
     let not_after = UnixTime::from_secs(clock.now().as_secs() + 30 * 24 * 3600);
     let keybind_sig = key_store
         .sign(DomainTag::KeyBind, identity.agreement_pub().as_bytes())
@@ -620,6 +630,7 @@ pub async fn run_listener<F, Fut>(
     our_attestation: Arc<dyn OwnAttestation>,
     root: RootId,
     capabilities: Arc<LocalCapabilities>,
+    services: ListenerServices<'_>,
     verify_attestation: F,
     link_service: Option<Arc<dyn LinkStreamService>>,
     on_arrival: Option<Arc<dyn Fn(&[RelPath]) + Send + Sync>>,
@@ -628,7 +639,7 @@ where
     F: Fn(AttestationRequest) -> Fut + Clone,
     Fut: Future<Output = Result<TrustTier, String>>,
 {
-    let key_binding = build_key_binding(key_store.as_ref(), &identity)?;
+    let key_binding = build_key_binding(key_store.as_ref(), &identity, services.clock)?;
 
     let versions = VersionRange::new(1, 1)
         .map_err(|_| ListenerError::ProtocolViolation("invalid version range".to_string()))?;
@@ -647,9 +658,9 @@ where
         vfs.as_ref(),
         params,
         key_store.as_ref(),
-        &OsRng,
-        &SystemClock,
-        &BaoVerifier,
+        services.rng,
+        services.clock,
+        services.verifier,
         verify_attestation,
         None,
         link_service.as_deref(),

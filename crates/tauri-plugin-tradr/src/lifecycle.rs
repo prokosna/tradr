@@ -13,6 +13,7 @@ use tradr_core::{
 use tradr_discovery::{DeclaredCapabilities, MdnsSource, StaticPeerRegistry};
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
+use tradr_integrity::BaoVerifier;
 use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
@@ -26,7 +27,9 @@ use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::link_invite::{
     LinkInviteState, LinkProposalDto, LinkService, LinkServiceParts, ProposalSink,
 };
-use tradr_app::listener::{LinkStreamService, ListenerError, build_key_binding, run_listener};
+use tradr_app::listener::{
+    LinkStreamService, ListenerError, ListenerServices, build_key_binding, run_listener,
+};
 use tradr_app::network::{
     bind_quic_transport, device_txt_record, mdns_daemon, register_advertisement,
 };
@@ -93,13 +96,19 @@ impl TransferListener {
 
     /// Builds the key binding for this node linking its agreement key to its identity key.
     pub fn key_binding(&self) -> Result<KeyBinding, String> {
-        build_key_binding(self.key_store.as_ref(), &self.public_identity)
+        build_key_binding(self.key_store.as_ref(), &self.public_identity, &SystemClock)
             .map_err(|e| format!("failed to build key binding: {e}"))
     }
 
     /// Runs the accept-handshake-serve loop over `incoming` until it ends.
     pub async fn run(&self, incoming: Box<dyn Incoming>) -> Result<(), ListenerError> {
         let verifier = Arc::clone(&self.verify_attestation);
+        let (rng, clock, verifier_srv) = (OsRng, SystemClock, BaoVerifier);
+        let services = ListenerServices {
+            rng: &rng,
+            clock: &clock,
+            verifier: &verifier_srv,
+        };
         run_listener(
             incoming,
             Arc::clone(&self.vfs),
@@ -108,6 +117,7 @@ impl TransferListener {
             Arc::clone(&self.our_attestation),
             self.root,
             Arc::clone(&self.capabilities),
+            services,
             move |req| verifier(req),
             self.link_service.clone(),
             None,

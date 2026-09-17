@@ -8,6 +8,7 @@ pub use tradr_core::RelPath;
 use tradr_core::{BoxFuture, Capabilities, Clock, RootId, Transport, TrustTier};
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{LinkRegistry, OsRng, SystemClock, attestation_nonce};
+use tradr_integrity::BaoVerifier;
 use tradr_vfs::NativeVfs;
 
 use crate::capabilities::LocalCapabilities;
@@ -117,6 +118,11 @@ pub async fn run_receive(
         sign_in_state,
         receive_root_id(),
         capabilities,
+        listener::ListenerServices {
+            rng: &OsRng,
+            clock: &SystemClock,
+            verifier: &BaoVerifier,
+        },
         verifier_call,
         None,
         Some(on_arrival),
