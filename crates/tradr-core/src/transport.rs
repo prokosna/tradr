@@ -114,9 +114,11 @@ impl PeerExpectation {
 /// A device receives as well as sends (docs/03, "Android listening and
 /// wake-up"), so this cannot wait for a later milestone.
 pub trait Incoming: Send {
-    /// Accepts the next incoming channel. Takes `&mut self` because
-    /// accepting mutates a queue, unlike `SecureChannel`'s methods, which
-    /// several tasks may share concurrently through `&self`.
+    /// Resolves with a channel or with the listening having ended; a failure
+    /// belonging to one peer is discarded and reported by the implementation
+    /// rather than returned. Takes `&mut self` because accepting mutates a
+    /// queue, unlike `SecureChannel`'s methods, which several tasks may share
+    /// concurrently through `&self`.
     fn accept(&mut self) -> BoxFuture<'_, Result<Box<dyn SecureChannel>, TransportError>>;
 }
 
