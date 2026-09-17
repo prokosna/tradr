@@ -386,3 +386,48 @@ pub fn peer_verifier(
         })
     }
 }
+
+#[cfg(all(test, not(target_os = "android")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_callback_nobody_completes_is_refused_rather_than_waited_on() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("binding loopback listener");
+        let port = listener.local_addr().expect("local address").port();
+        let result = serve_one_callback_with_timeout(
+            listener,
+            port,
+            "expected-state".to_string(),
+            Duration::ZERO,
+        );
+        assert_eq!(
+            result,
+            Err("sign-in was not completed in time; try again".to_string())
+        );
+    }
+
+    #[test]
+    fn a_completed_callback_returns_its_code_rather_than_a_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("binding loopback listener");
+        let port = listener.local_addr().expect("local address").port();
+        let client = std::thread::spawn(move || {
+            use std::io::Write;
+            let mut stream =
+                TcpStream::connect(("127.0.0.1", port)).expect("connect to callback listener");
+            stream
+                .write_all(
+                    b"GET /?code=the-code&state=expected-state HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                )
+                .expect("write request line");
+        });
+        let result = serve_one_callback_with_timeout(
+            listener,
+            port,
+            "expected-state".to_string(),
+            Duration::from_secs(30),
+        );
+        assert_eq!(result, Ok("the-code".to_string()));
+        client.join().expect("client thread must not panic");
+    }
+}

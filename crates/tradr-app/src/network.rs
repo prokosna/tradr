@@ -39,18 +39,19 @@ pub fn bind_quic_transport(key_store: Arc<dyn KeyStore>) -> Result<Arc<QuicTrans
     Ok(transport)
 }
 
+fn is_virtual_interface(name: &str) -> bool {
+    name.starts_with("veth")
+        || name.starts_with("br-")
+        || name.starts_with("docker")
+        || name.starts_with("vnet")
+        || name.starts_with("virbr")
+}
+
 /// Starts an mDNS daemon and disables virtual interfaces.
 pub fn mdns_daemon() -> Result<ServiceDaemon, String> {
     let daemon = ServiceDaemon::new().map_err(|e| format!("failed to start mdns daemon: {e}"))?;
 
-    let predicate = mdns_sd::IfPredicate::new(|i| {
-        let n = &i.name;
-        n.starts_with("veth")
-            || n.starts_with("br-")
-            || n.starts_with("docker")
-            || n.starts_with("vnet")
-            || n.starts_with("virbr")
-    });
+    let predicate = mdns_sd::IfPredicate::new(|i| is_virtual_interface(&i.name));
     daemon
         .disable_interface(mdns_sd::IfKind::Predicate(predicate))
         .map_err(|e| format!("failed to filter mdns interfaces: {e}"))?;
@@ -111,4 +112,29 @@ pub fn register_advertisement(
         .register(service_info)
         .map_err(|e| format!("failed to register service info: {e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn virtual_interfaces_are_refused() {
+        assert!(is_virtual_interface("veth1a2b3c"));
+        assert!(is_virtual_interface("br-0f1e2d"));
+        assert!(is_virtual_interface("docker0"));
+        assert!(is_virtual_interface("vnet7"));
+        assert!(is_virtual_interface("virbr0"));
+    }
+
+    #[test]
+    fn bridge0_and_physical_interfaces_are_accepted() {
+        assert!(!is_virtual_interface("eth0"));
+        assert!(!is_virtual_interface("wlan0"));
+        assert!(!is_virtual_interface("enp5s0"));
+        assert!(!is_virtual_interface("wlp2s0"));
+        assert!(!is_virtual_interface("lo"));
+        assert!(!is_virtual_interface("tun0"));
+        assert!(!is_virtual_interface("bridge0"));
+    }
 }

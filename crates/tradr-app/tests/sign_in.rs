@@ -13,7 +13,7 @@ use common::{
     impostor_key, profile, published_key, token,
 };
 use tradr_app::peer_trust::PeerTrust;
-use tradr_app::sign_in::{OAuthConfig, SignInState, finish_sign_in};
+use tradr_app::sign_in::{OAuthConfig, SignInState, finish_sign_in, provider_profile};
 use tradr_core::{PublicIdentity, TrustTier};
 use tradr_identity::AccountId;
 
@@ -225,4 +225,26 @@ fn oauth_config_new_trims_surrounding_whitespace() {
     );
     assert_eq!(cfg.client_ids.as_deref(), Some("client-id-123"));
     assert_eq!(cfg.client_secret.as_deref(), Some("client-secret-xyz"));
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn a_desktop_profile_carries_the_configured_client_secret() {
+    let profile = provider_profile(&OAuthConfig::new(
+        Some("desktop:desktop-id,web:web-id".to_string()),
+        Some("  desktop-secret  ".to_string()),
+    ))
+    .expect("valid desktop oauth config");
+    assert_eq!(profile.client_id, "desktop-id");
+    assert_eq!(profile.client_secret.as_deref(), Some("desktop-secret"));
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn a_desktop_profile_with_no_client_secret_is_refused() {
+    let result = provider_profile(&OAuthConfig::new(
+        Some("desktop:desktop-id,web:web-id".to_string()),
+        None,
+    ));
+    assert!(result.is_err());
 }
