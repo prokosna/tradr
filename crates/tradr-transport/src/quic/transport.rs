@@ -169,12 +169,28 @@ struct QuicIncoming {
 impl Incoming for QuicIncoming {
     fn accept(&mut self) -> BoxFuture<'_, Result<Box<dyn SecureChannel>, TransportError>> {
         Box::pin(async move {
-            // A closed endpoint yields `None` here rather than an error
-            // (docs/03), so that is the one case mapped by hand.
-            let incoming = self.endpoint.accept().await.ok_or(TransportError::Closed)?;
-            let connection = incoming.await.map_err(map_connection_error)?;
-            let channel = QuicChannel::new(connection, TRANSPORT_ID)?;
-            Ok(Box::new(channel) as Box<dyn SecureChannel>)
+            loop {
+                // A closed endpoint yields `None` here rather than an error
+                // (docs/03), so that is the one case mapped by hand.
+                let incoming = self.endpoint.accept().await.ok_or(TransportError::Closed)?;
+                let remote_address = incoming.remote_address();
+                let connection = match incoming.await {
+                    Ok(connection) => connection,
+                    Err(err) => {
+                        eprintln!("direct-quic handshake failed for {remote_address}: {err}");
+                        continue;
+                    }
+                };
+                match QuicChannel::new(connection, TRANSPORT_ID) {
+                    Ok(channel) => return Ok(Box::new(channel) as Box<dyn SecureChannel>),
+                    Err(err) => {
+                        eprintln!(
+                            "direct-quic channel creation failed for {remote_address}: {err}"
+                        );
+                        continue;
+                    }
+                }
+            }
         })
     }
 }

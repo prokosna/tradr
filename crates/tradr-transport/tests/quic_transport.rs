@@ -235,16 +235,15 @@ async fn a_dialler_pinning_the_wrong_device_id_is_refused_as_authentication_fail
         let expect = PeerExpectation::Device(someone_else.device_id());
         let dial = dialler.connect(&candidate, &expect);
         let accept = incoming.accept();
-        let (dial_result, accept_result) = tokio::join!(dial, accept);
+        let dial_result = tokio::select! {
+            res = dial => res,
+            _ = accept => unreachable!("a failed handshake does not yield a channel to the listener"),
+        };
 
         assert_eq!(
             dial_result.err(),
             Some(TransportError::AuthenticationFailed),
             "a pin mismatch must be reported as authentication failure, not rejection or a timeout"
-        );
-        assert!(
-            accept_result.is_err(),
-            "the listener also observes the same crypto-range close"
         );
     })
     .await
@@ -329,4 +328,56 @@ async fn transport_is_dyn_compatible_through_a_boxed_trait_object() {
     })
     .await
     .expect("a loopback handshake completes well inside the bound");
+}
+
+#[tokio::test]
+async fn a_dialler_failing_handshake_is_discarded_and_the_next_peer_is_accepted() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let dialler1_store = device(0x11);
+        let listener_store = device(0x22);
+        let someone_else = device(0x33);
+        let dialler2_store = device(0x44);
+
+        let listener =
+            QuicTransport::new(listener_store.clone(), loopback()).expect("loopback binds");
+        let listener_addr = listener
+            .local_addr()
+            .expect("a bound endpoint reports its address");
+
+        let dialler1 = QuicTransport::new(dialler1_store, loopback()).expect("loopback binds");
+        let candidate1 = Candidate::new(dialler1.id(), &listener_addr.to_string())
+            .expect("a socket address is valid candidate syntax");
+        let expect1 = PeerExpectation::Device(someone_else.device_id());
+
+        let dialler2 =
+            QuicTransport::new(dialler2_store.clone(), loopback()).expect("loopback binds");
+        let candidate2 = Candidate::new(dialler2.id(), &listener_addr.to_string())
+            .expect("a socket address is valid candidate syntax");
+        let expect2 = PeerExpectation::Device(listener_store.device_id());
+
+        let mut incoming = listener.listen().await.expect("listening starts");
+
+        let accept = incoming.accept();
+        let dial_sequence = async {
+            let dial1_result = dialler1.connect(&candidate1, &expect1).await;
+            assert_eq!(
+                dial1_result.err(),
+                Some(TransportError::AuthenticationFailed),
+                "a pin mismatch must be reported as authentication failure"
+            );
+            dialler2
+                .connect(&candidate2, &expect2)
+                .await
+                .expect("a dialler with the matching pin connects successfully")
+        };
+
+        let (accept_result, dialler2_channel) = tokio::join!(accept, dial_sequence);
+        let listener_channel = accept_result
+            .expect("listener yields the second dialler's channel after discarding the failed one");
+
+        assert_eq!(listener_channel.peer(), dialler2_store.device_id());
+        assert_eq!(dialler2_channel.peer(), listener_store.device_id());
+    })
+    .await
+    .expect("the sequence completes well inside the bound");
 }
