@@ -26,6 +26,7 @@ pub enum NonceBinding {
 
 /// Everything a provider brings to verification. Nothing else in this
 /// crate names a provider (docs/05, "Provider profiles").
+#[derive(Clone)]
 pub struct ProviderProfile {
     /// The client id this device authenticates as. Must be a member of
     /// `client_ids`, or the Attestations this device mints fail step 3

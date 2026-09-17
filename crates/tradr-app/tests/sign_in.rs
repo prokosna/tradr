@@ -13,7 +13,7 @@ use common::{
     impostor_key, profile, published_key, token,
 };
 use tradr_app::peer_trust::PeerTrust;
-use tradr_app::sign_in::{SignInState, finish_sign_in};
+use tradr_app::sign_in::{OAuthConfig, SignInState, finish_sign_in};
 use tradr_core::{PublicIdentity, TrustTier};
 use tradr_identity::AccountId;
 
@@ -191,4 +191,38 @@ async fn a_second_sign_in_replaces_the_token_a_peer_is_handed() {
         "the fixture must produce two distinct tokens"
     );
     assert_eq!(state.id_token().as_deref(), Some(second.as_str()));
+}
+
+#[test]
+fn oauth_config_new_survives_real_value() {
+    let cfg = OAuthConfig::new(
+        Some("client-id-123".to_string()),
+        Some("client-secret-xyz".to_string()),
+    );
+    assert_eq!(cfg.client_ids.as_deref(), Some("client-id-123"));
+    assert_eq!(cfg.client_secret.as_deref(), Some("client-secret-xyz"));
+}
+
+#[test]
+fn oauth_config_new_empty_string_becomes_none() {
+    let cfg = OAuthConfig::new(Some("".to_string()), Some("".to_string()));
+    assert_eq!(cfg.client_ids, None);
+    assert_eq!(cfg.client_secret, None);
+}
+
+#[test]
+fn oauth_config_new_whitespace_only_becomes_none() {
+    let cfg = OAuthConfig::new(Some("   ".to_string()), Some("   ".to_string()));
+    assert_eq!(cfg.client_ids, None);
+    assert_eq!(cfg.client_secret, None);
+}
+
+#[test]
+fn oauth_config_new_trims_surrounding_whitespace() {
+    let cfg = OAuthConfig::new(
+        Some("  client-id-123 \t ".to_string()),
+        Some(" \n client-secret-xyz  ".to_string()),
+    );
+    assert_eq!(cfg.client_ids.as_deref(), Some("client-id-123"));
+    assert_eq!(cfg.client_secret.as_deref(), Some("client-secret-xyz"));
 }
