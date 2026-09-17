@@ -10,3 +10,5 @@ name = "tradr-cli"
 
 [dependencies]
 tradr-app = { path = "../../crates/tradr-app" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+dirs = "6"

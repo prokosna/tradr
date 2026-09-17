@@ -74,10 +74,10 @@ pub fn init<R: Runtime>(
         .setup(move |app, _api| {
             let identity_state = identity::init_identity_state(app);
             let sign_in_state = Arc::new(SignInState::empty());
-            let oauth_config = OAuthConfig {
-                client_ids,
-                client_secret,
-            };
+            let oauth_config = OAuthConfig::new(
+                client_ids.map(str::to_string),
+                client_secret.map(str::to_string),
+            );
             let peer_trust_state = peer_trust::init_peer_trust_state(&oauth_config);
             let link_registry_state = link_registry::init_link_registry_state(app);
             let link_invite_state = Arc::new(tradr_app::link_invite::LinkInviteState::new());

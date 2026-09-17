@@ -34,13 +34,37 @@ use tradr_oidc::{
 use crate::attestation::{FUTURE_SKEW_LIMIT_SECS, STALENESS_LIMIT_SECS};
 use crate::peer_trust::{OwnAttestation, PeerTrust};
 
+const ENV_CLIENT_IDS: &str = "TRADR_OAUTH_CLIENT_IDS";
+const ENV_CLIENT_SECRET: &str = "TRADR_OAUTH_CLIENT_SECRET";
+
 /// This device's configured OAuth client (DCR-030). Both fields are
 /// `None` on a fresh clone: build.rs bakes an empty string when
 /// `.tradr-deployment.env` is absent, and the composition root maps that
 /// to `None` before managing this.
 pub struct OAuthConfig {
-    pub client_ids: Option<&'static str>,
-    pub client_secret: Option<&'static str>,
+    pub client_ids: Option<String>,
+    pub client_secret: Option<String>,
+}
+
+impl OAuthConfig {
+    /// Normalises the OAuth client configuration by trimming whitespace and
+    /// mapping empty values to `None`.
+    pub fn new(client_ids: Option<String>, client_secret: Option<String>) -> Self {
+        let normalize =
+            |val: Option<String>| val.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        Self {
+            client_ids: normalize(client_ids),
+            client_secret: normalize(client_secret),
+        }
+    }
+
+    /// Reads the OAuth client configuration from environment variables.
+    pub fn from_env() -> Self {
+        Self::new(
+            std::env::var(ENV_CLIENT_IDS).ok(),
+            std::env::var(ENV_CLIENT_SECRET).ok(),
+        )
+    }
 }
 
 /// Builds this build's `ProviderProfile` from runtime OAuth configuration,
@@ -51,8 +75,12 @@ pub fn provider_profile(oauth: &OAuthConfig) -> Result<ProviderProfile, String> 
     #[cfg(not(target_os = "android"))]
     let platform = Platform::Desktop;
 
-    let client =
-        oauth_client(platform, oauth.client_ids, oauth.client_secret).map_err(|e| e.to_string())?;
+    let client = oauth_client(
+        platform,
+        oauth.client_ids.as_deref(),
+        oauth.client_secret.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(google(client))
 }
 

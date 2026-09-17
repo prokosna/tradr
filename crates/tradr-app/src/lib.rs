@@ -15,6 +15,8 @@ pub mod network;
 pub mod paths;
 pub mod peer_trust;
 pub mod peers;
+#[cfg(not(target_os = "android"))]
+pub mod receive;
 pub mod send;
 pub mod share;
 pub mod sign_in;

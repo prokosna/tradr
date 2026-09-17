@@ -541,7 +541,7 @@ where
 }
 
 /// Continuously accepts incoming channels from `incoming` and processes transfers.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub async fn listen_for_transfers<V, F, Fut>(
     incoming: &mut (impl Incoming + ?Sized),
     vfs: &V,
@@ -553,6 +553,7 @@ pub async fn listen_for_transfers<V, F, Fut>(
     verify_attestation: F,
     item_filter: Option<&(dyn Fn(&OfferItem) -> bool + Send + Sync)>,
     link_service: Option<&dyn LinkStreamService>,
+    on_arrival: Option<&(dyn Fn(&[RelPath]) + Send + Sync)>,
 ) -> Result<(), ListenerError>
 where
     V: Vfs,
@@ -579,7 +580,14 @@ where
         )
         .await
         {
-            Ok(_) => {}
+            Ok(placed) => {
+                if let Some(cb) = on_arrival {
+                    // A browse stream and a link exchange each place nothing, so an empty placement is not an arrival (DCR-129).
+                    if !placed.is_empty() {
+                        cb(&placed);
+                    }
+                }
+            }
             Err(e) => eprintln!("transfer failed: {e}"),
         }
     }
@@ -603,7 +611,7 @@ pub fn build_key_binding(
 }
 
 /// Runs the listener loop for incoming transfers on an `Incoming` stream.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub async fn run_listener<F, Fut>(
     mut incoming: Box<dyn Incoming>,
     vfs: Arc<NativeVfs>,
@@ -614,6 +622,7 @@ pub async fn run_listener<F, Fut>(
     capabilities: Arc<LocalCapabilities>,
     verify_attestation: F,
     link_service: Option<Arc<dyn LinkStreamService>>,
+    on_arrival: Option<Arc<dyn Fn(&[RelPath]) + Send + Sync>>,
 ) -> Result<(), ListenerError>
 where
     F: Fn(AttestationRequest) -> Fut + Clone,
@@ -644,6 +653,7 @@ where
         verify_attestation,
         None,
         link_service.as_deref(),
+        on_arrival.as_deref(),
     )
     .await
 }
