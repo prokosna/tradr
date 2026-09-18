@@ -317,6 +317,7 @@ People and models both forget, so the machine checks. These are required and blo
 | `state-sync` | Checks `STATE.md` against git history, its own path references, and its ceiling | M1 |
 | `hooks-executable` | Refuses a `.githooks/pre-commit` that git would silently skip | M5 |
 | **`frontend-console`** | **Refuses a `console.` call in a hand-written frontend source, mechanizing F6 in TypeScript** | **M7** |
+| **`desktop`, `macos`, `windows`** | **`cargo tauri build` on each host: the tree compiles, the frontend builds and the app links there. `macos` and `windows` pass `--no-bundle` (DCR-132), so what they assert is compilation and linking and never an installer; `desktop` bundles, because one Linux package is the artifact [docs/09](09-roadmap-and-risks.md#m10--finishing-ongoing) still owes** | **M4** |
 
 ### Rule F6's instrument is a text check, because the compiler's is unusable here
 
