@@ -456,12 +456,23 @@ The receiver **never trusts an incoming `relative_path`**. It enforces:
 | Contains NUL or other control characters | Reject |
 | Contains a bidirectional override, embedding or isolate, or a line or paragraph separator | Reject |
 | Windows reserved names: `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9` | Append `_` |
+| A colon anywhere in a component, which on NTFS names an alternate data stream | Replace each with `_` |
 | Trailing dots or spaces, which break on Windows | Strip |
 | Path length beyond the OS limit | Reject |
 | Collides with an existing file | Number it as `name (2).ext`. Never overwrite |
 | Item is a symlink | Reject in v1, since the target may point outside the Share Root |
 
 This is the same attack surface as zip slip. The path is normalized before joining, and the joined result is re-checked to confirm it is prefixed by the destination's realpath.
+
+### Why a colon is transformed rather than rejected, and on every platform
+
+**On NTFS, `report.pdf:evil.exe` is not a file called `report.pdf:evil.exe`.** It is an alternate data stream hanging off a file called `report.pdf`, and a directory listing shows only the latter. So a receiver that joins an incoming path containing a colon writes bytes the user never sees under a name they did not accept -- **which is the defect the bidirectional-override rule above exists to prevent**, arriving through a different character.
+
+**It is transformed and not rejected, because a colon is an ordinary character everywhere else.** `2026-08-22T10:00:00.log` is a filename a Linux or macOS sender produces without trying, and refusing it would make a real file untransferable in order to defend a platform it does not run on. The reserved-name rule above already settled this shape: a name that cannot be written as sent is rewritten so it can be, not turned away.
+
+**And it is transformed on every platform, which is the part worth stating rather than implying.** The sanitizer answers one name for one input, so a Share browsed from a phone and from a desktop shows the same names and a file does not change identity by arriving somewhere else. `CON` becomes `CON_` on Linux for the same reason, where nothing is reserved. **The cost is a colon becoming an underscore on a system that could have kept it**, and it is paid for a property that is worth more: what a receiver will write is decided by the path, never by which receiver it is.
+
+**The replacement runs before the reserved-name check**, so that check compares a colon-free component. **It is an ordering, not a defence, and the difference was measured rather than assumed**: neither order changes any answer, because a stem holding a colon is never a reserved name and replacing a colon with `_` never produces one, and `_` occupies the position the colon held so the stem and extension divide at the same index either way. Three hundred and ninety-six inputs crossing every reserved name with leading, interior and trailing colons give byte-identical results under both. **The order is fixed anyway, because a rule stated once is a rule two implementations cannot read differently** -- but nothing here is protecting the reserved-name check from a colon, and a sentence saying otherwise would be inviting a test that can never fail.
 
 ### Why a filename may not reorder itself
 
