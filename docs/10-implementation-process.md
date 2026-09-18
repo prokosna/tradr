@@ -294,6 +294,16 @@ Rules are in [CLAUDE.md](../CLAUDE.md) §5. The two that carry design weight:
 +---------------------------------------------------------+
 ```
 
+## Dispatching a Work Item, and what the harness can and cannot promise
+
+**A Work Order can be handed to an out-of-session Implementer, and the only sanctioned way to do it is `ci/dispatch-implementer.sh`.** It exists because three disciplines this process records as things to remember are things that get forgotten one at a time: a cut-off that the agent writes into its own log while still exiting `0`, a print timeout shorter than the gates the Work Order carries, and the rule that the Implementer never commits -- which nothing in the session can observe, because the run is a plain subprocess. The script mechanizes all three. `ci/README.md` carries what each one does.
+
+**What no harness can promise is that the report is true, and the rule that covers it is older than the script**: a gate is green when the Supervisor has run it, never when a report says so. A run that ends mid-report therefore costs nothing that was not already owed -- it leaves a tree and no claims about it, and every gate then gets run by the Supervisor.
+
+**What it must promise is that silence is visible, decided 2026-09-18 by DCR-133.** A run whose agent went idle waiting on a command it had put in the background ends with the harness terminating that task, and until this ruling the script answered such a run exactly as it answers a complete one: exit `0`, no new commit, nothing said. **Two runs that mean opposite things were indistinguishable from outside** -- one left an empty tree and one left a finished Work Item -- and what told them apart was a `git status` nothing obliged anyone to run.
+
+**So the script names the run and does not refuse it.** Refusing would discard a tree that may be complete, which is the expensive half of a cheap problem; what is actually missing is the report, and the paragraph above already prices that. But it **exits non-zero**, as the cut-off path does, because the exit status is what a Supervisor reads to decide whether there is a report to trust, and a run that said nothing must not answer "success". **The message says which of the two cases it is**, because the next action differs: an untouched tree is a re-dispatch, and a changed one is a review.
+
 ## What CI protects
 
 People and models both forget, so the machine checks. These are required and block merging.
