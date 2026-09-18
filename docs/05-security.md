@@ -97,6 +97,10 @@ Adding a platform means adding its client ID to that one string. **Devices that 
 
 **The allowance is 300 seconds.** It costs 300 seconds of extra Attestation life against a limit of 30 days, and it buys every device whose clock is untended rather than wrong. Kerberos and the common OIDC libraries settled on the same five minutes for the same reason. Both limits are inclusive at exactly their value.
 
+**What tells the two directions apart is that `elapsed_since` fails for exactly one reason, and that is a contract rather than an implementation detail, ruled 2026-09-18 by DCR-134.** Step 5 computes `now.elapsed_since(iat)` and reads a failure as "the `iat` is in the future", then measures the skew the other way round. **The reading is only sound while the function has one way to fail.** Give it a second and the `Err` arm is reached for something that is not a direction at all, and the code answers a clock-skew refusal to a question about skew nobody asked -- **with nothing marking the day it starts happening**, because the arm that mis-handles it is a pattern that already exists and needs no edit.
+
+**So a repair to that function adds precision, never a second failure.** Its subtraction can overflow for values its own type admits -- an `iat` near `i64::MIN` against an ordinary `now` -- and the answer is arithmetic wide enough to be exact rather than an error saying it was not: the gap between any two `UnixTime` values fits a `u64` exactly, at both extremes. **`UnixTimeError` therefore keeps its single variant**, and the sentence above stays true of the code beneath it.
+
 **The two directions reject with different reasons, and that is load-bearing rather than a nicety.** The failure a user meets is a refusal to sign in, and the only thing that tells them which of the two happened is the message. One says the binding is too old to trust; the other says this device's clock disagrees with the provider's. Naming the thirty-day limit for a clock problem costs whoever reads it the whole diagnosis -- it did, for a day, on the first Windows build.
 
 ### OAuth client configuration
