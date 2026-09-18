@@ -327,6 +327,7 @@ People and models both forget, so the machine checks. These are required and blo
 | `state-sync` | Checks `STATE.md` against git history, its own path references, and its ceiling | M1 |
 | `hooks-executable` | Refuses a `.githooks/pre-commit` that git would silently skip | M5 |
 | **`frontend-console`** | **Refuses a `console.` call in a hand-written frontend source, mechanizing F6 in TypeScript** | **M7** |
+| **`tier01-inventory`** | **`ci/tier01-tests.txt` names a test target that exists, in the crate it says, with a reason. Runs on the commit path (DCR-135), because it needs no namespace -- unlike the sealed run beneath it** | **M8** |
 | **`desktop`, `macos`, `windows`** | **`cargo tauri build` on each host: the tree compiles, the frontend builds and the app links there. `macos` and `windows` pass `--no-bundle` (DCR-132), so what they assert is compilation and linking and never an installer; `desktop` bundles, because one Linux package is the artifact [docs/09](09-roadmap-and-risks.md#m10--finishing-ongoing) still owes** | **M4** |
 
 ### Rule F6's instrument is a text check, because the compiler's is unusable here
@@ -374,6 +375,10 @@ The difference is that an allowlist entry is a deliberate act, visible in a diff
 **An allowlist entry with an empty reason fails the job**, so the escape hatch cannot be taken silently.
 
 `no-brokr` is the only thing holding up [ADR-0005](adr/0005-brokr-is-optional.md). Without it that ADR becomes a fiction within months.
+
+**It has two halves and only one of them needs a network namespace, split 2026-09-18 by DCR-135.** Checking that every entry in `ci/tier01-tests.txt` names a test target that exists is arithmetic over the filesystem; running those targets with no route but loopback is what needs `unshare`. **The second half cannot run on every machine** -- sealing needs an unprivileged user+net namespace or a passwordless `sudo unshare`, and a machine granting neither gets a refusal rather than an unsealed run, which is the right answer and an unrunnable check. **The first half then went unrun everywhere but CI**, so a test target that moved crates was found by a job minutes later with a message naming neither the inventory nor where the target had gone.
+
+**So the inventory has exactly one reader and the checkable half is checked at the commit.** `ci/tier01-inventory.sh` owns the format -- the comment and blank-line rules, the trimming, the three validations -- and both `no-brokr.sh` and the workflow step that pre-builds the test binaries ask it for the pairs rather than parsing the file again. **Three readers of one file is the general form of the defect**, and the workflow's copy was the one whose own comment said it had to match the sealed selection exactly.
 
 ## Risks in this arrangement
 
