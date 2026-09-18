@@ -68,4 +68,3 @@ state-sync | crates/tauri-plugin-tradr/tests/handshake.rs | WI-M8-001 moved the 
 state-sync | crates/tauri-plugin-tradr/tests/link_exchange.rs | WI-M8-001 moved the test to crates/tradr-app; RECORD.md names it as history and is append-only
 state-sync | crates/tauri-plugin-tradr/tests/link_service.rs | WI-M8-004 moved the test to crates/tradr-app; RECORD.md names it as history and is append-only
 state-sync | origin/main | A git ref named in DF-73 and DF-74, not a repository path
-state-sync | ci/tier01-inventory.sh | Named by DCR-135 docs-first per CLAUDE.md section 7; the file arrives with WI-M8-022, whose commit removes this entry

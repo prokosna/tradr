@@ -107,16 +107,17 @@ jobs:
       # ci/no-brokr.sh runs the same -p/--test selection sealed to
       # loopback; matching it here means that run needs no compilation
       # at all, so nothing inside the seal ever needs to reach crates.io.
+      # Both now ask ci/tier01-inventory.sh rather than copying the parse.
       - name: Build Tier 0/1 test binaries
         run: |
           set -eu
+          pairs=$(ci/tier01-inventory.sh --pairs)
           set --
-          while IFS='|' read -r crate target reason; do
-            crate=$(printf '%s' "$crate" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-            case "$crate" in '' | '#'*) continue ;; esac
-            target=$(printf '%s' "$target" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          for pair in $pairs; do
+            crate="${pair%|*}"
+            target="${pair#*|}"
             set -- "$@" -p "$crate" --test "$target"
-          done < ci/tier01-tests.txt
+          done
           cargo test --locked --no-run "$@"
 
       - name: Run no-brokr Invariant I1 verification

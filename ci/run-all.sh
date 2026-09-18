@@ -7,7 +7,7 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
 overall=0
 
-for check in comment-lang comment-length doc-visibility excuse-grep invoke-commands layer-deps plugin-permissions state-sync hooks-executable frontend-gate discarded-result empty-catch frontend-console; do
+for check in comment-lang comment-length doc-visibility excuse-grep invoke-commands layer-deps plugin-permissions state-sync tier01-inventory hooks-executable frontend-gate discarded-result empty-catch frontend-console; do
 	echo "== $check =="
 	if ! "$SCRIPT_DIR/$check.sh"; then
 		overall=1
