@@ -52,9 +52,9 @@ impl UnixTime {
         if earlier.0 > self.0 {
             return Err(UnixTimeError::ArgumentIsLater);
         }
-        // The check above guarantees self.0 >= earlier.0, so the
-        // difference is non-negative and fits in a u64.
-        Ok((self.0 - earlier.0) as u64)
+        // The i128 difference of two i64 values is exact, and after the
+        // ordering check above it lands inside u64 at both extremes.
+        Ok((self.0 as i128 - earlier.0 as i128) as u64)
     }
 }
 
@@ -120,6 +120,46 @@ mod tests {
             earlier.elapsed_since(later),
             Err(UnixTimeError::ArgumentIsLater)
         );
+    }
+
+    #[test]
+    fn elapsed_since_is_exact_at_the_widest_gap_the_type_admits() {
+        assert_eq!(
+            UnixTime::from_secs(i64::MAX).elapsed_since(UnixTime::from_secs(i64::MIN)),
+            Ok(u64::MAX)
+        );
+    }
+
+    #[test]
+    fn elapsed_since_does_not_overflow_when_the_receiver_is_max_and_the_argument_is_negative() {
+        assert_eq!(
+            UnixTime::from_secs(i64::MAX).elapsed_since(UnixTime::from_secs(-1)),
+            Ok(9_223_372_036_854_775_808)
+        );
+    }
+
+    #[test]
+    fn elapsed_since_errors_on_direction_even_at_the_extremes() {
+        assert_eq!(
+            UnixTime::from_secs(i64::MIN).elapsed_since(UnixTime::from_secs(i64::MAX)),
+            Err(UnixTimeError::ArgumentIsLater)
+        );
+    }
+
+    #[test]
+    fn elapsed_since_spans_the_epoch_without_a_sign_error() {
+        assert_eq!(
+            UnixTime::from_secs(60).elapsed_since(UnixTime::from_secs(-60)),
+            Ok(120)
+        );
+    }
+
+    #[test]
+    fn unix_time_error_has_exactly_one_variant_because_step_5_reads_a_failure_as_a_direction() {
+        // Compile failure on an added variant prevents step 5 from silently answering the wrong refusal.
+        match UnixTimeError::ArgumentIsLater {
+            UnixTimeError::ArgumentIsLater => {}
+        }
     }
 
     #[test]
