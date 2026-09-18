@@ -114,6 +114,76 @@ async fn partial_file_write_sync_and_atomic_rename() {
 }
 
 #[tokio::test]
+async fn remove_refuses_a_non_empty_directory_and_leaves_it_whole() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let vfs = NativeVfs::new();
+    let root = RootId::new(5);
+    vfs.register_root(root, dir.path().to_path_buf(), false)
+        .expect("register rw root");
+
+    let subdir = RelPath::new("keep").expect("relpath");
+    let child = RelPath::new("keep/child.txt").expect("relpath");
+    vfs.create_dir(root, &subdir).await.expect("create dir");
+    let mut w = vfs.open_write(root, &child).await.expect("open write");
+    w.write_at(0, b"payload").await.expect("write");
+    w.sync().await.expect("sync");
+    drop(w);
+
+    assert_eq!(
+        vfs.remove(root, &subdir).await.unwrap_err(),
+        VfsError::WrongKind
+    );
+
+    // A recursing remove would take the child with it, and a RelPath is
+    // peer-influenced, so the refusal is the contract rather than a detail.
+    assert_eq!(
+        std::fs::read(dir.path().join("keep/child.txt")).expect("child survives"),
+        b"payload"
+    );
+}
+
+#[tokio::test]
+async fn remove_takes_a_file_and_an_already_empty_directory() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let vfs = NativeVfs::new();
+    let root = RootId::new(6);
+    vfs.register_root(root, dir.path().to_path_buf(), false)
+        .expect("register rw root");
+
+    let empty = RelPath::new("empty").expect("relpath");
+    let file = RelPath::new("lone.txt").expect("relpath");
+    vfs.create_dir(root, &empty).await.expect("create dir");
+    let mut w = vfs.open_write(root, &file).await.expect("open write");
+    w.write_at(0, b"x").await.expect("write");
+    w.sync().await.expect("sync");
+    drop(w);
+
+    vfs.remove(root, &file).await.expect("a file is removable");
+    vfs.remove(root, &empty)
+        .await
+        .expect("an empty directory is removable");
+
+    assert!(!dir.path().join("lone.txt").exists());
+    assert!(!dir.path().join("empty").exists());
+}
+
+#[tokio::test]
+async fn remove_reports_an_absent_entry_as_not_found() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let vfs = NativeVfs::new();
+    let root = RootId::new(7);
+    vfs.register_root(root, dir.path().to_path_buf(), false)
+        .expect("register rw root");
+
+    assert_eq!(
+        vfs.remove(root, &RelPath::new("nothing.txt").expect("relpath"))
+            .await
+            .unwrap_err(),
+        VfsError::NotFound
+    );
+}
+
+#[tokio::test]
 async fn open_write_does_not_truncate_existing_partial_file() {
     let dir = tempfile::tempdir().expect("tempdir");
     let vfs = NativeVfs::new();
