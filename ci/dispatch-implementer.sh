@@ -39,6 +39,7 @@ cd "$ROOT_DIR" || exit 1
 
 # Tracking branch commits prevents a mid-run merge from reading as an Implementer commit.
 head_before=$(git rev-parse HEAD)
+tree_before=$(git status --porcelain)
 has_origin_main=1
 if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
 	echo "dispatch-implementer: origin/main does not resolve, falling back to HEAD comparison" >&2
@@ -60,6 +61,7 @@ agy --model "$MODEL" \
 status=$?
 
 head_after=$(git rev-parse HEAD)
+tree_after=$(git status --porcelain)
 
 echo "  HEAD after    $head_after"
 echo "  exit          $status"
@@ -98,6 +100,19 @@ fi
 if grep -Eq "timeout waiting for response|print timeout after" "$LOG" 2>/dev/null; then
 	echo "RUN WAS CUT OFF by agy's own print timeout ($PRINT_TIMEOUT): the report is incomplete" >&2
 	echo "raise TRADR_PRINT_TIMEOUT and dispatch again, or review the tree directly" >&2
+	exit 1
+fi
+
+# An agent idling on a background task is terminated with exit status 0,
+# leaving an incomplete report that looks successful. The tree state settles
+# whether the run produced nothing or produced work that must be reviewed.
+if grep -Eq "terminating .* background task" "$LOG" 2>/dev/null; then
+	echo "RUN WAS TERMINATED with a background task still running: the report is incomplete" >&2
+	if [ "$tree_before" = "$tree_after" ]; then
+		echo "tree unchanged: the run produced no work, dispatch it again" >&2
+	else
+		echo "tree changed: the tree is there but gate results are not, review the tree and run every gate here" >&2
+	fi
 	exit 1
 fi
 
