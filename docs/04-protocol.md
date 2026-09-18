@@ -472,7 +472,7 @@ This is the same attack surface as zip slip. The path is normalized before joini
 
 **And it is transformed on every platform, which is the part worth stating rather than implying.** The sanitizer answers one name for one input, so a Share browsed from a phone and from a desktop shows the same names and a file does not change identity by arriving somewhere else. `CON` becomes `CON_` on Linux for the same reason, where nothing is reserved. **The cost is a colon becoming an underscore on a system that could have kept it**, and it is paid for a property that is worth more: what a receiver will write is decided by the path, never by which receiver it is.
 
-**The replacement runs before the reserved-name check**, so that check never sees a colon and cannot be stepped around by one.
+**The replacement runs before the reserved-name check**, so that check compares a colon-free component. **It is an ordering, not a defence, and the difference was measured rather than assumed**: neither order changes any answer, because a stem holding a colon is never a reserved name and replacing a colon with `_` never produces one, and `_` occupies the position the colon held so the stem and extension divide at the same index either way. Three hundred and ninety-six inputs crossing every reserved name with leading, interior and trailing colons give byte-identical results under both. **The order is fixed anyway, because a rule stated once is a rule two implementations cannot read differently** -- but nothing here is protecting the reserved-name check from a colon, and a sentence saying otherwise would be inviting a test that can never fail.
 
 ### Why a filename may not reorder itself
 
