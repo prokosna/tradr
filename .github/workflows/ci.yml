@@ -3,7 +3,7 @@ name: CI
 on:
   # Automated runs trigger only on pull requests to isolate verification
   # to candidate changes, while workflow_dispatch allows manual runs
-  # for release builds without recurring schedule costs.
+  # for on-demand verification without recurring schedule costs.
   pull_request:
   workflow_dispatch:
 
@@ -171,8 +171,6 @@ jobs:
     # macos-latest rolled to macOS 26, where clang segfaults while linking
     # phf_macros and the failure is reported as a compile error (2026-09-13).
     runs-on: macos-15
-    env:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -197,27 +195,12 @@ jobs:
 
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
-      - name: cargo tauri build (with code signing)
-        if: ${{ env.APPLE_CERTIFICATE != '' }}
+      - name: cargo tauri build
         working-directory: apps/tradr/src-tauri
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: cargo tauri build
-
-      - name: cargo tauri build (without code signing)
-        if: ${{ env.APPLE_CERTIFICATE == '' }}
-        working-directory: apps/tradr/src-tauri
-        run: cargo tauri build
+        run: cargo tauri build --no-bundle
 
   windows:
     runs-on: windows-latest
-    env:
-      TAURI_SIGNING_CERTIFICATE: ${{ secrets.TAURI_SIGNING_CERTIFICATE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -242,18 +225,9 @@ jobs:
 
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
-      - name: cargo tauri build (with code signing)
-        if: ${{ env.TAURI_SIGNING_CERTIFICATE != '' }}
+      - name: cargo tauri build
         working-directory: apps/tradr/src-tauri
-        env:
-          TAURI_SIGNING_CERTIFICATE: ${{ secrets.TAURI_SIGNING_CERTIFICATE }}
-          TAURI_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.TAURI_SIGNING_CERTIFICATE_PASSWORD }}
-        run: cargo tauri build
-
-      - name: cargo tauri build (without code signing)
-        if: ${{ env.TAURI_SIGNING_CERTIFICATE == '' }}
-        working-directory: apps/tradr/src-tauri
-        run: cargo tauri build
+        run: cargo tauri build --no-bundle
 
   # WI-M0-015b: this job measured 41 minutes (four ABIs, release, every
   # push). Local measurement found ABI count and release optimization
