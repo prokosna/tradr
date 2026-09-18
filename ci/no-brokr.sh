@@ -5,57 +5,15 @@ set -eu
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 ROOT_DIR=$(dirname "$SCRIPT_DIR")
-INVENTORY="$ROOT_DIR/ci/tier01-tests.txt"
 cd "$ROOT_DIR"
 
 echo "== no-brokr: verifying Invariant I1 (Tier 0/1 with no Brokr reachable) =="
-
-if [ ! -f "$INVENTORY" ]; then
-	echo "no-brokr: $INVENTORY does not exist; Invariant I1 has nothing to verify" >&2
-	exit 1
-fi
 
 TMP_PAIRS=$(mktemp)
 SEALED_SCRIPT=$(mktemp)
 trap 'rm -f "$TMP_PAIRS" "$SEALED_SCRIPT"' EXIT
 
-# --- Load the inventory, failing loudly the moment it has stopped
-# counting: an empty file, a missing reason, or a test target that no
-# longer exists must never be allowed to report success (DoD #2).
-entry_count=0
-while IFS='|' read -r raw_crate raw_target raw_reason; do
-	crate=$(printf '%s' "${raw_crate:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-	case "$crate" in
-		'' | '#'*) continue ;;
-	esac
-	target=$(printf '%s' "${raw_target:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-	reason=$(printf '%s' "${raw_reason:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-
-	if [ -z "$target" ]; then
-		echo "no-brokr: $INVENTORY: entry '$crate' has no test target" >&2
-		exit 1
-	fi
-	if [ -z "$reason" ]; then
-		echo "no-brokr: $INVENTORY: entry '$crate|$target' has an empty reason" >&2
-		exit 1
-	fi
-
-	test_file="crates/$crate/tests/$target.rs"
-	if [ ! -f "$test_file" ]; then
-		echo "no-brokr: $INVENTORY: $test_file does not exist" >&2
-		exit 1
-	fi
-
-	entry_count=$((entry_count + 1))
-	printf '%s|%s\n' "$crate" "$target" >> "$TMP_PAIRS"
-done < "$INVENTORY"
-
-if [ "$entry_count" -eq 0 ]; then
-	echo "no-brokr: $INVENTORY names no test; Invariant I1 has nothing to verify" >&2
-	exit 1
-fi
-
-echo "no-brokr: $entry_count Tier 0/1 test target(s) named in the inventory"
+"$SCRIPT_DIR/tier01-inventory.sh" --pairs > "$TMP_PAIRS"
 
 # --- Choose a sealing mechanism. Unprivileged user+net namespaces are
 # tried first; the sudo fallback re-enters as the invoking user so files
