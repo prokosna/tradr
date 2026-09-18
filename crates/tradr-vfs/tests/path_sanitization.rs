@@ -118,6 +118,71 @@ fn sanitizes_windows_reserved_names() {
 }
 
 #[test]
+fn replaces_a_colon_so_no_component_can_name_an_alternate_data_stream() {
+    let cases = [
+        ("report.pdf:evil.exe", "report.pdf_evil.exe"),
+        ("ab:cd:ef.txt", "ab_cd_ef.txt"),
+        ("dir:x/file.txt", "dir_x/file.txt"),
+        ("notes:", "notes_"),
+        (":leading", "_leading"),
+    ];
+
+    for (input, expected) in cases {
+        let sanitized =
+            sanitize_destination_path(input).expect("a colon must transform, not refuse");
+        assert_eq!(sanitized.as_str(), expected);
+        assert!(
+            !sanitized.as_str().contains(':'),
+            "no colon may survive sanitization: {input:?}"
+        );
+    }
+}
+
+#[test]
+fn a_colon_bearing_name_is_transformed_rather_than_refused() {
+    let sanitized = sanitize_destination_path("2026-08-22T10:00:00.log")
+        .expect("an ordinary timestamped name must not be refused");
+
+    assert_eq!(sanitized.as_str(), "2026-08-22T10_00_00.log");
+}
+
+#[test]
+fn a_drive_prefixed_path_is_still_refused_rather_than_transformed() {
+    assert_eq!(
+        sanitize_destination_path("C:\\Windows\\System32"),
+        Err(SanitizationError::AbsolutePath)
+    );
+    assert_eq!(
+        sanitize_destination_path("D:/data/file.txt"),
+        Err(SanitizationError::AbsolutePath)
+    );
+    // One letter then a colon is the drive position, so it is refused
+    // rather than transformed; the colon rule starts after it.
+    assert_eq!(
+        sanitize_destination_path("a:b.txt"),
+        Err(SanitizationError::AbsolutePath)
+    );
+}
+
+// DF-85: this asserts the outcome and deliberately not the order the two
+// transforms run in, which no input can distinguish.
+#[test]
+fn a_reserved_name_carrying_a_colon_comes_out_safe() {
+    let cases = [
+        ("CON:", "CON_"),
+        ("con:.txt", "con_.txt"),
+        ("NUL:x", "NUL_x"),
+    ];
+
+    for (input, expected) in cases {
+        let sanitized =
+            sanitize_destination_path(input).expect("a reserved name with a colon must sanitize");
+        assert_eq!(sanitized.as_str(), expected);
+        assert!(!sanitized.as_str().contains(':'));
+    }
+}
+
+#[test]
 fn strips_trailing_dots_and_spaces() {
     let cases = [
         ("folder. /file.txt. ", "folder/file.txt"),

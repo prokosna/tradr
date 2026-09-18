@@ -217,9 +217,11 @@ pub fn sanitize_destination_path(raw_path: &str) -> Result<RelPath, Sanitization
             return Err(SanitizationError::ParentTraversal);
         }
 
-        let (stem, ext) = match trimmed.find('.') {
-            Some(idx) => (&trimmed[..idx], &trimmed[idx..]),
-            None => (trimmed, ""),
+        // A colon on NTFS names an alternate data stream.
+        let replaced = trimmed.replace(':', "_");
+        let (stem, ext) = match replaced.find('.') {
+            Some(idx) => (&replaced[..idx], &replaced[idx..]),
+            None => (&replaced[..], ""),
         };
 
         if WINDOWS_RESERVED
@@ -228,7 +230,7 @@ pub fn sanitize_destination_path(raw_path: &str) -> Result<RelPath, Sanitization
         {
             sanitized_components.push(format!("{stem}_{ext}"));
         } else {
-            sanitized_components.push(trimmed.to_string());
+            sanitized_components.push(replaced);
         }
     }
 
