@@ -13,8 +13,9 @@ use tradr_discovery::{
 };
 use tradr_transport::quic::QuicTransport;
 
-/// Binds the QUIC transport, falling back to an ephemeral port if the default is taken.
-pub fn bind_quic_transport(key_store: Arc<dyn KeyStore>) -> Result<Arc<QuicTransport>, String> {
+/// Answers the two addresses a QUIC bind tries: the fixed default port and
+/// the ephemeral fallback, in that order.
+pub fn quic_bind_addresses() -> Result<(SocketAddr, SocketAddr), String> {
     // docs/03, "The default port, and why it is not 51820": 21820 is the
     // fixed number a Static Peer's dialling side can rely on with no way
     // to be told otherwise. The bind falls back to an ephemeral port
@@ -26,17 +27,33 @@ pub fn bind_quic_transport(key_store: Arc<dyn KeyStore>) -> Result<Arc<QuicTrans
     let ephemeral_addr: SocketAddr = "0.0.0.0:0"
         .parse()
         .map_err(|e: std::net::AddrParseError| e.to_string())?;
+    Ok((default_addr, ephemeral_addr))
+}
+
+/// Binds `default_addr`, falling back to `fallback_addr` when the default is
+/// unavailable, and reports the refusal that caused the fallback.
+pub fn bind_with_fallback(
+    key_store: Arc<dyn KeyStore>,
+    default_addr: SocketAddr,
+    fallback_addr: SocketAddr,
+) -> Result<Arc<QuicTransport>, String> {
     let transport = Arc::new(match QuicTransport::new(key_store.clone(), default_addr) {
         Ok(t) => t,
         Err(e) => {
             eprintln!(
-                "lifecycle: default quic port {STATIC_PEER_DEFAULT_PORT} unavailable ({e}), falling back to an ephemeral port"
+                "lifecycle: default quic port {default_addr} unavailable ({e}), falling back to an ephemeral port"
             );
-            QuicTransport::new(key_store.clone(), ephemeral_addr)
+            QuicTransport::new(key_store.clone(), fallback_addr)
                 .map_err(|e| format!("failed to start quic transport: {e}"))?
         }
     });
     Ok(transport)
+}
+
+/// Binds the QUIC transport, falling back to an ephemeral port if the default is taken.
+pub fn bind_quic_transport(key_store: Arc<dyn KeyStore>) -> Result<Arc<QuicTransport>, String> {
+    let (default_addr, fallback_addr) = quic_bind_addresses()?;
+    bind_with_fallback(key_store, default_addr, fallback_addr)
 }
 
 fn is_virtual_interface(name: &str) -> bool {
