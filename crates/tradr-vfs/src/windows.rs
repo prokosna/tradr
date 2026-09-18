@@ -22,6 +22,7 @@ struct RootEntry {
 fn map_io_err(err: std::io::Error) -> VfsError {
     match err.kind() {
         std::io::ErrorKind::NotFound => VfsError::NotFound,
+        std::io::ErrorKind::DirectoryNotEmpty => VfsError::WrongKind,
         std::io::ErrorKind::PermissionDenied => VfsError::Io(std::io::ErrorKind::PermissionDenied),
         std::io::ErrorKind::AlreadyExists => VfsError::Io(std::io::ErrorKind::AlreadyExists),
         _ => VfsError::Io(err.kind()),
