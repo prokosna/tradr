@@ -5801,6 +5801,7 @@ dependencies = [
  "quinn",
  "rustls",
  "snow",
+ "socket2",
  "tokio",
  "tradr-core",
  "tradr-proto",

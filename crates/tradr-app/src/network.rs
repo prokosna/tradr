@@ -21,10 +21,10 @@ pub fn quic_bind_addresses() -> Result<(SocketAddr, SocketAddr), String> {
     // to be told otherwise. The bind falls back to an ephemeral port
     // whenever the default is already taken, which is every time two
     // instances run on the same machine.
-    let default_addr: SocketAddr = format!("0.0.0.0:{STATIC_PEER_DEFAULT_PORT}")
+    let default_addr: SocketAddr = format!("[::]:{STATIC_PEER_DEFAULT_PORT}")
         .parse()
         .map_err(|e: std::net::AddrParseError| e.to_string())?;
-    let ephemeral_addr: SocketAddr = "0.0.0.0:0"
+    let ephemeral_addr: SocketAddr = "[::]:0"
         .parse()
         .map_err(|e: std::net::AddrParseError| e.to_string())?;
     Ok((default_addr, ephemeral_addr))

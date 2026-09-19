@@ -90,11 +90,11 @@ fn quic_bind_addresses_answers_the_default_port_then_an_ephemeral_fallback() {
     assert_eq!(fallback_addr.port(), 0);
     assert_eq!(
         default_addr.ip(),
-        std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED)
+        std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED)
     );
     assert_eq!(
         fallback_addr.ip(),
-        std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED)
+        std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED)
     );
 }
 

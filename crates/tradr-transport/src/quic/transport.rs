@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
+use socket2::{Domain, Protocol, Socket, Type};
 use tradr_core::{
     BoxFuture, Candidate, Incoming, KeyStore, PeerExpectation, SecureChannel, Transport,
     TransportError, TransportId,
@@ -53,6 +54,14 @@ impl std::error::Error for QuicTransportError {
     }
 }
 
+fn dual_stack_udp_socket(bind: SocketAddr) -> std::io::Result<std::net::UdpSocket> {
+    let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+    // IPV6_V6ONLY defaults disagree across platforms, so dual-stack is explicitly enabled here (docs/03, DCR-138).
+    socket.set_only_v6(false)?;
+    socket.bind(&socket2::SockAddr::from(bind))?;
+    Ok(socket.into())
+}
+
 /// `direct-quic`: a `quinn::Endpoint` that both dials and listens, backed
 /// by the device's `KeyStore`.
 pub struct QuicTransport {
@@ -77,8 +86,23 @@ impl QuicTransport {
             ))
         })?;
         let server_config = quinn::ServerConfig::with_crypto(Arc::new(quic_crypto));
-        let endpoint =
-            quinn::Endpoint::server(server_config, bind).map_err(QuicTransportError::Io)?;
+        let endpoint = match bind {
+            // Dual-stack is a property of the wildcard bind, and Windows refuses the option on a specific address.
+            SocketAddr::V6(addr) if addr.ip().is_unspecified() => {
+                let std_socket = dual_stack_udp_socket(bind).map_err(QuicTransportError::Io)?;
+                let runtime = quinn::default_runtime().ok_or_else(|| {
+                    QuicTransportError::Io(std::io::Error::other("no async runtime found"))
+                })?;
+                quinn::Endpoint::new(
+                    quinn::EndpointConfig::default(),
+                    Some(server_config),
+                    std_socket,
+                    runtime,
+                )
+                .map_err(QuicTransportError::Io)?
+            }
+            _ => quinn::Endpoint::server(server_config, bind).map_err(QuicTransportError::Io)?,
+        };
         Ok(Self {
             key_store,
             endpoint,
@@ -261,5 +285,112 @@ mod tests {
             first_dialable(v4_local(), resolved.into_iter()),
             Some(addr("192.0.2.1:9"))
         );
+    }
+
+    use std::time::Duration;
+
+    use crate::test_support::device;
+
+    #[test]
+    fn dual_stack_socket_has_v6only_disabled() {
+        let bind: SocketAddr = "[::]:0".parse().expect("valid address literal");
+        let socket = dual_stack_udp_socket(bind).expect("dual-stack socket binds");
+        assert!(matches!(
+            socket2::SockRef::from(&socket).only_v6(),
+            Ok(false)
+        ));
+    }
+
+    const TEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+    #[tokio::test]
+    async fn binds_ipv6_endpoint_through_production_path() {
+        tokio::time::timeout(TEST_TIMEOUT, async {
+            let key_store = device(0x11);
+            let bind: SocketAddr = "[::]:0".parse().expect("valid address literal");
+            let transport = QuicTransport::new(key_store, bind).expect("production bind succeeds");
+            let local = transport.local_addr().expect("reports local address");
+            assert!(local.is_ipv6());
+        })
+        .await
+        .expect("production bind completes within timeout");
+    }
+
+    #[tokio::test]
+    async fn endpoint_bound_to_specific_ipv6_produces_working_endpoint() {
+        tokio::time::timeout(TEST_TIMEOUT, async {
+            let key_store = device(0x11);
+            let bind: SocketAddr = "[::1]:0".parse().expect("valid address literal");
+            let transport =
+                QuicTransport::new(key_store, bind).expect("specific ipv6 bind succeeds");
+            let local = transport.local_addr().expect("reports local address");
+            assert!(local.is_ipv6());
+        })
+        .await
+        .expect("production bind completes within timeout");
+    }
+
+    #[tokio::test]
+    async fn endpoint_bound_to_ipv6_wildcard_accepts_ipv4_loopback_connection() {
+        tokio::time::timeout(TEST_TIMEOUT, async {
+            let server_store = device(0x22);
+            let server_bind: SocketAddr = "[::]:0".parse().expect("valid address literal");
+            let server_transport =
+                QuicTransport::new(server_store, server_bind).expect("server binds");
+            let server_port = server_transport.local_addr().expect("local addr").port();
+            let mut incoming = server_transport.listen().await.expect("listen succeeds");
+
+            let client_store = device(0x11);
+            let client_bind: SocketAddr = "127.0.0.1:0".parse().expect("valid address literal");
+            let client_transport =
+                QuicTransport::new(client_store, client_bind).expect("client binds");
+
+            let candidate = Candidate::new(TRANSPORT_ID, &format!("127.0.0.1:{server_port}"))
+                .expect("valid candidate");
+            let dial = client_transport.connect(&candidate, &PeerExpectation::Unpinned);
+            let accept = incoming.accept();
+
+            let (dial_res, accept_res) = tokio::join!(dial, accept);
+            assert!(dial_res.is_ok(), "dial must succeed: {:?}", dial_res.err());
+            assert!(
+                accept_res.is_ok(),
+                "accept must succeed: {:?}",
+                accept_res.err()
+            );
+        })
+        .await
+        .expect("handshake completed within timeout");
+    }
+
+    #[tokio::test]
+    async fn endpoint_bound_to_ipv6_wildcard_accepts_ipv6_loopback_connection() {
+        tokio::time::timeout(TEST_TIMEOUT, async {
+            let server_store = device(0x22);
+            let server_bind: SocketAddr = "[::]:0".parse().expect("valid address literal");
+            let server_transport =
+                QuicTransport::new(server_store, server_bind).expect("server binds");
+            let server_port = server_transport.local_addr().expect("local addr").port();
+            let mut incoming = server_transport.listen().await.expect("listen succeeds");
+
+            let client_store = device(0x11);
+            let client_bind: SocketAddr = "[::1]:0".parse().expect("valid address literal");
+            let client_transport =
+                QuicTransport::new(client_store, client_bind).expect("client binds");
+
+            let candidate = Candidate::new(TRANSPORT_ID, &format!("[::1]:{server_port}"))
+                .expect("valid candidate");
+            let dial = client_transport.connect(&candidate, &PeerExpectation::Unpinned);
+            let accept = incoming.accept();
+
+            let (dial_res, accept_res) = tokio::join!(dial, accept);
+            assert!(dial_res.is_ok(), "dial must succeed: {:?}", dial_res.err());
+            assert!(
+                accept_res.is_ok(),
+                "accept must succeed: {:?}",
+                accept_res.err()
+            );
+        })
+        .await
+        .expect("handshake completed within timeout");
     }
 }
