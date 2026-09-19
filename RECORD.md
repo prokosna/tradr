@@ -1756,6 +1756,104 @@ These stood in `STATE.md`'s In flight block until `WI-M1-000h`. Every one descri
 
 **`WI-M1-013` merged as PR #29 with all six jobs green, so `main` carries every Work Item through it and no pull request is open.** The post-merge audit below reopens it, along with `WI-M1-010`, `WI-M1-011` and `WI-M1-012`.
 
+## Device runs: the exact procedure
+
+> **Three runs stand between this repository and two milestone criteria, and none of them produces a diff.** They are written here rather than in [STATE.md](STATE.md) because that file is 5 KiB under its ceiling and because they depend on the Build environment section directly above: which JDK, which keystore, which machine. **STATE.md's next three actions say why each run matters; this says how to perform one.** Added 2026-09-19.
+
+**Every one of them is the user's to run, because every one needs a radio, a browser press, or a second machine.** What a run owes back is the verbatim output of the lines named under "What to write down" -- not a summary of them. A run reported as "it worked" measures nothing, and two of these three exist because something that looked like it worked did not.
+
+### Run A -- one file through `tradr receive`, which is M8's own question
+
+**What it decides**: whether M8's completion criterion is reachable. The composition compiles and every seam under it is tested; nothing has put a file through it.
+
+**Two machines, and they may not be one.** The receiver is `tradr-cli` on this Linux machine; the sender is the Tradr GUI on the MacBook, signed into the same Google account, on the same LAN with Wi-Fi on. **The GUI on this machine cannot stand in for the MacBook**: both front ends resolve the same `~/.local/share/com.tradr.app`, so they hold one Device Key, advertise one Device ID and want the same QUIC port 21820. If the desktop GUI is running here, quit it before step 4.
+
+**Receiver, on this Linux machine**
+
+1. Build it once with `cargo build --release -p tradr-cli`. **The steps below invoke it through `cargo run` rather than by naming the built file**, because a path inside the build output directory is not a reference and DF-77 records what naming one costs.
+2. Check the Device Key opens, before anything harder can be blamed for it:
+
+   ```
+   cargo run --release -p tradr-cli -- device
+   ```
+
+   Three lines are expected: `device id`, `backing`, `storage`. **`storage secret service` is the rung to want and `storage file` is the lower one**, which still works. **A failure naming `SS Error: object locked` is the login keyring, not Tradr** -- unlock it in Seahorse ("Passwords and Keys" -> Login -> Unlock) and run this again. This is exactly where the earlier attempt stopped.
+3. Put the deployment's OAuth client into the environment. **The CLI reads it at run time, where the GUI bakes it in at build time (DCR-030)**, so a shell that has not sourced it fails at `oauth_client`:
+
+   ```
+   set -a; . ./.tradr-deployment.env; set +a
+   printf '%s\n' "$TRADR_OAUTH_CLIENT_IDS" | tr ',' '\n'
+   ```
+
+   A `desktop:` entry must be among the lines printed.
+4. Start it, in a terminal that stays open:
+
+   ```
+   mkdir -p ~/tradr-inbox
+   cargo run --release -p tradr-cli -- receive ~/tradr-inbox
+   ```
+
+   It prints `receive: opening browser for sign-in...`, opens a browser tab, and waits. Sign in as the account the MacBook is signed into. It then prints `receive: listening on quic port <n>` and holds the terminal. **Nothing further prints until a transfer arrives**, and on arrival it prints one line per file.
+
+**Sender, on the MacBook**
+
+5. `cargo tauri build --no-bundle` there, or run the app already built. Its `.tradr-deployment.env` needs at least the `desktop:` entry, and the account must match step 4's.
+6. In the GUI, wait for this Linux machine to appear in the peer list, pick a file, send it.
+
+**What to write down**
+
+- the port on the `receive: listening on quic port` line, and whether it is 21820 or something else
+- whether the Linux machine appeared in the MacBook's peer list at all, and roughly how long it took
+- every line the receiver printed after that, verbatim
+- `ls -l ~/tradr-inbox`, and `sha256sum` of the arrived file against the source
+- any error, verbatim and in full, including the ones that look self-explanatory
+
+### Run B -- one press of Sign In on Android
+
+**What it decides**: three things at once, off one log line. `WI-M7-015` landed this path on 2026-09-14 and none of it has touched a radio, a provider or a phone.
+
+**The APK must be built on the MacBook.** The `com.tradr.app.debug` Google client carries that machine's `~/.android/debug.keystore` fingerprint and no other; an APK built on this Linux machine is refused by the provider, **and no message will name a certificate**.
+
+1. On the MacBook, make sure `.tradr-deployment.env` has all three entries, `desktop:<id>,android:<id>,web:<id>`. **Without `web:` the build refuses at `oauth_client` with `TRADR_OAUTH_CLIENT_IDS names no client for 'web'`**, which is a different message from the unset-variable one and says exactly this. The file is gitignored, so this repository's 2026-09-14 update never travelled there.
+2. Build and install:
+
+   ```
+   JAVA_HOME=/path/to/jdk-21 cargo tauri android build --debug -t aarch64
+   adb install -g -r <the apk>
+   ```
+
+   `-g` grants the runtime permissions the BLE path needs; it costs nothing here and Run C requires it.
+3. Start `adb logcat -s RustStdoutStderr` in a terminal before pressing anything. **Rust's stdout reaches logcat under that tag and there is no `tauri`- or `wry`-tagged output at all.**
+4. Press Sign In. Complete it.
+5. Press Sign In a second time, without signing out.
+
+**What to write down**
+
+- the `sign_in: option_class=` line from each press, verbatim. **That one line carries three measurements**: which credential class answered, whether the nonce survived -- the path refuses anything but `SameAccount`, so a completed sign-in is the proof -- and, on the second press, whether `googleId` answers with no interaction, which is the renewal measurement [docs/05](docs/05-security.md) is still waiting for
+- whether a browser or an account chooser appeared, and on which press
+- every `RustStdoutStderr` line around the press, not only the matching one
+
+### Run C -- M7's completion criterion: a transfer with every Wi-Fi off
+
+**What it decides**: M7 closed on its code and not on its run (DCR-117). This is the run.
+
+**The direction is Linux to Android and only that.** This machine cannot advertise over BLE (DF-45, R1), so the Linux side scans and the Android side advertises; reversing it measures nothing.
+
+1. Both devices signed into the **same Google account**. Run B must have passed first -- an Android build that cannot sign in cannot reach a Trust Tier.
+2. Android: the Run B APK, installed with `-g`.
+3. Linux: `cargo tauri build --no-bundle` here, run the binary it produces.
+4. **Wi-Fi off on both devices. Bluetooth on on both.** Turning Wi-Fi off is the whole assertion: with it on, mDNS and QUIC carry the transfer and the run says nothing about BLE.
+5. Send from the Linux GUI to the phone.
+
+**What to write down**
+
+- every `ble discovery: arrival handle=...` line the Linux side prints, verbatim
+- whether the phone appeared in the Linux peer list, and how long after Bluetooth was on
+- whether a transfer completed, and the file's checksum on both sides
+- **`BLE I/O error: other` once per slot is expected and is not the run failing.** Write down how many times it appeared anyway; a count is a measurement and "some" is not
+
+---
+
 ## Build environment, Ubuntu 24.04.4 LTS
 
 > Moved out of [STATE.md](STATE.md) on 2026-09-10 under that file's ceiling rule. **It is live reference rather than a closed section: keep it current here**, and read it before dispatching a Work Order.
