@@ -307,6 +307,34 @@ pub async fn derive_item_resumption(
     }
 }
 
+// A peer that already closed its connection has nothing left in flight to it.
+fn should_report_control_close_error(err: &TransportError) -> bool {
+    match err {
+        TransportError::Closed => false,
+        TransportError::Unreachable
+        | TransportError::TimedOut
+        | TransportError::Rejected
+        | TransportError::AuthenticationFailed
+        | TransportError::Io(_) => true,
+    }
+}
+
+async fn finish_and_wait_for_control_close(
+    control_send: &mut (impl SendStream + ?Sized),
+    control_recv: &mut (impl RecvStream + ?Sized),
+) {
+    if let Err(e) = control_send.finish().await {
+        eprintln!("listener: closing the control stream failed: {e}");
+    }
+
+    let mut dummy = [0u8; 1];
+    if let Err(e) = control_recv.read(&mut dummy).await
+        && should_report_control_close_error(&e)
+    {
+        eprintln!("listener: waiting for control stream close failed: {e}");
+    }
+}
+
 /// Handles a single incoming secure channel through handshake, offer exchange, and file reception.
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_incoming_channel<V, F, Fut>(
@@ -452,14 +480,11 @@ where
                         placed_paths.push(placed);
                     }
 
-                    if let Err(e) = control_send.finish().await {
-                        eprintln!("listener: closing the control stream failed: {e}");
-                    }
-
-                    let mut dummy = [0u8; 1];
-                    if let Err(e) = control_recv.read(&mut dummy).await {
-                        eprintln!("listener: waiting for control stream close failed: {e}");
-                    }
+                    finish_and_wait_for_control_close(
+                        control_send.as_mut(),
+                        control_recv.as_mut(),
+                    )
+                    .await;
 
                     Ok(placed_paths)
                 }
@@ -497,14 +522,7 @@ where
                 )
                 .await;
 
-            if let Err(e) = control_send.finish().await {
-                eprintln!("listener: closing the control stream failed: {e}");
-            }
-
-            let mut dummy = [0u8; 1];
-            if let Err(e) = control_recv.read(&mut dummy).await {
-                eprintln!("listener: waiting for control stream close failed: {e}");
-            }
+            finish_and_wait_for_control_close(control_send.as_mut(), control_recv.as_mut()).await;
 
             serve_res.map_err(ListenerError::LinkExchange)?;
             Ok(Vec::new())
@@ -692,5 +710,30 @@ mod tests {
         }
         // Distinguishes prefix refusal from decoder-side refusal after payload read.
         assert_eq!(stream.read_count(), 1);
+    }
+
+    #[test]
+    fn closed_transport_error_is_not_reported_on_control_close() {
+        assert!(!should_report_control_close_error(&TransportError::Closed));
+    }
+
+    #[test]
+    fn non_closed_transport_errors_are_reported_on_control_close() {
+        let check = |err: TransportError| match err {
+            TransportError::Closed => unreachable!(),
+            TransportError::Unreachable => assert!(should_report_control_close_error(&err)),
+            TransportError::TimedOut => assert!(should_report_control_close_error(&err)),
+            TransportError::Rejected => assert!(should_report_control_close_error(&err)),
+            TransportError::AuthenticationFailed => {
+                assert!(should_report_control_close_error(&err))
+            }
+            TransportError::Io(_) => assert!(should_report_control_close_error(&err)),
+        };
+
+        check(TransportError::Unreachable);
+        check(TransportError::TimedOut);
+        check(TransportError::Rejected);
+        check(TransportError::AuthenticationFailed);
+        check(TransportError::Io(std::io::ErrorKind::ConnectionReset));
     }
 }
