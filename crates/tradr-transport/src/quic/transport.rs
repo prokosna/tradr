@@ -87,7 +87,8 @@ impl QuicTransport {
         })?;
         let server_config = quinn::ServerConfig::with_crypto(Arc::new(quic_crypto));
         let endpoint = match bind {
-            SocketAddr::V6(_) => {
+            // Dual-stack is a property of the wildcard bind, and Windows refuses the option on a specific address.
+            SocketAddr::V6(addr) if addr.ip().is_unspecified() => {
                 let std_socket = dual_stack_udp_socket(bind).map_err(QuicTransportError::Io)?;
                 let runtime = quinn::default_runtime().ok_or_else(|| {
                     QuicTransportError::Io(std::io::Error::other("no async runtime found"))
@@ -100,9 +101,7 @@ impl QuicTransport {
                 )
                 .map_err(QuicTransportError::Io)?
             }
-            SocketAddr::V4(_) => {
-                quinn::Endpoint::server(server_config, bind).map_err(QuicTransportError::Io)?
-            }
+            _ => quinn::Endpoint::server(server_config, bind).map_err(QuicTransportError::Io)?,
         };
         Ok(Self {
             key_store,
@@ -310,6 +309,20 @@ mod tests {
             let key_store = device(0x11);
             let bind: SocketAddr = "[::]:0".parse().expect("valid address literal");
             let transport = QuicTransport::new(key_store, bind).expect("production bind succeeds");
+            let local = transport.local_addr().expect("reports local address");
+            assert!(local.is_ipv6());
+        })
+        .await
+        .expect("production bind completes within timeout");
+    }
+
+    #[tokio::test]
+    async fn endpoint_bound_to_specific_ipv6_produces_working_endpoint() {
+        tokio::time::timeout(TEST_TIMEOUT, async {
+            let key_store = device(0x11);
+            let bind: SocketAddr = "[::1]:0".parse().expect("valid address literal");
+            let transport =
+                QuicTransport::new(key_store, bind).expect("specific ipv6 bind succeeds");
             let local = transport.local_addr().expect("reports local address");
             assert!(local.is_ipv6());
         })
