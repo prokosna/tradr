@@ -30,6 +30,7 @@ run_stage() {
 run_stage "ci/run-all.sh" sh ci/run-all.sh
 run_stage "cargo fmt --check" cargo fmt --check
 run_stage "cargo clippy --workspace --all-targets -- -D warnings" cargo clippy --workspace --all-targets -- -D warnings
+run_stage "ci/windows-target.sh" sh ci/windows-target.sh
 run_stage "cargo test --workspace" cargo test --workspace
 
 exit 0

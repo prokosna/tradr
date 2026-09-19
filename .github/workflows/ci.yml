@@ -48,9 +48,9 @@ jobs:
 
       - run: sh ci/run-all.sh
 
-  # cargo fmt, clippy, the workspace test suite, and a workspace build.
-  # The workspace includes apps/tradr/src-tauri, so even a plain
-  # `cargo build` links against the host WebKitGTK stack on Linux.
+  # cargo fmt, clippy, windows-target, the workspace test suite, and a
+  # workspace build. The workspace includes apps/tradr/src-tauri, so even
+  # a plain `cargo build` links against the host WebKitGTK stack on Linux.
   rust:
     runs-on: ubuntu-latest
     steps:
@@ -77,6 +77,7 @@ jobs:
 
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: sh ci/windows-target.sh
       - run: cargo test --workspace
       - run: cargo build --locked --workspace
 
