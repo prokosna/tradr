@@ -44,7 +44,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-(none)
+**`WI-M8-027`, ruled by DCR-138 on 2026-09-19.** The docs commit is ahead of it per [CLAUDE.md](CLAUDE.md#5-git--only-the-supervisor-commits) section 5. It is DF-24's repair and the only thing standing between here and M8's completion criterion.
 
 ## Decisions
 
@@ -99,6 +99,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
+| WI-M8-027 | **DF-24's repair, to DCR-138: the QUIC listener binds `[::]` and sets `IPV6_V6ONLY` explicitly.** `quic_bind_addresses` answers `[::]:21820` and `[::]:0`; `tradr-transport` builds the socket with `socket2`, clears `only_v6`, and hands `quinn::Endpoint::new` a prepared socket. **The dialling side and `first_dialable` are untouched** -- `quinn` maps a V4 remote itself on an IPv6 endpoint. The test that decides it binds `[::]` and dials the loopback of both families | planned | |
 | WI-M6-009 | **Scanning a QR with a camera.** `WI-M6-007b` shows a QR and accepts a pasted blob, which is the whole payload either way (docs/11: "one payload and one parser"), so a QR read by any camera application already links. **A scanner inside Tradr is a platform integration and not an interface change** -- Android has `@tauri-apps/plugin-barcode-scanner` and a camera permission to justify, and the desktop has no camera API at all -- so it is its own Work Item rather than a line in one about React | planned | |
 
 ## Deferred
