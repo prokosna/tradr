@@ -9,3 +9,6 @@ pub mod quic;
 pub mod selection;
 pub mod set;
 pub mod tls;
+
+#[cfg(test)]
+mod test_support;
