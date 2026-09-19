@@ -56,6 +56,23 @@ pub fn bind_quic_transport(key_store: Arc<dyn KeyStore>) -> Result<Arc<QuicTrans
     bind_with_fallback(key_store, default_addr, fallback_addr)
 }
 
+/// Answers the ephemeral IPv6 address used when dialling peers.
+pub fn quic_dial_bind_address() -> Result<SocketAddr, String> {
+    let ephemeral_addr: SocketAddr = "[::]:0"
+        .parse()
+        .map_err(|e: std::net::AddrParseError| e.to_string())?;
+    Ok(ephemeral_addr)
+}
+
+/// Binds an ephemeral QUIC transport for dialling without taking the fixed listening port.
+pub fn bind_quic_dialler(key_store: Arc<dyn KeyStore>) -> Result<Arc<QuicTransport>, String> {
+    // A front end that dials and never listens must not hold the fixed port 21820.
+    let dial_addr = quic_dial_bind_address()?;
+    let transport = QuicTransport::new(key_store, dial_addr)
+        .map_err(|e| format!("failed to start quic dialler: {e}"))?;
+    Ok(Arc::new(transport))
+}
+
 fn is_virtual_interface(name: &str) -> bool {
     name.starts_with("veth")
         || name.starts_with("br-")
