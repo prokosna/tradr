@@ -94,7 +94,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 #### Work Items
 
-**M8's ten landed rows moved to [RECORD.md](RECORD.md) on 2026-09-17, at the ninth ceiling.** `WI-M8-006` through `WI-M8-015` are closed and their rows are the longest thing in this file; the Review record already carries why each went the way it did, and the rows carry what each one moved. **Moving is what the ceiling asks for and shortening is what it forbids**, so they went across whole. **`WI-M8-016` landed the same day and never had a row here**: it is the three deferred entries DF-78, DF-79 and DF-80 taken together, and the Review record carries what it closed and what it did not. **What it did not close is DF-79's bind half**, which is in Deferred below with the reason it is a design change rather than a test.
+**Every landed M8 row is in [RECORD.md](RECORD.md): `WI-M8-006` to `WI-M8-015` moved on 2026-09-17 at the ninth ceiling, `WI-M8-017` to `WI-M8-026` on 2026-09-19 at the tenth.** What is left in the table below is what is not closed. The original note follows.** `WI-M8-006` through `WI-M8-015` are closed and their rows are the longest thing in this file; the Review record already carries why each went the way it did, and the rows carry what each one moved. **Moving is what the ceiling asks for and shortening is what it forbids**, so they went across whole. **`WI-M8-016` landed the same day and never had a row here**: it is the three deferred entries DF-78, DF-79 and DF-80 taken together, and the Review record carries what it closed and what it did not. **What it did not close is DF-79's bind half**, which is in Deferred below with the reason it is a design change rather than a test.
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
