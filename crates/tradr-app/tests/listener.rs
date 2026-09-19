@@ -10,7 +10,8 @@ use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::handshake::{HandshakeParams, perform_handshake};
 use tradr_app::listener::{
     ListenerError, ListenerParams, ListenerServices, accept_and_handle_transfer,
-    derive_item_resumption, handle_incoming_channel, listen_for_transfers, run_listener,
+    derive_item_resumption, handle_incoming_channel, listen_for_transfers, remove_partial_dir,
+    run_listener,
 };
 use tradr_app::peer_trust::OwnAttestation;
 use tradr_app::transfer::{SendRequest, SessionStreams, send_file};
@@ -26,7 +27,7 @@ use tradr_proto::control::{decode_transfer_accept_frame, encode_transfer_offer_f
 use tradr_proto::framing::{Frame, FrameDecoder, encode_frame};
 use tradr_proto::hello::{decode_hello_frame, encode_hello_frame};
 use tradr_vfs::NativeVfs;
-use tradr_vfs::sanitization::partial_file_rel_path;
+use tradr_vfs::sanitization::{partial_dir_rel_path, partial_file_rel_path};
 
 const VALID_V7_A: &str = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
 const VALID_V7_B: &str = "017f22e2-79b0-7cc3-98c4-dc0c0c073990";
@@ -506,6 +507,12 @@ async fn single_file_transfer_via_listener_end_to_end() {
 
     let received_bytes = std::fs::read(receiver_dir.path().join("document.pdf")).unwrap();
     assert_eq!(received_bytes, file_content);
+
+    let partial_dir = receiver_dir.path().join(".tradr-partial").join(VALID_V7_A);
+    assert!(
+        !partial_dir.exists(),
+        "partial directory must be removed after successful transfer"
+    );
 }
 
 #[tokio::test]
@@ -721,7 +728,7 @@ async fn resumed_transfer_via_listener_skips_existing_chunks() {
         OfferItem::new(item_id, src_rel.clone(), file_content.len() as u64, hash).unwrap();
 
     // Pre-populate receiver partial directory with chunk 0 (first 1 MiB)
-    let partial_dir = RelPath::new(&format!(".tradr-partial/{transfer_id}")).unwrap();
+    let partial_dir = partial_dir_rel_path(transfer_id);
     receiver_vfs
         .create_dir(root_receiver, &partial_dir)
         .await
@@ -1993,4 +2000,44 @@ async fn listen_for_transfers_does_not_report_an_offer_with_every_item_declined(
     sender_res.unwrap();
     assert!(listener_res.is_ok());
     assert!(recorded.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn non_empty_partial_directory_survives_removal() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let vfs = NativeVfs::new();
+    let root = RootId::new(1);
+    vfs.register_root(root, temp_dir.path().to_path_buf(), false)
+        .expect("register root");
+
+    let transfer_id = sample_transfer(VALID_V7_A);
+    let dir_rel = partial_dir_rel_path(transfer_id);
+    vfs.create_dir(root, &dir_rel).await.expect("create dir");
+
+    let item_id = ItemId::new("item_0").expect("item id");
+    let file_rel = partial_file_rel_path(transfer_id, &item_id);
+    let mut handle = vfs.open_write(root, &file_rel).await.expect("open write");
+    handle.write_at(0, b"partial data").await.expect("write");
+    handle.sync().await.expect("sync");
+    drop(handle);
+
+    let res = remove_partial_dir(&vfs, root, transfer_id).await;
+    assert!(
+        res.is_ok(),
+        "tolerates WrongKind when directory is non-empty"
+    );
+
+    assert!(vfs.stat(root, &dir_rel).await.is_ok());
+    assert!(vfs.stat(root, &file_rel).await.is_ok());
+
+    vfs.remove(root, &file_rel).await.expect("remove file");
+    let res_empty = remove_partial_dir(&vfs, root, transfer_id).await;
+    assert!(res_empty.is_ok(), "removes empty directory");
+    assert!(matches!(
+        vfs.stat(root, &dir_rel).await,
+        Err(tradr_core::VfsError::NotFound)
+    ));
+
+    let res_absent = remove_partial_dir(&vfs, root, sample_transfer(VALID_V7_B)).await;
+    assert!(res_absent.is_ok(), "tolerates absent directory");
 }

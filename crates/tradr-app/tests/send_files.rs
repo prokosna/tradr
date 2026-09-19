@@ -151,6 +151,18 @@ async fn send_files_end_to_end_over_quic_loopback() {
 
     assert_eq!(rx_file1, file1_content);
     assert_eq!(rx_file2, file2_content);
+
+    let partial_base = receiver_dir.path().join(".tradr-partial");
+    if partial_base.exists() {
+        let entries: Vec<_> = std::fs::read_dir(&partial_base)
+            .expect("read .tradr-partial")
+            .filter_map(Result::ok)
+            .collect();
+        assert!(
+            entries.is_empty(),
+            "expected no transfer directory left in .tradr-partial, found: {entries:?}"
+        );
+    }
 }
 
 #[tokio::test]

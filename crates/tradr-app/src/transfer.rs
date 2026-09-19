@@ -17,7 +17,9 @@ use tradr_proto::data::{
 use tradr_proto::framing::{Frame, FrameDecoder, FrameError};
 use tradr_proto::message_type::{Classification, MessageType, Plane, classify};
 use tradr_vfs::resolve_collision;
-use tradr_vfs::sanitization::{partial_file_rel_path, sanitize_destination_path};
+use tradr_vfs::sanitization::{
+    partial_dir_rel_path, partial_file_rel_path, sanitize_destination_path,
+};
 
 /// Errors occurring during an end-to-end file transfer session.
 #[derive(Debug)]
@@ -602,8 +604,7 @@ pub async fn receive_file(
     verifier: &dyn ContentVerifier,
     streams: &mut SessionStreams<'_>,
 ) -> Result<RelPath, TransferSessionError> {
-    let partial_dir = RelPath::new(&format!(".tradr-partial/{}", request.transfer_id))
-        .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
+    let partial_dir = partial_dir_rel_path(request.transfer_id);
     vfs.create_dir(request.root, &partial_dir).await?;
 
     let partial_file_rel = partial_file_rel_path(request.transfer_id, &request.item_id);

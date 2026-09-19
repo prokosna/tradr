@@ -242,9 +242,15 @@ pub fn sanitize_destination_path(raw_path: &str) -> Result<RelPath, Sanitization
     RelPath::new(&joined).map_err(SanitizationError::from)
 }
 
+/// Returns the relative path for a transfer's partial directory.
+pub fn partial_dir_rel_path(transfer_id: TransferId) -> RelPath {
+    RelPath::new(&format!(".tradr-partial/{transfer_id}"))
+        .expect("partial directory path must be a valid RelPath")
+}
+
 /// Returns the relative path for a transfer's partial file given its item id.
 pub fn partial_file_rel_path(transfer_id: TransferId, item_id: &ItemId) -> RelPath {
-    RelPath::new(&format!(".tradr-partial/{transfer_id}/{item_id}"))
+    RelPath::new(&format!("{}/{item_id}", partial_dir_rel_path(transfer_id)))
         .expect("partial file path must be a valid RelPath")
 }
 

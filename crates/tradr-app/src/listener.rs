@@ -21,7 +21,7 @@ use tradr_proto::framing::{Frame, FrameDecoder, FrameError};
 use tradr_proto::hello::decode_hello_frame;
 use tradr_proto::link::{LinkFrameError, decode_link_reply_frame};
 use tradr_proto::message_type::{Classification, MessageType, Plane, classify};
-use tradr_vfs::{NativeVfs, partial_file_rel_path};
+use tradr_vfs::{NativeVfs, partial_dir_rel_path, partial_file_rel_path};
 
 use crate::capabilities::LocalCapabilities;
 use crate::handshake::{HandshakeError, HandshakeParams, perform_handshake_after_peer_hello};
@@ -335,6 +335,20 @@ async fn finish_and_wait_for_control_close(
     }
 }
 
+/// Removes the transfer's partial directory when empty, tolerating non-empty directories for resumption.
+pub async fn remove_partial_dir(
+    vfs: &impl Vfs,
+    root: RootId,
+    transfer_id: TransferId,
+) -> Result<(), VfsError> {
+    let partial_dir = partial_dir_rel_path(transfer_id);
+    match vfs.remove(root, &partial_dir).await {
+        // A non-empty directory preserves partial files for resumption.
+        Ok(()) | Err(VfsError::WrongKind | VfsError::NotFound) => Ok(()),
+        Err(other) => Err(other),
+    }
+}
+
 /// Handles a single incoming secure channel through handshake, offer exchange, and file reception.
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_incoming_channel<V, F, Fut>(
@@ -478,6 +492,11 @@ where
                             .await
                             .map_err(ListenerError::TransferSession)?;
                         placed_paths.push(placed);
+                    }
+
+                    if let Err(e) = remove_partial_dir(vfs, params.root, offer.transfer_id()).await
+                    {
+                        eprintln!("listener: removing partial directory failed: {e}");
                     }
 
                     finish_and_wait_for_control_close(

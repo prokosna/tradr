@@ -4,7 +4,7 @@
 
 use tradr_core::{ItemId, RootId, TransferId};
 use tradr_vfs::{
-    NativeVfs, SanitizationError, partial_file_rel_path, resolve_collision,
+    NativeVfs, SanitizationError, partial_dir_rel_path, partial_file_rel_path, resolve_collision,
     sanitize_destination_path,
 };
 
@@ -212,6 +212,25 @@ fn partial_file_rel_path_constructs_ordinal_location() {
         path42.as_str(),
         ".tradr-partial/017f22e2-79b0-7cc3-98c4-dc0c0c07398f/item_42"
     );
+}
+
+#[test]
+fn partial_dir_and_file_rel_paths_agree() {
+    let transfer = sample_transfer();
+    let dir = partial_dir_rel_path(transfer);
+    let item = ItemId::new("item_0").unwrap();
+    let file = partial_file_rel_path(transfer, &item);
+
+    assert_eq!(
+        dir.as_str(),
+        ".tradr-partial/017f22e2-79b0-7cc3-98c4-dc0c0c07398f"
+    );
+    let expected_prefix = format!("{}/", dir.as_str());
+    assert!(
+        file.as_str().starts_with(&expected_prefix),
+        "file path {file:?} must be inside directory {dir:?}"
+    );
+    assert_eq!(&file.as_str()[expected_prefix.len()..], &item.to_string());
 }
 
 #[tokio::test]
