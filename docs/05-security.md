@@ -360,14 +360,30 @@ This catches the case where Google forged an Attestation for an unknown device, 
 
 Private keys never leave the device after generation. There is no export function; migration means enrolling with new keys.
 
-| OS | Storage | Hardware backing |
-|---|---|---|
-| Android | Android Keystore, attempting `setIsStrongBoxBacked(true)`, falling back to the TEE | Yes — StrongBox or TEE |
-| macOS | Keychain, with Secure Enclave key generation where available | Yes — the Enclave handles P-256, which is what Device Keys use |
-| Windows | CNG with DPAPI; the Platform Crypto Provider where a TPM exists | Yes, with a TPM |
-| Linux | Secret Service over D-Bus, then a `0600` file | No — the last resort is software only |
+**This table described three platforms Tradr does not implement, and it said so as "Yes" until 2026-09-19.** What ships is below; what was intended is beneath that, kept because it is still the design and not a retraction of it.
 
-**Falling short of hardware backing on Linux is stated plainly.** Settings displays the storage method in use and says so explicitly when it has fallen back to a file. Headless environments without a running Secret Service get a warning.
+| OS | Storage today | Hardware backing today |
+|---|---|---|
+| Android | A `0600` file in the application data directory | **No** |
+| macOS | A `0600` file in the application data directory | **No** |
+| Windows | A `0600` file in the application data directory | **No** |
+| Linux | Secret Service over D-Bus, then a `0600` file | **No** — the last resort is software only |
+
+**`crates/tradr-secrets/src/` holds two implementations, `file.rs` and `secret_service.rs`, and `platform_ladder` gates the second on `cfg(target_os = "linux")`.** There is no Keychain, no Secure Enclave, no CNG, no DPAPI and no Android Keystore anywhere in the tree; `StrongBox` and `Keymint` occur only as `SoftwareReason` variants. **Measured rather than read**: an `SM-S928Q`, a device with StrongBox, reports `backing=software`.
+
+**The code was always honest and this table was not.** [CLAUDE.md](../CLAUDE.md#6-critical-modules--tests-come-first) §6 names the opposite failure for this Critical Module -- a `backing()` that overstates itself -- and nothing catches this one, because no gate compares a design table with an implementation. **Decision 13, 2026-09-19, ruled that the table is corrected rather than implemented**, on the ground that a false document is today's defect while a missing capability is a roadmap item, and that conflating them puts a Layer 0 change ahead of the work M8's completion criterion is waiting on.
+
+**The intended design, unimplemented and unscheduled:**
+
+| OS | Intended storage | Intended backing |
+|---|---|---|
+| Android | Android Keystore, attempting `setIsStrongBoxBacked(true)`, falling back to the TEE | StrongBox or TEE |
+| macOS | Keychain, with Secure Enclave key generation where available | The Enclave handles P-256, which is what Device Keys use |
+| Windows | CNG with DPAPI; the Platform Crypto Provider where a TPM exists | With a TPM |
+
+**One obstacle is known and is why "unscheduled" is honest rather than lazy.** A Device Key is two keys, and [ADR-0011](adr/0011-keystore-exposes-operations.md)'s `backing()` answers once for both. Android Keystore admits ECDH only from API 31, and StrongBox support for key agreement is not universal -- so the identity key can land in hardware while the agreement key does not, which the trait cannot currently express. **Implementing this is therefore a Layer 0 question and not only a platform one.**
+
+**Falling short of hardware backing is stated plainly.** Settings displays the storage method in use and says so explicitly when it has fallen back to a file. Headless environments without a running Secret Service get a warning.
 
 ### A key store is shared, and the implementations pay for it
 

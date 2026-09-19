@@ -1700,6 +1700,13 @@ WI-M0-002 puts every required CI job in at M0. Introducing `layer-deps` and `exc
 
 ## Decisions settled
 
+### DF-90, ruled by decision 13 and closed by the docs/05 correction, moved from STATE.md 2026-09-19
+
+| DF-90 | **[docs/05](docs/05-security.md) promises hardware-backed Device Keys on Android and nothing in the tree implements them.** Its key-storage table says `Android Keystore, attempting setIsStrongBoxBacked(true), falling back to the TEE` and answers `Yes -- StrongBox or TEE`. **Measured 2026-09-19 on an `SM-S928Q`, a device that has StrongBox: `device-identity: device_id=5ef366a5...2920 backing=software`.** `StrongBox` and `Keymint` occur in this repository only as vocabulary -- the `SoftwareReason` variants and a doc comment in `crates/tradr-core/src/key_store.rs` -- and there is no `KeyGenParameterSpec`, no `AndroidKeyStore` and no Kotlin keystore code anywhere. Android descends to the same `SoftwareKeyStore` on the same file rung a headless Linux box uses. **The code is honest and the document is not**, which is the inverse of the failure [CLAUDE.md](CLAUDE.md#6-critical-modules--tests-come-first) §6 names for this Critical Module: `backing()` does not overstate itself, the table does. **Nothing fails**, because no test and no gate compares a design table against an implementation. **The exit is a decision rather than a repair** -- either Android gains the keystore path the table describes, or the table stops promising it and says when | Before M9, and before anything cites docs/05's key-storage table as shipped behaviour | Run B, 2026-09-19 |
+
+**The entry named Android and the gap was three platforms.** `crates/tradr-secrets/src/` holds `file.rs` and `secret_service.rs` and nothing else, and `platform_ladder` gates Secret Service on `cfg(target_os = "linux")`: so macOS and Windows reach the same `0600` file Android does, and their rows promised the Keychain, the Secure Enclave, CNG, DPAPI and a TPM. **Only the Linux row was ever true**, and the paragraph under the table singled Linux out as the platform that falls short -- when it was the only one being honest. **Closed by correcting the table rather than by implementing it**, decision 13. The intended design is kept below the shipped one, because it is still the design; what it gains is the word *unimplemented* and the obstacle that makes scheduling it a Layer 0 question -- `backing()` answers once for two keys, and Android Keystore admits ECDH only from API 31 with StrongBox agreement support not universal.
+
+
 ### M8's landed rows WI-M8-017 to WI-M8-026, moved from STATE.md 2026-09-19 at the tenth ceiling
 
 > The same move `WI-M8-006` to `WI-M8-015` got at the ninth. Every row below is closed; what stays in STATE.md is what is not.
