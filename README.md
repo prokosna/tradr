@@ -69,6 +69,8 @@ Branch protection is enabled on the `main` branch to require successful CI check
 
 Create a project, then an OAuth client per platform you intend to build — one **Desktop app**, one **Android**, and one **Web application**, which is what an Android build presents to the credential API (see [docs/05](docs/05-security.md#android-obtains-its-attestation-without-a-redirect-and-the-server-client-id-is-a-web-registration-dcr-112)). Google issues a secret for the Desktop client and none for the Android one; **that is expected, not a mistake in your setup.** A Desktop client's secret is required by Google's token endpoint even under PKCE, which was measured rather than assumed and is written up in docs/05.
 
+**An Android build needs Google Play Services on the device, and that is a requirement rather than a preference.** Android obtains its token through the platform's credential API, which *is* Google Play Services; every redirect an Android OAuth client may present is refused by the provider, so there is no browser flow to fall back to (see [docs/05](docs/05-security.md#android-obtains-its-attestation-without-a-redirect-and-the-server-client-id-is-a-web-registration-dcr-112)). A device without it -- a Kindle Fire, a de-Googled ROM -- installs the APK and runs it, and then cannot sign in, which means it cannot send or receive anything.
+
 Both values are baked in at build time, from the environment:
 
 ```
