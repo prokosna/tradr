@@ -8,11 +8,12 @@ use tradr_app::identity::{
 };
 use tradr_app::paths::{app_data_dir, device_keys_dir};
 use tradr_app::receive::{RelPath, run_receive};
+use tradr_app::send_session::{TransferProgressPayload, discover_peers, run_send};
 use tradr_app::sign_in::OAuthConfig;
 
 fn print_usage() {
     eprintln!(
-        "usage: tradr-cli <command>\n\ncommands:\n  device     Report this device's identity\n  receive    Receive files into a directory"
+        "usage: tradr-cli <command>\n\ncommands:\n  device     Report this device's identity\n  peers      Discover and list peers\n  receive    Receive files into a directory\n  send       Send files to a peer"
     );
 }
 
@@ -37,6 +38,26 @@ fn run_device() -> Result<(), String> {
     Ok(())
 }
 
+async fn run_peers_command() -> Result<(), String> {
+    let peers = discover_peers().await?;
+    if peers.is_empty() {
+        eprintln!("tradr-cli: no peers found");
+        return Ok(());
+    }
+    for (i, peer) in peers.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        println!("key        {}", peer.key);
+        if let Some(name) = &peer.display_name {
+            println!("name       {name}");
+        }
+        println!("addresses  {}", peer.addresses.join(", "));
+        println!("sources    {}", peer.sources.join(", "));
+    }
+    Ok(())
+}
+
 async fn run_receive_command(dir_arg: Option<String>) -> Result<(), String> {
     let receive_dir = match dir_arg {
         Some(d) => PathBuf::from(d),
@@ -50,6 +71,31 @@ async fn run_receive_command(dir_arg: Option<String>) -> Result<(), String> {
         }
     });
     run_receive(receive_dir, &oauth, on_arrival).await
+}
+
+async fn run_send_command(peer: &str, files: &[String]) -> Result<(), String> {
+    let oauth = OAuthConfig::from_env();
+    let on_progress =
+        Arc::new(
+            |progress: &TransferProgressPayload| match progress.status.as_str() {
+                "starting" => {
+                    println!(
+                        "starting {} ({} bytes)",
+                        progress.rel_path, progress.total_bytes
+                    );
+                }
+                "completed" => {
+                    println!("sent {}", progress.rel_path);
+                }
+                "failed" => {
+                    println!("failed {}", progress.rel_path);
+                }
+                _ => {}
+            },
+        );
+    let placed = run_send(peer, files, &oauth, on_progress).await?;
+    eprintln!("{} of {} items placed", placed.len(), files.len());
+    Ok(())
 }
 
 #[tokio::main]
@@ -66,6 +112,16 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        Some("peers") => {
+            if args.next().is_some() {
+                print_usage();
+                std::process::exit(2);
+            }
+            if let Err(e) = run_peers_command().await {
+                eprintln!("tradr-cli: {e}");
+                std::process::exit(1);
+            }
+        }
         Some("receive") => {
             let dir_arg = args.next();
             if args.next().is_some() {
@@ -73,6 +129,24 @@ async fn main() {
                 std::process::exit(2);
             }
             if let Err(e) = run_receive_command(dir_arg).await {
+                eprintln!("tradr-cli: {e}");
+                std::process::exit(1);
+            }
+        }
+        Some("send") => {
+            let peer = match args.next() {
+                Some(p) => p,
+                None => {
+                    print_usage();
+                    std::process::exit(2);
+                }
+            };
+            let files: Vec<String> = args.collect();
+            if files.is_empty() {
+                print_usage();
+                std::process::exit(2);
+            }
+            if let Err(e) = run_send_command(&peer, &files).await {
                 eprintln!("tradr-cli: {e}");
                 std::process::exit(1);
             }

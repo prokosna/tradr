@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use tradr_app::network::{
     bind_with_fallback, device_txt_record, local_platform, quic_bind_addresses,
+    quic_dial_bind_address,
 };
 use tradr_core::Capabilities;
 use tradr_discovery::{AGREEMENT_KEY_TAG_LEN, Platform, STATIC_PEER_DEFAULT_PORT};
@@ -94,6 +95,17 @@ fn quic_bind_addresses_answers_the_default_port_then_an_ephemeral_fallback() {
     );
     assert_eq!(
         fallback_addr.ip(),
+        std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED)
+    );
+}
+
+#[test]
+fn quic_dial_bind_address_answers_the_ephemeral_port_on_unspecified_ipv6() {
+    let addr = quic_dial_bind_address().expect("quic dial bind address must parse");
+
+    assert_eq!(addr.port(), 0);
+    assert_eq!(
+        addr.ip(),
         std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED)
     );
 }

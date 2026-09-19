@@ -18,6 +18,8 @@ pub mod peers;
 #[cfg(not(target_os = "android"))]
 pub mod receive;
 pub mod send;
+#[cfg(not(target_os = "android"))]
+pub mod send_session;
 pub mod share;
 pub mod sign_in;
 pub mod transfer;
