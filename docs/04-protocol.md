@@ -449,7 +449,17 @@ The mapping from ordinal back to `item_id` lives in SQLite alongside the rest of
 
 - On completion and successful verification, `rename` into place — atomic within one filesystem
 - Progress lives in SQLite. To keep the database and the partial file from diverging, the database is updated after the chunk write is `fsync`ed
-- Partial files untouched for seven days are swept at startup
+- Partial files untouched for seven days are swept at startup. **Nothing implements this today and saying so here is DCR-142, 2026-09-20**: a sweep is a startup concern with a clock and a retention policy, and none of the three exists. It stays in this list as the design rather than as a claim about the code
+
+#### What happens to `.tradr-partial/<transfer_id>/` when the transfer ends (DCR-142)
+
+**The directory is removed when the transfer ends, and a directory that still holds something refuses to go.** `receive_file` creates it, renames each verified file out of it, and removed it only when an item failed -- so every **successful** transfer left an empty directory behind, one per transfer, in a dot-directory the person did not make. Observed on the first real run, 2026-09-19 (DF-89).
+
+**The refusal is the mechanism rather than a check written for the occasion.** [`Vfs::remove`](../crates/tradr-core/src/vfs.rs) removes a file or an *already empty* directory and answers `WrongKind` for one that is not, which `WI-M8-024` made true of both implementations and DCR-137 put on the commit path. So the removal needs no emptiness test of its own: **it succeeds exactly when nothing is left to resume and refuses exactly when something is**, and that refusal is the expected outcome rather than an error to report. **That answers DF-89's own objection** -- that the directory is what resumption reads, so deleting it is a decision about the resumption contract -- by making the contract the thing that decides.
+
+**It happens at the transfer's end and not at each item's.** One transfer carries several items and `receive_file` runs once per item, so it cannot know it is handling the last one; a removal there would delete and re-create the directory between items. The item loop is where a transfer ends, so the removal goes there.
+
+**The directory's path gets one constructor, beside the file's.** `partial_file_rel_path` has assembled `.tradr-partial/<transfer_id>/<ordinal>` in `tradr-vfs` since it was written, which is where [invariant I5](../CLAUDE.md#8-invariants-that-must-not-break) says paths are assembled; the directory half has always been built inline at the one place that needed it, and a removal would have made that two. **The invariant did not catch it because one site is not yet a duplication** -- which is what an invariant about assembling paths in one place is for, and is why the constructor arrives with the second caller rather than after it.
 
 ## Name collisions and sanitization
 
