@@ -44,7 +44,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-**`WI-M8-029`, ruled by DCR-141 on 2026-09-20.** The docs commit is ahead of it per [CLAUDE.md](CLAUDE.md#5-git--only-the-supervisor-commits). It is DF-88's repair, and the test change is the half that stops it recurring.
+(none)
 
 ## Decisions
 
@@ -99,7 +99,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M8-029 | **DF-88's repair, to DCR-141: `TransportError::Closed` from the control-stream close wait is the successful end of a transfer and is not reported.** Every other error still is. The two teardown sites in `crates/tradr-app/src/listener.rs` become one helper, since two copies of a rule about which error is normal is how they diverge. **The test change is what stops it recurring**: `send_files_end_to_end_over_quic_loopback` awaits the send, drops the sender's channel, then awaits the listener, which is the order a front end takes and the order that reproduces the line | planned | |
+| WI-M8-029 | **DF-88's repair, to DCR-141: `TransportError::Closed` from the control-stream close wait is the successful end of a transfer and is not reported.** The two teardown sites become one helper, and the decision inside it is `should_report_control_close_error`, whose match is exhaustive over `TransportError` -- so a seventh variant is a compile error rather than a silent gap. `send_files_end_to_end_over_quic_loopback` now awaits the send, drops the sender's channel, then awaits the listener, which is a front end's order and the order that reproduces the line. **PASS after one REVISE, and the finding was my Work Order's**: it asked the Implementer to prove the fix with `--nocapture` output, and the delivered evidence proved the opposite -- the test passed with the fix broken, the only difference being a line on stderr nobody in CI reads. **That is DCR-141's own defect one level up**, a check standing where the thing it checks cannot fail it, so the decision came out as a pure function with unit tests. Killed by mutation here: flipping `Closed` to reported fails `closed_transport_error_is_not_reported_on_control_close`. **What the round also shows is a Work Order asking for a property the code already had** -- the test carries a redundant exhaustive match because I asked for a compile error the function's own match already provides. The workspace goes 1689 -> 1691 tests | **done** | |
 | WI-M6-009 | **Scanning a QR with a camera.** `WI-M6-007b` shows a QR and accepts a pasted blob, which is the whole payload either way (docs/11: "one payload and one parser"), so a QR read by any camera application already links. **A scanner inside Tradr is a platform integration and not an interface change** -- Android has `@tauri-apps/plugin-barcode-scanner` and a camera permission to justify, and the desktop has no camera API at all -- so it is its own Work Item rather than a line in one about React | planned | |
 
 ## Deferred

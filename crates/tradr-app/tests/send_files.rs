@@ -124,20 +124,20 @@ async fn send_files_end_to_end_over_quic_loopback() {
         .expect("connect");
 
     let files_to_send = vec!["file1.txt".to_string(), "file2.bin".to_string()];
-    let (sent_result, rx_outcome) = tokio::join!(
-        execute_send_files(
-            channel.as_ref(),
-            &sender_vfs,
-            root_sender,
-            &files_to_send,
-            &sender_id,
-            sender_store.as_ref(),
-            String::new(),
-            Capabilities::DIRECT_QUIC,
-            |_| async { Ok(TrustTier::SameAccount) },
-        ),
-        rx_handle,
-    );
+    let sent_result = execute_send_files(
+        channel.as_ref(),
+        &sender_vfs,
+        root_sender,
+        &files_to_send,
+        &sender_id,
+        sender_store.as_ref(),
+        String::new(),
+        Capabilities::DIRECT_QUIC,
+        |_| async { Ok(TrustTier::SameAccount) },
+    )
+    .await;
+    drop(channel);
+    let rx_outcome = rx_handle.await;
 
     let sent_result = sent_result.expect("execute_send_files");
     assert_eq!(sent_result, vec!["file1.txt", "file2.bin"]);
