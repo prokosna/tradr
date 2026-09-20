@@ -1,7 +1,7 @@
-//! The pure decision of which rung of the Linux storage ladder holds a
-//! device's key (docs/05-security.md, "Descending the Linux ladder"). The
-//! two real backends, Secret Service and a `0600` file, are WI-M0-007d/e;
-//! this module only walks whatever `SecretStore`s it is given.
+//! The decision of which storage ladder rung holds a device's key
+//! (docs/05-security.md, "Descending the Linux ladder"). A failed rung refuses
+//! only when no lower rung holds a key, preventing minting over a hidden key
+//! without blocking adoption of an existing one.
 
 use std::fmt;
 
@@ -12,9 +12,8 @@ use tradr_core::{SecretStore, SecretStoreError, StorageLevel};
 pub enum LadderError {
     /// The ladder passed in had no rungs at all.
     NoRungs,
-    /// A rung's `load` returned `Err`, so the search stopped there rather
-    /// than treating it as empty and reading past it. `level` names the
-    /// rung that failed, not any rung below it.
+    /// A rung's `load` failed and no lower rung held a key to adopt.
+    /// `level` names the highest rung that failed.
     RungFailed {
         level: StorageLevel,
         source: SecretStoreError,
@@ -54,29 +53,35 @@ fn level_name(level: StorageLevel) -> &'static str {
 }
 
 /// Finds which rung of `ladder` holds a device's key, walking highest first
-/// and returning the position of the first whose `load(slot)` holds a
-/// value, without calling `store`. A rung whose `load` errors stops the
-/// search rather than being read as empty (docs/05-security.md,
-/// "Descending the Linux ladder"). If every rung is empty, `0` is returned.
+/// without calling `store`. A failed rung refuses only when no lower rung holds
+/// a key, preventing minting over a hidden key while adopting an existing
+/// one (docs/05-security.md, "Descending the Linux ladder"). If empty, returns `0`.
 pub fn select_rung_index(ladder: &[&dyn SecretStore], slot: &str) -> Result<usize, LadderError> {
     if ladder.is_empty() {
         return Err(LadderError::NoRungs);
     }
 
+    let mut first_failure = None;
+
     for (index, &rung) in ladder.iter().enumerate() {
         match rung.load(slot) {
             Ok(Some(_)) => return Ok(index),
-            Ok(None) => continue,
+            Ok(None) => {}
             Err(source) => {
-                return Err(LadderError::RungFailed {
-                    level: rung.level(),
-                    source,
-                });
+                if first_failure.is_none() {
+                    first_failure = Some(LadderError::RungFailed {
+                        level: rung.level(),
+                        source,
+                    });
+                }
             }
         }
     }
 
-    Ok(0)
+    match first_failure {
+        Some(err) => Err(err),
+        None => Ok(0),
+    }
 }
 
 /// Finds which rung of `ladder` holds a device's key (docs/05-security.md,
