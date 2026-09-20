@@ -222,21 +222,19 @@ fn a_failing_highest_rung_is_an_error_and_not_a_descent() {
     );
 }
 
-// The sharpest case, and the one a plausible implementation gets wrong
-// in the name of availability: the key really is on the file rung, so
-// descending would work. It is refused because the rung that failed
-// might have held a different key, and nothing can tell from here.
+// The sharpest case, and the one DCR-143 re-decided: the key really is
+// on the file rung, so no second key can be minted whatever the failed
+// rung above holds. DCR-031 refused this and the refusal protected
+// nothing, because adopting a key is not generating one.
 #[test]
-fn a_failing_rung_is_an_error_even_when_a_lower_rung_holds_the_key() {
+fn a_failing_rung_is_descended_past_when_a_lower_rung_holds_the_key() {
     let secret_service = Rung::failing(StorageLevel::SecretService);
     let file = Rung::holding(StorageLevel::File, KEY);
 
-    let outcome = select_rung(&ladder([&secret_service, &file]), SLOT);
+    let chosen = select_rung(&ladder([&secret_service, &file]), SLOT)
+        .expect("a key below a failed rung is adopted rather than refused");
 
-    assert!(
-        matches!(outcome, Err(LadderError::RungFailed { .. })),
-        "descending past a failed rung was refused by DCR-031"
-    );
+    assert_eq!(chosen.level(), StorageLevel::File);
 }
 
 #[test]
@@ -256,14 +254,16 @@ fn a_failing_rung_names_the_level_that_failed() {
 }
 
 #[test]
-fn a_failing_middle_rung_stops_before_the_lowest_is_read() {
+fn a_failing_middle_rung_does_not_stop_the_lowest_from_being_read() {
     let secret_service = Rung::empty(StorageLevel::SecretService);
     let keyring = Rung::failing(StorageLevel::SecretService);
     let file = Rung::holding(StorageLevel::File, KEY);
 
-    let _ = select_rung(&ladder([&secret_service, &keyring, &file]), SLOT);
+    let chosen = select_rung(&ladder([&secret_service, &keyring, &file]), SLOT)
+        .expect("the search continues past a failure");
 
-    assert_eq!(file.loads(), 0);
+    assert_eq!(chosen.level(), StorageLevel::File);
+    assert_eq!(file.loads(), 1, "the rung below a failure must be read");
 }
 
 #[test]
@@ -383,22 +383,17 @@ fn an_empty_ladder_has_no_index() {
 }
 
 #[test]
-fn a_failing_rung_has_no_index_and_stops_the_search() {
+fn a_failing_rung_does_not_shift_the_index_of_the_rung_that_answered() {
     let secret_service = Rung::empty(StorageLevel::SecretService);
     let keyring = Rung::failing(StorageLevel::SecretService);
     let file = Rung::holding(StorageLevel::File, KEY);
     let rungs = ladder([&secret_service, &keyring, &file]);
 
-    let outcome = select_rung_index(&rungs, SLOT);
+    let index = select_rung_index(&rungs, SLOT).expect("the lowest rung answered");
 
-    assert!(matches!(
-        outcome,
-        Err(LadderError::RungFailed {
-            level: StorageLevel::SecretService,
-            ..
-        })
-    ));
-    assert_eq!(file.loads(), 0);
+    // A failure that shifted this by one would open the key on the rung
+    // above and report the wrong level for the life of the process.
+    assert_eq!(index, 2);
 }
 
 #[test]
@@ -411,4 +406,109 @@ fn indexing_writes_to_no_rung() {
 
     assert_eq!(secret_service.stores.get(), 0);
     assert_eq!(file.stores.get(), 0);
+}
+
+// DCR-143: refusing protects the moment a key is generated and nothing
+// else. Minting over a rung that failed is section 6's silent identity
+// loss; adopting a key an earlier run wrote below mints nothing.
+
+// The safety property itself, and the one an implementation chasing
+// availability breaks: with nothing below to adopt, the only way forward
+// is to generate, so the failure must still refuse. An implementation
+// that answered `Ok(0)` here would hand its caller the failed rung to
+// write a second Device Key onto.
+#[test]
+fn a_failing_rung_with_only_empty_rungs_below_still_refuses() {
+    let secret_service = Rung::failing(StorageLevel::SecretService);
+    let file = Rung::empty(StorageLevel::File);
+
+    let outcome = select_rung(&ladder([&secret_service, &file]), SLOT);
+
+    assert!(
+        matches!(outcome, Err(LadderError::RungFailed { .. })),
+        "with no key to adopt, descending past a failure would mint over it"
+    );
+}
+
+#[test]
+fn a_failing_rung_with_only_empty_rungs_below_yields_no_index() {
+    let secret_service = Rung::failing(StorageLevel::SecretService);
+    let file = Rung::empty(StorageLevel::File);
+    let rungs = ladder([&secret_service, &file]);
+
+    let outcome = select_rung_index(&rungs, SLOT);
+
+    assert!(matches!(outcome, Err(LadderError::RungFailed { .. })));
+}
+
+// Every rung below a failure is read before the failure is raised;
+// stopping early is what would miss the key that makes adoption possible.
+#[test]
+fn a_failure_is_raised_only_after_every_lower_rung_has_been_read() {
+    let secret_service = Rung::failing(StorageLevel::SecretService);
+    let keyring = Rung::empty(StorageLevel::SecretService);
+    let file = Rung::empty(StorageLevel::File);
+
+    let outcome = select_rung(&ladder([&secret_service, &keyring, &file]), SLOT);
+
+    assert!(matches!(outcome, Err(LadderError::RungFailed { .. })));
+    assert_eq!(keyring.loads(), 1);
+    assert_eq!(file.loads(), 1);
+}
+
+#[test]
+fn two_failing_rungs_above_a_key_still_adopt_it() {
+    let secret_service = Rung::failing(StorageLevel::SecretService);
+    let keyring = Rung::failing(StorageLevel::SecretService);
+    let file = Rung::holding(StorageLevel::File, KEY);
+
+    let chosen = select_rung(&ladder([&secret_service, &keyring, &file]), SLOT)
+        .expect("a key below two failures is still a key");
+
+    assert_eq!(chosen.level(), StorageLevel::File);
+}
+
+// The highest failure is the one reported, because it is the rung most
+// likely to hold the key the refusal is protecting.
+#[test]
+fn the_failure_raised_is_the_highest_one_when_several_fail() {
+    let secret_service = Rung::failing(StorageLevel::SecretService);
+    let file = Rung::failing(StorageLevel::File);
+
+    let outcome = select_rung(&ladder([&secret_service, &file]), SLOT);
+
+    match outcome {
+        Err(LadderError::RungFailed { level, .. }) => {
+            assert_eq!(level, StorageLevel::SecretService);
+        }
+        Err(other) => panic!("expected the highest failure to be named, got {other:?}"),
+        Ok(rung) => panic!("expected an error, got the rung at {:?}", rung.level()),
+    }
+}
+
+// Descending past a failure must not turn into writing to it: the whole
+// refusal exists to keep `store` away from a rung that may hold a key.
+#[test]
+fn descending_past_a_failure_writes_to_no_rung() {
+    let secret_service = Rung::failing(StorageLevel::SecretService);
+    let file = Rung::holding(StorageLevel::File, KEY);
+
+    let _ = select_rung(&ladder([&secret_service, &file]), SLOT);
+
+    assert_eq!(secret_service.stores.get(), 0);
+    assert_eq!(file.stores.get(), 0);
+}
+
+// A zero-byte value is a key (an existing test pins that for the simple
+// case); below a failure it must still be one, or a device holding an
+// empty key would be refused instead of adopted.
+#[test]
+fn a_zero_byte_key_below_a_failure_is_adopted() {
+    let secret_service = Rung::failing(StorageLevel::SecretService);
+    let file = Rung::holding(StorageLevel::File, b"");
+
+    let chosen = select_rung(&ladder([&secret_service, &file]), SLOT)
+        .expect("an empty value is a key that was stored");
+
+    assert_eq!(chosen.level(), StorageLevel::File);
 }

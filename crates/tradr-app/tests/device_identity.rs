@@ -169,9 +169,27 @@ fn a_rung_that_cannot_be_read_stops_the_search_rather_than_minting_a_key() {
         "the failure names the rung that failed: {message}"
     );
     assert!(low.held(DEVICE_KEY_SLOT).is_none());
-    // Reading past the failure is the mutation this counts: the lower rung
-    // is never consulted once a rung above it has failed to answer.
-    assert_eq!(low.loads(), 0);
+    // DCR-143 reads the lower rung before refusing; what must not happen
+    // is a key appearing on it, which the assertion above counts.
+    assert_eq!(low.loads(), 1);
+}
+
+// The case the machine this was found on is in: a locked Secret Service
+// above a file rung that already holds the key. Adopting it mints nothing.
+#[test]
+fn a_rung_that_cannot_be_read_is_descended_past_to_a_key_below_it() {
+    let high = Rung::failing(StorageLevel::SecretService);
+    let low = Rung::empty(StorageLevel::File);
+    let first = open_device_identity(&ladder(&[&low]), &OsRng)
+        .expect("a lone file rung generates and stores the key");
+    let expected = first.public_identity().device_id();
+
+    let opened = open_device_identity(&ladder(&[&high, &low]), &OsRng)
+        .expect("a key below a failed rung is adopted rather than refused");
+
+    assert_eq!(opened.public_identity().device_id(), expected);
+    assert_eq!(opened.storage_level(), StorageLevel::File);
+    assert!(high.held(DEVICE_KEY_SLOT).is_none());
 }
 
 #[test]
