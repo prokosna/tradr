@@ -4,7 +4,7 @@
 //! root.
 
 #[cfg(not(target_os = "android"))]
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(not(target_os = "android"))]
 use std::sync::mpsc;
@@ -231,6 +231,55 @@ fn serve_one_callback_with_timeout(
     result.map_err(|e| e.to_string())
 }
 
+#[cfg(not(target_os = "android"))]
+// A port chosen freshly on every run cannot be forwarded in advance.
+pub const CALLBACK_PORT: u16 = 21821;
+
+#[cfg(not(target_os = "android"))]
+/// Composes the SSH port-forwarding command to reach the callback listener from another machine.
+pub fn ssh_forward_command(port: u16) -> String {
+    format!("ssh -L {port}:localhost:{port} USER@HOST")
+}
+
+#[cfg(not(target_os = "android"))]
+/// Answers the two addresses the loopback callback listener tries: the fixed
+/// default port and the ephemeral fallback, in that order.
+pub fn callback_bind_addresses() -> Result<(SocketAddr, SocketAddr), String> {
+    let default_addr: SocketAddr = format!("127.0.0.1:{CALLBACK_PORT}")
+        .parse()
+        .map_err(|e: std::net::AddrParseError| e.to_string())?;
+    let ephemeral_addr: SocketAddr = "127.0.0.1:0"
+        .parse()
+        .map_err(|e: std::net::AddrParseError| e.to_string())?;
+    Ok((default_addr, ephemeral_addr))
+}
+
+#[cfg(not(target_os = "android"))]
+/// Binds `default_addr`, falling back to `fallback_addr` when the default is
+/// unavailable, and reports the refusal that caused the fallback.
+pub fn bind_callback_with_fallback(
+    default_addr: SocketAddr,
+    fallback_addr: SocketAddr,
+) -> Result<TcpListener, String> {
+    match TcpListener::bind(default_addr) {
+        Ok(listener) => Ok(listener),
+        Err(e) => {
+            eprintln!(
+                "sign_in: default callback port {default_addr} unavailable ({e}), falling back to an ephemeral port"
+            );
+            TcpListener::bind(fallback_addr)
+                .map_err(|e| format!("failed to bind callback listener: {e}"))
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+/// Binds the loopback callback listener, falling back to an ephemeral port if the default is taken.
+pub fn bind_callback_listener() -> Result<TcpListener, String> {
+    let (default_addr, fallback_addr) = callback_bind_addresses()?;
+    bind_callback_with_fallback(default_addr, fallback_addr)
+}
+
 /// Returns the ID token obtained from the desktop sign-in flow,
 /// blocking on a person to authenticate in the browser.
 #[cfg(not(target_os = "android"))]
@@ -239,7 +288,7 @@ pub async fn obtain_id_token_desktop(
     nonce: &str,
 ) -> Result<String, String> {
     // Bind before building the url, so the port is known first.
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let listener = bind_callback_listener()?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let redirect_uri = callback_redirect_uri(port);
 
@@ -262,13 +311,16 @@ pub async fn obtain_id_token_desktop(
     )
     .map_err(|e| e.to_string())?;
 
-    // A browser that fails to open must not leave the person stuck: the
-    // url goes into the error text so they can paste it themselves,
-    // rather than waiting on a callback nothing will ever reach.
+    // When a browser cannot be opened automatically, the url is printed
+    // to stderr so authentication can proceed from another machine.
     if let Err(e) = open::that(&auth_url) {
-        return Err(format!(
-            "could not open a browser automatically ({e}); open this url to continue: {auth_url}"
-        ));
+        eprintln!(
+            "could not open a browser here ({e}); open this url on a machine with one to continue: {auth_url}"
+        );
+        eprintln!(
+            "{}\nwhere USER@HOST is this machine's user and hostname or address",
+            ssh_forward_command(port)
+        );
     }
 
     // Blocks on accept, so it must not run on an async runtime worker,

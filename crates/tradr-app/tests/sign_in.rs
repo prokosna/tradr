@@ -13,6 +13,11 @@ use common::{
     impostor_key, profile, published_key, token,
 };
 use tradr_app::peer_trust::PeerTrust;
+#[cfg(not(target_os = "android"))]
+use tradr_app::sign_in::{
+    CALLBACK_PORT, bind_callback_listener, bind_callback_with_fallback, callback_bind_addresses,
+    ssh_forward_command,
+};
 use tradr_app::sign_in::{OAuthConfig, SignInState, finish_sign_in, provider_profile};
 use tradr_core::{PublicIdentity, TrustTier};
 use tradr_identity::AccountId;
@@ -247,4 +252,67 @@ fn a_desktop_profile_with_no_client_secret_is_refused() {
         None,
     ));
     assert!(result.is_err());
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn callback_bind_addresses_answers_the_default_port_then_an_ephemeral_fallback() {
+    let (default_addr, fallback_addr) =
+        callback_bind_addresses().expect("callback bind addresses must parse");
+
+    assert_eq!(default_addr.port(), CALLBACK_PORT);
+    assert_eq!(default_addr.port(), 21821);
+    assert_eq!(fallback_addr.port(), 0);
+    assert_eq!(
+        default_addr.ip(),
+        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+    );
+    assert_eq!(
+        fallback_addr.ip(),
+        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn bind_callback_listener_falls_back_to_ephemeral_port_when_default_is_taken() {
+    let _holder = std::net::TcpListener::bind("127.0.0.1:21821").ok();
+    let listener = bind_callback_listener().expect("bind must succeed on fallback port");
+    let bound_port = listener.local_addr().expect("local address").port();
+    assert_ne!(bound_port, 21821);
+    assert_ne!(bound_port, 0);
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn bind_callback_with_fallback_binds_default_when_free() {
+    let s1 = std::net::TcpListener::bind("127.0.0.1:0").expect("ephemeral bind");
+    let free_port = s1.local_addr().expect("local addr").port();
+    drop(s1);
+    let s2 = std::net::TcpListener::bind("127.0.0.1:0").expect("ephemeral bind");
+    let fallback_port = s2.local_addr().expect("local addr").port();
+    drop(s2);
+
+    let default_addr = std::net::SocketAddr::from(([127, 0, 0, 1], free_port));
+    let fallback_addr = std::net::SocketAddr::from(([127, 0, 0, 1], fallback_port));
+
+    let listener = bind_callback_with_fallback(default_addr, fallback_addr)
+        .expect("bind must succeed on free default address");
+    assert_eq!(listener.local_addr().expect("local addr").port(), free_port);
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn ssh_forward_command_names_the_port_actually_bound() {
+    let line = ssh_forward_command(21821);
+    assert_eq!(line, "ssh -L 21821:localhost:21821 USER@HOST");
+
+    let _holder = std::net::TcpListener::bind("127.0.0.1:21821").ok();
+    let listener = bind_callback_listener().expect("bind callback listener");
+    let bound_port = listener.local_addr().expect("local address").port();
+    let fallback_line = ssh_forward_command(bound_port);
+    assert_eq!(
+        fallback_line,
+        format!("ssh -L {bound_port}:localhost:{bound_port} USER@HOST")
+    );
 }
