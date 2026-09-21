@@ -1846,6 +1846,33 @@ These stood in `STATE.md`'s In flight block until `WI-M1-000h`. Every one descri
 
 ## Device runs: the exact procedure
 
+> **Run A's receiver steps changed on 2026-09-21 and the change is DCR-143.** The two steps below replace step 2's
+> keyring advice and step 4's browser press for a machine with no graphical session. The rest of Run A, written
+> further down, is unchanged -- and the MacBook half is untouched.
+
+### Run A on a machine reached only over ssh (DCR-143)
+
+**The keyring needs nothing done to it.** `tradr-cli device` used to answer `SS Error: object locked` here and now
+answers, because the ladder descends past a locked Secret Service to the file rung that holds the key. Verified
+2026-09-21: `device id 182b685b86a9d851c9f47aecc2f4dc93`, `backing software (no Secret Service session available)`,
+`storage file`. **The Device ID is the one the 2026-09-19 run saw**, which is the check that says a key was adopted
+and not minted. Do not run `gnome-keyring-daemon --unlock`, do not stop any systemd unit; both were tried on
+2026-09-20 and the first does not reach the daemon that owns the bus name.
+
+**Sign-in needs a forwarded port and a browser somewhere else.** `tradr-cli receive` prints the authorization url
+and an `ssh -L` line and waits; it no longer aborts. From the machine that has the browser:
+
+```
+ssh -L 21821:localhost:21821 USER@HOST
+```
+
+with `USER@HOST` substituted. Then open the url the command printed. **21821 is fixed rather than ephemeral so the
+forward can be set up before the run that needs it**; if it is already taken the command falls back and prints the
+port it actually bound, so read the `ssh -L` line rather than this one. The callback wait is five minutes.
+
+**What to write down is unchanged**, and add one line: whether the forward was needed at all, since a person
+sitting at a desktop session never sees any of this.
+
 > **Three runs stand between this repository and two milestone criteria, and none of them produces a diff.** They are written here rather than in [STATE.md](STATE.md) because that file is 5 KiB under its ceiling and because they depend on the Build environment section directly above: which JDK, which keystore, which machine. **STATE.md's next three actions say why each run matters; this says how to perform one.** Added 2026-09-19.
 
 **Every one of them is the user's to run, because every one needs a radio, a browser press, or a second machine.** What a run owes back is the verbatim output of the lines named under "What to write down" -- not a summary of them. A run reported as "it worked" measures nothing, and two of these three exist because something that looked like it worked did not.
