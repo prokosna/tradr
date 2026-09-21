@@ -44,7 +44,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-**`WI-M8-033`, ruled by DCR-144 on 2026-09-21.** The docs commit is ahead of it per [CLAUDE.md](CLAUDE.md#5-git--only-the-supervisor-commits). It is DF-99's repair, and DF-99 is what cost Run A its first attempt.
+(none)
 
 ## Decisions
 
@@ -99,7 +99,6 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M8-033 | **A device is not one of its own peers, to DCR-144.** `drain_peer_sources` takes this device's own `DeviceId` and discards an `Observed` whose observation carries it, so self never enters the `PeerList` -- and therefore cannot be listed, resolved or dialled. Both front ends supply the id from the `PublicIdentity` they already hold. `tradr-core` is untouched. **The test that decides it drives a real observation carrying our own id through the drain and asserts the list stays empty**, and a second asserts an observation carrying a different id still arrives | planned | |
 | WI-M6-009 | **Scanning a QR with a camera.** `WI-M6-007b` shows a QR and accepts a pasted blob, which is the whole payload either way (docs/11: "one payload and one parser"), so a QR read by any camera application already links. **A scanner inside Tradr is a platform integration and not an interface change** -- Android has `@tauri-apps/plugin-barcode-scanner` and a camera permission to justify, and the desktop has no camera API at all -- so it is its own Work Item rather than a line in one about React | planned | |
 
 ## Deferred

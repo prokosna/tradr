@@ -29,15 +29,17 @@ use tradr_app::sign_in::{SignInState, peer_verifier};
 /// Polls discovered peers from every source and returns the current merged list.
 #[tauri::command]
 pub async fn get_peers(
+    identity_state: State<'_, IdentityState>,
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
 ) -> Result<Vec<PeerInfo>, String> {
+    let self_id = identity_state.public_identity()?.device_id();
     let mut mdns = mdns_source.lock().await;
     let mut static_source = static_peer_source.lock().await;
     let mut list = peer_list.lock().await;
 
-    drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
+    drain_peer_sources(&mut mdns, &mut static_source, &mut list, self_id).await?;
 
     Ok(list.peers().iter().map(peer_info).collect())
 }
@@ -119,11 +121,12 @@ pub async fn send_files<R: tauri::Runtime>(
     vfs: State<'_, Arc<NativeVfs>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<Vec<String>, String> {
+    let self_id = identity_state.public_identity()?.device_id();
     {
         let mut mdns = mdns_source.lock().await;
         let mut static_source = static_peer_source.lock().await;
         let mut list = peer_list.lock().await;
-        drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
+        drain_peer_sources(&mut mdns, &mut static_source, &mut list, self_id).await?;
     }
 
     let items = resolve_send_items(vfs.as_ref(), downloads_root_id(), &files).await?;
@@ -195,11 +198,12 @@ pub async fn list_peer_directory(
     transports: State<'_, Arc<TransportSet>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<DirListingDto, String> {
+    let self_id = identity_state.public_identity()?.device_id();
     {
         let mut mdns = mdns_source.lock().await;
         let mut static_source = static_peer_source.lock().await;
         let mut list = peer_list.lock().await;
-        drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
+        drain_peer_sources(&mut mdns, &mut static_source, &mut list, self_id).await?;
     }
 
     let resolved = {
@@ -273,11 +277,12 @@ pub async fn download_file<R: tauri::Runtime>(
     transports: State<'_, Arc<TransportSet>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<u64, String> {
+    let self_id = identity_state.public_identity()?.device_id();
     {
         let mut mdns = mdns_source.lock().await;
         let mut static_source = static_peer_source.lock().await;
         let mut list = peer_list.lock().await;
-        drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
+        drain_peer_sources(&mut mdns, &mut static_source, &mut list, self_id).await?;
     }
 
     let resolved = {

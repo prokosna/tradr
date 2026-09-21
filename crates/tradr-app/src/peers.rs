@@ -8,7 +8,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use tradr_core::{Candidate, DiscoverySource, Peer, PeerExpectation, PeerList, SecureChannel};
+use tradr_core::{
+    Candidate, DeviceId, DiscoveryEvent, DiscoverySource, Peer, PeerExpectation, PeerList,
+    SecureChannel,
+};
 use tradr_discovery::{
     MDNS_SOURCE_ID, MdnsSource, STATIC_PEER_SOURCE_ID, StaticPeerId, StaticPeerRegistry,
     StaticPeerSource,
@@ -63,16 +66,28 @@ pub async fn drain_peer_sources(
     mdns_source: &mut MdnsSource,
     static_peer_source: &mut StaticPeerSource,
     list: &mut PeerList,
+    self_device_id: DeviceId,
 ) -> Result<(), String> {
     while let Ok(Ok(event)) =
         tokio::time::timeout(Duration::from_millis(5), mdns_source.next_event()).await
     {
+        if let DiscoveryEvent::Observed(ref obs) = event
+            && obs.device_id() == Some(self_device_id)
+        {
+            // Dropping self before insertion prevents self-resolution and dialing, not just frontend display.
+            continue;
+        }
         list.apply(MDNS_SOURCE_ID, event)
             .map_err(|e| format!("mdns peer list update rejected: {e}"))?;
     }
     while let Ok(Ok(event)) =
         tokio::time::timeout(Duration::from_millis(5), static_peer_source.next_event()).await
     {
+        if let DiscoveryEvent::Observed(ref obs) = event
+            && obs.device_id() == Some(self_device_id)
+        {
+            continue;
+        }
         list.apply(STATIC_PEER_SOURCE_ID, event)
             .map_err(|e| format!("static peer list update rejected: {e}"))?;
     }

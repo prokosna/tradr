@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mdns_sd::ServiceDaemon;
-use tradr_core::{Capabilities, PeerList, RootId, Transport};
+use tradr_core::{Capabilities, DeviceId, PeerList, RootId, Transport};
 use tradr_discovery::{MdnsSource, StaticPeerRegistry, StaticPeerSource};
 use tradr_identity::{LinkRegistry, OsRng, SystemClock, attestation_nonce};
 use tradr_transport::selection::TransferSize;
@@ -34,11 +34,16 @@ pub struct PeerDiscovery {
     static_source: StaticPeerSource,
     peer_list: PeerList,
     registry: tokio::sync::Mutex<StaticPeerRegistry>,
+    device_id: DeviceId,
 }
 
 impl PeerDiscovery {
     /// Starts browsing mDNS and loads the static peer registry from disk.
-    pub fn start(daemon: &ServiceDaemon, static_peers_path: &Path) -> Result<Self, String> {
+    pub fn start(
+        daemon: &ServiceDaemon,
+        static_peers_path: &Path,
+        device_id: DeviceId,
+    ) -> Result<Self, String> {
         let mdns = MdnsSource::browse(daemon).map_err(|e| format!("failed to browse mdns: {e}"))?;
         let (registry, static_source) =
             StaticPeerRegistry::load(static_peers_path).map_err(|e| {
@@ -47,7 +52,7 @@ impl PeerDiscovery {
                     static_peers_path.display()
                 )
             })?;
-        Ok(Self::from_sources(mdns, static_source, registry))
+        Ok(Self::from_sources(mdns, static_source, registry, device_id))
     }
 
     /// Constructs discovery directly from existing sources without starting an mDNS daemon.
@@ -55,18 +60,26 @@ impl PeerDiscovery {
         mdns: MdnsSource,
         static_source: StaticPeerSource,
         registry: StaticPeerRegistry,
+        device_id: DeviceId,
     ) -> Self {
         Self {
             mdns,
             static_source,
             peer_list: PeerList::new(),
             registry: tokio::sync::Mutex::new(registry),
+            device_id,
         }
     }
 
     /// Drains pending discovery events from both mDNS and static peer sources.
     pub async fn drain(&mut self) -> Result<(), String> {
-        drain_peer_sources(&mut self.mdns, &mut self.static_source, &mut self.peer_list).await
+        drain_peer_sources(
+            &mut self.mdns,
+            &mut self.static_source,
+            &mut self.peer_list,
+            self.device_id,
+        )
+        .await
     }
 
     /// Drains repeatedly until the window expires and answers all discovered peers.
@@ -124,9 +137,14 @@ impl PeerDiscovery {
 /// Discovers peers reachable via LAN or static peer registration within the default window.
 pub async fn discover_peers() -> Result<Vec<PeerInfo>, String> {
     let dir = paths::app_data_dir()?;
+    let keys_dir = paths::device_keys_dir(&dir);
+    let ladder = identity::platform_ladder(keys_dir);
+    let identity = identity::open_device_identity(&ladder, &OsRng)?;
+    let device_id = identity.public_identity().device_id();
+
     let static_peers_path = dir.join("static-peers.json");
     let daemon = network::mdns_daemon()?;
-    let mut discovery = PeerDiscovery::start(&daemon, &static_peers_path)?;
+    let mut discovery = PeerDiscovery::start(&daemon, &static_peers_path, device_id)?;
     discovery.collect(DISCOVERY_WINDOW).await
 }
 
@@ -161,7 +179,8 @@ pub async fn run_send(
 
     let static_peers_path = dir.join("static-peers.json");
     let daemon = network::mdns_daemon()?;
-    let mut discovery = PeerDiscovery::start(&daemon, &static_peers_path)?;
+    let mut discovery =
+        PeerDiscovery::start(&daemon, &static_peers_path, public_identity.device_id())?;
 
     let profile = provider_profile(oauth)?;
     let peer_trust = Arc::new(PeerTrust::new(profile.clone(), Arc::new(HttpsJwksFetch)));
