@@ -44,7 +44,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-(none)
+**`WI-M8-033`, ruled by DCR-144 on 2026-09-21.** The docs commit is ahead of it per [CLAUDE.md](CLAUDE.md#5-git--only-the-supervisor-commits). It is DF-99's repair, and DF-99 is what cost Run A its first attempt.
 
 ## Decisions
 
@@ -56,7 +56,6 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 |---|---|---|---|
 | 15 | **Whether the storage ladder keeps a plaintext rung.** Raised by the user on 2026-09-20: if a `0600` file rung exists at all, the at-rest protection the Secret Service rung is there for has already been conceded for any device that lands below. **The measurements are in DF-96 and they favour the argument** -- the top rung's protection is conditional on a non-empty keyring password, holds only against offline attackers, and which rung a device lands on is decided by circumstance and then frozen, since promotion is forbidden. **The exit nobody has costed is a passphrase-encrypted file rung**, the shape an ssh private key has, which protects both rungs at rest and works headless. **Nothing is being proposed yet**: it reaches Layer 0 and `SecretStore`, and DCR-143 deliberately fixed the availability defect without touching it | Before M9 | User |
 | 14 | **Whether BLE ships at the priority M7 gave it.** The user said on 2026-09-19 that the devices here do not use it, and M7's completion criterion has never been run -- it cost the roadmap's largest estimation risk, four to five weeks, and every row of it is landed and green. **Nothing is being proposed here**: the code exists, `no-brokr` and the Tier 0/1 inventory cover it, and removing it would be a larger change than leaving it. **What is undecided is whether it is ever exercised**, and the honest answers differ -- a capability that is shipped and never run is one whose first real user finds its defects, which is what Run A just demonstrated for QUIC. **It is carried rather than forced**, because the cost of deciding it now is higher than the cost of leaving it. **Its cheapest resolution closed on 2026-09-20**: DF-91 was the route back to Run C needing no new hardware, on the reading that a Kindle which can sign in is a second Android, and DCR-140 rules that it cannot and will not. What is left is new hardware or the desktop PC booted to Linux as the sender | Before M10, or the first time BLE costs a Work Item | User |
-| 13 | ~~Whether Android gets the hardware-backed Device Key docs/05 promised~~ **Decided 2026-09-19: the table is corrected, not implemented.** And the measurement that settled it found the gap was three times what DF-90 named -- Android, macOS and Windows all fall to a `0600` file, and only the Linux row was ever true. **A false document is today's defect; a missing capability is a roadmap item**, and conflating them would have put a Layer 0 change ahead of DF-24. The intended design stays in docs/05, unimplemented and unscheduled, with the obstacle named | -- | Decided |
 | 10 | Whether one device may hold several Google accounts | M6 | User |
 | 11 | Transfer history retention, and the default write limit for a writable Share | M3 | Open |
 
@@ -100,6 +99,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
+| WI-M8-033 | **A device is not one of its own peers, to DCR-144.** `drain_peer_sources` takes this device's own `DeviceId` and discards an `Observed` whose observation carries it, so self never enters the `PeerList` -- and therefore cannot be listed, resolved or dialled. Both front ends supply the id from the `PublicIdentity` they already hold. `tradr-core` is untouched. **The test that decides it drives a real observation carrying our own id through the drain and asserts the list stays empty**, and a second asserts an observation carrying a different id still arrives | planned | |
 | WI-M6-009 | **Scanning a QR with a camera.** `WI-M6-007b` shows a QR and accepts a pasted blob, which is the whole payload either way (docs/11: "one payload and one parser"), so a QR read by any camera application already links. **A scanner inside Tradr is a platform integration and not an interface change** -- Android has `@tauri-apps/plugin-barcode-scanner` and a camera permission to justify, and the desktop has no camera API at all -- so it is its own Work Item rather than a line in one about React | planned | |
 
 ## Deferred
