@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use tradr_app::network::bind_quic_dialler;
 use tradr_app::send_session::PeerDiscovery;
-use tradr_core::{PeerExpectation, Transport};
+use tradr_core::{DeviceId, PeerExpectation, Transport};
 use tradr_discovery::{MdnsSource, STATIC_PEER_SOURCE_ID, StaticPeerRegistry};
 use tradr_identity::{OsRng, SoftwareKeyStore};
 use tradr_secrets::FileStore;
@@ -41,7 +41,8 @@ async fn await_peer_resolves_a_static_peer_entry_inside_the_window() {
         let (_tx, rx) = flume::unbounded();
         let mdns = MdnsSource::new(rx);
 
-        let mut discovery = PeerDiscovery::from_sources(mdns, static_source, registry);
+        let self_id = DeviceId::from_bytes(&[0x01; 16]).expect("device id");
+        let mut discovery = PeerDiscovery::from_sources(mdns, static_source, registry, self_id);
 
         let tx_dir = tempfile::tempdir().expect("tx tempdir");
         let tx_store = setup_key_store(tx_dir.path());
@@ -78,7 +79,8 @@ async fn await_peer_answers_not_found_when_selector_is_unreported() {
         let (_tx, rx) = flume::unbounded();
         let mdns = MdnsSource::new(rx);
 
-        let mut discovery = PeerDiscovery::from_sources(mdns, static_source, registry);
+        let self_id = DeviceId::from_bytes(&[0x01; 16]).expect("device id");
+        let mut discovery = PeerDiscovery::from_sources(mdns, static_source, registry, self_id);
 
         let tx_dir = tempfile::tempdir().expect("tx tempdir");
         let tx_store = setup_key_store(tx_dir.path());
@@ -122,7 +124,8 @@ async fn await_peer_answers_candidate_refusal_when_candidate_cannot_be_dialed() 
         let (_tx, rx) = flume::unbounded();
         let mdns = MdnsSource::new(rx);
 
-        let mut discovery = PeerDiscovery::from_sources(mdns, static_source, registry);
+        let self_id = DeviceId::from_bytes(&[0x01; 16]).expect("device id");
+        let mut discovery = PeerDiscovery::from_sources(mdns, static_source, registry, self_id);
 
         let empty_transports = TransportSet::new(vec![]);
 
@@ -166,7 +169,8 @@ async fn collect_answers_static_peer_entry_with_observation_id_key() {
         let (_tx, rx) = flume::unbounded();
         let mdns = MdnsSource::new(rx);
 
-        let mut discovery = PeerDiscovery::from_sources(mdns, static_source, registry);
+        let self_id = DeviceId::from_bytes(&[0x01; 16]).expect("device id");
+        let mut discovery = PeerDiscovery::from_sources(mdns, static_source, registry, self_id);
 
         let peers = discovery
             .collect(Duration::from_millis(50))

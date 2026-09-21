@@ -245,11 +245,13 @@ pub async fn reply_to_link_invite(
 ) -> Result<LinkReplyDto, String> {
     let invite = invite_from_blob(&blob).map_err(|e| e.to_string())?;
 
+    let self_id = identity_state.public_identity()?.device_id();
     {
         let mut mdns = mdns_source.lock().await;
         let mut static_source = static_peer_source.lock().await;
         let mut list = peer_list.lock().await;
-        tradr_app::peers::drain_peer_sources(&mut mdns, &mut static_source, &mut list).await?;
+        tradr_app::peers::drain_peer_sources(&mut mdns, &mut static_source, &mut list, self_id)
+            .await?;
     }
 
     let (inviter_device_id, candidate) = {
