@@ -9,8 +9,8 @@ use serde::Serialize;
 use tauri::State;
 
 use tradr_core::{
-    Candidate, Clock, DeviceId, Invite, LinkDeclineReason, LinkId, LinkSecret, PeerExpectation,
-    PeerList, PublicIdentity, Rng, SecretStore, SecureChannel, UnixTime,
+    Candidate, Clock, DeviceId, DisplayName, Invite, LinkDeclineReason, LinkId, LinkSecret,
+    PeerExpectation, PeerList, PublicIdentity, Rng, SecretStore, SecureChannel, UnixTime,
 };
 use tradr_discovery::{MdnsSource, StaticPeerSource};
 use tradr_identity::{Link, LinkRegistry, OsRng, SystemClock, create_invite, device_fingerprint};
@@ -76,6 +76,8 @@ pub struct ReplierDeps<'a> {
     pub our_identity: &'a PublicIdentity,
     /// This device's own OIDC provider-signed id token.
     pub our_attestation_token: String,
+    /// This device's own display name, if any.
+    pub our_display_name: Option<DisplayName>,
     /// This device's peer trust engine for verifying the inviter.
     pub trust: Arc<PeerTrust>,
     /// This device's link registry for persisting completed links.
@@ -102,7 +104,7 @@ pub fn open_link_invite(
         identity.identity_pub().clone(),
         identity.agreement_pub().clone(),
         token,
-        None,
+        tradr_app::network::local_display_name(),
     )
     .map_err(|e| e.to_string())?;
 
@@ -188,7 +190,7 @@ pub async fn execute_send_link_reply(
         invite: deps.invite,
         our_identity: deps.our_identity,
         our_attestation_token: deps.our_attestation_token,
-        our_display_name: None,
+        our_display_name: deps.our_display_name,
         authenticated_peer: channel.peer(),
         max_frame_size: channel.max_frame_size(),
         invite_skew_secs: FUTURE_SKEW_LIMIT_SECS,
@@ -284,6 +286,7 @@ pub async fn reply_to_link_invite(
         invite: &invite,
         our_identity: &our_identity,
         our_attestation_token,
+        our_display_name: tradr_app::network::local_display_name(),
         trust,
         registry,
         secrets,
