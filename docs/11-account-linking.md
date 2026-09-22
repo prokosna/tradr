@@ -82,6 +82,14 @@ Contributing half the randomness each stops either side deciding the secret alon
 - **The paste channel is therefore not only a convenience.** The diagram introduces it for a screen out of view or a distance; it is also what an invite too large for a QR must use, and the interface says which of the two it is faced with rather than rendering a QR that will not scan.
 - **Parsing refuses a blob longer than 4096 characters, before decoding it.** It is an untrusted paste, so it needs a bound; the cap sits well above any invite this design produces and well below anything a parser should spend time on.
 
+#### Both names are the one the device already advertises, decided 2026-09-22 as DCR-147
+
+**An Invite's `display_name` and a `LinkReply`'s are the name this device publishes in its mDNS `n` field** -- the first label of its hostname, [DCR-145](03-discovery-and-transport.md#where-the-n-fields-value-comes-from-decided-2026-09-22-as-dcr-145) -- and nothing else. Both fields have been specified since M6 and both were empty at every production call site, so the proposal a person approves showed a Fingerprint and no name, and every Link on both sides was recorded with no label. **One name and not a second setting**: a device called `desk` on the LAN and something else in a Link is two answers to one question.
+
+- **A hostname that yields no valid `DisplayName` leaves the field absent and the exchange proceeds**, exactly as the advertisement does. The field decorates and decides nothing, so its absence refuses nothing.
+- **It costs an invite at most 34 bytes before encoding**, about 46 characters of the blob, inside the margin measured above.
+- **A `Hello` does not carry it yet, DF-101.** Nothing on the receiving side of a handshake reads a `Hello`'s name, so filling that field would be writing what nobody reads; it waits for whatever first shows one.
+
 #### What an invite's expiry decides, and what it does not
 
 **The five minutes are enforced by the inviter and merely advised to the reader.** Alice's device closes its window five minutes after showing the QR and refuses a reply arriving after that -- the single-use window above, on the side that has the authority to enforce it. `expires_at` lets Bob decline to answer an invite that is certainly dead, and it decides nothing else.
