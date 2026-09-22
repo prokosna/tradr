@@ -500,7 +500,7 @@ what the user sees  reportexe.pdf
 what gets written   an executable
 ```
 
-Rejected: `U+202A` to `U+202E`, the overrides and embeddings; `U+2066` to `U+2069`, the isolates; and `U+2028` and `U+2029`, the line and paragraph separators, which also break any single-line rendering of a name and any log line carrying one. None has a use in a filename.
+Rejected: `U+202A` to `U+202E`, the overrides and embeddings; `U+2066` to `U+2069`, the isolates; and `U+2028` and `U+2029`, the line and paragraph separators, which also break any single-line rendering of a name and any log line carrying one. None has a use in a filename. **The same set is refused in a peer's name and address**, by the same predicate -- [docs/03](03-discovery-and-transport.md#a-name-a-person-reads-may-not-reorder-itself-dcr-146), DCR-146.
 
 **`U+200E` and `U+200F`, the directional marks, stay permitted.** They influence the direction of neutral characters and cannot reverse a run, so they do not produce the substitution above, and Arabic and Hebrew filenames legitimately carry them. Rejecting them would cost every RTL user something real to defend against nothing.
 
