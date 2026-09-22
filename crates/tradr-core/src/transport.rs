@@ -10,6 +10,7 @@ use crate::channel::{SecureChannel, TransportError, TransportId};
 use crate::device_id::DeviceId;
 use crate::future::BoxFuture;
 use crate::key_store::PublicIdentity;
+use crate::rel_path::is_misleading_display_character;
 
 /// One address a peer might be reachable at, paired with the transport
 /// that produced it. The address is opaque to the core: `192.168.1.42:51820`,
@@ -29,6 +30,8 @@ pub enum CandidateError {
     Empty,
     /// The address contained a control character.
     ControlCharacter(char),
+    /// The address contained a character that reorders its rendering.
+    MisleadingDisplay(char),
 }
 
 impl fmt::Display for CandidateError {
@@ -38,6 +41,12 @@ impl fmt::Display for CandidateError {
             Self::ControlCharacter(c) => {
                 write!(f, "candidate address contains control character {c:?}")
             }
+            Self::MisleadingDisplay(c) => {
+                write!(
+                    f,
+                    "candidate address contains a character that reorders its rendering {c:?}"
+                )
+            }
         }
     }
 }
@@ -46,15 +55,22 @@ impl std::error::Error for CandidateError {}
 
 impl Candidate {
     /// Validates `address` against docs/03's "Opaque is not unchecked":
-    /// reject empty, reject a control character, check nothing else. Pairs
-    /// it with the transport that produced it; syntax beyond that is each
-    /// transport's own concern, checked again at `connect`.
+    /// reject empty, reject a control character, reject a character that
+    /// reorders its rendering. Pairs it with the transport that produced
+    /// it; syntax beyond that is each transport's own concern, checked
+    /// again at `connect`.
     pub fn new(transport: TransportId, address: &str) -> Result<Self, CandidateError> {
         if address.is_empty() {
             return Err(CandidateError::Empty);
         }
         if let Some(c) = address.chars().find(|c| c.is_control()) {
             return Err(CandidateError::ControlCharacter(c));
+        }
+        if let Some(c) = address
+            .chars()
+            .find(|&c| is_misleading_display_character(c))
+        {
+            return Err(CandidateError::MisleadingDisplay(c));
         }
 
         Ok(Self {

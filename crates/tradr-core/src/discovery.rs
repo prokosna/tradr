@@ -9,6 +9,7 @@ use std::fmt;
 
 use crate::device_id::DeviceId;
 use crate::future::BoxFuture;
+use crate::rel_path::is_misleading_display_character;
 use crate::transport::Candidate;
 
 /// The most bytes an `ObservationKey` may occupy.
@@ -19,17 +20,17 @@ pub const OBSERVATION_KEY_MAX_LEN: usize = 128;
 pub const DISPLAY_NAME_MAX_LEN: usize = 32;
 
 /// The reasons a bounded, printable string is refused: shared by
-/// `ObservationKey` and `DisplayName`, which check the same two rules
+/// `ObservationKey` and `DisplayName`, which check the same rules
 /// against different limits and hand back different public error types.
 enum BoundedStringError {
     Empty,
     TooLong(usize),
     ControlCharacter(char),
+    MisleadingDisplay(char),
 }
 
-// The one place `is_empty`, byte length, and `is_control` are checked, so
-// `ObservationKey::new` and `DisplayName::new` cannot drift apart on what
-// "the same rule and reasoning as Candidate::new" means in practice.
+// The one place `is_empty`, byte length, `is_control` and reordering are
+// checked, so `ObservationKey::new` and `DisplayName::new` cannot drift.
 fn validate_bounded_string(s: &str, max_len: usize) -> Result<(), BoundedStringError> {
     if s.is_empty() {
         return Err(BoundedStringError::Empty);
@@ -39,6 +40,9 @@ fn validate_bounded_string(s: &str, max_len: usize) -> Result<(), BoundedStringE
     }
     if let Some(c) = s.chars().find(|c| c.is_control()) {
         return Err(BoundedStringError::ControlCharacter(c));
+    }
+    if let Some(c) = s.chars().find(|&c| is_misleading_display_character(c)) {
+        return Err(BoundedStringError::MisleadingDisplay(c));
     }
     Ok(())
 }
@@ -85,6 +89,8 @@ pub enum ObservationKeyError {
     TooLong(usize),
     /// The input contained a control character.
     ControlCharacter(char),
+    /// The input contained a character that reorders its rendering.
+    MisleadingDisplay(char),
 }
 
 impl fmt::Display for ObservationKeyError {
@@ -98,6 +104,12 @@ impl fmt::Display for ObservationKeyError {
             Self::ControlCharacter(c) => {
                 write!(f, "observation key contains control character {c:?}")
             }
+            Self::MisleadingDisplay(c) => {
+                write!(
+                    f,
+                    "observation key contains a character that reorders its rendering {c:?}"
+                )
+            }
         }
     }
 }
@@ -105,14 +117,15 @@ impl fmt::Display for ObservationKeyError {
 impl std::error::Error for ObservationKeyError {}
 
 impl ObservationKey {
-    /// Validates `s` against the same two rules as `Candidate::new`, plus
-    /// the length bound `OBSERVATION_KEY_MAX_LEN`: reject empty, reject a
-    /// control character, reject over-length. Checks nothing else.
+    /// Validates `s` against the same rules as `Candidate::new`, plus the
+    /// length bound `OBSERVATION_KEY_MAX_LEN`: reject empty, reject a
+    /// control character, reject reordering characters, reject over-length.
     pub fn new(s: &str) -> Result<Self, ObservationKeyError> {
         validate_bounded_string(s, OBSERVATION_KEY_MAX_LEN).map_err(|e| match e {
             BoundedStringError::Empty => ObservationKeyError::Empty,
             BoundedStringError::TooLong(len) => ObservationKeyError::TooLong(len),
             BoundedStringError::ControlCharacter(c) => ObservationKeyError::ControlCharacter(c),
+            BoundedStringError::MisleadingDisplay(c) => ObservationKeyError::MisleadingDisplay(c),
         })?;
         Ok(Self(s.to_string()))
     }
@@ -178,6 +191,8 @@ pub enum DisplayNameError {
     TooLong(usize),
     /// The input contained a control character.
     ControlCharacter(char),
+    /// The input contained a character that reorders its rendering.
+    MisleadingDisplay(char),
 }
 
 impl fmt::Display for DisplayNameError {
@@ -191,6 +206,12 @@ impl fmt::Display for DisplayNameError {
             Self::ControlCharacter(c) => {
                 write!(f, "display name contains control character {c:?}")
             }
+            Self::MisleadingDisplay(c) => {
+                write!(
+                    f,
+                    "display name contains a character that reorders its rendering {c:?}"
+                )
+            }
         }
     }
 }
@@ -198,14 +219,15 @@ impl fmt::Display for DisplayNameError {
 impl std::error::Error for DisplayNameError {}
 
 impl DisplayName {
-    /// Validates `s` against the same two rules as `Candidate::new`, plus
-    /// the length bound `DISPLAY_NAME_MAX_LEN`, measured in bytes since
-    /// that is what the mDNS TXT record's own limit is measured in.
+    /// Validates `s` against the same rules as `Candidate::new`, plus the
+    /// length bound `DISPLAY_NAME_MAX_LEN`, measured in bytes since that
+    /// is what the mDNS TXT record's own limit is measured in.
     pub fn new(s: &str) -> Result<Self, DisplayNameError> {
         validate_bounded_string(s, DISPLAY_NAME_MAX_LEN).map_err(|e| match e {
             BoundedStringError::Empty => DisplayNameError::Empty,
             BoundedStringError::TooLong(len) => DisplayNameError::TooLong(len),
             BoundedStringError::ControlCharacter(c) => DisplayNameError::ControlCharacter(c),
+            BoundedStringError::MisleadingDisplay(c) => DisplayNameError::MisleadingDisplay(c),
         })?;
         Ok(Self(s.to_string()))
     }

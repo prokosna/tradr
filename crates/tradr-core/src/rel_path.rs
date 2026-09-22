@@ -90,7 +90,7 @@ fn has_drive_letter_prefix(s: &str) -> bool {
 // name's rendering differ from its bytes: U+202A-202E and U+2066-2069 can
 // reorder a run, and U+2028/U+2029 fake a line break. U+200E/U+200F are
 // deliberately excluded: they cannot reverse a run and RTL filenames need them.
-fn is_misleading_display_character(c: char) -> bool {
+pub(crate) fn is_misleading_display_character(c: char) -> bool {
     matches!(
         c,
         '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{2028}' | '\u{2029}'

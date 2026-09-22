@@ -51,10 +51,11 @@ impl fmt::Display for PlatformError {
 impl std::error::Error for PlatformError {}
 
 impl Platform {
-    /// Validates `s` against the same two rules as `Candidate::new`, plus
-    /// the length bound `PLATFORM_MAX_LEN`: reject empty, reject a control
-    /// character, reject over-length. Checks nothing else, so an
-    /// unrecognised value such as `ios` is accepted -- Change Drill D7.
+    /// Validates `s` against the same empty and control-character rules as
+    /// `Candidate::new`, plus the length bound `PLATFORM_MAX_LEN`: reject
+    /// empty, reject a control character, reject over-length. Checks
+    /// nothing else, so an unrecognised value such as `ios` is accepted
+    /// -- Change Drill D7.
     pub fn new(s: &str) -> Result<Self, PlatformError> {
         if s.is_empty() {
             return Err(PlatformError::Empty);
