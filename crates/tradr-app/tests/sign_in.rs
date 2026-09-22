@@ -15,8 +15,8 @@ use common::{
 use tradr_app::peer_trust::PeerTrust;
 #[cfg(not(target_os = "android"))]
 use tradr_app::sign_in::{
-    CALLBACK_PORT, bind_callback_listener, bind_callback_with_fallback, callback_bind_addresses,
-    ssh_forward_command,
+    CALLBACK_PORT, bind_callback_listener, bind_callback_with_fallback,
+    browser_unavailable_message, callback_bind_addresses, ssh_forward_command,
 };
 use tradr_app::sign_in::{OAuthConfig, SignInState, finish_sign_in, provider_profile};
 use tradr_core::{PublicIdentity, TrustTier};
@@ -315,4 +315,64 @@ fn ssh_forward_command_names_the_port_actually_bound() {
         fallback_line,
         format!("ssh -L {bound_port}:localhost:{bound_port} USER@HOST")
     );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn browser_unavailable_message_isolates_auth_url_on_its_own_line() {
+    let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
+    let launcher_error =
+        format!("Launcher \"xdg-open\" \"{url}\" failed with ExitStatus(unix_wait_status(768))");
+    let message = browser_unavailable_message(url, &launcher_error, 21821);
+
+    assert_eq!(message.matches(url).count(), 1);
+    assert_eq!(message.lines().filter(|&line| line == url).count(), 1);
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn browser_unavailable_message_preserves_launcher_name_and_exit_status() {
+    let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
+    let launcher_error =
+        format!("Launcher \"xdg-open\" \"{url}\" failed with ExitStatus(unix_wait_status(768))");
+    let message = browser_unavailable_message(url, &launcher_error, 21821);
+
+    assert!(
+        message.contains(
+            "Launcher \"xdg-open\" \"<url>\" failed with ExitStatus(unix_wait_status(768))"
+        )
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn browser_unavailable_message_redacts_multiple_url_occurrences_in_launcher_error() {
+    let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
+    let launcher_error =
+        format!("Launcher \"xdg-open\" \"{url}\" failed; fallback \"gio\" \"{url}\" failed");
+    let message = browser_unavailable_message(url, &launcher_error, 21821);
+
+    assert_eq!(message.matches(url).count(), 1);
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn browser_unavailable_message_preserves_launcher_error_without_url() {
+    let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
+    let launcher_error = "No such file or directory (os error 2)";
+    let message = browser_unavailable_message(url, launcher_error, 21821);
+
+    assert_eq!(message.matches(url).count(), 1);
+    assert!(message.contains(launcher_error));
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn browser_unavailable_message_includes_port_forward_command() {
+    let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
+    let launcher_error = "No such file or directory (os error 2)";
+    let message = browser_unavailable_message(url, launcher_error, 43210);
+
+    let expected_forward = ssh_forward_command(43210);
+    assert!(message.lines().any(|line| line == expected_forward));
 }
