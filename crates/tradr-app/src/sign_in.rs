@@ -242,6 +242,16 @@ pub fn ssh_forward_command(port: u16) -> String {
 }
 
 #[cfg(not(target_os = "android"))]
+/// Composes the sign-in instructions when a local browser cannot be opened.
+pub fn browser_unavailable_message(auth_url: &str, launcher_error: &str, port: u16) -> String {
+    let redacted = launcher_error.replace(auth_url, "<url>");
+    let forward = ssh_forward_command(port);
+    format!(
+        "could not open a browser here ({redacted}); open this url on a machine with one to continue:\n{auth_url}\n{forward}\nwhere USER@HOST is this machine's user and hostname or address"
+    )
+}
+
+#[cfg(not(target_os = "android"))]
 /// Answers the two addresses the loopback callback listener tries: the fixed
 /// default port and the ephemeral fallback, in that order.
 pub fn callback_bind_addresses() -> Result<(SocketAddr, SocketAddr), String> {
@@ -311,15 +321,11 @@ pub async fn obtain_id_token_desktop(
     )
     .map_err(|e| e.to_string())?;
 
-    // When a browser cannot be opened automatically, the url is printed
-    // to stderr so authentication can proceed from another machine.
+    // Continuing without a local browser lets authentication proceed from another machine.
     if let Err(e) = open::that(&auth_url) {
         eprintln!(
-            "could not open a browser here ({e}); open this url on a machine with one to continue: {auth_url}"
-        );
-        eprintln!(
-            "{}\nwhere USER@HOST is this machine's user and hostname or address",
-            ssh_forward_command(port)
+            "{}",
+            browser_unavailable_message(&auth_url, &e.to_string(), port)
         );
     }
 
