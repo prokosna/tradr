@@ -711,6 +711,7 @@ BLE and `relay` are raw byte streams where TLS does not fit — its handshake ov
 - Spoofing mDNS TXT records to claim a false identity is possible, but Attestation verification after connection always rejects it
 - Incoming connections receive no resources until `Hello` arrives. Per-connection memory limits and rate limits apply before the handshake
 - **Leaked**: Device ID, display name, platform, capability flags. Who is present on a LAN is not concealed — see [03](03-discovery-and-transport.md)
+- **The display name is the host's own hostname** (DCR-145), so what leaks is whatever the machine is already called by every other service on that LAN. That is the user's decision and not the design's: a name is only useful because a person can read it, and a name a person can read is a name an observer can read
 
 **T2 — passive observer**
 - All payload is encrypted. Part of the QUIC handshake is visible, but SNI is not used

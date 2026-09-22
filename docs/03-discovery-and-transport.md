@@ -55,6 +55,16 @@ Four `DiscoverySource` implementations run concurrently, merging into one peer l
 
 Putting the Device ID in the TXT record exposes device identity to anyone on the LAN. That is accepted: a LAN is already a somewhat trusted space, and concealing identity there would badly hurt how quickly discovery works. **Proximity, where anonymity does matter, is handled differently** — see EIDs below.
 
+#### Where the `n` field's value comes from, decided 2026-09-22 as DCR-145
+
+**A device publishes its own hostname as its display name, and the user decided that rather than the design.** The field has been specified since M1 and populated by nothing since M1, so every peer on every device read `Unidentified peer` and was told apart by eight hex characters of its Device ID -- DF-100, and [Run A](../RECORD.md#device-runs-the-exact-procedure) is what its absence cost, because the list a person chose from held two identical labels and one of them was their own machine. **What the name should be was the open half and it is not a technical question**: a name broadcast unencrypted to a LAN is a disclosure, so what a device calls itself belongs to whoever runs it. The hostname is what the machine is already called by every other service on that LAN.
+
+**The hostname's first label is the name, and nothing invents one.** A host answering `desk.example.internal` or `desk.local` publishes `desk`, because the labels after the first name a network rather than a device and `DISPLAY_NAME_MAX_LEN` is 32 bytes. A hostname longer than that is truncated on a character boundary, never mid-codepoint, so the value is always the UTF-8 the field is specified to carry.
+
+**A hostname that cannot be read or does not validate leaves the field absent, and the advertisement still goes out.** `DisplayName` refuses an empty string and a control character, and an OS that answers no hostname at all is a case this cannot fix; in all three the record is built without `n`, which is exactly the record every build before this one emitted. **A device that cannot name itself must still be discoverable** -- a missing name costs a person a label they can read, and a refused advertisement costs them the transfer.
+
+**A peer with no name is not an unidentified peer, and calling it one was the second half of DF-100.** Its Device ID is known, shown beside the label, and is what every trust decision is made against; what is missing is a name. So a front end with nothing to put in that line says the device is unnamed, and keeps "not yet identified" for the case it was written for -- an observation that has genuinely supplied no Device ID yet, which is what a BLE advertisement or an unpinned Static Peer produces.
+
 ### 2. BLE — proximity, no network required, Tier 0
 
 Advertise on an interval while scanning at the same time. Both roles run.
