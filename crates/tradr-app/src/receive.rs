@@ -66,7 +66,11 @@ pub async fn run_receive(
 
     let daemon = network::mdns_daemon()?;
     let capabilities = Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC));
-    let txt_record = network::device_txt_record(&public_identity, capabilities.get())?;
+    let txt_record = network::device_txt_record(
+        &public_identity,
+        capabilities.get(),
+        network::local_display_name(),
+    )?;
     network::register_advertisement(&daemon, bound_port, &txt_record, &OsRng)?;
     eprintln!("receive: listening on quic port {bound_port}");
 

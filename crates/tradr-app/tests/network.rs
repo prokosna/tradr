@@ -8,10 +8,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use tradr_app::network::{
-    bind_with_fallback, device_txt_record, local_platform, quic_bind_addresses,
-    quic_dial_bind_address,
+    bind_with_fallback, device_txt_record, display_name_from_hostname, local_display_name,
+    local_platform, quic_bind_addresses, quic_dial_bind_address,
 };
-use tradr_core::Capabilities;
+use tradr_core::{Capabilities, DISPLAY_NAME_MAX_LEN, DisplayName};
 use tradr_discovery::{AGREEMENT_KEY_TAG_LEN, Platform, STATIC_PEER_DEFAULT_PORT};
 use tradr_transport::quic::QuicTransport;
 
@@ -28,7 +28,7 @@ fn local_platform_returns_a_token_accepted_by_platform_new() {
 #[test]
 fn device_txt_record_publishes_agreement_key_tag_as_first_bytes_of_blake3_over_agreement_pub() {
     let identity = common::identity(42);
-    let record = device_txt_record(&identity, Capabilities::DIRECT_QUIC)
+    let record = device_txt_record(&identity, Capabilities::DIRECT_QUIC, None)
         .expect("record construction must succeed");
 
     let expected_hash = blake3::hash(identity.agreement_pub().as_bytes());
@@ -41,7 +41,7 @@ fn device_txt_record_publishes_agreement_key_tag_as_first_bytes_of_blake3_over_a
 #[test]
 fn device_txt_record_publishes_device_id_of_identity() {
     let identity = common::identity(7);
-    let record = device_txt_record(&identity, Capabilities::DIRECT_QUIC)
+    let record = device_txt_record(&identity, Capabilities::DIRECT_QUIC, None)
         .expect("record construction must succeed");
 
     assert_eq!(record.device_id(), identity.device_id());
@@ -54,7 +54,8 @@ fn device_txt_record_publishes_exact_capabilities_with_multiple_bits() {
         Capabilities::from_bits(Capabilities::DIRECT_QUIC.bits() | Capabilities::BLE_GATT.bits());
     assert!(caps.bits().count_ones() > 1);
 
-    let record = device_txt_record(&identity, caps).expect("record construction must succeed");
+    let record =
+        device_txt_record(&identity, caps, None).expect("record construction must succeed");
 
     assert_eq!(record.capabilities(), caps);
 }
@@ -62,7 +63,7 @@ fn device_txt_record_publishes_exact_capabilities_with_multiple_bits() {
 #[test]
 fn device_txt_record_publishes_local_platform_and_no_display_name() {
     let identity = common::identity(99);
-    let record = device_txt_record(&identity, Capabilities::DIRECT_QUIC)
+    let record = device_txt_record(&identity, Capabilities::DIRECT_QUIC, None)
         .expect("record construction must succeed");
 
     assert_eq!(record.platform().as_str(), local_platform());
@@ -70,6 +71,111 @@ fn device_txt_record_publishes_local_platform_and_no_display_name() {
     assert!(
         !record.to_pairs().iter().any(|(k, _)| k == "n"),
         "to_pairs() must carry no 'n' key when display name is none"
+    );
+}
+
+#[test]
+fn display_name_from_hostname_without_dot_keeps_entire_string() {
+    let name = display_name_from_hostname("desk");
+    assert_eq!(name.as_ref().map(DisplayName::as_str), Some("desk"));
+}
+
+#[test]
+fn display_name_from_hostname_takes_first_label_from_multilabel_name() {
+    let from_internal = display_name_from_hostname("desk.example.internal");
+    assert_eq!(
+        from_internal.as_ref().map(DisplayName::as_str),
+        Some("desk")
+    );
+
+    let from_local = display_name_from_hostname("desk.local");
+    assert_eq!(from_local.as_ref().map(DisplayName::as_str), Some("desk"));
+}
+
+#[test]
+fn display_name_from_hostname_truncates_ascii_label_to_max_len_bytes() {
+    let long_label = "a".repeat(DISPLAY_NAME_MAX_LEN + 10);
+    let hostname = format!("{long_label}.example.com");
+    let name = display_name_from_hostname(&hostname);
+
+    let expected = "a".repeat(DISPLAY_NAME_MAX_LEN);
+    assert_eq!(
+        name.as_ref().map(DisplayName::as_str),
+        Some(expected.as_str())
+    );
+    assert_eq!(
+        name.as_ref().map(|n| n.as_str().len()),
+        Some(DISPLAY_NAME_MAX_LEN)
+    );
+}
+
+#[test]
+fn display_name_from_hostname_truncates_multibyte_label_on_character_boundary() {
+    let input_label = "あ".repeat(12);
+    let hostname = format!("{input_label}.local");
+    let name = display_name_from_hostname(&hostname);
+
+    assert!(
+        name.is_some(),
+        "display name must be accepted by DisplayName"
+    );
+    let display_str = name
+        .as_ref()
+        .map(DisplayName::as_str)
+        .expect("display name present");
+    assert!(
+        display_str.len() <= DISPLAY_NAME_MAX_LEN,
+        "truncated length must be at most {DISPLAY_NAME_MAX_LEN} bytes"
+    );
+    assert!(
+        input_label.starts_with(display_str),
+        "truncated string must be a prefix of the input label"
+    );
+}
+
+#[test]
+fn display_name_from_hostname_refuses_empty_string() {
+    assert!(display_name_from_hostname("").is_none());
+}
+
+#[test]
+fn display_name_from_hostname_refuses_empty_first_label() {
+    assert!(display_name_from_hostname(".").is_none());
+    assert!(display_name_from_hostname(".desk").is_none());
+}
+
+#[test]
+fn display_name_from_hostname_refuses_control_character_in_first_label() {
+    assert!(display_name_from_hostname("a\u{7}b.local").is_none());
+}
+
+#[test]
+fn local_display_name_matches_display_name_from_os_hostname() {
+    let os_hostname = hostname::get().expect("operating system hostname available");
+    let utf8_hostname = os_hostname.to_str().expect("hostname is valid utf-8");
+    let expected = display_name_from_hostname(utf8_hostname);
+
+    assert!(
+        expected.is_some(),
+        "os hostname must produce a valid display name"
+    );
+    assert_eq!(local_display_name(), expected);
+}
+
+#[test]
+fn device_txt_record_carries_provided_display_name() {
+    let identity = common::identity(42);
+    let name = DisplayName::new("desk-machine").expect("valid display name");
+    let record = device_txt_record(&identity, Capabilities::DIRECT_QUIC, Some(name.clone()))
+        .expect("record construction must succeed");
+
+    assert_eq!(record.display_name(), Some(&name));
+    let pairs = record.to_pairs();
+    let n_pair = pairs.iter().find(|(k, _)| k == "n");
+    assert_eq!(
+        n_pair.map(|(_, v)| v.as_str()),
+        Some("desk-machine"),
+        "to_pairs() must include the 'n' key with the display name value"
     );
 }
 

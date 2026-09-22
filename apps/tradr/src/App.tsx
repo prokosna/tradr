@@ -651,7 +651,7 @@ export function App() {
 											onChange={() => setSelectedPeerId(peer.key)}
 											style={{ marginRight: "0.5rem" }}
 										/>
-										<strong>{peer.display_name || "Unidentified peer"}</strong>
+										<strong>{peer.display_name || "Unnamed device"}</strong>
 										<span
 											style={{
 												fontSize: "0.85em",
