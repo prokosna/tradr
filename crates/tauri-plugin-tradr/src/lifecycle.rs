@@ -31,7 +31,7 @@ use tradr_app::listener::{
     LinkStreamService, ListenerError, ListenerServices, build_key_binding, run_listener,
 };
 use tradr_app::network::{
-    bind_quic_transport, device_txt_record, mdns_daemon, register_advertisement,
+    bind_quic_transport, device_txt_record, local_display_name, mdns_daemon, register_advertisement,
 };
 use tradr_app::peer_trust::OwnAttestation;
 use tradr_app::sign_in::SignInState;
@@ -195,7 +195,7 @@ pub fn init_lifecycle<R: Runtime>(
 
     let capabilities = Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC));
 
-    let txt_record = device_txt_record(&public_identity, capabilities.get())?;
+    let txt_record = device_txt_record(&public_identity, capabilities.get(), local_display_name())?;
 
     register_advertisement(&daemon, bound_port, &txt_record, &OsRng)?;
 

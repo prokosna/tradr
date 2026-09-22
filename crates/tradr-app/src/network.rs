@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use mdns_sd::ServiceDaemon;
-use tradr_core::{Capabilities, KeyStore, PublicIdentity, Rng};
+use tradr_core::{Capabilities, DisplayName, KeyStore, PublicIdentity, Rng};
 use tradr_discovery::{
     AGREEMENT_KEY_TAG_LEN, Platform, STATIC_PEER_DEFAULT_PORT, TxtRecord, advertisement,
     instance_name,
@@ -112,10 +112,37 @@ pub fn local_platform() -> &'static str {
     platform_str
 }
 
+/// Derives a display name from the first label of a raw hostname, truncated
+/// to at most `DISPLAY_NAME_MAX_LEN` bytes on a whole character boundary.
+pub fn display_name_from_hostname(raw: &str) -> Option<DisplayName> {
+    let label = match raw.split_once('.') {
+        Some((first, _)) => first,
+        None => raw,
+    };
+    let mut end = 0;
+    for (idx, ch) in label.char_indices() {
+        let next = idx + ch.len_utf8();
+        if next <= tradr_core::DISPLAY_NAME_MAX_LEN {
+            end = next;
+        } else {
+            break;
+        }
+    }
+    DisplayName::new(&label[..end]).ok()
+}
+
+/// Reads the operating system hostname and derives a local display name.
+pub fn local_display_name() -> Option<DisplayName> {
+    let raw = hostname::get().ok()?;
+    let utf8_str = raw.to_str()?;
+    display_name_from_hostname(utf8_str)
+}
+
 /// Builds the mDNS TXT record announcing this device's identity and capabilities.
 pub fn device_txt_record(
     public_identity: &PublicIdentity,
     capabilities: Capabilities,
+    display_name: Option<DisplayName>,
 ) -> Result<TxtRecord, String> {
     let agreement_hash = blake3::hash(public_identity.agreement_pub().as_bytes());
     let mut agreement_key_tag = [0u8; AGREEMENT_KEY_TAG_LEN];
@@ -125,7 +152,7 @@ pub fn device_txt_record(
     let txt_record = TxtRecord::new(
         public_identity.device_id(),
         agreement_key_tag,
-        None,
+        display_name,
         capabilities,
         platform,
     );
