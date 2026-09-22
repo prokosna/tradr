@@ -37,9 +37,16 @@ fi
 
 cd "$ROOT_DIR" || exit 1
 
+# A REVISE round starts from a dirty tree, so edits to already-modified files do not change the file list.
+tree_fingerprint() {
+	git status --porcelain
+	git diff HEAD --binary
+	git ls-files --others --exclude-standard | git hash-object --stdin-paths
+}
+
 # Tracking branch commits prevents a mid-run merge from reading as an Implementer commit.
 head_before=$(git rev-parse HEAD)
-tree_before=$(git status --porcelain)
+tree_before=$(tree_fingerprint)
 has_origin_main=1
 if ! git rev-parse --verify origin/main > /dev/null 2>&1; then
 	echo "dispatch-implementer: origin/main does not resolve, falling back to HEAD comparison" >&2
@@ -61,7 +68,7 @@ agy --model "$MODEL" \
 status=$?
 
 head_after=$(git rev-parse HEAD)
-tree_after=$(git status --porcelain)
+tree_after=$(tree_fingerprint)
 
 echo "  HEAD after    $head_after"
 echo "  exit          $status"
