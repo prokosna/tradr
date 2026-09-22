@@ -22,10 +22,10 @@ use tauri_plugin_tradr::link_commands::{ReplierDeps, dial_target, execute_send_l
 use tradr_app::link_exchange::{LinkExchangeError, LinkOutcome};
 use tradr_app::peer_trust::{JwksFetch, PeerTrust};
 use tradr_core::{
-    BoxFuture, Clock, DeviceId, HalfSecret, Invite, InviteId, KeyStore, LinkApprove, LinkDecline,
-    LinkDeclineReason, Monotonic, PeerList, PublicIdentity, RecvStream, Rng, RngError, SecretStore,
-    SecretStoreError, SecureChannel, SendStream, StorageLevel, TransportError, TransportId,
-    UnixTime,
+    BoxFuture, Clock, DeviceId, DisplayName, HalfSecret, Invite, InviteId, KeyStore, LinkApprove,
+    LinkDecline, LinkDeclineReason, Monotonic, PeerList, PublicIdentity, RecvStream, Rng, RngError,
+    SecretStore, SecretStoreError, SecureChannel, SendStream, StorageLevel, TransportError,
+    TransportId, UnixTime,
 };
 use tradr_identity::{
     Jwk, LinkRegistry, NonceBinding, ProviderProfile, SignatureAlgorithm, SoftwareKeyStore,
@@ -611,6 +611,7 @@ async fn an_approve_on_the_wire_links_and_the_secret_is_stored() {
         invite: &invite,
         our_identity: &bob,
         our_attestation_token: "bob-token-not-checked-here".to_string(),
+        our_display_name: None,
         trust: f.trust.clone(),
         registry: f.registry.clone(),
         secrets: f.secrets.clone(),
@@ -678,6 +679,7 @@ async fn a_decline_on_the_wire_stores_nothing() {
         invite: &invite,
         our_identity: &bob,
         our_attestation_token: "bob-token-not-checked-here".to_string(),
+        our_display_name: None,
         trust: f.trust.clone(),
         registry: f.registry.clone(),
         secrets: f.secrets.clone(),
@@ -746,6 +748,7 @@ async fn an_expired_invite_is_refused_before_a_byte_is_written() {
         invite: &invite,
         our_identity: &bob,
         our_attestation_token: "bob-token-not-checked-here".to_string(),
+        our_display_name: None,
         trust: f.trust.clone(),
         registry: f.registry.clone(),
         secrets: f.secrets.clone(),
@@ -802,6 +805,7 @@ async fn verification_is_asked_about_the_channels_device_id_never_one_recomputed
         invite: &invite,
         our_identity: &bob,
         our_attestation_token: "bob-token-not-checked-here".to_string(),
+        our_display_name: None,
         trust: f.trust.clone(),
         registry: f.registry.clone(),
         secrets: f.secrets.clone(),
@@ -862,5 +866,117 @@ fn a_device_id_no_observation_carries_is_its_own_sentence() {
     assert!(
         !err.to_lowercase().contains("failed to connect"),
         "a not-found id must read differently from a dial failure: {err}"
+    );
+}
+
+// ---- 6. Replier's display name travels in the LinkReply frame --------------
+
+#[tokio::test]
+async fn replier_display_name_travels_in_the_link_reply_frame() {
+    let alice = identity(1);
+    let bob = identity(2);
+
+    let invite = an_invite(
+        &alice,
+        invite_id(9),
+        half(0xA1),
+        NOW + 300,
+        token(ALICE_SUB, &alice, NOW),
+    );
+    let (f, _dir) = fixture();
+    let (chan_replier, chan_inviter) =
+        mock_channel_pair(bob.device_id(), alice.device_id(), MAX_FRAME);
+
+    let deps = ReplierDeps {
+        invite: &invite,
+        our_identity: &bob,
+        our_attestation_token: "bob-token-not-checked-here".to_string(),
+        our_display_name: Some(DisplayName::new("desk").expect("valid display name")),
+        trust: f.trust.clone(),
+        registry: f.registry.clone(),
+        secrets: f.secrets.clone(),
+    };
+    let clock = clock_at(NOW);
+    let rng = SeededRng::new(7);
+
+    let replier_task = execute_send_link_reply(&chan_replier, deps, &clock, &rng);
+
+    let inviter_task = async {
+        let (mut send, mut recv) = chan_inviter
+            .accept_bi()
+            .await
+            .expect("the replier opens a stream");
+        let frame = read_one_frame(recv.as_mut(), MAX_FRAME).await;
+        let reply = decode_link_reply_frame(&frame).expect("bob's reply decodes");
+        assert_eq!(reply.display_name().map(DisplayName::as_str), Some("desk"));
+        let decline = LinkDecline::new(*invite.invite_id(), Some(LinkDeclineReason::UserDeclined));
+        let frame_bytes = encode_link_decline_frame(&decline, MAX_FRAME).expect("encodes");
+        send.write_all(&frame_bytes).await.expect("write");
+    };
+
+    let (outcome, _) = tokio::join!(replier_task, inviter_task);
+    let outcome = outcome.expect("a scripted decline completes");
+    assert_eq!(
+        outcome,
+        LinkOutcome::Declined {
+            reason: Some(LinkDeclineReason::UserDeclined),
+            detail: None,
+        }
+    );
+}
+
+// ---- 7. LinkReply carries no display name when replier has none ------------
+
+#[tokio::test]
+async fn replier_with_no_display_name_omits_it_from_link_reply() {
+    let alice = identity(1);
+    let bob = identity(2);
+
+    let invite = an_invite(
+        &alice,
+        invite_id(9),
+        half(0xA1),
+        NOW + 300,
+        token(ALICE_SUB, &alice, NOW),
+    );
+    let (f, _dir) = fixture();
+    let (chan_replier, chan_inviter) =
+        mock_channel_pair(bob.device_id(), alice.device_id(), MAX_FRAME);
+
+    let deps = ReplierDeps {
+        invite: &invite,
+        our_identity: &bob,
+        our_attestation_token: "bob-token-not-checked-here".to_string(),
+        our_display_name: None,
+        trust: f.trust.clone(),
+        registry: f.registry.clone(),
+        secrets: f.secrets.clone(),
+    };
+    let clock = clock_at(NOW);
+    let rng = SeededRng::new(7);
+
+    let replier_task = execute_send_link_reply(&chan_replier, deps, &clock, &rng);
+
+    let inviter_task = async {
+        let (mut send, mut recv) = chan_inviter
+            .accept_bi()
+            .await
+            .expect("the replier opens a stream");
+        let frame = read_one_frame(recv.as_mut(), MAX_FRAME).await;
+        let reply = decode_link_reply_frame(&frame).expect("bob's reply decodes");
+        assert_eq!(reply.display_name(), None);
+        let decline = LinkDecline::new(*invite.invite_id(), Some(LinkDeclineReason::UserDeclined));
+        let frame_bytes = encode_link_decline_frame(&decline, MAX_FRAME).expect("encodes");
+        send.write_all(&frame_bytes).await.expect("write");
+    };
+
+    let (outcome, _) = tokio::join!(replier_task, inviter_task);
+    let outcome = outcome.expect("a scripted decline completes");
+    assert_eq!(
+        outcome,
+        LinkOutcome::Declined {
+            reason: Some(LinkDeclineReason::UserDeclined),
+            detail: None,
+        }
     );
 }

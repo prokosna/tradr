@@ -363,6 +363,7 @@ async fn run_test() {
         invite: &invite,
         our_identity: &bob_id,
         our_attestation_token: bob_token,
+        our_display_name: None,
         trust: bob_trust,
         registry: replier_registry.clone(),
         secrets: replier_secrets,
