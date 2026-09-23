@@ -247,6 +247,16 @@ An ID token's `exp` is typically one hour out. But what an Attestation asserts i
 - **So `renewal` in the Provider Profile below cannot answer for a provider alone once two platforms differ on it.** The field's terms are a property of the pair, and today Google's terms are one thing through a refresh token and another through a credential API. Nothing needs restructuring while the measurement is missing, and the field is where the answer lands when it arrives
 - A healthy device therefore always presents an Attestation less than a day old
 
+### A kept Attestation (DCR-150)
+
+**A device keeps its own last `id_token` in a file and presents it again at the next start, instead of signing in each time.** Decided 2026-09-23. The file is `attestation` in the application data directory, holding the token text alone, written atomically and `0600` where the platform has modes.
+
+- **It is re-verified on every start, not trusted because it is ours.** It goes through `finish_sign_in`, which is signature, audience, nonce binding against *this* device's current keys, and staleness -- so a token outliving a re-minted Device Key fails the nonce binding and is never presented
+- **Reuse stops at 21 days of `iat`**, not at the thirty a peer allows. A front end started on a token of that age still has nine days before any peer refuses it, which is longer than any session here is expected to run; past 21 days the ordinary sign-in runs and overwrites the file
+- **It is not a credential and that is why a plain file is enough.** It grants nothing without the Device Key, since every peer checks the nonce binding against the key the handshake proves. What it does carry is the account's `sub` and email, which is why the file is readable by its owner alone
+- **Revocation is unchanged.** A kept token cannot outlive the thirty-day staleness limit any more than a fresh one can, so the bound below holds as written
+- **It is not the 24-hour silent renewal above**, which needs a refresh token at rest and is still unbuilt. A kept token asks for a sign-in every three weeks at most; a refresh token would ask for none, and costs a secret on disk that open decision 15 has not settled how to hold
+
 ### That is also the revocation mechanism
 
 Revoking Tradr's access in Google account settings means:
