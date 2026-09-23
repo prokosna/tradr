@@ -392,6 +392,7 @@ export function App() {
 		);
 
 		let unlistenProgress: UnlistenFn | undefined;
+		let unlistenSignInRestored: UnlistenFn | undefined;
 		let unlistenDragDrop: UnlistenFn | undefined;
 		let unlistenShareIntent: UnlistenFn | undefined;
 
@@ -400,6 +401,13 @@ export function App() {
 			setProgress(event.payload);
 		}).then((unlisten) => {
 			unlistenProgress = unlisten;
+		});
+
+		// Subscribes to kept sign-in restoration emitted after startup.
+		listen<SignInOutcome>("sign-in-restored", (event) => {
+			setSignIn({ status: "signed_in", outcome: event.payload });
+		}).then((unlisten) => {
+			unlistenSignInRestored = unlisten;
 		});
 
 		// Subscribes to share intents emitted by Android platform integration.
@@ -471,6 +479,9 @@ export function App() {
 		return () => {
 			if (unlistenProgress) {
 				unlistenProgress();
+			}
+			if (unlistenSignInRestored) {
+				unlistenSignInRestored();
 			}
 			if (unlistenDragDrop) {
 				unlistenDragDrop();
