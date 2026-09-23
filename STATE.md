@@ -45,7 +45,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- `WI-M8-045` (DCR-154, DF-94): docs commit on `dcr-154-sweep-stale-partials`, then Critical Module check and dispatch to `agy` on `gemini-3.8-flash-high`.
+- `WI-M8-045` (DCR-154, DCR-155, DF-94). **Round 0 REDESIGN, 2026-09-24, and the fault was the Supervisor's design**: DCR-154 had the sweep list `.tradr-partial` through `Vfs::list`, which boundary enforcement refuses as `DenyListed` under a Critical Module test; the Implementer stopped and reported it rather than working around it, which is what CLAUDE.md section 3 asks. The implementation was discarded and DCR-155 amends docs/04 on the same docs branch (PR #238). The Supervisor's tests for the sweep (a new `partial_sweep` test target in `tradr-app`) are kept outside the tree until dispatch, and are revised to pass the listing in; re-dispatch follows the docs merge.
 
 ## Decisions
 
