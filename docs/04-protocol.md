@@ -439,17 +439,17 @@ Written the other way round, the same code appears to work and defends nothing: 
 
 ## Partial files
 
-Incoming files are written to `<destination>/.tradr-partial/<transfer_id>/<ordinal>`, where **`ordinal` is a number the receiver assigns**, not anything the sender chose.
+Incoming files are written to `<destination>/.tradr-partial/<transfer_id>/<item_id>`. **This section used to say `<ordinal>`, a number the receiver assigns, and the code has never done that; DCR-154 made the text follow the code on 2026-09-24**, for the reason given after the next two paragraphs, which are kept because they are the argument the decision had to answer.
 
 `item_id` is a string the sender picks. Using it as a path component would put an attacker-controlled value on the filesystem, and every defence against that — rejecting `..`, rejecting separators and control characters, handling Windows reserved names, catching two ids that differ only in case colliding on a case-insensitive filesystem — is a check that has to be right forever. **A receiver-assigned ordinal removes the class instead of defending against it.**
 
-The mapping from ordinal back to `item_id` lives in SQLite alongside the rest of the transfer's progress, which is where the receiver already looks when resuming.
+An ordinal needs a mapping from ordinal back to `item_id` that outlives the process, since resumption happens in a later one, and this section placed it in SQLite. **No store exists** -- no crate in this workspace depends on SQLite -- and resumption is derived from the partial file itself: `derive_item_resumption` stats `.tradr-partial/<transfer_id>/<item_id>` and counts the whole chunks its size covers. **So the choice is between building a store to hold one mapping and naming the file by the key resumption already looks up**, and DCR-154 takes the second. **What it gives up is the class argument above**: the defence is a check rather than an absence. **What keeps that check small is the alphabet below**, which admits no `.`, no separator and no upper case, so traversal, separators and case-insensitive collisions cannot be written at all, and the one residue -- a Windows reserved device name -- is refused by `ItemId::new` in `tradr-core`, which is a Critical Module under filename sanitization. A path is still assembled only by `partial_file_rel_path` in `tradr-vfs` (invariant I5).
 
 `item_id` is still validated on arrival, because it is a map key and it reaches logs and the UI. It is constrained to an opaque token: **1 to 64 characters of lowercase ASCII letters, digits, `-` and `_`**. That is deliberately narrower than a filename needs to be, since it never has to be one.
 
 - On completion and successful verification, `rename` into place — atomic within one filesystem
-- Progress lives in SQLite. To keep the database and the partial file from diverging, the database is updated after the chunk write is `fsync`ed
-- Partial files untouched for seven days are swept at startup. **Nothing implements this today and saying so here is DCR-142, 2026-09-20**: a sweep is a startup concern with a clock and a retention policy, and none of the three exists. It stays in this list as the design rather than as a claim about the code
+- Progress is the partial file's size, read by `derive_item_resumption` when an Offer arrives. **It used to say SQLite, and DCR-154 corrected it**: there is no database, so there is nothing for the file to diverge from
+- A transfer's partial directory untouched for seven days is swept when the receiver starts. **DCR-142 recorded on 2026-09-20 that nothing implemented this; DCR-154 designs it on 2026-09-24**, in the section below
 
 #### What happens to `.tradr-partial/<transfer_id>/` when the transfer ends (DCR-142)
 
@@ -459,7 +459,15 @@ The mapping from ordinal back to `item_id` lives in SQLite alongside the rest of
 
 **It happens at the transfer's end and not at each item's.** One transfer carries several items and `receive_file` runs once per item, so it cannot know it is handling the last one; a removal there would delete and re-create the directory between items. The item loop is where a transfer ends, so the removal goes there.
 
-**The directory's path gets one constructor, beside the file's.** `partial_file_rel_path` has assembled `.tradr-partial/<transfer_id>/<ordinal>` in `tradr-vfs` since it was written, which is where [invariant I5](../CLAUDE.md#8-invariants-that-must-not-break) says paths are assembled; the directory half has always been built inline at the one place that needed it, and a removal would have made that two. **The invariant did not catch it because one site is not yet a duplication** -- which is what an invariant about assembling paths in one place is for, and is why the constructor arrives with the second caller rather than after it.
+**The directory's path gets one constructor, beside the file's.** `partial_file_rel_path` has assembled `.tradr-partial/<transfer_id>/<item_id>` in `tradr-vfs` since it was written, which is where [invariant I5](../CLAUDE.md#8-invariants-that-must-not-break) says paths are assembled; the directory half has always been built inline at the one place that needed it, and a removal would have made that two. **The invariant did not catch it because one site is not yet a duplication** -- which is what an invariant about assembling paths in one place is for, and is why the constructor arrives with the second caller rather than after it.
+
+#### Sweeping what an interrupted transfer left (DCR-154)
+
+**The unit is one transfer's directory, and it goes whole or not at all.** A directory is `.tradr-partial/<transfer_id>/`, and removing one file out of it would leave a transfer that resumes some items and restarts others, which no sender asked for. It is swept when **its own modification time and every entry's** are more than seven days (604 800 seconds) before `Clock::now`. The directory's own time counts because a directory emptied by a crash has no entries to judge it by; the entries' times count because writing into a file does not touch its directory's time.
+
+**Only what this code would have made is touched.** A name under `.tradr-partial/` that does not parse as a `TransferId`, and does not display back to exactly itself, is left alone, and so is a transfer directory holding a name that is not an `ItemId` the same way, or holding a directory. Each path is rebuilt from the parsed value through the constructors in `tradr-vfs`, so the sweep assembles no path of its own (invariant I5): `.tradr-partial` itself gets a third constructor, `partial_root_rel_path`, which the other two now build on. Files are removed one by one with `Vfs::remove` and then the directory, which `Vfs::remove` refuses unless it is empty -- the rule DCR-142 already relies on. A `.tradr-partial` directory left empty is kept.
+
+**It runs once, in `run_listener`, before the first connection is accepted.** Both front ends start receiving through `run_listener` after the receive root is registered, so one call covers the CLI and the GUI and a test can drive it, which a call in each composition root could not be (DF-102). Nothing is being received while it runs, so it cannot remove a transfer in progress. **A failure is printed and does not stop receiving**: a sweep is housekeeping, and a device that cannot receive because it could not tidy up has the priority backwards. `NotFound` for `.tradr-partial` itself is the ordinary case of a device that never had an interrupted transfer and is not reported.
 
 ## Name collisions and sanitization
 
