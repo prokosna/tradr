@@ -242,9 +242,14 @@ pub fn sanitize_destination_path(raw_path: &str) -> Result<RelPath, Sanitization
     RelPath::new(&joined).map_err(SanitizationError::from)
 }
 
+/// Returns the relative path for the staging root of partial transfers.
+pub fn partial_root_rel_path() -> RelPath {
+    RelPath::new(".tradr-partial").expect("partial root path must be a valid RelPath")
+}
+
 /// Returns the relative path for a transfer's partial directory.
 pub fn partial_dir_rel_path(transfer_id: TransferId) -> RelPath {
-    RelPath::new(&format!(".tradr-partial/{transfer_id}"))
+    RelPath::new(&format!("{}/{transfer_id}", partial_root_rel_path()))
         .expect("partial directory path must be a valid RelPath")
 }
 
