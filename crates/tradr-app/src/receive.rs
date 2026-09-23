@@ -7,13 +7,13 @@ use std::sync::Arc;
 pub use tradr_core::RelPath;
 use tradr_core::{BoxFuture, Capabilities, Clock, RootId, Transport, TrustTier};
 use tradr_identity::hello::AttestationRequest;
-use tradr_identity::{LinkRegistry, OsRng, SystemClock, attestation_nonce};
+use tradr_identity::{LinkRegistry, OsRng, SystemClock};
 use tradr_integrity::BaoVerifier;
 use tradr_vfs::NativeVfs;
 
 use crate::capabilities::LocalCapabilities;
 use crate::peer_trust::{HttpsJwksFetch, PeerTrust};
-use crate::sign_in::{OAuthConfig, SignInState, finish_sign_in, obtain_id_token_desktop};
+use crate::sign_in::{OAuthConfig, SignInState};
 use crate::{identity, listener, network, paths, sign_in};
 
 // A fixed root identifier is safe because the command exposes only a single receive directory.
@@ -45,16 +45,13 @@ pub async fn run_receive(
 
     let sign_in_state = Arc::new(SignInState::empty());
 
-    let nonce = attestation_nonce(profile.nonce_binding, &public_identity);
-    eprintln!("receive: opening browser for sign-in...");
-    let id_token = obtain_id_token_desktop(&profile, &nonce).await?;
-    finish_sign_in(
+    sign_in::sign_in_keeping(
+        "receive",
         &profile,
         &public_identity,
-        id_token,
         &peer_trust,
         &sign_in_state,
-        &SystemClock,
+        &paths::attestation_path(&dir),
     )
     .await?;
 

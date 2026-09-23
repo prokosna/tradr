@@ -19,3 +19,8 @@ pub fn app_data_dir() -> Result<PathBuf, String> {
 pub fn device_keys_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("keys")
 }
+
+/// Where this device's own most recently obtained ID token is kept (DCR-150).
+pub fn attestation_path(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("attestation")
+}

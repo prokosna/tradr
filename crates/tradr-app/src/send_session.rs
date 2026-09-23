@@ -7,7 +7,7 @@ use std::time::Duration;
 use mdns_sd::ServiceDaemon;
 use tradr_core::{Capabilities, DeviceId, PeerList, RootId, Transport};
 use tradr_discovery::{MdnsSource, StaticPeerRegistry, StaticPeerSource};
-use tradr_identity::{LinkRegistry, OsRng, SystemClock, attestation_nonce};
+use tradr_identity::{LinkRegistry, OsRng, SystemClock};
 use tradr_transport::selection::TransferSize;
 use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
@@ -20,10 +20,7 @@ use crate::peers::{
 };
 pub use crate::send::TransferProgressPayload;
 use crate::send::{execute_send_files_with_progress, resolve_send_items};
-use crate::sign_in::{
-    OAuthConfig, SignInState, finish_sign_in, obtain_id_token_desktop, peer_verifier,
-    provider_profile,
-};
+use crate::sign_in::{OAuthConfig, SignInState, peer_verifier, provider_profile, sign_in_keeping};
 use crate::{identity, paths};
 
 const DISCOVERY_WINDOW: Duration = Duration::from_secs(5);
@@ -195,16 +192,13 @@ pub async fn run_send(
         .map_err(|e| format!("link registry at {}: {e}", links_path.display()))?;
     let link_registry = Arc::new(std::sync::Mutex::new(registry));
     let sign_in_state = Arc::new(SignInState::empty());
-    let nonce = attestation_nonce(profile.nonce_binding, &public_identity);
-    eprintln!("send: opening browser for sign-in...");
-    let id_token = obtain_id_token_desktop(&profile, &nonce).await?;
-    finish_sign_in(
+    sign_in_keeping(
+        "send",
         &profile,
         &public_identity,
-        id_token,
         &peer_trust,
         &sign_in_state,
-        &SystemClock,
+        &paths::attestation_path(&dir),
     )
     .await?;
 
