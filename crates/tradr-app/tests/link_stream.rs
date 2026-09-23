@@ -15,7 +15,7 @@ use tradr_app::link_exchange::{
     LinkProposal, ReplierParams, send_link_reply, serve_link_reply,
 };
 use tradr_app::listener::{
-    LinkStreamService, ListenerError, ListenerParams, handle_incoming_channel,
+    ChannelPhase, LinkStreamService, ListenerError, ListenerParams, handle_incoming_channel,
 };
 use tradr_app::peer_trust::OwnAttestation;
 use tradr_core::{
@@ -1290,7 +1290,10 @@ async fn a_linkreply_first_frame_with_no_service_is_refused() {
     );
 
     let (_, res) = tokio::join!(sender_task, listener_task);
-    assert!(matches!(res, Err(ListenerError::ProtocolViolation(_))));
+    let failure = res.expect_err("missing service must fail");
+    assert_eq!(failure.peer, sender_id.device_id());
+    assert_eq!(failure.phase, ChannelPhase::LinkExchange);
+    assert!(matches!(failure.error, ListenerError::ProtocolViolation(_)));
 }
 
 #[tokio::test]
@@ -1337,5 +1340,8 @@ async fn an_unassigned_control_code_as_the_first_frame_is_refused() {
     );
 
     let (_, res) = tokio::join!(sender_task, listener_task);
-    assert!(matches!(res, Err(ListenerError::ProtocolViolation(_))));
+    let failure = res.expect_err("unassigned control code must fail");
+    assert_eq!(failure.peer, sender_id.device_id());
+    assert_eq!(failure.phase, ChannelPhase::Handshake);
+    assert!(matches!(failure.error, ListenerError::ProtocolViolation(_)));
 }
