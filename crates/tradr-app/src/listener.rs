@@ -189,6 +189,59 @@ impl From<LinkExchangeError> for ListenerError {
     }
 }
 
+/// Connection phase reached before a channel failure occurred.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChannelPhase {
+    /// Before the control stream is accepted.
+    BeforeStream,
+    /// Authenticating the peer and negotiating capabilities.
+    Handshake,
+    /// Negotiating items and resumption before transfer begins.
+    Offer,
+    /// Receiving file chunks for an accepted item.
+    Item {
+        /// 1-based index among accepted items.
+        ordinal: usize,
+        /// Total number of accepted items.
+        count: usize,
+    },
+    /// Direct link exchange without transfer session.
+    LinkExchange,
+}
+
+impl fmt::Display for ChannelPhase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BeforeStream => write!(f, "before any stream"),
+            Self::Handshake => write!(f, "handshake"),
+            Self::Offer => write!(f, "offer"),
+            Self::Item { ordinal, count } => write!(f, "item {ordinal} of {count}"),
+            Self::LinkExchange => write!(f, "link exchange"),
+        }
+    }
+}
+
+/// Incoming channel failure carrying the peer and the phase reached.
+#[derive(Debug)]
+pub struct ChannelFailure {
+    /// Device identifier authenticated by the transport.
+    pub peer: DeviceId,
+    /// Connection phase during which the error occurred.
+    pub phase: ChannelPhase,
+    /// Underlying error that terminated the connection.
+    pub error: ListenerError,
+}
+
+impl fmt::Display for ChannelFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "transfer from {} failed during {}: {}",
+            self.peer, self.phase, self.error
+        )
+    }
+}
+
 // Reading exact byte count prevents stream offset misalignment on subsequent frames.
 async fn read_exact(
     recv: &mut (impl RecvStream + ?Sized),
@@ -350,7 +403,7 @@ pub async fn remove_partial_dir(
 }
 
 /// Handles a single incoming secure channel through handshake, offer exchange, and file reception.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::result_large_err)]
 pub async fn handle_incoming_channel<V, F, Fut>(
     channel: &dyn SecureChannel,
     vfs: &V,
@@ -362,194 +415,214 @@ pub async fn handle_incoming_channel<V, F, Fut>(
     verify_attestation: F,
     item_filter: Option<&(dyn Fn(&OfferItem) -> bool + Send + Sync)>,
     link_service: Option<&dyn LinkStreamService>,
-) -> Result<Vec<RelPath>, ListenerError>
+) -> Result<Vec<RelPath>, ChannelFailure>
 where
     V: Vfs,
     F: FnOnce(AttestationRequest) -> Fut,
     Fut: Future<Output = Result<TrustTier, String>>,
 {
-    // Read fresh per connection rather than trusting a value captured at
-    // startup; a device with no completed sign-in has nothing to put on
-    // the wire and must say so rather than send an empty token.
-    let our_token = params.our_attestation_token.id_token().ok_or_else(|| {
-        ListenerError::Handshake(HandshakeError::Attestation(
-            "sign in on this device before accepting a transfer".to_string(),
-        ))
-    })?;
+    let peer = channel.peer();
+    let mut phase = ChannelPhase::BeforeStream;
 
-    let (mut control_send, mut control_recv) = channel
-        .accept_bi()
-        .await
-        .map_err(ListenerError::Transport)?;
+    let res: Result<Vec<RelPath>, ListenerError> = async {
+        // Read fresh per connection rather than trusting a value captured at
+        // startup; a device with no completed sign-in has nothing to put on
+        // the wire and must say so rather than send an empty token.
+        let our_token = params.our_attestation_token.id_token().ok_or_else(|| {
+            ListenerError::Handshake(HandshakeError::Attestation(
+                "sign in on this device before accepting a transfer".to_string(),
+            ))
+        })?;
 
-    // docs/04: the receiver reads before it writes, and only on this one
-    // frame, to decide whether this stream is an ordinary session or the
-    // no-session link exchange. Nothing is skipped to reach that decision
-    // (DCR-073): an unassigned code here names no shape at all.
-    let first_frame = read_frame(control_recv.as_mut(), channel.max_frame_size()).await?;
+        let (mut control_send, mut control_recv) = channel
+            .accept_bi()
+            .await
+            .map_err(ListenerError::Transport)?;
 
-    match classify(first_frame.type_code(), Plane::Control) {
-        Classification::Known(MessageType::Hello) => {
-            let peer_hello = decode_hello_frame(&first_frame)
-                .map_err(HandshakeError::Proto)
+        phase = ChannelPhase::Handshake;
+
+        // docs/04: the receiver reads before it writes, and only on this one
+        // frame, to decide whether this stream is an ordinary session or the
+        // no-session link exchange. Nothing is skipped to reach that decision
+        // (DCR-073): an unassigned code here names no shape at all.
+        let first_frame = read_frame(control_recv.as_mut(), channel.max_frame_size()).await?;
+
+        match classify(first_frame.type_code(), Plane::Control) {
+            Classification::Known(MessageType::Hello) => {
+                let peer_hello = decode_hello_frame(&first_frame)
+                    .map_err(HandshakeError::Proto)
+                    .map_err(ListenerError::Handshake)?;
+
+                let handshake_params = HandshakeParams {
+                    authenticated_peer: channel.peer(),
+                    our_channel_max_frame_size: channel.max_frame_size(),
+                    our_identity: params.our_identity,
+                    our_attestation_token: our_token,
+                    our_key_binding: params.our_key_binding,
+                    our_versions: params.our_versions,
+                    our_capabilities: params.our_capabilities.get(),
+                };
+
+                let session = perform_handshake_after_peer_hello(
+                    control_send.as_mut(),
+                    control_recv.as_mut(),
+                    peer_hello,
+                    handshake_params,
+                    key_store,
+                    rng,
+                    clock,
+                    verify_attestation,
+                )
+                .await
                 .map_err(ListenerError::Handshake)?;
 
-            let handshake_params = HandshakeParams {
-                authenticated_peer: channel.peer(),
-                our_channel_max_frame_size: channel.max_frame_size(),
-                our_identity: params.our_identity,
-                our_attestation_token: our_token,
-                our_key_binding: params.our_key_binding,
-                our_versions: params.our_versions,
-                our_capabilities: params.our_capabilities.get(),
-            };
+                phase = ChannelPhase::Offer;
 
-            let session = perform_handshake_after_peer_hello(
-                control_send.as_mut(),
-                control_recv.as_mut(),
-                peer_hello,
-                handshake_params,
-                key_store,
-                rng,
-                clock,
-                verify_attestation,
-            )
-            .await
-            .map_err(ListenerError::Handshake)?;
+                tokio::select! {
+                    offer_res = read_transfer_offer(control_recv.as_mut(), channel.max_frame_size()) => {
+                        let offer = offer_res?;
 
-            tokio::select! {
-                offer_res = read_transfer_offer(control_recv.as_mut(), channel.max_frame_size()) => {
-                    let offer = offer_res?;
+                        let mut accepted_items = Vec::new();
+                        let mut items_to_receive = Vec::new();
 
-                    let mut accepted_items = Vec::new();
-                    let mut items_to_receive = Vec::new();
-
-                    for item in offer.items() {
-                        let is_accepted = item_filter.is_none_or(|f| f(item));
-                        if is_accepted {
-                            let resumption =
-                                derive_item_resumption(vfs, params.root, offer.transfer_id(), item).await?;
-                            let resume_chunk = match resumption.next_chunk_request(1) {
-                                Some((c, _)) => c.value(),
-                                None => item.chunk_count().saturating_sub(1),
-                            };
-                            let item_acc = ItemAcceptance::new(*item.item_id(), true, resume_chunk, Vec::new())
-                                .map_err(ListenerError::ItemAcceptance)?;
-                            accepted_items.push(item_acc);
-                            items_to_receive.push(item);
-                        }
-                    }
-
-                    if accepted_items.is_empty() {
                         for item in offer.items() {
-                            let item_acc = ItemAcceptance::new(*item.item_id(), false, 0, Vec::new())
-                                .map_err(ListenerError::ItemAcceptance)?;
-                            accepted_items.push(item_acc);
+                            let is_accepted = item_filter.is_none_or(|f| f(item));
+                            if is_accepted {
+                                let resumption =
+                                    derive_item_resumption(vfs, params.root, offer.transfer_id(), item).await?;
+                                let resume_chunk = match resumption.next_chunk_request(1) {
+                                    Some((c, _)) => c.value(),
+                                    None => item.chunk_count().saturating_sub(1),
+                                };
+                                let item_acc = ItemAcceptance::new(*item.item_id(), true, resume_chunk, Vec::new())
+                                    .map_err(ListenerError::ItemAcceptance)?;
+                                accepted_items.push(item_acc);
+                                items_to_receive.push(item);
+                            }
                         }
-                    }
 
-                    let transfer_accept = TransferAccept::new(offer.transfer_id(), accepted_items, None)
-                        .map_err(ListenerError::AcceptValidation)?;
-                    transfer_accept
-                        .for_offer(&offer)
-                        .map_err(ListenerError::AcceptValidation)?;
+                        if accepted_items.is_empty() {
+                            for item in offer.items() {
+                                let item_acc = ItemAcceptance::new(*item.item_id(), false, 0, Vec::new())
+                                    .map_err(ListenerError::ItemAcceptance)?;
+                                accepted_items.push(item_acc);
+                            }
+                        }
 
-                    let accept_frame =
-                        encode_transfer_accept_frame(&transfer_accept, session.peer_max_frame_size())
-                            .map_err(ListenerError::OfferFrame)?;
-                    control_send
-                        .write_all(&accept_frame)
-                        .await
-                        .map_err(ListenerError::Transport)?;
+                        let transfer_accept = TransferAccept::new(offer.transfer_id(), accepted_items, None)
+                            .map_err(ListenerError::AcceptValidation)?;
+                        transfer_accept
+                            .for_offer(&offer)
+                            .map_err(ListenerError::AcceptValidation)?;
 
-                    let mut placed_paths = Vec::with_capacity(items_to_receive.len());
-                    let negotiated_frame_bound = session.peer_max_frame_size().min(channel.max_frame_size());
-
-                    for item in items_to_receive {
-                        let (mut data_send, mut data_recv) = channel
-                            .accept_bi()
+                        let accept_frame =
+                            encode_transfer_accept_frame(&transfer_accept, session.peer_max_frame_size())
+                                .map_err(ListenerError::OfferFrame)?;
+                        control_send
+                            .write_all(&accept_frame)
                             .await
                             .map_err(ListenerError::Transport)?;
 
-                        let recv_req = ReceiveRequest {
-                            root: params.root,
-                            dest_rel_path: item.rel_path(),
-                            total_bytes: item.size(),
-                            content_hash: item.content_hash(),
-                            transfer_id: offer.transfer_id(),
-                            item_id: *item.item_id(),
-                            max_frame_size: negotiated_frame_bound,
-                        };
+                        let mut placed_paths = Vec::with_capacity(items_to_receive.len());
+                        let negotiated_frame_bound = session.peer_max_frame_size().min(channel.max_frame_size());
+                        let total_items = items_to_receive.len();
 
-                        let mut streams = SessionStreams {
-                            control_send: control_send.as_mut(),
-                            control_recv: control_recv.as_mut(),
-                            data_send: data_send.as_mut(),
-                            data_recv: data_recv.as_mut(),
-                        };
+                        for (idx, item) in items_to_receive.into_iter().enumerate() {
+                            phase = ChannelPhase::Item {
+                                ordinal: idx + 1,
+                                count: total_items,
+                            };
 
-                        let placed = receive_file(vfs, &recv_req, verifier, &mut streams)
+                            let (mut data_send, mut data_recv) = channel
+                                .accept_bi()
+                                .await
+                                .map_err(ListenerError::Transport)?;
+
+                            let recv_req = ReceiveRequest {
+                                root: params.root,
+                                dest_rel_path: item.rel_path(),
+                                total_bytes: item.size(),
+                                content_hash: item.content_hash(),
+                                transfer_id: offer.transfer_id(),
+                                item_id: *item.item_id(),
+                                max_frame_size: negotiated_frame_bound,
+                            };
+
+                            let mut streams = SessionStreams {
+                                control_send: control_send.as_mut(),
+                                control_recv: control_recv.as_mut(),
+                                data_send: data_send.as_mut(),
+                                data_recv: data_recv.as_mut(),
+                            };
+
+                            let placed = receive_file(vfs, &recv_req, verifier, &mut streams)
+                                .await
+                                .map_err(ListenerError::TransferSession)?;
+                            placed_paths.push(placed);
+                        }
+
+                        if let Err(e) = remove_partial_dir(vfs, params.root, offer.transfer_id()).await
+                        {
+                            eprintln!("listener: removing partial directory failed: {e}");
+                        }
+
+                        finish_and_wait_for_control_close(
+                            control_send.as_mut(),
+                            control_recv.as_mut(),
+                        )
+                        .await;
+
+                        Ok(placed_paths)
+                    }
+                    stream_res = channel.accept_bi() => {
+                        if let Ok((mut browse_send, mut browse_recv)) = stream_res {
+                            let codec = tradr_proto::browse::ProtoBrowseCodec::new(channel.max_frame_size());
+                            if let Err(e) = tradr_core::handle_browse_stream(
+                                browse_recv.as_mut(),
+                                browse_send.as_mut(),
+                                &codec,
+                                vfs,
+                                params.root,
+                                channel.max_frame_size(),
+                            )
                             .await
-                            .map_err(ListenerError::TransferSession)?;
-                        placed_paths.push(placed);
+                            {
+                                eprintln!("listener: handle browse stream failed: {e}");
+                            }
+                        }
+                        Ok(Vec::new())
                     }
+                }
+            }
+            Classification::Known(MessageType::LinkReply) => {
+                phase = ChannelPhase::LinkExchange;
 
-                    if let Err(e) = remove_partial_dir(vfs, params.root, offer.transfer_id()).await
-                    {
-                        eprintln!("listener: removing partial directory failed: {e}");
-                    }
-
-                    finish_and_wait_for_control_close(
+                let reply = decode_link_reply_frame(&first_frame).map_err(ListenerError::LinkFrame)?;
+                let service = link_service.ok_or_else(|| {
+                    ListenerError::ProtocolViolation("no invite is open on this device".to_string())
+                })?;
+                let serve_res = service
+                    .serve(
                         control_send.as_mut(),
-                        control_recv.as_mut(),
+                        reply,
+                        channel.peer(),
+                        channel.max_frame_size(),
                     )
                     .await;
 
-                    Ok(placed_paths)
-                }
-                stream_res = channel.accept_bi() => {
-                    if let Ok((mut browse_send, mut browse_recv)) = stream_res {
-                        let codec = tradr_proto::browse::ProtoBrowseCodec::new(channel.max_frame_size());
-                        if let Err(e) = tradr_core::handle_browse_stream(
-                            browse_recv.as_mut(),
-                            browse_send.as_mut(),
-                            &codec,
-                            vfs,
-                            params.root,
-                            channel.max_frame_size(),
-                        )
-                        .await
-                        {
-                            eprintln!("listener: handle browse stream failed: {e}");
-                        }
-                    }
-                    Ok(Vec::new())
-                }
+                finish_and_wait_for_control_close(control_send.as_mut(), control_recv.as_mut()).await;
+
+                serve_res.map_err(ListenerError::LinkExchange)?;
+                Ok(Vec::new())
             }
+            other => Err(ListenerError::ProtocolViolation(format!(
+                "unexpected first frame on control stream: {other}"
+            ))),
         }
-        Classification::Known(MessageType::LinkReply) => {
-            let reply = decode_link_reply_frame(&first_frame).map_err(ListenerError::LinkFrame)?;
-            let service = link_service.ok_or_else(|| {
-                ListenerError::ProtocolViolation("no invite is open on this device".to_string())
-            })?;
-            let serve_res = service
-                .serve(
-                    control_send.as_mut(),
-                    reply,
-                    channel.peer(),
-                    channel.max_frame_size(),
-                )
-                .await;
-
-            finish_and_wait_for_control_close(control_send.as_mut(), control_recv.as_mut()).await;
-
-            serve_res.map_err(ListenerError::LinkExchange)?;
-            Ok(Vec::new())
-        }
-        other => Err(ListenerError::ProtocolViolation(format!(
-            "unexpected first frame on control stream: {other}"
-        ))),
     }
+    .await;
+
+    res.map_err(|error| ChannelFailure { peer, phase, error })
 }
 
 /// Accepts the next channel from `incoming` and handles the transfer session.
@@ -585,6 +658,7 @@ where
         link_service,
     )
     .await
+    .map_err(|failure| failure.error)
 }
 
 /// Continuously accepts incoming channels from `incoming` and processes transfers.
@@ -635,7 +709,7 @@ where
                     }
                 }
             }
-            Err(e) => eprintln!("transfer failed: {e}"),
+            Err(failure) => eprintln!("{failure}"),
         }
     }
 }
