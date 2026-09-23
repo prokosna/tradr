@@ -248,12 +248,56 @@ pub fn ssh_forward_command(port: u16) -> String {
 
 #[cfg(not(target_os = "android"))]
 /// Composes the sign-in instructions when a local browser cannot be opened.
-pub fn browser_unavailable_message(auth_url: &str, launcher_error: &str, port: u16) -> String {
+pub fn browser_unavailable_message(
+    auth_url: &str,
+    launcher_error: &str,
+    port: u16,
+    paste: bool,
+) -> String {
     let redacted = launcher_error.replace(auth_url, "<url>");
     let forward = ssh_forward_command(port);
-    format!(
-        "could not open a browser here ({redacted}); open this url on a machine with one to continue:\n{auth_url}\n{forward}\nwhere USER@HOST is this machine's user and hostname or address"
-    )
+    if !paste {
+        format!(
+            "could not open a browser here ({redacted}); open this url on a machine with one to continue:\n{auth_url}\n{forward}\nwhere USER@HOST is this machine's user and hostname or address"
+        )
+    } else {
+        format!(
+            "could not open a browser here ({redacted}); open this url on a machine with one to continue:\n{auth_url}\nafter signing in, that browser lands on a page that does not load; copy its whole address and paste it here, then press Enter\nor, before opening the url, forward the port from that machine:\n{forward}\nwhere USER@HOST is this machine's user and hostname or address"
+        )
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+/// Supplies a line pasted by a person when no browser could be opened locally.
+pub type PasteSource = Box<dyn FnOnce() -> Result<String, String> + Send>;
+
+#[cfg(not(target_os = "android"))]
+/// Extracts the authorization code from an address or query pasted after sign-in.
+pub fn code_from_pasted(line: &str, expected_state: &str) -> Result<String, String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return Err("nothing was pasted".to_string());
+    }
+    let query = match trimmed.find('?') {
+        Some(idx) => &trimmed[idx + 1..],
+        None => trimmed,
+    };
+    tradr_oidc::parse_callback(query, expected_state).map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+/// Reads a pasted redirect address from standard input.
+pub fn stdin_paste_source() -> PasteSource {
+    Box::new(|| {
+        let mut line = String::new();
+        let bytes_read = std::io::stdin()
+            .read_line(&mut line)
+            .map_err(|e| e.to_string())?;
+        if bytes_read == 0 {
+            return Err("standard input closed before an address was pasted".to_string());
+        }
+        Ok(line)
+    })
 }
 
 #[cfg(not(target_os = "android"))]
@@ -301,6 +345,7 @@ pub fn bind_callback_listener() -> Result<TcpListener, String> {
 pub async fn obtain_id_token_desktop(
     profile: &ProviderProfile,
     nonce: &str,
+    paste: Option<PasteSource>,
 ) -> Result<String, String> {
     // Bind before building the url, so the port is known first.
     let listener = bind_callback_listener()?;
@@ -326,23 +371,70 @@ pub async fn obtain_id_token_desktop(
     )
     .map_err(|e| e.to_string())?;
 
-    // Continuing without a local browser lets authentication proceed from another machine.
-    if let Err(e) = open::that(&auth_url) {
-        eprintln!(
-            "{}",
-            browser_unavailable_message(&auth_url, &e.to_string(), port)
-        );
-    }
-
-    // Blocks on accept, so it must not run on an async runtime worker,
-    // and is bounded so a person who changes their mind cannot park it
-    // forever.
-    let expected_state = state_value.clone();
-    let code = tokio::task::spawn_blocking(move || {
-        serve_one_callback_with_timeout(listener, port, expected_state, CALLBACK_TIMEOUT)
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    let code = match open::that(&auth_url) {
+        Ok(()) => {
+            drop(paste);
+            let expected_state = state_value.clone();
+            tokio::task::spawn_blocking(move || {
+                serve_one_callback_with_timeout(listener, port, expected_state, CALLBACK_TIMEOUT)
+            })
+            .await
+            .map_err(|e| e.to_string())??
+        }
+        Err(e) => match paste {
+            None => {
+                eprintln!(
+                    "{}",
+                    browser_unavailable_message(&auth_url, &e.to_string(), port, false)
+                );
+                let expected_state = state_value.clone();
+                tokio::task::spawn_blocking(move || {
+                    serve_one_callback_with_timeout(
+                        listener,
+                        port,
+                        expected_state,
+                        CALLBACK_TIMEOUT,
+                    )
+                })
+                .await
+                .map_err(|e| e.to_string())??
+            }
+            Some(src) => {
+                eprintln!(
+                    "{}",
+                    browser_unavailable_message(&auth_url, &e.to_string(), port, true)
+                );
+                let expected_state = state_value.clone();
+                let (cb_tx, cb_rx) = tokio::sync::oneshot::channel();
+                let (paste_tx, paste_rx) = tokio::sync::oneshot::channel();
+                // Detached OS threads avoid holding up runtime drop on the losing racer.
+                std::thread::spawn(move || {
+                    let res = serve_one_callback_with_timeout(
+                        listener,
+                        port,
+                        expected_state,
+                        CALLBACK_TIMEOUT,
+                    );
+                    let _sent = cb_tx.send(res);
+                });
+                std::thread::spawn(move || {
+                    let res = src();
+                    let _sent = paste_tx.send(res);
+                });
+                tokio::select! {
+                    cb_res = cb_rx => {
+                        let res = cb_res.map_err(|_| "sign-in wait ended without a result".to_string())?;
+                        res?
+                    }
+                    paste_res = paste_rx => {
+                        let res = paste_res.map_err(|_| "sign-in wait ended without a result".to_string())?;
+                        let line = res?;
+                        code_from_pasted(&line, &state_value)?
+                    }
+                }
+            }
+        },
+    };
 
     exchange_code(
         &profile.token_uri,
@@ -496,7 +588,7 @@ pub async fn sign_in_keeping(
 
     eprintln!("{label}: opening browser for sign-in...");
     let nonce = attestation_nonce(profile.nonce_binding, public_identity);
-    let id_token = obtain_id_token_desktop(profile, &nonce).await?;
+    let id_token = obtain_id_token_desktop(profile, &nonce, Some(stdin_paste_source())).await?;
     let outcome = finish_sign_in(
         profile,
         public_identity,
