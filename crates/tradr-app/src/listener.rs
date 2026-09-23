@@ -26,6 +26,7 @@ use tradr_vfs::{NativeVfs, partial_dir_rel_path, partial_file_rel_path};
 use crate::capabilities::LocalCapabilities;
 use crate::handshake::{HandshakeError, HandshakeParams, perform_handshake_after_peer_hello};
 use crate::link_exchange::{LinkExchangeError, LinkOutcome};
+use crate::partial_sweep::sweep_stale_partials;
 use crate::peer_trust::OwnAttestation;
 use crate::transfer::{ReceiveRequest, SessionStreams, TransferSessionError, receive_file};
 
@@ -751,6 +752,19 @@ where
     Fut: Future<Output = Result<TrustTier, String>>,
 {
     let key_binding = build_key_binding(key_store.as_ref(), &identity, services.clock)?;
+
+    match vfs.list_partial_root(root).await {
+        Ok(entries) => {
+            if let Err(e) =
+                sweep_stale_partials(vfs.as_ref(), root, services.clock.now(), &entries).await
+            {
+                eprintln!("listener: sweeping stale partial files failed: {e}");
+            }
+        }
+        Err(e) => {
+            eprintln!("listener: sweeping stale partial files failed: {e}");
+        }
+    }
 
     let versions = VersionRange::new(1, 1)
         .map_err(|_| ListenerError::ProtocolViolation("invalid version range".to_string()))?;

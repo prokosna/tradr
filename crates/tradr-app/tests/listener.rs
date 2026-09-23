@@ -2454,3 +2454,124 @@ fn channel_phase_display() {
     );
     assert_eq!(ChannelPhase::LinkExchange.to_string(), "link exchange");
 }
+
+#[tokio::test]
+async fn run_listener_sweeps_a_stale_partial_directory_before_accepting() {
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let transfer_dir = receiver_dir.path().join(".tradr-partial").join(VALID_V7_A);
+    std::fs::create_dir_all(&transfer_dir).expect("create partial transfer dir");
+    let item_path = transfer_dir.join("item-1");
+    std::fs::write(&item_path, b"partial-data").expect("write partial file");
+
+    let t = std::fs::metadata(&item_path)
+        .expect("metadata")
+        .modified()
+        .expect("modified")
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let clock = FakeClock {
+        now: UnixTime::from_secs(t + 8 * 24 * 3600),
+    };
+    let (_sender, (receiver_store, receiver_id, _receiver_binding)) = create_test_identities();
+
+    let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(1);
+    let incoming = MockIncoming {
+        channels: incoming_rx,
+    };
+    drop(incoming_tx);
+
+    let receiver_vfs = NativeVfs::new();
+    let root_receiver = RootId::new(901);
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .expect("register root");
+
+    let listener_rng = SeededRng::new(5678);
+    let services = ListenerServices {
+        rng: &listener_rng,
+        clock: &clock,
+        verifier: &BaoVerifier,
+    };
+
+    let result = run_listener(
+        Box::new(incoming) as Box<dyn Incoming>,
+        Arc::new(receiver_vfs),
+        Arc::new(receiver_store) as Arc<dyn KeyStore>,
+        receiver_id,
+        Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        root_receiver,
+        Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        services,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+    )
+    .await;
+
+    assert!(result.is_ok());
+    assert!(!transfer_dir.exists());
+    assert!(receiver_dir.path().join(".tradr-partial").exists());
+}
+
+#[tokio::test]
+async fn run_listener_keeps_a_fresh_partial_directory() {
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let transfer_dir = receiver_dir.path().join(".tradr-partial").join(VALID_V7_A);
+    std::fs::create_dir_all(&transfer_dir).expect("create partial transfer dir");
+    let item_path = transfer_dir.join("item-1");
+    std::fs::write(&item_path, b"partial-data").expect("write partial file");
+
+    let t = std::fs::metadata(&item_path)
+        .expect("metadata")
+        .modified()
+        .expect("modified")
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let clock = FakeClock {
+        now: UnixTime::from_secs(t + 24 * 3600),
+    };
+    let (_sender, (receiver_store, receiver_id, _receiver_binding)) = create_test_identities();
+
+    let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(1);
+    let incoming = MockIncoming {
+        channels: incoming_rx,
+    };
+    drop(incoming_tx);
+
+    let receiver_vfs = NativeVfs::new();
+    let root_receiver = RootId::new(901);
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .expect("register root");
+
+    let listener_rng = SeededRng::new(5678);
+    let services = ListenerServices {
+        rng: &listener_rng,
+        clock: &clock,
+        verifier: &BaoVerifier,
+    };
+
+    let result = run_listener(
+        Box::new(incoming) as Box<dyn Incoming>,
+        Arc::new(receiver_vfs),
+        Arc::new(receiver_store) as Arc<dyn KeyStore>,
+        receiver_id,
+        Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        root_receiver,
+        Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        services,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+    )
+    .await;
+
+    assert!(result.is_ok());
+    assert!(item_path.exists());
+    assert!(transfer_dir.exists());
+    assert!(receiver_dir.path().join(".tradr-partial").exists());
+}

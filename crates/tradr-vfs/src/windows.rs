@@ -11,7 +11,9 @@ use tradr_core::{
     WriteAt,
 };
 
-use crate::sanitization::{check_deny_list, check_deny_list_write, is_denied};
+use crate::sanitization::{
+    check_deny_list, check_deny_list_write, is_denied_for_write, partial_root_rel_path,
+};
 
 #[derive(Debug, Clone)]
 struct RootEntry {
@@ -236,8 +238,7 @@ fn rename_sync(root: &RootEntry, from: &RelPath, to: &RelPath) -> Result<(), Vfs
     Ok(())
 }
 
-fn list_sync(root: &RootEntry, at: &RelPath) -> Result<Vec<DirEntry>, VfsError> {
-    check_deny_list(at)?;
+fn list_dir_sync(root: &RootEntry, at: &RelPath) -> Result<Vec<DirEntry>, VfsError> {
     let path = resolve_path(root, at)?;
     let meta = std::fs::symlink_metadata(&path).map_err(map_io_err)?;
     let kind = check_stat_kind(&meta)?;
@@ -259,7 +260,7 @@ fn list_sync(root: &RootEntry, at: &RelPath) -> Result<Vec<DirEntry>, VfsError> 
 
         let mut full_components = parent_components.clone();
         full_components.push(&name_str);
-        if is_denied(&full_components) {
+        if is_denied_for_write(&full_components) {
             continue;
         }
 
@@ -295,6 +296,11 @@ fn list_sync(root: &RootEntry, at: &RelPath) -> Result<Vec<DirEntry>, VfsError> 
     }
 
     Ok(entries)
+}
+
+fn list_sync(root: &RootEntry, at: &RelPath) -> Result<Vec<DirEntry>, VfsError> {
+    check_deny_list(at)?;
+    list_dir_sync(root, at)
 }
 
 pub struct WindowsReadHandle {
@@ -401,6 +407,20 @@ impl WindowsVfs {
             .read()
             .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?;
         roots.get(&root.value()).cloned().ok_or(VfsError::NotFound)
+    }
+
+    /// Lists entries in the partial staging root directory (DCR-155).
+    pub async fn list_partial_root(&self, root: RootId) -> Result<Vec<DirEntry>, VfsError> {
+        let root_entry = self.get_root(root)?;
+        let at = partial_root_rel_path();
+        let res = tokio::task::spawn_blocking(move || list_dir_sync(&root_entry, &at))
+            .await
+            .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?;
+        match res {
+            Ok(entries) => Ok(entries),
+            Err(VfsError::NotFound) => Ok(Vec::new()),
+            Err(err) => Err(err),
+        }
     }
 }
 

@@ -13,6 +13,7 @@ pub mod link_exchange;
 pub mod link_invite;
 pub mod listener;
 pub mod network;
+pub mod partial_sweep;
 pub mod paths;
 pub mod peer_trust;
 pub mod peers;

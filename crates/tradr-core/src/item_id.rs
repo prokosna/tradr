@@ -1,15 +1,15 @@
 //! A sender-chosen identifier for one Item inside a Transfer. See
 //! `docs/04-protocol.md`, "Partial files": `item_id` is attacker-controlled
-//! from the receiver's side, is never used as a path component, and is
-//! constrained to an opaque token rather than to a legal filename.
+//! from the receiver's side, names its partial file, and is constrained to an
+//! opaque token narrower than any legal filename (DCR-154).
 
 use std::fmt;
 
 /// The most bytes an `ItemId` may occupy.
 pub const ITEM_ID_MAX_LEN: usize = 64;
 
-/// A sender-chosen identifier, unique within a Transfer. Deliberately never
-/// a path component: see `docs/04-protocol.md`, "Partial files".
+/// A sender-chosen identifier, unique within a Transfer. It names the partial file under
+/// `.tradr-partial/<transfer_id>/` (docs/04, DCR-154), which is why its alphabet admits no dot, separator or upper case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ItemId {
     bytes: [u8; ITEM_ID_MAX_LEN],

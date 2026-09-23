@@ -22,5 +22,5 @@ pub use windows::{
 pub use saf::{SafBridge, SafNode, SafVfs};
 pub use sanitization::{
     SanitizationError, check_deny_list, check_deny_list_write, is_denied, partial_dir_rel_path,
-    partial_file_rel_path, resolve_collision, sanitize_destination_path,
+    partial_file_rel_path, partial_root_rel_path, resolve_collision, sanitize_destination_path,
 };
