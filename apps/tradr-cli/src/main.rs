@@ -13,7 +13,7 @@ use tradr_app::sign_in::OAuthConfig;
 
 fn print_usage() {
     eprintln!(
-        "usage: tradr-cli <command>\n\ncommands:\n  device     Report this device's identity\n  peers      Discover and list peers\n  receive    Receive files into a directory\n  send       Send files to a peer"
+        "usage: tradr-cli <command>\n\ncommands:\n  device     Report this device's identity\n  peers      Discover and list peers\n  receive    Receive files into a directory\n  send       Send files to a peer, named by name or key"
     );
 }
 

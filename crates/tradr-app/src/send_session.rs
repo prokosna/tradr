@@ -16,6 +16,7 @@ use crate::network::{self, bind_quic_dialler};
 use crate::peer_trust::{HttpsJwksFetch, PeerTrust};
 use crate::peers::{
     PeerInfo, ResolvedPeer, connect_and_pin, drain_peer_sources, peer_info, resolve_peer,
+    select_peer_key,
 };
 pub use crate::send::TransferProgressPayload;
 use crate::send::{execute_send_files_with_progress, resolve_send_items};
@@ -109,9 +110,14 @@ impl PeerDiscovery {
         let mut last_refusal;
         loop {
             self.drain().await?;
+            let selected_key = select_peer_key(peer_id, &self.peer_list)?;
+            let target_peer_id = match &selected_key {
+                Some(key) => key.as_str(),
+                None => peer_id,
+            };
             {
                 let registry = self.registry.lock().await;
-                match resolve_peer(peer_id, &self.peer_list, &registry, transports, size) {
+                match resolve_peer(target_peer_id, &self.peer_list, &registry, transports, size) {
                     Ok(resolved) => return Ok(resolved),
                     Err(e) => {
                         last_refusal = e;

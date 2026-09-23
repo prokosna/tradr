@@ -292,3 +292,38 @@ pub fn peer_info(peer: &Peer) -> PeerInfo {
         sources,
     }
 }
+
+/// Matches a selector against discovered peer keys and unique display names
+/// so callers can address peers by either identifier (docs/02, DCR-149).
+pub fn select_peer_key(selector: &str, list: &PeerList) -> Result<Option<String>, String> {
+    let peers = list.peers();
+    let infos: Vec<PeerInfo> = peers.iter().map(peer_info).collect();
+
+    for info in &infos {
+        if info.key == selector {
+            return Ok(Some(info.key.clone()));
+        }
+    }
+
+    let matching_keys: Vec<&str> = infos
+        .iter()
+        .filter_map(|info| {
+            if info.display_name.as_deref() == Some(selector) {
+                Some(info.key.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    match matching_keys.len() {
+        0 => Ok(None),
+        1 => Ok(Some(matching_keys[0].to_string())),
+        count => {
+            let keys = matching_keys.join(", ");
+            Err(format!(
+                "{count} peers are named {selector}; name one by key: {keys}"
+            ))
+        }
+    }
+}
