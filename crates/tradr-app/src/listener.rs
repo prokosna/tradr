@@ -575,20 +575,20 @@ where
                         Ok(placed_paths)
                     }
                     stream_res = channel.accept_bi() => {
-                        if let Ok((mut browse_send, mut browse_recv)) = stream_res {
-                            let codec = tradr_proto::browse::ProtoBrowseCodec::new(channel.max_frame_size());
-                            if let Err(e) = tradr_core::handle_browse_stream(
-                                browse_recv.as_mut(),
-                                browse_send.as_mut(),
-                                &codec,
-                                vfs,
-                                params.root,
-                                channel.max_frame_size(),
-                            )
-                            .await
-                            {
-                                eprintln!("listener: handle browse stream failed: {e}");
-                            }
+                        let (mut browse_send, mut browse_recv) =
+                            stream_res.map_err(ListenerError::Transport)?;
+                        let codec = tradr_proto::browse::ProtoBrowseCodec::new(channel.max_frame_size());
+                        if let Err(e) = tradr_core::handle_browse_stream(
+                            browse_recv.as_mut(),
+                            browse_send.as_mut(),
+                            &codec,
+                            vfs,
+                            params.root,
+                            channel.max_frame_size(),
+                        )
+                        .await
+                        {
+                            eprintln!("listener: handle browse stream failed: {e}");
                         }
                         Ok(Vec::new())
                     }

@@ -2175,6 +2175,89 @@ async fn failure_after_the_handshake_is_in_the_offer_phase() {
 }
 
 #[tokio::test]
+async fn a_peer_closing_after_the_handshake_fails_in_the_offer_phase() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (
+        (sender_store, sender_id, sender_binding),
+        (receiver_store, receiver_id, receiver_binding),
+    ) = create_test_identities();
+
+    // Repeated because select! picks between ready arms at random.
+    for iter in 0..32 {
+        let (sender_chan, listener_chan) =
+            mock_channel_pair(sender_id.device_id(), receiver_id.device_id(), MAX_FRAME);
+
+        let sender_rng = SeededRng::new(456 + iter);
+        let listener_rng = SeededRng::new(789 + iter);
+
+        let sender_task = async {
+            let (mut sender_ctrl_send, mut sender_ctrl_recv) =
+                sender_chan.open_bi().await.expect("open ctrl bi");
+            let sender_params = HandshakeParams {
+                authenticated_peer: receiver_id.device_id(),
+                our_channel_max_frame_size: MAX_FRAME,
+                our_identity: &sender_id,
+                our_attestation_token: "mock-token-sender".to_string(),
+                our_key_binding: sender_binding.clone(),
+                our_versions: VersionRange::new(1, 1).unwrap(),
+                our_capabilities: Capabilities::empty(),
+            };
+            perform_handshake(
+                sender_ctrl_send.as_mut(),
+                sender_ctrl_recv.as_mut(),
+                sender_params,
+                &sender_store,
+                &sender_rng,
+                &clock,
+                |_| async { Ok(TrustTier::SameAccount) },
+            )
+            .await
+            .expect("sender handshake completes");
+
+            drop(sender_ctrl_send);
+            drop(sender_ctrl_recv);
+            drop(sender_chan);
+        };
+
+        let receiver_vfs = NativeVfs::new();
+        let root_receiver = RootId::new(20);
+        let listener_params = ListenerParams {
+            root: root_receiver,
+            our_identity: &receiver_id,
+            our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+            our_key_binding: receiver_binding.clone(),
+            our_versions: VersionRange::new(1, 1).unwrap(),
+            our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        };
+
+        let listener_task = handle_incoming_channel(
+            &listener_chan,
+            &receiver_vfs,
+            listener_params,
+            &receiver_store,
+            &listener_rng,
+            &clock,
+            &BaoVerifier,
+            |_| async { Ok(TrustTier::SameAccount) },
+            None,
+            None,
+        );
+
+        let (_, listener_res) = tokio::join!(sender_task, listener_task);
+        assert!(listener_res.is_err());
+        let failure = listener_res.unwrap_err();
+        assert_eq!(failure.peer, sender_id.device_id());
+        assert_eq!(failure.phase, ChannelPhase::Offer);
+        assert!(matches!(
+            failure.error,
+            ListenerError::Transport(TransportError::Closed)
+        ));
+    }
+}
+
+#[tokio::test]
 async fn failure_between_items_names_the_item() {
     let clock = FakeClock {
         now: UnixTime::from_secs(NOW),
