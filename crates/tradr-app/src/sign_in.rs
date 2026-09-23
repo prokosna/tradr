@@ -5,6 +5,8 @@
 
 #[cfg(not(target_os = "android"))]
 use std::net::{SocketAddr, TcpListener, TcpStream};
+#[cfg(not(target_os = "android"))]
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(not(target_os = "android"))]
 use std::sync::mpsc;
@@ -19,19 +21,22 @@ use serde::Serialize;
 #[cfg(not(target_os = "android"))]
 use tradr_core::Rng;
 use tradr_core::{BoxFuture, Clock, PublicIdentity, TrustTier};
-#[cfg(not(target_os = "android"))]
-use tradr_identity::OsRng;
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{
     AccountId, AttestationPolicy, LinkRegistry, Platform, ProviderProfile, classify_with_profile,
     google, oauth_client, parse_jwks, verify_id_token,
 };
 #[cfg(not(target_os = "android"))]
+use tradr_identity::{OsRng, SystemClock, attestation_nonce};
+#[cfg(not(target_os = "android"))]
 use tradr_oidc::{
     Pkce, authorization_url, callback_redirect_uri, exchange_code, serve_one_callback,
 };
 
 use crate::attestation::{FUTURE_SKEW_LIMIT_SECS, STALENESS_LIMIT_SECS};
+use crate::kept_sign_in::SIGN_IN_REUSE_LIMIT_SECS;
+#[cfg(not(target_os = "android"))]
+use crate::kept_sign_in::{keep_token, load_kept_token};
 use crate::peer_trust::{OwnAttestation, PeerTrust};
 
 const ENV_CLIENT_IDS: &str = "TRADR_OAUTH_CLIENT_IDS";
@@ -351,21 +356,14 @@ pub async fn obtain_id_token_desktop(
     .map_err(|e| e.to_string())
 }
 
-/// Everything sign-in decides once an ID token is in hand. The JWKS cache
-/// it warms is the one a later peer connection reads from rather than a
-/// cache of its own.
-pub async fn finish_sign_in(
+fn verify_and_classify_token(
     profile: &ProviderProfile,
     public_identity: &PublicIdentity,
-    id_token: String,
-    peer_trust: &PeerTrust,
-    sign_in_state: &SignInState,
+    id_token: &str,
+    keys: &[tradr_identity::Jwk],
     clock: &(dyn Clock + Sync),
-) -> Result<SignInOutcome, String> {
-    let jwks_document = peer_trust.warm(&profile.jwks_uri).await?;
-    let keys = parse_jwks(&jwks_document).map_err(|e| e.to_string())?;
-
-    let claims = verify_id_token(profile, &keys, &id_token).map_err(|e| e.to_string())?;
+) -> Result<(tradr_identity::VerifiedClaims, SignInOutcome), String> {
+    let claims = verify_id_token(profile, keys, id_token).map_err(|e| e.to_string())?;
 
     // The moment this device learns which account it belongs to.
     let account = AccountId::new(&claims.iss, &claims.sub);
@@ -399,12 +397,119 @@ pub async fn finish_sign_in(
     }
 
     let outcome = SignInOutcome {
-        issuer: claims.iss,
-        subject: claims.sub,
+        issuer: claims.iss.clone(),
+        subject: claims.sub.clone(),
         tier: format!("{tier:?}"),
     };
 
+    Ok((claims, outcome))
+}
+
+/// Everything sign-in decides once an ID token is in hand. The JWKS cache
+/// it warms is the one a later peer connection reads from rather than a
+/// cache of its own.
+pub async fn finish_sign_in(
+    profile: &ProviderProfile,
+    public_identity: &PublicIdentity,
+    id_token: String,
+    peer_trust: &PeerTrust,
+    sign_in_state: &SignInState,
+    clock: &(dyn Clock + Sync),
+) -> Result<SignInOutcome, String> {
+    let jwks_document = peer_trust.warm(&profile.jwks_uri).await?;
+    let keys = parse_jwks(&jwks_document).map_err(|e| e.to_string())?;
+
+    let (_claims, outcome) =
+        verify_and_classify_token(profile, public_identity, &id_token, &keys, clock)?;
+
     sign_in_state.set_signed_in(outcome.clone(), id_token);
+
+    Ok(outcome)
+}
+
+/// Re-verifies a kept ID token against current device keys and bounds reuse to 21 days (DCR-150).
+pub async fn resume_sign_in(
+    profile: &ProviderProfile,
+    public_identity: &PublicIdentity,
+    id_token: String,
+    peer_trust: &PeerTrust,
+    sign_in_state: &SignInState,
+    clock: &(dyn Clock + Sync),
+) -> Result<SignInOutcome, String> {
+    let jwks_document = peer_trust.warm(&profile.jwks_uri).await?;
+    let keys = parse_jwks(&jwks_document).map_err(|e| e.to_string())?;
+
+    let (claims, outcome) =
+        verify_and_classify_token(profile, public_identity, &id_token, &keys, clock)?;
+
+    if let Ok(age) = clock.now().elapsed_since(claims.iat)
+        && age > SIGN_IN_REUSE_LIMIT_SECS
+    {
+        let days = age / (24 * 60 * 60);
+        let limit = SIGN_IN_REUSE_LIMIT_SECS / (24 * 60 * 60);
+        return Err(format!(
+            "kept sign-in is {days} days old, past the {limit} day reuse limit"
+        ));
+    }
+
+    sign_in_state.set_signed_in(outcome.clone(), id_token);
+
+    Ok(outcome)
+}
+
+/// Attempts to resume from a kept ID token on disk, falling back to interactive sign-in (DCR-150).
+#[cfg(not(target_os = "android"))]
+pub async fn sign_in_keeping(
+    label: &str,
+    profile: &ProviderProfile,
+    public_identity: &PublicIdentity,
+    peer_trust: &PeerTrust,
+    sign_in_state: &SignInState,
+    attestation_path: &Path,
+) -> Result<SignInOutcome, String> {
+    match load_kept_token(attestation_path) {
+        Ok(Some(token)) => {
+            match resume_sign_in(
+                profile,
+                public_identity,
+                token,
+                peer_trust,
+                sign_in_state,
+                &SystemClock,
+            )
+            .await
+            {
+                Ok(outcome) => {
+                    eprintln!("{label}: signed in with the kept sign-in");
+                    return Ok(outcome);
+                }
+                Err(e) => {
+                    eprintln!("{label}: kept sign-in not used: {e}");
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            eprintln!("{label}: kept sign-in unreadable: {e}");
+        }
+    }
+
+    eprintln!("{label}: opening browser for sign-in...");
+    let nonce = attestation_nonce(profile.nonce_binding, public_identity);
+    let id_token = obtain_id_token_desktop(profile, &nonce).await?;
+    let outcome = finish_sign_in(
+        profile,
+        public_identity,
+        id_token.clone(),
+        peer_trust,
+        sign_in_state,
+        &SystemClock,
+    )
+    .await?;
+
+    if let Err(e) = keep_token(attestation_path, &id_token) {
+        eprintln!("{label}: could not keep the sign-in: {e}");
+    }
 
     Ok(outcome)
 }
