@@ -16,7 +16,7 @@ use tradr_app::peer_trust::PeerTrust;
 #[cfg(not(target_os = "android"))]
 use tradr_app::sign_in::{
     CALLBACK_PORT, bind_callback_listener, bind_callback_with_fallback,
-    browser_unavailable_message, callback_bind_addresses, ssh_forward_command,
+    browser_unavailable_message, callback_bind_addresses, code_from_pasted, ssh_forward_command,
 };
 use tradr_app::sign_in::{OAuthConfig, SignInState, finish_sign_in, provider_profile};
 use tradr_core::{PublicIdentity, TrustTier};
@@ -323,7 +323,7 @@ fn browser_unavailable_message_isolates_auth_url_on_its_own_line() {
     let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
     let launcher_error =
         format!("Launcher \"xdg-open\" \"{url}\" failed with ExitStatus(unix_wait_status(768))");
-    let message = browser_unavailable_message(url, &launcher_error, 21821);
+    let message = browser_unavailable_message(url, &launcher_error, 21821, false);
 
     assert_eq!(message.matches(url).count(), 1);
     assert_eq!(message.lines().filter(|&line| line == url).count(), 1);
@@ -335,7 +335,7 @@ fn browser_unavailable_message_preserves_launcher_name_and_exit_status() {
     let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
     let launcher_error =
         format!("Launcher \"xdg-open\" \"{url}\" failed with ExitStatus(unix_wait_status(768))");
-    let message = browser_unavailable_message(url, &launcher_error, 21821);
+    let message = browser_unavailable_message(url, &launcher_error, 21821, false);
 
     assert!(
         message.contains(
@@ -350,7 +350,7 @@ fn browser_unavailable_message_redacts_multiple_url_occurrences_in_launcher_erro
     let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
     let launcher_error =
         format!("Launcher \"xdg-open\" \"{url}\" failed; fallback \"gio\" \"{url}\" failed");
-    let message = browser_unavailable_message(url, &launcher_error, 21821);
+    let message = browser_unavailable_message(url, &launcher_error, 21821, false);
 
     assert_eq!(message.matches(url).count(), 1);
 }
@@ -360,7 +360,7 @@ fn browser_unavailable_message_redacts_multiple_url_occurrences_in_launcher_erro
 fn browser_unavailable_message_preserves_launcher_error_without_url() {
     let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
     let launcher_error = "No such file or directory (os error 2)";
-    let message = browser_unavailable_message(url, launcher_error, 21821);
+    let message = browser_unavailable_message(url, launcher_error, 21821, false);
 
     assert_eq!(message.matches(url).count(), 1);
     assert!(message.contains(launcher_error));
@@ -371,8 +371,98 @@ fn browser_unavailable_message_preserves_launcher_error_without_url() {
 fn browser_unavailable_message_includes_port_forward_command() {
     let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
     let launcher_error = "No such file or directory (os error 2)";
-    let message = browser_unavailable_message(url, launcher_error, 43210);
+    let message = browser_unavailable_message(url, launcher_error, 43210, false);
 
     let expected_forward = ssh_forward_command(43210);
     assert!(message.lines().any(|line| line == expected_forward));
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn browser_unavailable_message_with_paste_orders_paste_before_forward() {
+    let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
+    let launcher_error = "No such file or directory (os error 2)";
+    let message = browser_unavailable_message(url, launcher_error, 21821, true);
+
+    assert_eq!(message.matches(url).count(), 1);
+    assert_eq!(message.lines().filter(|&line| line == url).count(), 1);
+
+    let paste_line = "after signing in, that browser lands on a page that does not load; copy its whole address and paste it here, then press Enter";
+    let forward_line = ssh_forward_command(21821);
+
+    let lines: Vec<&str> = message.lines().collect();
+    assert_eq!(lines.len(), 6);
+    assert!(lines.contains(&paste_line));
+    assert!(lines.contains(&forward_line.as_str()));
+
+    let paste_idx = lines
+        .iter()
+        .position(|&l| l == paste_line)
+        .expect("paste line present");
+    let forward_idx = lines
+        .iter()
+        .position(|&l| l == forward_line.as_str())
+        .expect("forward line present");
+    assert_eq!(paste_idx, 2);
+    assert_eq!(forward_idx, 4);
+    assert!(paste_idx < forward_idx);
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn browser_unavailable_message_with_false_omits_paste() {
+    let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
+    let launcher_error = "No such file or directory (os error 2)";
+    let message = browser_unavailable_message(url, launcher_error, 21821, false);
+
+    assert!(!message.lines().any(|line| line.contains("paste")));
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn code_from_pasted_accepts_valid_address_formats() {
+    let full = "http://127.0.0.1:21821/callback?code=abc&state=s1";
+    assert_eq!(code_from_pasted(full, "s1"), Ok("abc".to_string()));
+
+    let bare = "code=abc&state=s1";
+    assert_eq!(code_from_pasted(bare, "s1"), Ok("abc".to_string()));
+
+    let leading_q = "?code=abc&state=s1";
+    assert_eq!(code_from_pasted(leading_q, "s1"), Ok("abc".to_string()));
+
+    let padded = "  http://127.0.0.1:21821/callback?code=abc&state=s1  \n";
+    assert_eq!(code_from_pasted(padded, "s1"), Ok("abc".to_string()));
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn code_from_pasted_accepts_code_containing_question_mark() {
+    let address = "http://127.0.0.1:21821/callback?code=abc?def&state=s1";
+    assert_eq!(code_from_pasted(address, "s1"), Ok("abc?def".to_string()));
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn code_from_pasted_refuses_invalid_inputs() {
+    assert_eq!(
+        code_from_pasted("", "s1"),
+        Err("nothing was pasted".to_string())
+    );
+    assert_eq!(
+        code_from_pasted("   \n\t  ", "s1"),
+        Err("nothing was pasted".to_string())
+    );
+
+    let wrong_state = "http://127.0.0.1:21821/callback?code=abc&state=wrong";
+    assert!(code_from_pasted(wrong_state, "s1").is_err());
+
+    let error_resp = "http://127.0.0.1:21821/callback?error=access_denied&state=s1";
+    let error_res = code_from_pasted(error_resp, "s1");
+    assert!(error_res.is_err());
+    assert!(error_res.unwrap_err().contains("access_denied"));
+
+    let repeated = "http://127.0.0.1:21821/callback?code=abc&code=def&state=s1";
+    let repeated_res = code_from_pasted(repeated, "s1");
+    assert!(repeated_res.is_err());
+    assert!(repeated_res.unwrap_err().contains("repeated"));
 }

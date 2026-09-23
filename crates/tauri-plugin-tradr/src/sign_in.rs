@@ -63,7 +63,7 @@ pub async fn sign_in<R: tauri::Runtime>(
     let nonce = attestation_nonce(profile.nonce_binding, &public_identity);
 
     #[cfg(not(target_os = "android"))]
-    let id_token = obtain_id_token_desktop(&profile, &nonce).await?;
+    let id_token = obtain_id_token_desktop(&profile, &nonce, None).await?;
 
     #[cfg(target_os = "android")]
     let id_token = obtain_id_token_android(&app, &profile, &nonce).await?;
