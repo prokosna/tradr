@@ -31,7 +31,7 @@ mod paths;
 pub mod peer_trust;
 mod sign_in;
 
-use tradr_app::sign_in::{OAuthConfig, SignInState};
+use tradr_app::sign_in::{OAuthConfig, SignInState, provider_profile};
 
 /// Builds the plugin. Its setup hook opens the Device Key store once and
 /// manages `client_ids`/`client_secret`, this build's OAuth configuration
@@ -94,12 +94,26 @@ pub fn init<R: Runtime>(
                 None => (None, None, None),
             };
 
+            let public_identity = identity_state.public_identity();
+            let profile = provider_profile(&oauth_config);
+            let peer_trust = peer_trust_state.peer_trust();
+            let sign_in_for_resume = sign_in_state.clone();
+            let app_handle = app.clone();
+
             app.manage(identity_state);
             app.manage(oauth_config);
             app.manage(sign_in_state);
             app.manage(peer_trust_state);
             app.manage(link_registry_state);
             app.manage(link_invite_state);
+
+            tauri::async_runtime::spawn(sign_in::resume_kept_sign_in(
+                app_handle,
+                sign_in_for_resume,
+                public_identity,
+                profile,
+                peer_trust,
+            ));
 
             #[cfg(target_os = "linux")]
             if let Some(discovery) = ble_discovery {

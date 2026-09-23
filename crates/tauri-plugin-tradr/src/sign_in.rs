@@ -3,14 +3,17 @@
 
 use std::sync::Arc;
 
-use tauri::State;
+use tauri::{Emitter, State};
 
+use tradr_app::kept_sign_in::{keep_token, load_kept_token};
+use tradr_app::paths::attestation_path;
+use tradr_app::peer_trust::PeerTrust;
 #[cfg(not(target_os = "android"))]
 use tradr_app::sign_in::obtain_id_token_desktop;
 use tradr_app::sign_in::{
-    OAuthConfig, SignInOutcome, SignInState, finish_sign_in, provider_profile,
+    OAuthConfig, SignInOutcome, SignInState, finish_sign_in, provider_profile, resume_sign_in,
 };
-#[cfg(target_os = "android")]
+use tradr_core::PublicIdentity;
 use tradr_identity::ProviderProfile;
 use tradr_identity::{SystemClock, attestation_nonce};
 
@@ -43,7 +46,7 @@ async fn obtain_id_token_android<R: tauri::Runtime>(
 /// the audience check did not do what docs/05 says.
 #[tauri::command]
 pub async fn sign_in<R: tauri::Runtime>(
-    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+    app: tauri::AppHandle<R>,
     identity_state: State<'_, IdentityState>,
     oauth: State<'_, OAuthConfig>,
     sign_in_state: State<'_, Arc<SignInState>>,
@@ -66,7 +69,77 @@ pub async fn sign_in<R: tauri::Runtime>(
     let id_token = obtain_id_token_android(&app, &profile, &nonce).await?;
 
     let peer_trust = peer_trust_state.peer_trust()?;
-    finish_sign_in(
+    let outcome = finish_sign_in(
+        &profile,
+        &public_identity,
+        id_token.clone(),
+        &peer_trust,
+        &sign_in_state,
+        &SystemClock,
+    )
+    .await?;
+
+    let keep_result = crate::paths::app_data_dir(&app)
+        .and_then(|dir| keep_token(&attestation_path(&dir), &id_token));
+    if let Err(e) = keep_result {
+        eprintln!("sign_in: could not keep the sign-in: {e}");
+    }
+
+    Ok(outcome)
+}
+
+pub(crate) async fn resume_kept_sign_in<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    sign_in_state: Arc<SignInState>,
+    public_identity: Result<PublicIdentity, String>,
+    profile: Result<ProviderProfile, String>,
+    peer_trust: Result<Arc<PeerTrust>, String>,
+) {
+    let _guard = match sign_in_state.begin() {
+        Some(guard) => guard,
+        None => return,
+    };
+
+    let dir = match crate::paths::app_data_dir(&app) {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("sign_in: kept sign-in not used: {e}");
+            return;
+        }
+    };
+    let path = attestation_path(&dir);
+    let id_token = match load_kept_token(&path) {
+        Ok(Some(token)) => token,
+        Ok(None) => return,
+        Err(e) => {
+            eprintln!("sign_in: kept sign-in not used: {e}");
+            return;
+        }
+    };
+
+    let profile = match profile {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("sign_in: kept sign-in not used: {e}");
+            return;
+        }
+    };
+    let public_identity = match public_identity {
+        Ok(id) => id,
+        Err(e) => {
+            eprintln!("sign_in: kept sign-in not used: {e}");
+            return;
+        }
+    };
+    let peer_trust = match peer_trust {
+        Ok(trust) => trust,
+        Err(e) => {
+            eprintln!("sign_in: kept sign-in not used: {e}");
+            return;
+        }
+    };
+
+    match resume_sign_in(
         &profile,
         &public_identity,
         id_token,
@@ -75,4 +148,14 @@ pub async fn sign_in<R: tauri::Runtime>(
         &SystemClock,
     )
     .await
+    {
+        Ok(outcome) => {
+            if let Err(e) = app.emit("sign-in-restored", &outcome) {
+                eprintln!("sign_in: emit sign-in-restored failed: {e}");
+            }
+        }
+        Err(e) => {
+            eprintln!("sign_in: kept sign-in not used: {e}");
+        }
+    }
 }
