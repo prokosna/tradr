@@ -328,7 +328,7 @@ That FCM only helps at Tier 2 is an honest difference in experience. An Android 
 | Current Attestation | SQLite | Public information, shown to peers |
 | Local settings, Share definitions, Static Peers | SQLite in app data | Purely local |
 | Known peers and pinned keys | SQLite | How Tier 0 remembers a peer. Trust genuinely lives here |
-| In-flight transfer state | SQLite plus partial files | Survives a process restart |
+| In-flight transfer state | Partial files alone, their size read back on resume (DCR-154: no SQLite store exists) | Survives a process restart |
 | ABK and Link Secrets | OS key store | Secrets used to recognize peers over BLE |
 | File contents | Never duplicated | Written straight to the destination, with no intermediate copy |
 
