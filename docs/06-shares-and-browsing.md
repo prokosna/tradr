@@ -17,7 +17,7 @@
 }
 ```
 
-Share definitions **exist only in the device's local SQLite** and never reach a Brokr. Which directories someone exposes is sensitive by itself, and no central component needs to know. Connected peers learn about the ones visible to them through `HelloAck.visible_shares`.
+Share definitions **are kept only on the device** and never reach a Brokr. **No store for them exists yet and no Share can be defined** (DF-109, recorded by DCR-158): `get_visible_shares` answers one constant entry for every peer, and `HelloAck.visible_shares` is written empty. Which directories someone exposes is sensitive by itself, and no central component needs to know. Connected peers learn about the ones visible to them through `HelloAck.visible_shares`.
 
 ## Enforcing the Share Root boundary
 
@@ -96,7 +96,7 @@ Share.root = "content://com.android.externalstorage.documents/tree/primary%3ADoc
 ```
 
 - `takePersistableUriPermission` persists the grant across restarts
-- Walking a relative path means traversing `DocumentFile` objects, incurring an IPC per level, which makes it **markedly slower** than POSIX. Directory metadata is cached in SQLite and invalidated by a `ContentObserver`
+- Walking a relative path means traversing `DocumentFile` objects, incurring an IPC per level, which makes it **markedly slower** than POSIX. Caching directory metadata, invalidated by a `ContentObserver`, is the design; **nothing caches it and no production `SafBridge` exists yet** (DF-110, recorded by DCR-158)
 - The `Vfs` trait has two implementations, `PosixVfs` and `SafVfs`, identical from above
 
 ## Audience — who sees a Share

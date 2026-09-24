@@ -134,7 +134,7 @@ Android 14+ also allows custom actions through `ChooserAction`, but Sharing Shor
 
 - The user picks a directory through `ACTION_OPEN_DOCUMENT_TREE`, followed by `takePersistableUriPermission`
 - `MANAGE_EXTERNAL_STORAGE`, all-files access, is **not used**. Play Store review demands strong justification for it, and it is excessive for what users are agreeing to
-- SAF incurs a Binder IPC per level. The directory tree is cached in SQLite and invalidated by a `ContentObserver`
+- SAF incurs a Binder IPC per level. Caching the directory tree, invalidated by a `ContentObserver`, is the design; **no production `SafBridge` exists yet, so nothing is cached** (DF-110)
 
 ### Foreground service
 
