@@ -595,7 +595,7 @@ Both are unreachable when the algorithm comes from the profile and the header is
 
 **A document is installed against the `jwks_uri` it came from, and a mismatch refuses rather than replaces.** Binding the cache at construction stops a document reaching the wrong provider's cache when the *cache* is picked wrongly; it cannot see a caller that picked the wrong *document*, and sign-in selects its own Provider Profile independently of the one `PeerTrust` holds. Naming the source uri at the call and refusing when the two disagree is the same reasoning one step later, and it keeps a second selection from silently deciding what a first one already decided.
 
-**Nothing is written to disk, and that is a bound rather than an omission.** A cache surviving a restart would help only a device that could also *sign in* while offline, and the `id_token` a sign-in produces is held in memory for the life of the process -- so a device started offline has no account, and a classification with no account is refused before it ever reads a key. Persisting the JWKS is therefore the second half of persisting the sign-in and belongs with it, not here.
+**Nothing is written to disk, and that is a bound rather than an omission.** A cache surviving a restart would help only a device that could also *sign in* while offline, and even a [kept `id_token`](#a-kept-attestation-dcr-150) is re-verified at every start by a sign-in that warms this cache over the network -- so a device started offline has no account, and a classification with no account is refused before it ever reads a key. Persisting the JWKS is therefore the second half of persisting the sign-in and belongs with it, not here.
 
 ### Who runs the seven steps
 

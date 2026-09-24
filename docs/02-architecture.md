@@ -325,10 +325,14 @@ That FCM only helps at Tier 2 is an honest difference in experience. An Android 
 |---|---|---|
 | Device private keys | OS key store | Never on disk in the clear — see [05](05-security.md#key-storage) |
 | Google refresh token | OS key store | Used to renew the Attestation |
-| Current Attestation | SQLite | Public information, shown to peers |
-| Local settings, Share definitions, Static Peers | SQLite in app data | Purely local |
-| Known peers and pinned keys | SQLite | How Tier 0 remembers a peer. Trust genuinely lives here |
-| In-flight transfer state | Partial files alone, their size read back on resume (DCR-154: no SQLite store exists) | Survives a process restart |
+| Current Attestation | `attestation` in app data, the token text alone, `0600` ([DCR-150](05-security.md#a-kept-attestation-dcr-150)) | Public information, shown to peers. Re-verified at every start |
+| Static Peers | `static-peers.json` in app data ([03](03-discovery-and-transport.md)) | Purely local |
+| Link records | `links.json` in app data ([11](11-account-linking.md)); the Link Secret itself is in the OS key store | Purely local |
+| ABK record | `account-broadcast-key.json` in app data, the generation and creation time; the key itself is in the OS key store | Purely local |
+| Share definitions | **Nowhere: no Share can be defined yet** (DF-109). `get_visible_shares` answers one constant entry for every peer | Purely local once they exist |
+| Local settings | **Nowhere**: nothing a person can change is kept outside the rows above | |
+| Known peers and pinned keys | **Nowhere: nothing pins a peer's key** (DF-108). Every connection re-runs [05](05-security.md)'s seven steps against the peer's Attestation | Trust lives in the provider's JWKS, cached in memory for the life of the process, and in the Link records |
+| In-flight transfer state | Partial files alone, their size read back on resume (DCR-154) | Survives a process restart |
 | ABK and Link Secrets | OS key store | Secrets used to recognize peers over BLE |
 | File contents | Never duplicated | Written straight to the destination, with no intermediate copy |
 
@@ -336,7 +340,9 @@ That FCM only helps at Tier 2 is an honest difference in experience. An Android 
 
 ## Where trust actually lives
 
-Working at Tier 0 means **trust lives in each device's local database**.
+**No crate in this workspace depends on SQLite, and the table above used to say five of its rows lived there, corrected 2026-09-24 by DCR-158.** Each row now names the store the code actually uses, or says that none exists; a row that describes design still unbuilt says so and names the Deferred entry carrying it, rather than being deleted.
+
+Working at Tier 0 means **trust lives on each device and nowhere else**. **Steps 2 and 3 below are the design and are unbuilt** (DF-108): today every connection runs step 1 in full, against a JWKS cached in memory and warmed by this device's own sign-in ([05](05-security.md#the-first-document-in-a-cache-comes-from-this-devices-own-sign-in)).
 
 1. When devices A and B first meet, each verifies the other's Attestation. A matching provider signature, a matching `(iss, sub)` pair, and a `nonce` corresponding to the peer's public keys together establish that this is a device of the same account.
 2. Each then pins the other's Device Key locally.
