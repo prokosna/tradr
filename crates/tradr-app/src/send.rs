@@ -80,12 +80,12 @@ async fn read_frame(
         .ok_or_else(|| "incomplete frame in buffer".to_string())
 }
 
-// Generates an RFC 9562 compliant UUIDv7 transfer identifier.
-fn generate_transfer_id(rng: &dyn Rng) -> Result<TransferId, String> {
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_millis() as u64;
+// A sender-assigned UUIDv7 pins time and randomness through traits (DCR-157).
+fn generate_transfer_id(rng: &dyn Rng, clock: &dyn Clock) -> Result<TransferId, String> {
+    let secs_u64 = u64::try_from(clock.now().as_secs()).map_err(|e| e.to_string())?;
+    let now_ms = secs_u64
+        .checked_mul(1000)
+        .ok_or_else(|| "timestamp overflow".to_string())?;
     let mut random_bytes = [0u8; 10];
     rng.fill_bytes(&mut random_bytes)
         .map_err(|e| e.to_string())?;
@@ -243,7 +243,7 @@ where
     .await
     .map_err(|e| format!("handshake failed: {e}"))?;
 
-    let transfer_id = generate_transfer_id(&OsRng)?;
+    let transfer_id = generate_transfer_id(&OsRng, &clock)?;
     let mut offer_items = Vec::with_capacity(items.len());
 
     let mut actual_roots = std::collections::HashMap::new();
@@ -489,5 +489,69 @@ mod tests {
         assert!(msg.contains(&format!("frame oversized: {announced} > {max}")));
         // Distinguishes prefix refusal from decoder-side refusal after payload read.
         assert_eq!(stream.read_count(), 1);
+    }
+
+    use tradr_core::{Clock, Monotonic, Rng, RngError, UnixTime};
+
+    struct FixedClock(UnixTime);
+
+    impl Clock for FixedClock {
+        fn now(&self) -> UnixTime {
+            self.0
+        }
+
+        fn monotonic_now(&self) -> Monotonic {
+            Monotonic::from_instant(std::time::Instant::now())
+        }
+    }
+
+    struct FixedRng(u8);
+
+    impl Rng for FixedRng {
+        fn fill_bytes(&self, buf: &mut [u8]) -> Result<(), RngError> {
+            buf.fill(self.0);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn generate_transfer_id_pins_timestamp_and_randomness() {
+        let clock = FixedClock(UnixTime::from_secs(1_700_000_000));
+        let rng = FixedRng(0xAB);
+        let transfer_id = super::generate_transfer_id(&rng, &clock)
+            .expect("valid clock reading and rng must succeed");
+        assert_eq!(
+            transfer_id.to_string(),
+            "018bcfe5-6800-7bab-abab-abababababab"
+        );
+    }
+
+    #[test]
+    fn generate_transfer_id_varies_timestamp_prefix_while_preserving_random_suffix() {
+        let clock1 = FixedClock(UnixTime::from_secs(1_700_000_000));
+        let clock2 = FixedClock(UnixTime::from_secs(1_800_000_000));
+        let rng = FixedRng(0xAB);
+
+        let id1 = super::generate_transfer_id(&rng, &clock1)
+            .expect("first transfer id must succeed")
+            .to_string();
+        let id2 = super::generate_transfer_id(&rng, &clock2)
+            .expect("second transfer id must succeed")
+            .to_string();
+
+        let hex1 = id1.replace('-', "");
+        let hex2 = id2.replace('-', "");
+        assert_ne!(&hex1[..12], &hex2[..12]);
+        assert_eq!(&hex1[12..], &hex2[12..]);
+        assert_ne!(&id1[..13], &id2[..13]);
+        assert_eq!(&id1[13..], &id2[13..]);
+    }
+
+    #[test]
+    fn generate_transfer_id_refuses_negative_timestamp() {
+        let clock = FixedClock(UnixTime::from_secs(-1));
+        let rng = FixedRng(0xAB);
+        let result = super::generate_transfer_id(&rng, &clock);
+        assert!(result.is_err());
     }
 }
