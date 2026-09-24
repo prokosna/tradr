@@ -276,6 +276,10 @@ Sender                                          Receiver
   |<--- TransferComplete (transfer_id) --------------|
 ```
 
+### Where a `transfer_id` comes from (DCR-157)
+
+**The sender assigns it, as a UUIDv7 built from the `Clock` and the `Rng` it is handed, and from nothing else** -- [rule B6](../CLAUDE.md#b-clean-architecture) and rule B7 applied to the one identifier a sender invents. Its 48-bit timestamp field is `Clock::now()` in whole seconds, multiplied by 1000: `UnixTime` resolves to seconds, and RFC 9562 §6.1 lets an implementation fill `unix_ts_ms` from a coarser clock. **Uniqueness does not rest on the timestamp** -- the remaining 74 bits come from the `Rng` -- and nothing in this protocol orders two Transfers by their IDs, so the millisecond digits carried nothing a peer read. **The reason is that a test can now pin a Transfer ID exactly**, which it could not while the timestamp came from the operating system directly.
+
 ### Why the receiver pulls
 
 Rather than the sender pushing unilaterally, the receiver asks for chunks with `ChunkRequest`.
