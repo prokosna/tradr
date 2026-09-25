@@ -11,8 +11,8 @@ use tauri::{
 
 use crate::commands::ShowIncomingTransferNotificationArgs;
 use tradr_app::share::{
-    ACTION_NOTIFICATION_ACCEPT, ACTION_NOTIFICATION_DECLINE, PeerShortcut, PickShareRootResponse,
-    ShareIntent,
+    ACTION_NOTIFICATION_ACCEPT, ACTION_NOTIFICATION_DECLINE, PeerShortcut, PickFilesToSendResponse,
+    PickShareRootResponse, ShareIntent, SharedFilePayload,
 };
 
 const PLUGIN_PACKAGE: &str = "com.tradr.plugin";
@@ -166,6 +166,17 @@ pub async fn pick_share_root<R: Runtime>(
         .await
         .map_err(|e| format!("failed to pick share root: {e}"))?;
     Ok(response.uri)
+}
+
+/// Invokes Android's document picker to stage selected files in the application cache.
+pub async fn pick_files_to_send<R: Runtime>(
+    handle: &PluginHandle<R>,
+) -> Result<Vec<SharedFilePayload>, String> {
+    let response: PickFilesToSendResponse = handle
+        .run_mobile_plugin_async("pickFilesToSend", ())
+        .await
+        .map_err(|e| format!("failed to pick files to send: {e}"))?;
+    Ok(response.files)
 }
 
 /// Shows an incoming transfer notification on Android with Accept and Decline actions.

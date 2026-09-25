@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -345,6 +346,54 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
             response.put("uri", JSONObject.NULL)
             invoke.resolve(response)
         }
+    }
+
+    // Launches the platform document picker to stage selected files in application cache.
+    @Command
+    fun pickFilesToSend(invoke: Invoke) {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        }
+        startActivityForResult(invoke, intent, "onPickFilesToSendResult")
+    }
+
+    // Resolves document picker results as staged cache files or detached descriptors.
+    @ActivityCallback
+    fun onPickFilesToSendResult(invoke: Invoke, result: ActivityResult) {
+        val filesArray = JSONArray()
+        if (result.resultCode == Activity.RESULT_OK) {
+            val uris = mutableListOf<Uri>()
+            val clipData = result.data?.clipData
+            if (clipData != null) {
+                for (i in 0 until clipData.itemCount) {
+                    val itemUri = clipData.getItemAt(i).uri
+                    if (itemUri != null) {
+                        uris.add(itemUri)
+                    }
+                }
+            } else {
+                val dataUri = result.data?.data
+                if (dataUri != null) {
+                    uris.add(dataUri)
+                }
+            }
+            for (uri in uris) {
+                val entry = ShareIntentProcessor.processUri(
+                    activity,
+                    activity.contentResolver,
+                    activity.cacheDir,
+                    uri
+                )
+                if (entry != null) {
+                    filesArray.put(entry.toJson())
+                }
+            }
+        }
+        val response = JSObject()
+        response.put("files", filesArray)
+        invoke.resolve(response)
     }
 
     // Direction 1, Rust calls into Kotlin: the transform and the device model both

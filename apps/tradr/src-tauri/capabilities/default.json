@@ -20,6 +20,7 @@
 		"tradr:allow-list-static-peers",
 		"tradr:allow-publish-sharing-shortcuts",
 		"tradr:allow-pick-share-root",
+		"tradr:allow-pick-files-to-send",
 		"tradr:allow-request-permissions",
 		"tradr:allow-check-permissions",
 		"tradr:allow-show-incoming-transfer-notification",

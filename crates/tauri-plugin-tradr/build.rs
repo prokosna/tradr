@@ -16,6 +16,7 @@ const COMMANDS: &[&str] = &[
     "list_static_peers",
     "publish_sharing_shortcuts",
     "pick_share_root",
+    "pick_files_to_send",
     "request_permissions",
     "check_permissions",
     "show_incoming_transfer_notification",
