@@ -197,3 +197,58 @@ fn serialize_round_trip_pick_share_root_response() {
         serde_json::from_str(&serialized).expect("deserialize");
     assert_eq!(response, deserialized);
 }
+
+#[test]
+fn deserialize_pick_files_to_send_response_with_mixed_files() {
+    use tradr_app::share::PickFilesToSendResponse;
+
+    let json = r#"{
+        "files": [
+            {
+                "name": "photo.jpg",
+                "size": 1048576,
+                "cachePath": "/data/user/0/com.tradr.app/cache/shared_incoming/uuid/photo.jpg",
+                "fd": null
+            },
+            {
+                "name": "large_movie.mp4",
+                "size": 104857600,
+                "cachePath": null,
+                "fd": 42
+            }
+        ]
+    }"#;
+
+    let parsed: PickFilesToSendResponse = serde_json::from_str(json).expect("valid response");
+    assert_eq!(parsed.files.len(), 2);
+
+    let first = &parsed.files[0];
+    assert_eq!(first.name, "photo.jpg");
+    assert_eq!(first.size, 1048576);
+    assert_eq!(
+        first.cache_path.as_deref(),
+        Some("/data/user/0/com.tradr.app/cache/shared_incoming/uuid/photo.jpg")
+    );
+    assert_eq!(first.fd, None);
+
+    let second = &parsed.files[1];
+    assert_eq!(second.name, "large_movie.mp4");
+    assert_eq!(second.size, 104857600);
+    assert_eq!(second.cache_path, None);
+    assert_eq!(second.fd, Some(42));
+}
+
+#[test]
+fn deserialize_pick_files_to_send_response_when_empty() {
+    use tradr_app::share::PickFilesToSendResponse;
+
+    let empty_array_json = r#"{"files":[]}"#;
+    let parsed: PickFilesToSendResponse =
+        serde_json::from_str(empty_array_json).expect("valid response");
+    assert!(parsed.files.is_empty());
+
+    let empty_obj_json = r#"{}"#;
+    let parsed_empty: PickFilesToSendResponse =
+        serde_json::from_str(empty_obj_json).expect("valid response");
+    assert!(parsed_empty.files.is_empty());
+}

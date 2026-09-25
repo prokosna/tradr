@@ -166,10 +166,10 @@ object ShareIntentProcessor {
         uri: Uri,
         filename: String
     ): SharedFileEntry? {
-        val cacheSubdir = File(cacheDir, "shared_incoming").apply { mkdirs() }
-        val prefix = "share_${System.currentTimeMillis()}_"
-        val cleanName = filename.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
-        val destination = File(cacheSubdir, "$prefix$cleanName")
+        val uniqueDir = File(File(cacheDir, "shared_incoming"), java.util.UUID.randomUUID().toString()).apply { mkdirs() }
+        val replaced = filename.replace('/', '_').replace('\u0000', '_')
+        val cleanName = if (replaced.isEmpty() || replaced == "." || replaced == "..") "shared_file" else replaced
+        val destination = File(uniqueDir, cleanName)
         return try {
             contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(destination).use { output ->

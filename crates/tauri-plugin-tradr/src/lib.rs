@@ -59,6 +59,7 @@ pub fn init<R: Runtime>(
             commands::list_static_peers,
             commands::publish_sharing_shortcuts,
             commands::pick_share_root,
+            commands::pick_files_to_send,
             commands::request_permissions,
             commands::check_permissions,
             commands::show_incoming_transfer_notification,

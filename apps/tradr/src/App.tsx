@@ -34,6 +34,22 @@ interface ShareIntent {
 	files: SharedFilePayload[];
 }
 
+function stagePayloads(files: SharedFilePayload[]): {
+	paths: string[];
+	refused: string[];
+} {
+	const paths: string[] = [];
+	const refused: string[] = [];
+	for (const file of files) {
+		if (file.cachePath !== null) {
+			paths.push(file.cachePath);
+		} else {
+			refused.push(file.name);
+		}
+	}
+	return { paths, refused };
+}
+
 // Mirrors the Rust struct crates/tauri-plugin-tradr/src/sign_in.rs
 // returns from `sign_in` and `sign_in_status`.
 interface SignInOutcome {
@@ -414,38 +430,47 @@ export function App() {
 		listen<ShareIntent>("share-intent", async (event) => {
 			const intent = event.payload;
 			if (intent.files && intent.files.length > 0) {
-				const filePaths = intent.files.map((f) => f.cachePath || f.name);
-				setStagedFiles(filePaths);
-				setSendState({ status: "idle" });
-
-				const targetPeer = intent.targetDevice || null;
-
-				if (!targetPeer) {
-					try {
-						const currentPeers = await invoke<PeerInfo[]>(
-							"plugin:tradr|get_peers",
-						);
-						setPeerListError(null);
-						if (currentPeers.length > 0) {
-							setSelectedPeerId(currentPeers[0]?.key || null);
-						}
-					} catch (e) {
-						setPeerListError(String(e));
-					}
+				const { paths, refused } = stagePayloads(intent.files);
+				if (refused.length > 0) {
+					setFileSelectError(
+						`Files of 50 MB or more cannot be sent from Android yet: ${refused.join(", ")}`,
+					);
 				} else {
-					setSelectedPeerId(targetPeer);
-					setSendState({ status: "sending" });
-					invoke<string[]>("plugin:tradr|send_files", {
-						peerId: targetPeer,
-						files: filePaths,
-					})
-						.then((sentFiles) => {
-							setSendState({ status: "success", sentFiles });
-							setStagedFiles([]);
+					setFileSelectError(null);
+				}
+				if (paths.length > 0) {
+					setStagedFiles(paths);
+					setSendState({ status: "idle" });
+
+					const targetPeer = intent.targetDevice || null;
+
+					if (!targetPeer) {
+						try {
+							const currentPeers = await invoke<PeerInfo[]>(
+								"plugin:tradr|get_peers",
+							);
+							setPeerListError(null);
+							if (currentPeers.length > 0) {
+								setSelectedPeerId(currentPeers[0]?.key || null);
+							}
+						} catch (e) {
+							setPeerListError(String(e));
+						}
+					} else {
+						setSelectedPeerId(targetPeer);
+						setSendState({ status: "sending" });
+						invoke<string[]>("plugin:tradr|send_files", {
+							peerId: targetPeer,
+							files: paths,
 						})
-						.catch((e) => {
-							setSendState({ status: "error", message: String(e) });
-						});
+							.then((sentFiles) => {
+								setSendState({ status: "success", sentFiles });
+								setStagedFiles([]);
+							})
+							.catch((e) => {
+								setSendState({ status: "error", message: String(e) });
+							});
+					}
 				}
 			}
 		}).then((unlisten) => {
@@ -863,16 +888,34 @@ export function App() {
 						type="button"
 						onClick={async () => {
 							try {
-								const selected = await open({
-									multiple: true,
-								});
-								setFileSelectError(null);
-								if (Array.isArray(selected) && selected.length > 0) {
-									setStagedFiles(selected);
-									setSendState({ status: "idle" });
-								} else if (typeof selected === "string") {
-									setStagedFiles([selected]);
-									setSendState({ status: "idle" });
+								const picked = await invoke<SharedFilePayload[] | null>(
+									"plugin:tradr|pick_files_to_send",
+								);
+								if (picked === null) {
+									const selected = await open({
+										multiple: true,
+									});
+									setFileSelectError(null);
+									if (Array.isArray(selected) && selected.length > 0) {
+										setStagedFiles(selected);
+										setSendState({ status: "idle" });
+									} else if (typeof selected === "string") {
+										setStagedFiles([selected]);
+										setSendState({ status: "idle" });
+									}
+								} else if (picked.length > 0) {
+									const { paths, refused } = stagePayloads(picked);
+									if (refused.length > 0) {
+										setFileSelectError(
+											`Files of 50 MB or more cannot be sent from Android yet: ${refused.join(", ")}`,
+										);
+									} else {
+										setFileSelectError(null);
+									}
+									if (paths.length > 0) {
+										setStagedFiles(paths);
+										setSendState({ status: "idle" });
+									}
 								}
 							} catch (e) {
 								setFileSelectError(String(e));

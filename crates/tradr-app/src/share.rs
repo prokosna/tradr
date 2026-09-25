@@ -66,3 +66,12 @@ pub struct PickShareRootResponse {
     #[serde(default)]
     pub uri: Option<String>,
 }
+
+/// Result payload from picking files to send via the platform document picker.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PickFilesToSendResponse {
+    /// List of shared files staged into cache copies or detached file descriptors.
+    #[serde(default)]
+    pub files: Vec<SharedFilePayload>,
+}

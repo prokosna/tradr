@@ -24,6 +24,7 @@ use tradr_app::peers::{
     PeerInfo, StaticPeerInfo, connect_and_pin, drain_peer_sources, peer_info, resolve_peer,
 };
 use tradr_app::send::{execute_send_files_with_progress, resolve_send_items};
+use tradr_app::share::SharedFilePayload;
 use tradr_app::sign_in::{SignInState, peer_verifier};
 
 /// Polls discovered peers from every source and returns the current merged list.
@@ -368,6 +369,26 @@ pub async fn pick_share_root<R: tauri::Runtime>(
             .try_state::<crate::android::AndroidPluginHandle<R>>()
             .ok_or_else(|| "android plugin handle not found".to_string())?;
         crate::android::pick_share_root(&handle_state.0).await
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(None)
+    }
+}
+
+/// Launches the platform document picker on Android, or returns None on desktop.
+#[tauri::command]
+pub async fn pick_files_to_send<R: tauri::Runtime>(
+    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+) -> Result<Option<Vec<SharedFilePayload>>, String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        let handle_state = app
+            .try_state::<crate::android::AndroidPluginHandle<R>>()
+            .ok_or_else(|| "android plugin handle not found".to_string())?;
+        let files = crate::android::pick_files_to_send(&handle_state.0).await?;
+        Ok(Some(files))
     }
     #[cfg(not(target_os = "android"))]
     {

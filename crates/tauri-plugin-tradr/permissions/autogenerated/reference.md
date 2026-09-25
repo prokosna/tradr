@@ -374,6 +374,32 @@ Denies the pending_link_proposal command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-pick-files-to-send`
+
+</td>
+<td>
+
+Enables the pick_files_to_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-pick-files-to-send`
+
+</td>
+<td>
+
+Denies the pick_files_to_send command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-pick-share-root`
 
 </td>
