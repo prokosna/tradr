@@ -98,7 +98,18 @@ On the Kotlin side:
 4. Take the filename from `DocumentsContract.Document.COLUMN_DISPLAY_NAME`; the tail of a URI is not necessarily a name
 5. Show the destination picker, or send immediately if one is already chosen
 
+**The cache copy keeps the file's own name, decided 2026-09-26 by DCR-159.** Each copy goes in a directory of its own under the cache, `shared_incoming/<unique>/<display name>`, with only `/` and NUL in the display name replaced by `_`. The sender offers a file under the last component of the path it is handed, so the earlier layout, one flat directory holding `share_<millis>_<name>` with every character outside `[A-Za-z0-9._-]` replaced, reached the receiver as a prefixed and mangled name: a PDF named in Japanese arrived as underscores. Sanitizing for the receiver's filesystem is `tradr-vfs`'s job on the receiving side ([04](04-protocol.md#name-collisions-and-sanitization)), not this copy's.
+
 **A dialog-themed Activity** keeps the share sheet from opening the whole app, showing only a small destination picker.
+
+### Files picked inside the app (DCR-159)
+
+**Select Files on Android goes through the plugin, not through `@tauri-apps/plugin-dialog`, decided 2026-09-26.** The dialog plugin answers `content://` URIs on Android, and a URI handed to the send path is read as a relative path and refused -- measured on a device, where every file picked in the app failed with `relative path has an empty component`. **The rule is the share sheet's, for the same reason**: a URI is not a path, and Rust is never handed one.
+
+- A plugin command `pick_files_to_send` launches `ACTION_OPEN_DOCUMENT` with `EXTRA_ALLOW_MULTIPLE`, the shape `pick_share_root` already has for `ACTION_OPEN_DOCUMENT_TREE`
+- Each URI the picker answers is processed exactly as a share-sheet URI is, by the same function, so the two surfaces cannot drift
+- It answers the same payload the share intent carries. On a platform where the command does not apply it answers "not here", and the front end uses the dialog plugin, whose answers are paths there
+- **An entry that arrives as an fd and not as a cache path is refused by the front end with a message naming the 50 MB limit**, on both surfaces. Nothing reads the fd today (DF-113), and staging the bare name instead, which the share-sheet handler did, only moves the same refusal to a less legible place
 
 ### Putting destinations directly in the share sheet
 
