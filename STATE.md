@@ -6,7 +6,7 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.** `branch`, `work_items_landed`, and `last_commit` are no longer declared here — see [docs/10](docs/10-implementation-process.md#the-yaml-header--what-is-in-it-and-what-was-removed-dcr-060) for the one-command equivalents.
 
 ```yaml
-last_updated: 2026-09-24
+last_updated: 2026-09-25
 phase: implementing
 current_milestone: M8
 implementation_started: true
@@ -41,7 +41,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 2. **`WI-M8-043` and `WI-M8-044` landed 2026-09-24 (DCR-152, DCR-153)**: a listener failure now prints `transfer from <device id> failed during <phase>: <error>`, and a peer that closes after the handshake without asking for anything is always printed rather than at random. DF-104's cause is still unknown and is read off that line on the next device run, which is deferred with the others below; nothing more is buildable for it.
 3. **`WI-M8-046` landed 2026-09-24 (DCR-157), closing DF-107, and DF-106 was closed the same day by DCR-158**, a docs-only ruling: every storage claim now names the store the code uses or says none exists. **It found three unbuilt things the milestone records had counted as done**, now DF-108 (nothing pins a peer's key), DF-109 (no Share can be defined; `get_visible_shares` is a constant) and DF-110 (no production `SafBridge`). **DF-109 is the next Supervisor's first decision**: it bears directly on M8's criterion, and it is a feature to design in [docs/06](docs/06-shares-and-browsing.md) before any Work Item is cut. The device runs below remain the milestone's other gate.
 
-**Device runs, deferred rather than dropped.** The Android leg of M8's criterion (send and receive with the phone, APK built on the MacBook, which would also measure whether DCR-150 retires Run B's negative renewal result); the MacBook-to-here PDF's hashes, not compared on 2026-09-23; and Run C, parked since 2026-09-19 under decision 14. The procedure for each is in [RECORD.md](RECORD.md), under "Device runs: the exact procedure". `WI-M6-009`, the camera QR scanner, stays the only planned row and is not what the milestone waits for.
+**Device runs, deferred rather than dropped.** The Android leg of M8's criterion (send and receive with the phone, APK built on the MacBook, which would also measure whether DCR-150 retires Run B's negative renewal result); the MacBook-to-here PDF's hashes, not compared on 2026-09-23; and Run C, parked since 2026-09-19 under decision 14. **The user offered hardware on 2026-09-25**, and the three runs owed -- D (headless sign-in by paste), E (DF-104's failure line and the hashes) and F (Android) -- are written at the top of "Device runs: the exact procedure" in [RECORD.md](RECORD.md), with what each owes back. `WI-M6-009`, the camera QR scanner, stays the only planned row and is not what the milestone waits for.
 
 ## In flight
 

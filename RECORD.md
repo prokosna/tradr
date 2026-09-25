@@ -2028,6 +2028,35 @@ These stood in `STATE.md`'s In flight block until `WI-M1-000h`. Every one descri
 
 ## Device runs: the exact procedure
 
+### The three runs owed as of 2026-09-25, written for the user the day they offered hardware
+
+> **Run A is done** (2026-09-23: a file from the MacBook GUI reached `tradr-cli receive`, and the kept sign-in and send-by-name were confirmed). What is owed now is D, E and F below; Run C stays parked under decision 14. Each run owes back **verbatim output**, not a summary.
+
+**Preparation, on the Linux machine, once**: `git pull` on `main`, `cargo build --release -p tradr-cli`, then `set -a; . ./.tradr-deployment.env; set +a` in every shell that runs the CLI. Quit the desktop GUI here if it is running: the two front ends share one Device Key and port 21820.
+
+#### Run D -- sign-in with no browser, by pasting the address (`WI-M8-042`, DCR-151)
+
+1. From the MacBook, `ssh USER@HOST` into the Linux machine **without** `-X`, and run `unset DISPLAY WAYLAND_DISPLAY` there, so nothing can open a browser.
+2. Move the kept sign-in aside rather than deleting it: `mv ~/.local/share/com.tradr.app/attestation ~/.local/share/com.tradr.app/attestation.bak`.
+3. With the MacBook GUI running, run `cargo run --release -p tradr-cli -- peers` and then `cargo run --release -p tradr-cli -- send <the MacBook's name> <a small file>`.
+4. Expected: `could not open a browser here (...)`, the url, and an instruction to paste. Open the url in the MacBook's browser and sign in; the browser then lands on a `127.0.0.1` page that does not load. Copy that page's **whole address**, paste it into the ssh terminal, press Enter.
+5. **Write down**: everything the command printed, verbatim; whether a browser (including a text one) opened instead of the paste prompt, which is a finding by itself; `ls -l ~/.local/share/com.tradr.app/attestation` afterwards (it should exist again, mode `-rw-------`).
+
+#### Run E -- read DF-104 off the new failure line, and compare hashes
+
+1. Linux: `cargo run --release -p tradr-cli -- receive ~/tradr-inbox`. It should print `signed in with the kept sign-in` and `receive: listening on quic port <n>`.
+2. MacBook GUI: send one PDF **three times**, the first press as soon as the Linux machine appears in the peer list.
+3. **Write down**: every line the receiver printed, especially any `transfer from <device id> failed during <phase>: <error>` line (DF-104's cause is read off it); `sha256sum` of each arrived file on Linux against `shasum -a 256` of the source on the MacBook; and the same pair for the PDF that arrived on 2026-09-23, which was never compared.
+
+#### Run F -- the Android leg of M8's criterion
+
+1. MacBook: `git pull`; `.tradr-deployment.env` must hold `desktop:`, `android:` and `web:` entries. In `apps/tradr`, `JAVA_HOME=<a JDK 21> cargo tauri android build --debug -t aarch64`, then `adb install -g -r <the apk the build printed>`. **Only an APK built on the MacBook can sign in** (see Build environment).
+2. Start `adb logcat -s RustStdoutStderr` before touching the phone. Sign in on the phone.
+3. `adb shell am force-stop com.tradr.app`, start the app again. **Write down** whether it comes up signed in with no interaction, and the logcat lines around it -- this is DCR-150 measured on Android, and it may retire Run B's negative renewal result.
+4. With the app in the foreground, transfer in four directions: phone to Linux (`receive` running), Linux to phone (`send <phone name> <file>`), phone to MacBook GUI, MacBook GUI to phone.
+5. **Write down**, for each direction: whether the other side appeared in the peer list and how long it took, whether the file arrived, where it landed on the phone, both checksums, and every error verbatim. **And one sentence on the criterion itself**: did any step require knowing what a Static Peer or a Trust Tier is.
+
+
 > **Run A's receiver steps changed on 2026-09-21 and the change is DCR-143.** The two steps below replace step 2's
 > keyring advice and step 4's browser press for a machine with no graphical session. The rest of Run A, written
 > further down, is unchanged -- and the MacBook half is untouched.
