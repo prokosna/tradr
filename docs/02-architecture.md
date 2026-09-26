@@ -312,12 +312,9 @@ One resident process. Closing the window leaves it in the tray, still listening 
 ### Android
 
 - **App process**: the UI. Liable to be stopped once backgrounded
-- **Foreground service** of type `dataSync`: started only during a transfer, holding a progress notification
-- **Listening**: continuous listening costs too much battery, so instead
-  - Tier 0 and 1: BLE scans and mDNS queries on screen-on and at an interval. Peers nearby get found
-  - Tier 2: a Brokr sends an FCM data message to wake the device, which then connects only when needed
-
-That FCM only helps at Tier 2 is an honest difference in experience. An Android device with no Brokr finds peers when you pick it up, and cannot receive fully in the background.
+- **Foreground service** of type `connectedDevice`, **resident once the app has been opened** ([ADR-0022](adr/0022-android-stays-resident-to-receive.md)): it keeps the process, and the listener in it, alive with a permanent notification whose Stop action ends both. Not started at boot
+- **Listening**: the resident process listens continuously and holds a Wi-Fi multicast lock so it stays discoverable with the screen off. **This paragraph used to say continuous listening costs too much battery and that an Android device with no Brokr cannot receive in the background**; the user overruled that on 2026-09-26, and the battery cost is a measurement owed rather than a reason
+  - Tier 2 adds FCM, so a Brokr can wake a device whose resident service was stopped
 
 ## Where state lives
 
