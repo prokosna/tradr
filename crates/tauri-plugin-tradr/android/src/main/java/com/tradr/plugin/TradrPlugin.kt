@@ -142,6 +142,11 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
 
     init {
         activeInstance = this
+        try {
+            ContextCompat.startForegroundService(activity, Intent(activity, ReceiveService::class.java))
+        } catch (e: Exception) {
+            Logger.error("TradrPlugin: could not start the receive service", e)
+        }
     }
 
     // Prompts runtime permissions on demand for individual or batched capabilities.
