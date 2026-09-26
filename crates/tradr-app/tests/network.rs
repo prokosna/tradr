@@ -8,8 +8,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use tradr_app::network::{
-    bind_with_fallback, device_txt_record, display_name_from_hostname, local_display_name,
-    local_platform, quic_bind_addresses, quic_dial_bind_address,
+    bind_with_fallback, device_txt_record, display_name_from_device_name,
+    display_name_from_hostname, local_display_name, local_platform, quic_bind_addresses,
+    quic_dial_bind_address,
 };
 use tradr_core::{Capabilities, DISPLAY_NAME_MAX_LEN, DisplayName};
 use tradr_discovery::{AGREEMENT_KEY_TAG_LEN, Platform, STATIC_PEER_DEFAULT_PORT};
@@ -147,6 +148,56 @@ fn display_name_from_hostname_refuses_empty_first_label() {
 #[test]
 fn display_name_from_hostname_refuses_control_character_in_first_label() {
     assert!(display_name_from_hostname("a\u{7}b.local").is_none());
+}
+
+#[test]
+fn display_name_from_hostname_refuses_localhost() {
+    assert!(display_name_from_hostname("localhost").is_none());
+    assert!(display_name_from_hostname("LocalHost").is_none());
+    assert!(display_name_from_hostname("localhost.localdomain").is_none());
+}
+
+#[test]
+fn display_name_from_device_name_preserves_dots_and_accepts_valid_names() {
+    let galaxy = display_name_from_device_name("Galaxy S24 Ultra");
+    assert_eq!(
+        galaxy.as_ref().map(DisplayName::as_str),
+        Some("Galaxy S24 Ultra")
+    );
+
+    let pixel = display_name_from_device_name("Minori's Pixel 8.1");
+    assert_eq!(
+        pixel.as_ref().map(DisplayName::as_str),
+        Some("Minori's Pixel 8.1")
+    );
+}
+
+#[test]
+fn display_name_from_device_name_truncates_on_character_boundary() {
+    let long_ascii = "a".repeat(40);
+    let name_ascii = display_name_from_device_name(&long_ascii);
+    let expected_ascii = "a".repeat(32);
+    assert_eq!(
+        name_ascii.as_ref().map(DisplayName::as_str),
+        Some(expected_ascii.as_str())
+    );
+    assert_eq!(name_ascii.as_ref().map(|n| n.as_str().len()), Some(32));
+
+    let long_multibyte = "あ".repeat(11);
+    let name_multibyte = display_name_from_device_name(&long_multibyte);
+    let expected_multibyte = "あ".repeat(10);
+    assert_eq!(
+        name_multibyte.as_ref().map(DisplayName::as_str),
+        Some(expected_multibyte.as_str())
+    );
+    assert_eq!(name_multibyte.as_ref().map(|n| n.as_str().len()), Some(30));
+}
+
+#[test]
+fn display_name_from_device_name_refuses_empty_and_localhost() {
+    assert!(display_name_from_device_name("").is_none());
+    assert!(display_name_from_device_name("localhost").is_none());
+    assert!(display_name_from_device_name("LocalHost").is_none());
 }
 
 #[test]

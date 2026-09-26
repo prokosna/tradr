@@ -112,15 +112,9 @@ pub fn local_platform() -> &'static str {
     platform_str
 }
 
-/// Derives a display name from the first label of a raw hostname, truncated
-/// to at most `DISPLAY_NAME_MAX_LEN` bytes on a whole character boundary.
-pub fn display_name_from_hostname(raw: &str) -> Option<DisplayName> {
-    let label = match raw.split_once('.') {
-        Some((first, _)) => first,
-        None => raw,
-    };
+fn truncate_to_display_name_len(s: &str) -> &str {
     let mut end = 0;
-    for (idx, ch) in label.char_indices() {
+    for (idx, ch) in s.char_indices() {
         let next = idx + ch.len_utf8();
         if next <= tradr_core::DISPLAY_NAME_MAX_LEN {
             end = next;
@@ -128,7 +122,28 @@ pub fn display_name_from_hostname(raw: &str) -> Option<DisplayName> {
             break;
         }
     }
-    DisplayName::new(&label[..end]).ok()
+    &s[..end]
+}
+
+/// Derives a display name from the first label of a raw hostname, truncated
+/// to at most `DISPLAY_NAME_MAX_LEN` bytes on a whole character boundary.
+pub fn display_name_from_hostname(raw: &str) -> Option<DisplayName> {
+    let label = match raw.split_once('.') {
+        Some((first, _)) => first,
+        None => raw,
+    };
+    if label.eq_ignore_ascii_case("localhost") {
+        return None;
+    }
+    DisplayName::new(truncate_to_display_name_len(label)).ok()
+}
+
+/// Derives a display name from an OS device name without splitting at dots (DCR-160).
+pub fn display_name_from_device_name(raw: &str) -> Option<DisplayName> {
+    if raw.eq_ignore_ascii_case("localhost") {
+        return None;
+    }
+    DisplayName::new(truncate_to_display_name_len(raw)).ok()
 }
 
 /// Reads the operating system hostname and derives a local display name.

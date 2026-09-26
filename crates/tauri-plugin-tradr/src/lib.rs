@@ -27,10 +27,12 @@ pub mod link_commands;
 pub mod link_registry;
 #[cfg(target_os = "android")]
 pub mod mobile;
+pub mod own_name;
 mod paths;
 pub mod peer_trust;
 mod sign_in;
 
+use own_name::OwnDisplayName;
 use tradr_app::sign_in::{OAuthConfig, SignInState, provider_profile};
 
 /// Builds the plugin. Its setup hook opens the Device Key store once and
@@ -73,6 +75,9 @@ pub fn init<R: Runtime>(
             link_commands::remove_link,
         ])
         .setup(move |app, _api| {
+            #[cfg(target_os = "android")]
+            let handle = android::demonstrate_bidirectional_calls(_api)?;
+
             let identity_state = identity::init_identity_state(app);
             let sign_in_state = Arc::new(SignInState::empty());
             let oauth_config = OAuthConfig::new(
@@ -83,6 +88,17 @@ pub fn init<R: Runtime>(
             let link_registry_state = link_registry::init_link_registry_state(app);
             let link_invite_state = Arc::new(tradr_app::link_invite::LinkInviteState::new());
 
+            #[cfg(target_os = "android")]
+            let own_display_name = match android::device_name(&handle) {
+                Ok(raw) => tradr_app::network::display_name_from_device_name(&raw),
+                Err(e) => {
+                    eprintln!("failed to get device name from android: {e}");
+                    None
+                }
+            };
+            #[cfg(not(target_os = "android"))]
+            let own_display_name = tradr_app::network::local_display_name();
+
             let (_listener, ble_discovery, ble_advertising) = match lifecycle::init_lifecycle(
                 app,
                 &identity_state,
@@ -90,6 +106,7 @@ pub fn init<R: Runtime>(
                 &peer_trust_state,
                 &link_registry_state,
                 link_invite_state.clone(),
+                own_display_name.clone(),
             )? {
                 Some(handles) => (Some(handles.listener), handles.ble, handles.ble_advertising),
                 None => (None, None, None),
@@ -107,6 +124,7 @@ pub fn init<R: Runtime>(
             app.manage(peer_trust_state);
             app.manage(link_registry_state);
             app.manage(link_invite_state);
+            app.manage(OwnDisplayName(own_display_name));
 
             tauri::async_runtime::spawn(sign_in::resume_kept_sign_in(
                 app_handle,
@@ -156,7 +174,6 @@ pub fn init<R: Runtime>(
 
             #[cfg(target_os = "android")]
             {
-                let handle = android::demonstrate_bidirectional_calls(_api)?;
                 if let Some(discovery) = ble_discovery {
                     let handle_for_scan = handle.clone();
                     ble_source::spawn_ble_discovery(

@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Base64
 import androidx.activity.result.ActivityResult
 import androidx.core.app.NotificationCompat
@@ -404,6 +405,23 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
         val response = JSObject()
         response.put("value", args.value * 2 + 1)
         response.put("deviceModel", Build.MODEL)
+        invoke.resolve(response)
+    }
+
+    @Command
+    fun deviceName(invoke: Invoke) {
+        val name = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            val deviceSetting = Settings.Global.getString(activity.contentResolver, Settings.Global.DEVICE_NAME)
+            if (deviceSetting.isNullOrBlank()) {
+                Build.MODEL
+            } else {
+                deviceSetting
+            }
+        } else {
+            Build.MODEL
+        }
+        val response = JSObject()
+        response.put("name", name)
         invoke.resolve(response)
     }
 
