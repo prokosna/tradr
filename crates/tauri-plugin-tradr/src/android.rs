@@ -242,3 +242,16 @@ pub async fn sign_in<R: Runtime>(
         Err(format!("sign-in failed: {err_class}: {err_msg}"))
     }
 }
+
+#[derive(Deserialize)]
+struct DeviceNameResponse {
+    name: String,
+}
+
+/// Reads the device name configured in Android settings, falling back to the model (DCR-160).
+pub fn device_name<R: Runtime>(handle: &PluginHandle<R>) -> Result<String, String> {
+    let response: DeviceNameResponse = handle
+        .run_mobile_plugin("deviceName", ())
+        .map_err(|e| format!("failed to get device name: {e}"))?;
+    Ok(response.name)
+}

@@ -7,8 +7,8 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use tradr_core::{
-    BoxFuture, Capabilities, Incoming, KeyBinding, KeyStore, PeerList, PublicIdentity, RootId,
-    Transport, TrustTier,
+    BoxFuture, Capabilities, DisplayName, Incoming, KeyBinding, KeyStore, PeerList, PublicIdentity,
+    RootId, Transport, TrustTier,
 };
 use tradr_discovery::{DeclaredCapabilities, MdnsSource, StaticPeerRegistry};
 use tradr_identity::hello::AttestationRequest;
@@ -31,7 +31,7 @@ use tradr_app::listener::{
     LinkStreamService, ListenerError, ListenerServices, build_key_binding, run_listener,
 };
 use tradr_app::network::{
-    bind_quic_transport, device_txt_record, local_display_name, mdns_daemon, register_advertisement,
+    bind_quic_transport, device_txt_record, mdns_daemon, register_advertisement,
 };
 use tradr_app::peer_trust::OwnAttestation;
 use tradr_app::sign_in::SignInState;
@@ -144,6 +144,7 @@ pub fn init_lifecycle<R: Runtime>(
     peer_trust_state: &PeerTrustState,
     link_registry_state: &LinkRegistryState,
     link_invite_state: Arc<LinkInviteState>,
+    own_display_name: Option<DisplayName>,
 ) -> Result<Option<LifecycleHandles>, String> {
     let key_store = match identity_state.key_store() {
         Ok(k) => k,
@@ -195,7 +196,7 @@ pub fn init_lifecycle<R: Runtime>(
 
     let capabilities = Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC));
 
-    let txt_record = device_txt_record(&public_identity, capabilities.get(), local_display_name())?;
+    let txt_record = device_txt_record(&public_identity, capabilities.get(), own_display_name)?;
 
     register_advertisement(&daemon, bound_port, &txt_record, &OsRng)?;
 

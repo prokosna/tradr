@@ -20,6 +20,7 @@ use tradr_transport::set::TransportSet;
 
 use crate::identity::IdentityState;
 use crate::link_registry::LinkRegistryState;
+use crate::own_name::OwnDisplayName;
 use crate::peer_trust::PeerTrustState;
 use tradr_app::attestation::FUTURE_SKEW_LIMIT_SECS;
 use tradr_app::link_exchange::{
@@ -92,6 +93,7 @@ pub fn open_link_invite(
     identity_state: State<'_, IdentityState>,
     sign_in_state: State<'_, Arc<SignInState>>,
     invites: State<'_, Arc<LinkInviteState>>,
+    own_name: State<'_, OwnDisplayName>,
 ) -> Result<LinkInviteDto, String> {
     let identity = identity_state.public_identity()?;
     let token = sign_in_state
@@ -104,7 +106,7 @@ pub fn open_link_invite(
         identity.identity_pub().clone(),
         identity.agreement_pub().clone(),
         token,
-        tradr_app::network::local_display_name(),
+        own_name.0.clone(),
     )
     .map_err(|e| e.to_string())?;
 
@@ -244,6 +246,7 @@ pub async fn reply_to_link_invite(
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
     transports: State<'_, Arc<TransportSet>>,
+    own_name: State<'_, OwnDisplayName>,
 ) -> Result<LinkReplyDto, String> {
     let invite = invite_from_blob(&blob).map_err(|e| e.to_string())?;
 
@@ -286,7 +289,7 @@ pub async fn reply_to_link_invite(
         invite: &invite,
         our_identity: &our_identity,
         our_attestation_token,
-        our_display_name: tradr_app::network::local_display_name(),
+        our_display_name: own_name.0.clone(),
         trust,
         registry,
         secrets,
