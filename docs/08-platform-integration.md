@@ -149,15 +149,20 @@ Android 14+ also allows custom actions through `ChooserAction`, but Sharing Shor
 
 ### Foreground service
 
+**Resident once the app has been opened, decided 2026-09-26 by [ADR-0022](adr/0022-android-stays-resident-to-receive.md).** This section specified a `dataSync` service started only during a transfer; it was never built, and Android 15's six-hour daily cap on `dataSync` would have stopped a resident one silently.
+
 ```xml
-<service android:name=".TransferService"
-         android:foregroundServiceType="dataSync"
+<service android:name="com.tradr.plugin.ReceiveService"
+         android:foregroundServiceType="connectedDevice"
          android:exported="false" />
 ```
 
-- Started only during a transfer, never resident
-- Android 14+ caps `dataSync` at six hours per day, so long transfers either split or warn the user as the cap approaches
-- The notification shows progress, speed, path, and a cancel action
+- Started by the plugin when it loads, with the Activity in the foreground. Never at boot
+- A permanent notification, "Ready to receive", with one action, Stop, which stops the service and ends the process
+- Holds a `WifiManager.MulticastLock` while running and releases it on stop, so mDNS is answered with the screen off
+- Permissions: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `CHANGE_WIFI_MULTICAST_STATE`; `FOREGROUND_SERVICE_DATA_SYNC` goes
+- **It runs no listener of its own.** The Rust listener already running in the process is what receives; the service only keeps the process alive
+- A per-transfer progress notification is not part of this and stays unbuilt
 
 ### Permissions
 
