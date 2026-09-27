@@ -2,6 +2,8 @@
 //! bidirectional calls between Rust and Kotlin, and an `ACTION_SEND` intent
 //! reaching Rust. Runs once from the plugin's setup hook, no UI needed.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use tauri::{
     Emitter, Runtime,
@@ -72,6 +74,7 @@ pub struct AndroidPluginHandle<R: Runtime>(pub PluginHandle<R>);
 /// Runs both ADR-0001 call directions once and prints what each side proves.
 pub fn demonstrate_bidirectional_calls<R: Runtime, C: serde::de::DeserializeOwned>(
     api: PluginApi<R, C>,
+    adopted: Arc<tradr_app::adopted::AdoptedFiles>,
 ) -> Result<PluginHandle<R>, Box<dyn std::error::Error>> {
     let handle: PluginHandle<R> = api.register_android_plugin(PLUGIN_PACKAGE, PLUGIN_CLASS)?;
 
@@ -109,7 +112,12 @@ pub fn demonstrate_bidirectional_calls<R: Runtime, C: serde::de::DeserializeOwne
     // without a real intent arriving from outside the app.
     let app_handle = api.app().clone();
     let share_channel = Channel::new(move |body| {
-        let share: ShareIntent = body.deserialize()?;
+        let mut share: ShareIntent = body.deserialize()?;
+        tradr_app::adopted::adopt_payloads(
+            &adopted,
+            &mut share.files,
+            crate::android_fd::adopt_detached_fd,
+        );
         println!(
             "WI-M0-005b share-intent: action={} mime_type={} extra_text={} files_count={}",
             share.action,
@@ -119,8 +127,8 @@ pub fn demonstrate_bidirectional_calls<R: Runtime, C: serde::de::DeserializeOwne
         );
         for file in &share.files {
             println!(
-                "shared file: name={} size={} cache_path={:?} fd={:?}",
-                file.name, file.size, file.cache_path, file.fd
+                "shared file: name={} size={} cache_path={:?} adopted_id={:?}",
+                file.name, file.size, file.cache_path, file.adopted_id
             );
         }
         if let Err(e) = app_handle.emit("share-intent", &share) {
@@ -171,11 +179,17 @@ pub async fn pick_share_root<R: Runtime>(
 /// Invokes Android's document picker to stage selected files in the application cache.
 pub async fn pick_files_to_send<R: Runtime>(
     handle: &PluginHandle<R>,
+    adopted: &tradr_app::adopted::AdoptedFiles,
 ) -> Result<Vec<SharedFilePayload>, String> {
-    let response: PickFilesToSendResponse = handle
+    let mut response: PickFilesToSendResponse = handle
         .run_mobile_plugin_async("pickFilesToSend", ())
         .await
         .map_err(|e| format!("failed to pick files to send: {e}"))?;
+    tradr_app::adopted::adopt_payloads(
+        adopted,
+        &mut response.files,
+        crate::android_fd::adopt_detached_fd,
+    );
     Ok(response.files)
 }
 

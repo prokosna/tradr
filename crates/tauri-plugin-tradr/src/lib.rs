@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 //! Composition root: binds the other crates to tradr-core's traits; hosts the Kotlin glue.
 //!
 //! WI-M0-005 and WI-M0-005b also live here: both of ADR-0001's call directions,
@@ -14,6 +14,8 @@ use tauri::{
 
 #[cfg(target_os = "android")]
 mod android;
+#[cfg(target_os = "android")]
+mod android_fd;
 mod attestation;
 pub mod ble_advertising;
 pub mod ble_android;
@@ -76,7 +78,11 @@ pub fn init<R: Runtime>(
         ])
         .setup(move |app, _api| {
             #[cfg(target_os = "android")]
-            let handle = android::demonstrate_bidirectional_calls(_api)?;
+            let adopted = Arc::new(tradr_app::adopted::AdoptedFiles::new());
+            #[cfg(target_os = "android")]
+            app.manage(adopted.clone());
+            #[cfg(target_os = "android")]
+            let handle = android::demonstrate_bidirectional_calls(_api, adopted)?;
 
             let identity_state = identity::init_identity_state(app);
             let sign_in_state = Arc::new(SignInState::empty());

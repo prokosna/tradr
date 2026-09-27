@@ -110,6 +110,7 @@ pub async fn send_files<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     peer_id: String,
     files: Vec<String>,
+    adopted_ids: Option<Vec<String>>,
     identity_state: State<'_, IdentityState>,
     sign_in_state: State<'_, Arc<SignInState>>,
     peer_trust_state: State<'_, PeerTrustState>,
@@ -122,6 +123,13 @@ pub async fn send_files<R: tauri::Runtime>(
     vfs: State<'_, Arc<NativeVfs>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<Vec<String>, String> {
+    #[cfg(not(target_os = "android"))]
+    if let Some(ref ids) = adopted_ids
+        && !ids.is_empty()
+    {
+        return Err("adopted files exist only on Android".to_string());
+    }
+
     let self_id = identity_state.public_identity()?.device_id();
     {
         let mut mdns = mdns_source.lock().await;
@@ -131,52 +139,90 @@ pub async fn send_files<R: tauri::Runtime>(
     }
 
     let items = resolve_send_items(vfs.as_ref(), downloads_root_id(), &files).await?;
-    let total_bytes: u64 = items.iter().map(|item| item.size_bytes).sum();
 
-    let resolved = {
-        let list = peer_list.lock().await;
-        let registry = static_peer_registry.lock().await;
-        resolve_peer(
-            &peer_id,
-            &list,
-            &registry,
-            transports.as_ref(),
-            TransferSize::Bytes(total_bytes),
-        )?
+    #[cfg(target_os = "android")]
+    let (items, staged_count, adopted_ctx) = {
+        use tauri::Manager;
+        let mut items = items;
+        let ids = adopted_ids.unwrap_or_default();
+        if !ids.is_empty() {
+            let adopted = app
+                .try_state::<Arc<tradr_app::adopted::AdoptedFiles>>()
+                .ok_or_else(|| "adopted files not found".to_string())?;
+            let staged = adopted.send_items(vfs.as_ref(), &ids).await?;
+            let count = staged.len();
+            items.extend(staged);
+            (items, count, Some((adopted, ids)))
+        } else {
+            (items, 0, None)
+        }
     };
-    let channel =
-        connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved).await?;
 
-    let public_identity = identity_state.public_identity()?;
-    let key_store = identity_state.key_store()?;
-    let attestation_token = sign_in_state
-        .id_token()
-        .ok_or_else(|| "sign in before sending files".to_string())?;
-    let verify_attestation = peer_verifier(
-        peer_trust_state.peer_trust()?,
-        sign_in_state.inner().clone(),
-        link_registry.registry()?,
-        Arc::new(SystemClock),
-    );
+    let send_result = async {
+        let total_bytes: u64 = items.iter().map(|item| item.size_bytes).sum();
+        let resolved = {
+            let list = peer_list.lock().await;
+            let registry = static_peer_registry.lock().await;
+            resolve_peer(
+                &peer_id,
+                &list,
+                &registry,
+                transports.as_ref(),
+                TransferSize::Bytes(total_bytes),
+            )?
+        };
+        let channel =
+            connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved).await?;
 
-    let app_handle = app.clone();
-    execute_send_files_with_progress(
-        channel.as_ref(),
-        vfs.as_ref(),
-        &items,
-        &public_identity,
-        key_store.as_ref(),
-        attestation_token,
-        capabilities.get(),
-        verify_attestation,
-        move |progress| {
-            use tauri::Emitter;
-            if let Err(e) = app_handle.emit("transfer-progress", &progress) {
-                eprintln!("emit transfer-progress event failed: {e}");
+        let public_identity = identity_state.public_identity()?;
+        let key_store = identity_state.key_store()?;
+        let attestation_token = sign_in_state
+            .id_token()
+            .ok_or_else(|| "sign in before sending files".to_string())?;
+        let verify_attestation = peer_verifier(
+            peer_trust_state.peer_trust()?,
+            sign_in_state.inner().clone(),
+            link_registry.registry()?,
+            Arc::new(SystemClock),
+        );
+
+        let app_handle = app.clone();
+        execute_send_files_with_progress(
+            channel.as_ref(),
+            vfs.as_ref(),
+            &items,
+            &public_identity,
+            key_store.as_ref(),
+            attestation_token,
+            capabilities.get(),
+            verify_attestation,
+            move |progress| {
+                use tauri::Emitter;
+                if let Err(e) = app_handle.emit("transfer-progress", &progress) {
+                    eprintln!("emit transfer-progress event failed: {e}");
+                }
+            },
+        )
+        .await
+    }
+    .await;
+
+    #[cfg(target_os = "android")]
+    if let Some((adopted, ids)) = adopted_ctx {
+        let staged = &items[items.len() - staged_count..];
+        if let Err(e) = adopted.unstage(vfs.as_ref(), staged) {
+            eprintln!("failed to unstage adopted files: {e}");
+        }
+        if send_result.is_ok() {
+            for id in &ids {
+                if let Err(e) = adopted.release(id) {
+                    eprintln!("failed to release adopted file {id}: {e}");
+                }
             }
-        },
-    )
-    .await
+        }
+    }
+
+    send_result
 }
 
 /// Dials a peer over QUIC, runs the Hello handshake, opens a Browse stream, and lists directory entries.
@@ -387,7 +433,10 @@ pub async fn pick_files_to_send<R: tauri::Runtime>(
         let handle_state = app
             .try_state::<crate::android::AndroidPluginHandle<R>>()
             .ok_or_else(|| "android plugin handle not found".to_string())?;
-        let files = crate::android::pick_files_to_send(&handle_state.0).await?;
+        let adopted = app
+            .try_state::<Arc<tradr_app::adopted::AdoptedFiles>>()
+            .ok_or_else(|| "adopted files not found".to_string())?;
+        let files = crate::android::pick_files_to_send(&handle_state.0, &adopted).await?;
         Ok(Some(files))
     }
     #[cfg(not(target_os = "android"))]

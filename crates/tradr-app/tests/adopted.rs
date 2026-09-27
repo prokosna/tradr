@@ -1,7 +1,8 @@
 //! Integration tests for adopted file registry and staging lifecycle (WI-M8-055b).
 #![cfg(unix)]
 
-use tradr_app::adopted::AdoptedFiles;
+use tradr_app::adopted::{AdoptedFiles, adopt_payloads};
+use tradr_app::share::SharedFilePayload;
 use tradr_app::transfer::prepare_item;
 use tradr_core::{RelPath, RootId, Vfs, VfsError};
 use tradr_vfs::NativeVfs;
@@ -226,4 +227,106 @@ async fn unregister_open_file_ignores_directory_root_and_leaves_it_readable() {
         .await
         .expect("root remains readable");
     assert_eq!(meta.size_bytes, 17);
+}
+
+#[tokio::test]
+async fn adopt_payloads_success_clears_fd_and_stages_send_item() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file_path = dir.path().join("payload.bin");
+    let content = b"payload test content".to_vec();
+    std::fs::write(&file_path, &content).expect("write");
+
+    let registry = AdoptedFiles::new();
+    let mut payloads = vec![SharedFilePayload {
+        name: "payload.bin".to_string(),
+        size: content.len() as u64,
+        cache_path: None,
+        fd: Some(100),
+        adopted_id: None,
+    }];
+
+    let path_clone = file_path.clone();
+    let open = move |_raw: i32| std::fs::File::open(&path_clone).map_err(|e| e.to_string());
+
+    adopt_payloads(&registry, &mut payloads, open);
+
+    assert_eq!(payloads[0].fd, None);
+    let adopted_id = payloads[0].adopted_id.clone().expect("adopted_id assigned");
+
+    let vfs = NativeVfs::new();
+    let items = registry
+        .send_items(&vfs, std::slice::from_ref(&adopted_id))
+        .await
+        .expect("send_items");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].rel_path.as_str(), "payload.bin");
+    assert_eq!(items[0].size_bytes, content.len() as u64);
+
+    registry.unstage(&vfs, &items).expect("unstage");
+    registry.release(&adopted_id).expect("release");
+}
+
+#[tokio::test]
+async fn adopt_payloads_open_failure_clears_fd_and_leaves_adopted_id_none() {
+    let registry = AdoptedFiles::new();
+    let mut payloads = vec![SharedFilePayload {
+        name: "missing.bin".to_string(),
+        size: 50,
+        cache_path: None,
+        fd: Some(101),
+        adopted_id: None,
+    }];
+
+    let open =
+        |_raw: i32| -> Result<std::fs::File, String> { Err("simulated open error".to_string()) };
+
+    adopt_payloads(&registry, &mut payloads, open);
+
+    assert_eq!(payloads[0].fd, None);
+    assert_eq!(payloads[0].adopted_id, None);
+}
+
+#[tokio::test]
+async fn adopt_payloads_no_fd_payload_is_unchanged() {
+    let registry = AdoptedFiles::new();
+    let original = SharedFilePayload {
+        name: "cached.txt".to_string(),
+        size: 42,
+        cache_path: Some("/cache/cached.txt".to_string()),
+        fd: None,
+        adopted_id: None,
+    };
+    let mut payloads = vec![original.clone()];
+
+    let open = |_raw: i32| -> Result<std::fs::File, String> {
+        panic!("open should not be called for payload with no fd");
+    };
+
+    adopt_payloads(&registry, &mut payloads, open);
+
+    assert_eq!(payloads[0], original);
+}
+
+#[tokio::test]
+async fn adopt_payloads_refused_name_clears_fd_and_leaves_adopted_id_none() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file_path = dir.path().join("slash.bin");
+    std::fs::write(&file_path, b"test").expect("write");
+
+    let registry = AdoptedFiles::new();
+    let mut payloads = vec![SharedFilePayload {
+        name: "nested/slash.bin".to_string(),
+        size: 4,
+        cache_path: None,
+        fd: Some(102),
+        adopted_id: None,
+    }];
+
+    let path_clone = file_path.clone();
+    let open = move |_raw: i32| std::fs::File::open(&path_clone).map_err(|e| e.to_string());
+
+    adopt_payloads(&registry, &mut payloads, open);
+
+    assert_eq!(payloads[0].fd, None);
+    assert_eq!(payloads[0].adopted_id, None);
 }
