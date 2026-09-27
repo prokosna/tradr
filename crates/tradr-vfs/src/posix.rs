@@ -657,6 +657,19 @@ impl PosixVfs {
         Ok(())
     }
 
+    /// Releases a single-file root so the descriptor closes once active handles finish.
+    pub fn unregister_open_file(&self, root: RootId) -> Result<(), VfsError> {
+        let mut open_files = self
+            .open_files
+            .write()
+            .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?;
+        if open_files.remove(&root.value()).is_some() {
+            Ok(())
+        } else {
+            Err(VfsError::NotFound)
+        }
+    }
+
     /// Registers a filesystem boundary for a given `RootId`.
     pub fn register_root(
         &self,
