@@ -436,6 +436,17 @@ An `Item` carries `content_hash`, the 32-byte BLAKE3 root, and each `ChunkData` 
 
 **So the cost is real and it is recorded rather than argued away.** 6.26% on the bulk transports is affordable. **20.5% on `ble-gatt` is not obviously affordable** on a transport docs/03 already limits to 20-100 KB/s, and it is the open question this section leaves for whoever cuts the BLE data path.
 
+### The sender streams a file and never holds it (DCR-164)
+
+**No sender reads a whole file into memory, decided 2026-09-27 ruling DF-119.** Until then the sender read every item wholly into a buffer twice -- once to compute the Content Hash for the Offer, and again to build the `bao` outboard and serve slices from it -- so a file of a few GB could not be sent from any device, and a phone ran out of memory well before that.
+
+- **One sequential pass per item, when the Offer is built**, reads the file in 1 MiB buffers and produces both the Content Hash and the `bao` outboard. It is the pass the Offer already needed; the second whole-file read goes away
+- **The outboard is spooled to an anonymous scratch file**, never held in memory: it is ~6.25% of the content ([ADR-0016](adr/0016-bao-verified-streaming-costs-6-percent.md)), which is 256 MiB for a 4 GiB video. The file is unlinked at creation where the platform allows it and deleted on close where it does not, so an interrupted process leaves nothing behind. It lives until that item's transfer ends
+- **A piece is served from a 1 MiB window**: the content of `[chunk_index * 1 MiB, + chunk length)` is read at its offset, and the slice is extracted from that window and the spooled outboard. A sender's memory per item in flight is one window and one slice, whatever the file's size
+- **The scratch file comes from `tradr-vfs`**, which is where [invariant I5](../CLAUDE.md#8-invariants-that-must-not-break) puts every file path. `NativeVfs` is constructed with a scratch directory the composition root chooses -- the OS temporary directory on the desktop and the app's cache directory on Android, where the OS temporary directory is not writable -- and hands out anonymous files from it
+- **A file whose size at serving differs from its size in the Offer fails that item** rather than serving a slice the receiver will refuse
+- **The receiver is unchanged**: it already verifies and writes piece by piece
+
 ### A piece is verified before it is written
 
 **Verification precedes placement, and the order is the whole point of carrying `verify_path` per piece.** A receiver holds `content_hash` from the `Item` and nothing else it can trust; `chunk_index`, `offset_in_chunk` and `payload_len` all arrive from the peer. Checking the piece against `content_hash` at its absolute offset is what turns those three fields from instructions into claims -- so the check happens **before** the bytes reach the partial file, and a piece that fails is re-requested rather than written and corrected later.
