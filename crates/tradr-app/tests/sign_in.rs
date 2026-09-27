@@ -379,33 +379,57 @@ fn browser_unavailable_message_includes_port_forward_command() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
-fn browser_unavailable_message_with_paste_orders_paste_before_forward() {
+fn browser_unavailable_message_matches_design_without_paste() {
+    let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
+    let launcher_error = "No such file or directory (os error 2)";
+    let port = 34567;
+    let message = browser_unavailable_message(url, launcher_error, port, false);
+
+    let expected = "\
+could not open a browser here (No such file or directory (os error 2))
+
+open this address in a browser on any device and sign in:
+
+https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz
+
+for sign-in to finish, first run this on that device, where USER@HOST is this machine:
+ssh -L 34567:localhost:34567 USER@HOST";
+
+    assert_eq!(message, expected);
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn browser_unavailable_message_matches_design_with_paste() {
+    let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
+    let launcher_error = "No such file or directory (os error 2)";
+    let port = 34567;
+    let message = browser_unavailable_message(url, launcher_error, port, true);
+
+    let expected = "\
+could not open a browser here (No such file or directory (os error 2))
+
+open this address in a browser on any device and sign in:
+
+https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz
+
+to have sign-in finish by itself, first run this on that device, where USER@HOST is this machine:
+ssh -L 34567:localhost:34567 USER@HOST
+
+otherwise that browser ends on a page that cannot load; copy its whole address and paste it here:";
+
+    assert_eq!(message, expected);
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn browser_unavailable_message_with_paste_ends_on_paste_instruction() {
     let url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=abc&state=0123&nonce=xyz";
     let launcher_error = "No such file or directory (os error 2)";
     let message = browser_unavailable_message(url, launcher_error, 21821, true);
 
-    assert_eq!(message.matches(url).count(), 1);
-    assert_eq!(message.lines().filter(|&line| line == url).count(), 1);
-
-    let paste_line = "after signing in, that browser lands on a page that does not load; copy its whole address and paste it here, then press Enter";
-    let forward_line = ssh_forward_command(21821);
-
-    let lines: Vec<&str> = message.lines().collect();
-    assert_eq!(lines.len(), 6);
-    assert!(lines.contains(&paste_line));
-    assert!(lines.contains(&forward_line.as_str()));
-
-    let paste_idx = lines
-        .iter()
-        .position(|&l| l == paste_line)
-        .expect("paste line present");
-    let forward_idx = lines
-        .iter()
-        .position(|&l| l == forward_line.as_str())
-        .expect("forward line present");
-    assert_eq!(paste_idx, 2);
-    assert_eq!(forward_idx, 4);
-    assert!(paste_idx < forward_idx);
+    let expected_last_line = "otherwise that browser ends on a page that cannot load; copy its whole address and paste it here:";
+    assert_eq!(message.lines().last(), Some(expected_last_line));
 }
 
 #[test]
