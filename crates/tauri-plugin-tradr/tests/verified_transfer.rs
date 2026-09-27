@@ -4,7 +4,9 @@
 //! that speaks the wire directly, because a well-behaved `send_file` cannot
 //! produce the frames that matter here.
 
-use tradr_app::transfer::{ReceiveRequest, SendRequest, SessionStreams, receive_file, send_file};
+use tradr_app::transfer::{
+    ReceiveRequest, SendRequest, SessionStreams, prepare_item, receive_file, send_file,
+};
 use tradr_core::{
     BoxFuture, ChunkDataHeader, ChunkIndex, ItemId, RecvStream, RelPath, RootId, SendStream,
     TransferId, TransportError,
@@ -175,12 +177,22 @@ async fn a_verified_transfer_arrives_byte_identical() {
         data_recv: &mut data_receiver.1,
     };
 
+    let prepared = prepare_item(
+        &sender_vfs,
+        root_sender,
+        &src,
+        sender_vfs.scratch_file().unwrap(),
+    )
+    .await
+    .unwrap();
+
     let send_req = SendRequest {
         root: root_sender,
         rel_path: &src,
         transfer_id: sample_transfer(),
         item_id: sample_item(),
         max_frame_size: FRAME_BOUND,
+        item: &prepared,
     };
 
     let recv_req = ReceiveRequest {

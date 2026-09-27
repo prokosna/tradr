@@ -5,10 +5,10 @@ use std::fmt;
 
 use tradr_core::{
     ChunkDataHeader, ChunkIndex, ChunkRequest, ContentHash, ContentVerifier, ItemComplete, ItemId,
-    ItemResumption, REFERENCE_CHUNK_SIZE_BYTES, RecvStream, RelPath, ResumptionError, RootId,
-    SendStream, TransferId, TransportError, Vfs, VfsError,
+    ItemResumption, REFERENCE_CHUNK_SIZE_BYTES, ReadAt, RecvStream, RelPath, ResumptionError,
+    RootId, SendStream, TransferId, TransportError, Vfs, VfsError,
 };
-use tradr_integrity::{outboard, slice};
+use tradr_integrity::{OutboardBuilder, slice_from_window};
 use tradr_proto::data::{
     TransferFrameError, decode_chunk_data_header_frame, decode_chunk_request_frame,
     decode_chunk_rerequest_frame, decode_item_complete_frame, encode_chunk_data_header_frame,
@@ -36,6 +36,8 @@ pub enum TransferSessionError {
     ProtocolViolation(String),
     /// Content hash verification failed.
     VerificationFailed,
+    /// The source file changed size between offer preparation and transfer.
+    SourceChanged,
 }
 
 impl fmt::Display for TransferSessionError {
@@ -47,6 +49,7 @@ impl fmt::Display for TransferSessionError {
             Self::StreamClosed => write!(f, "stream closed unexpectedly"),
             Self::ProtocolViolation(msg) => write!(f, "protocol violation: {msg}"),
             Self::VerificationFailed => write!(f, "verification failed"),
+            Self::SourceChanged => write!(f, "the file changed size since it was offered"),
         }
     }
 }
@@ -57,7 +60,10 @@ impl std::error::Error for TransferSessionError {
             Self::Transport(e) => Some(e),
             Self::Proto(e) => Some(e),
             Self::Vfs(e) => Some(e),
-            Self::StreamClosed | Self::ProtocolViolation(_) | Self::VerificationFailed => None,
+            Self::StreamClosed
+            | Self::ProtocolViolation(_)
+            | Self::VerificationFailed
+            | Self::SourceChanged => None,
         }
     }
 }
@@ -91,6 +97,67 @@ pub struct SessionStreams<'a> {
     pub data_recv: &'a mut dyn RecvStream,
 }
 
+/// An item whose content hash and outboard tree have been computed and spooled to disk.
+#[derive(Debug)]
+pub struct PreparedItem {
+    size: u64,
+    hash: ContentHash,
+    spool: std::fs::File,
+}
+
+impl PreparedItem {
+    /// The size of the prepared item in bytes.
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// The content hash computed for the prepared item.
+    pub fn hash(&self) -> &ContentHash {
+        &self.hash
+    }
+}
+
+/// Prepares a file for transfer by streaming it sequentially to compute its hash and spool its outboard tree.
+pub async fn prepare_item(
+    vfs: &impl Vfs,
+    root: RootId,
+    rel_path: &RelPath,
+    spool: std::fs::File,
+) -> Result<PreparedItem, TransferSessionError> {
+    let read_handle = vfs.open_read(root, rel_path).await?;
+    let mut builder = OutboardBuilder::new(spool);
+    let mut buf = vec![0u8; REFERENCE_CHUNK_SIZE_BYTES as usize];
+    let mut offset = 0u64;
+
+    loop {
+        let n = read_handle
+            .read_at(offset, &mut buf)
+            .await
+            .map_err(TransferSessionError::Vfs)?;
+        if n == 0 {
+            break;
+        }
+        builder
+            .update(&buf[..n])
+            .map_err(|e| TransferSessionError::Vfs(VfsError::Io(e.kind())))?;
+        offset = offset
+            .checked_add(n as u64)
+            .ok_or(TransferSessionError::Vfs(VfsError::Io(
+                std::io::ErrorKind::FileTooLarge,
+            )))?;
+    }
+
+    let (spooled_file, hash) = builder
+        .finish()
+        .map_err(|e| TransferSessionError::Vfs(VfsError::Io(e.kind())))?;
+
+    Ok(PreparedItem {
+        size: offset,
+        hash,
+        spool: spooled_file,
+    })
+}
+
 /// What the sending side needs to know about the Item it is sending.
 pub struct SendRequest<'a> {
     pub root: RootId,
@@ -98,6 +165,7 @@ pub struct SendRequest<'a> {
     pub transfer_id: TransferId,
     pub item_id: ItemId,
     pub max_frame_size: u32,
+    pub item: &'a PreparedItem,
 }
 
 /// What the receiving side needs to know about the Item it expects.
@@ -199,8 +267,7 @@ async fn cleanup_partial(
 }
 
 struct SendSession<'a> {
-    file_content: &'a [u8],
-    outboard_data: &'a [u8],
+    item: &'a PreparedItem,
     total_bytes: u64,
     transfer_id: TransferId,
     item_id: ItemId,
@@ -209,6 +276,8 @@ struct SendSession<'a> {
 
 async fn send_chunk_pieces<F>(
     session: &SendSession<'_>,
+    read_handle: &mut (dyn ReadAt + Send),
+    chunk_buf: &mut [u8],
     chunk_indices: impl Iterator<Item = u64>,
     send: &mut (impl SendStream + ?Sized),
     mut on_progress: F,
@@ -224,9 +293,27 @@ where
         let remaining = session.total_bytes.saturating_sub(chunk_offset);
         let chunk_len = remaining.min(REFERENCE_CHUNK_SIZE_BYTES);
 
-        let piece_slice = slice(
-            session.file_content,
-            session.outboard_data,
+        let target_len = chunk_len as usize;
+        let mut read_bytes = 0usize;
+        while read_bytes < target_len {
+            let n = read_handle
+                .read_at(
+                    chunk_offset + read_bytes as u64,
+                    &mut chunk_buf[read_bytes..target_len],
+                )
+                .await
+                .map_err(TransferSessionError::Vfs)?;
+            if n == 0 {
+                return Err(TransferSessionError::SourceChanged);
+            }
+            read_bytes += n;
+        }
+        let window = &chunk_buf[..target_len];
+
+        let piece_slice = slice_from_window(
+            window,
+            chunk_offset,
+            &session.item.spool,
             chunk_offset,
             chunk_len,
         )
@@ -268,34 +355,20 @@ pub async fn send_file_with_progress<F>(
 where
     F: FnMut(u64, u64) + Send,
 {
-    let read_handle = vfs.open_read(request.root, request.rel_path).await?;
     let meta = vfs.stat(request.root, request.rel_path).await?;
-    let total_bytes = meta.size_bytes;
-
-    let mut file_content = vec![0u8; total_bytes as usize];
-    let mut read_bytes = 0;
-    while read_bytes < file_content.len() {
-        let n = read_handle
-            .read_at(read_bytes as u64, &mut file_content[read_bytes..])
-            .await
-            .map_err(TransferSessionError::Vfs)?;
-        if n == 0 {
-            return Err(TransferSessionError::ProtocolViolation(
-                "unexpected EOF while reading local file".to_string(),
-            ));
-        }
-        read_bytes += n;
+    if meta.size_bytes != request.item.size() {
+        return Err(TransferSessionError::SourceChanged);
     }
-
-    let (outboard_data, _) = outboard(&file_content);
+    let total_bytes = request.item.size();
     let session = SendSession {
-        file_content: &file_content,
-        outboard_data: &outboard_data,
+        item: request.item,
         total_bytes,
         transfer_id: request.transfer_id,
         item_id: request.item_id,
         max_frame_size: request.max_frame_size,
     };
+    let mut read_handle = vfs.open_read(request.root, request.rel_path).await?;
+    let mut chunk_buf = vec![0u8; REFERENCE_CHUNK_SIZE_BYTES as usize];
 
     loop {
         let frame = match read_frame(streams.data_recv, request.max_frame_size).await {
@@ -311,6 +384,8 @@ where
                 let count = req.count() as u64;
                 send_chunk_pieces(
                     &session,
+                    read_handle.as_mut(),
+                    &mut chunk_buf,
                     from..(from + count),
                     streams.data_send,
                     &mut on_progress,
@@ -322,6 +397,8 @@ where
                     decode_chunk_rerequest_frame(&frame).map_err(TransferSessionError::Proto)?;
                 send_chunk_pieces(
                     &session,
+                    read_handle.as_mut(),
+                    &mut chunk_buf,
                     req.chunks().iter().map(|idx| idx.value()),
                     streams.data_send,
                     &mut on_progress,
