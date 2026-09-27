@@ -258,11 +258,11 @@ pub fn browser_unavailable_message(
     let forward = ssh_forward_command(port);
     if !paste {
         format!(
-            "could not open a browser here ({redacted}); open this url on a machine with one to continue:\n{auth_url}\n{forward}\nwhere USER@HOST is this machine's user and hostname or address"
+            "could not open a browser here ({redacted})\n\nopen this address in a browser on any device and sign in:\n\n{auth_url}\n\nfor sign-in to finish, first run this on that device, where USER@HOST is this machine:\n{forward}"
         )
     } else {
         format!(
-            "could not open a browser here ({redacted}); open this url on a machine with one to continue:\n{auth_url}\nafter signing in, that browser lands on a page that does not load; copy its whole address and paste it here, then press Enter\nor, before opening the url, forward the port from that machine:\n{forward}\nwhere USER@HOST is this machine's user and hostname or address"
+            "could not open a browser here ({redacted})\n\nopen this address in a browser on any device and sign in:\n\n{auth_url}\n\nto have sign-in finish by itself, first run this on that device, where USER@HOST is this machine:\n{forward}\n\notherwise that browser ends on a page that cannot load; copy its whole address and paste it here:"
         )
     }
 }
