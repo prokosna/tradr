@@ -60,6 +60,14 @@ A peer announcing `len = 0xffffffff` must cost the receiver nothing. The bound i
 
 This is the whole of the framing layer's security surface, and it is where an untrusted stream's first four bytes are read.
 
+### A reader never reads past the frame it is decoding (DCR-162)
+
+**Every reader of a stream reads the four length bytes, then exactly the payload they announce, and nothing more**, decided 2026-09-26. A stream carries more than one exchange -- the Hello exchange, then the Offer, then the Accept -- and each is read by a different function holding its own decoder. **A reader that reads in fixed-size chunks takes the next exchange's first bytes with it and drops them when it returns**, and the next reader then waits for bytes that already arrived.
+
+That is what the handshake's reader did, with a 4096-byte buffer, and it was the only one. Whether it lost anything depended on timing alone: a sender writes its `HelloAck` and its `TransferOffer` back to back, and a receiver slow enough to find both in its socket when it reads the first lost the second. **Both sides then waited on each other until QUIC's idle timeout closed the connection**, reported on the receiver as `failed during offer` and on the sender as `failed to read accept frame`. It was seen on a phone in the background and with its screen locked, where the receiver is slowest, and it is the same line DF-62 recorded from hosted CI runners on loopback for two weeks and attributed to the runners.
+
+An exact read costs one more `read` call per frame and needs no state carried between readers, which is why it is the rule rather than a decoder handed from one phase to the next.
+
 ### The framing layer does not know what a type byte means
 
 It carries the `u8` verbatim in both directions and holds no registry. Which code names which message is the planes' business, settled where the frame is already in hand — which is also where "unknown message types are ignored" is applied. Framing is byte-level, so [Change Drill D5](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) does not reach it: replacing protobuf changes what a payload contains, not how it is delimited.
