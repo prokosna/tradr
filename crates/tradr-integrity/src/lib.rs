@@ -6,7 +6,7 @@
 //! nowhere else assembles a Merkle path by hand.
 
 use std::fmt;
-use std::io::{Cursor, Read};
+use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
 
 use tradr_core::{ContentHash, ContentVerifier, VerificationError};
 
@@ -39,6 +39,33 @@ pub fn outboard(content: &[u8]) -> (Vec<u8>, ContentHash) {
     (outboard, ContentHash::from_bytes(*hash.as_bytes()))
 }
 
+/// Builds a `bao` outboard incrementally so senders can compute the content
+/// hash and spool the tree without buffering the whole file in memory.
+pub struct OutboardBuilder<S: Read + Write + Seek> {
+    encoder: bao::encode::Encoder<S>,
+}
+
+impl<S: Read + Write + Seek> OutboardBuilder<S> {
+    /// Stages tree nodes into the provided spool without duplicating content.
+    pub fn new(spool: S) -> Self {
+        Self {
+            encoder: bao::encode::Encoder::new_outboard(spool),
+        }
+    }
+
+    /// Advances the rolling tree state with sequentially read file buffers.
+    pub fn update(&mut self, content: &[u8]) -> io::Result<()> {
+        self.encoder.write_all(content)
+    }
+
+    /// Flushes final tree levels and length headers to yield the root hash.
+    pub fn finish(mut self) -> io::Result<(S, ContentHash)> {
+        let hash = self.encoder.finalize()?;
+        let spool = self.encoder.into_inner();
+        Ok((spool, ContentHash::from_bytes(*hash.as_bytes())))
+    }
+}
+
 /// Extracts the `bao` slice covering `[offset, offset + len)` of `content`,
 /// given its `outboard`. Refuses a range `content` does not contain rather
 /// than handing it to `bao`, whose extractor will otherwise happily walk
@@ -61,6 +88,87 @@ pub fn slice(
         offset,
         len,
     );
+    let mut out = Vec::new();
+    extractor
+        .read_to_end(&mut out)
+        .map_err(|_| SliceError::Extraction)?;
+    Ok(out)
+}
+
+struct WindowReader<'a> {
+    window: &'a [u8],
+    window_offset: u64,
+    window_end: u64,
+    abs_pos: u64,
+}
+
+impl Read for WindowReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.abs_pos < self.window_offset || self.abs_pos > self.window_end {
+            return Err(io::Error::other("position outside window"));
+        }
+        let rel = (self.abs_pos - self.window_offset) as usize;
+        let available = &self.window[rel..];
+        let n = available.len().min(buf.len());
+        buf[..n].copy_from_slice(&available[..n]);
+        self.abs_pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl Seek for WindowReader<'_> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        match pos {
+            SeekFrom::Start(abs) => {
+                self.abs_pos = abs;
+                Ok(abs)
+            }
+            _ => Err(io::Error::other("unsupported seek mode")),
+        }
+    }
+}
+
+/// Extracts a verified slice using a buffered content window to avoid loading
+/// the enclosing file into memory.
+pub fn slice_from_window<O: Read + Seek>(
+    window: &[u8],
+    window_offset: u64,
+    mut outboard: O,
+    offset: u64,
+    len: u64,
+) -> Result<Vec<u8>, SliceError> {
+    let end = offset.checked_add(len).ok_or(SliceError::OutOfRange)?;
+    let window_len = window.len() as u64;
+    let window_end = window_offset
+        .checked_add(window_len)
+        .ok_or(SliceError::OutOfRange)?;
+    if offset < window_offset || end > window_end {
+        return Err(SliceError::OutOfRange);
+    }
+
+    outboard
+        .seek(SeekFrom::Start(0))
+        .map_err(|_| SliceError::Extraction)?;
+    let mut header = [0u8; 8];
+    outboard
+        .read_exact(&mut header)
+        .map_err(|_| SliceError::Extraction)?;
+    let content_len = u64::from_le_bytes(header);
+    if end > content_len {
+        return Err(SliceError::OutOfRange);
+    }
+    outboard
+        .seek(SeekFrom::Start(0))
+        .map_err(|_| SliceError::Extraction)?;
+
+    let window_reader = WindowReader {
+        window,
+        window_offset,
+        window_end,
+        abs_pos: 0,
+    };
+    let mut extractor =
+        bao::encode::SliceExtractor::new_outboard(window_reader, outboard, offset, len);
     let mut out = Vec::new();
     extractor
         .read_to_end(&mut out)
