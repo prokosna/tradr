@@ -62,36 +62,39 @@ impl std::error::Error for HandshakeError {
     }
 }
 
-// Feeds incoming stream bytes into the decoder until a complete frame is available.
+// Reading exact byte count prevents stream offset misalignment on subsequent frames.
+async fn read_exact(recv: &mut dyn RecvStream, mut buf: &mut [u8]) -> Result<(), HandshakeError> {
+    while !buf.is_empty() {
+        let n = recv.read(buf).await.map_err(HandshakeError::Transport)?;
+        if n == 0 {
+            return Err(HandshakeError::UnexpectedEof);
+        }
+        buf = &mut buf[n..];
+    }
+    Ok(())
+}
+
+// Length prefix is fed first to bound allocation before payload read (DCR-162).
 async fn read_frame(
     recv_stream: &mut dyn RecvStream,
     decoder: &mut FrameDecoder,
 ) -> Result<Frame, HandshakeError> {
-    let mut buf = [0u8; 4096];
-    loop {
-        if let Some(frame) = decoder
-            .next_frame()
-            .map_err(HelloFrameError::Framing)
-            .map_err(HandshakeError::Proto)?
-        {
-            return Ok(frame);
-        }
-        let n = recv_stream
-            .read(&mut buf)
-            .await
-            .map_err(HandshakeError::Transport)?;
-        if n == 0 {
-            if let Some(frame) = decoder
-                .next_frame()
-                .map_err(HelloFrameError::Framing)
-                .map_err(HandshakeError::Proto)?
-            {
-                return Ok(frame);
-            }
-            return Err(HandshakeError::UnexpectedEof);
-        }
-        decoder.feed(&buf[..n]);
-    }
+    let mut len_bytes = [0u8; 4];
+    read_exact(recv_stream, &mut len_bytes).await?;
+    decoder.feed(&len_bytes);
+    decoder
+        .next_frame()
+        .map_err(HelloFrameError::Framing)
+        .map_err(HandshakeError::Proto)?;
+    let announced = u32::from_be_bytes(len_bytes);
+    let mut payload = vec![0u8; announced as usize];
+    read_exact(recv_stream, &mut payload).await?;
+    decoder.feed(&payload);
+    decoder
+        .next_frame()
+        .map_err(HelloFrameError::Framing)
+        .map_err(HandshakeError::Proto)?
+        .ok_or(HandshakeError::UnexpectedEof)
 }
 
 /// Parameters for driving the Hello handshake over a transport stream.
@@ -265,4 +268,101 @@ where
     awaiting_peer_ack
         .on_peer_hello_ack(peer_ack)
         .map_err(HandshakeError::Refused)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_recv::CountingRecvStream;
+    use tradr_proto::framing::{FrameError, encode_frame};
+
+    #[tokio::test]
+    async fn read_frame_stops_at_frame_boundary_leaving_subsequent_frame_in_stream() {
+        let max_frame_size = 1024u32;
+        let type1 = 0x01u8;
+        let payload1 = b"first-frame-payload";
+        let frame1_bytes = encode_frame(type1, payload1, max_frame_size).expect("encode frame 1");
+
+        let type2 = 0x02u8;
+        let payload2 = b"second-frame-longer-payload-bytes";
+        let frame2_bytes = encode_frame(type2, payload2, max_frame_size).expect("encode frame 2");
+
+        let mut stream_bytes = Vec::new();
+        stream_bytes.extend_from_slice(&frame1_bytes);
+        stream_bytes.extend_from_slice(&frame2_bytes);
+
+        let mut stream = CountingRecvStream::new(stream_bytes);
+        let mut decoder = FrameDecoder::new(max_frame_size);
+
+        let frame = read_frame(&mut stream, &mut decoder)
+            .await
+            .expect("read first frame");
+        assert_eq!(frame.type_code(), type1);
+        assert_eq!(frame.payload(), payload1);
+
+        let mut remaining_buf = vec![0u8; 4096];
+        let n = stream
+            .read(&mut remaining_buf)
+            .await
+            .expect("read remaining stream");
+        assert_eq!(&remaining_buf[..n], &frame2_bytes[..]);
+    }
+
+    #[tokio::test]
+    async fn read_frame_refuses_oversized_announcement_before_payload() {
+        let max_frame_size = 64u32;
+        let announced = max_frame_size + 1;
+        let mut bytes = announced.to_be_bytes().to_vec();
+        bytes.extend_from_slice(&[0u8; 16]);
+        let mut stream = CountingRecvStream::new(bytes);
+        let mut decoder = FrameDecoder::new(max_frame_size);
+
+        let result = read_frame(&mut stream, &mut decoder).await;
+        match result {
+            Err(HandshakeError::Proto(HelloFrameError::Framing(FrameError::Oversized {
+                announced: actual_announced,
+                limit: actual_limit,
+            }))) => {
+                assert_eq!(actual_announced, announced as u64);
+                assert_eq!(actual_limit, max_frame_size);
+            }
+            other => panic!("expected oversized frame error, got {other:?}"),
+        }
+        // Distinguishes prefix refusal from decoder-side refusal after payload read.
+        assert_eq!(stream.read_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn read_frame_refuses_zero_length_announcement() {
+        let max_frame_size = 64u32;
+        let announced = 0u32;
+        let mut bytes = announced.to_be_bytes().to_vec();
+        bytes.extend_from_slice(&[0x01, 0x02]);
+        let mut stream = CountingRecvStream::new(bytes);
+        let mut decoder = FrameDecoder::new(max_frame_size);
+
+        let result = read_frame(&mut stream, &mut decoder).await;
+        match result {
+            Err(HandshakeError::Proto(HelloFrameError::Framing(FrameError::Empty))) => {}
+            other => panic!("expected empty frame error, got {other:?}"),
+        }
+        // Distinguishes prefix refusal from decoder-side refusal after payload read.
+        assert_eq!(stream.read_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn read_frame_returns_unexpected_eof_on_truncated_payload() {
+        let max_frame_size = 64u32;
+        let announced = 10u32;
+        let mut bytes = announced.to_be_bytes().to_vec();
+        bytes.extend_from_slice(&[0x01, 0x02, 0x03]);
+        let mut stream = CountingRecvStream::new(bytes);
+        let mut decoder = FrameDecoder::new(max_frame_size);
+
+        let result = read_frame(&mut stream, &mut decoder).await;
+        match result {
+            Err(HandshakeError::UnexpectedEof) => {}
+            other => panic!("expected UnexpectedEof, got {other:?}"),
+        }
+    }
 }
