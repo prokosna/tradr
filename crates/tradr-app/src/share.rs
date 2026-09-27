@@ -14,6 +14,9 @@ pub struct SharedFilePayload {
     pub cache_path: Option<String>,
     /// Detached raw file descriptor integer for large files.
     pub fd: Option<i32>,
+    /// Opaque identifier into the plugin registry staged and sent back by the frontend.
+    #[serde(default)]
+    pub adopted_id: Option<String>,
 }
 
 /// Platform action string sent when an incoming transfer is accepted from the notification.

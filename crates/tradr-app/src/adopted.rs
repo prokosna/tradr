@@ -8,6 +8,7 @@ use tradr_core::{RelPath, RootId, Vfs};
 use tradr_vfs::NativeVfs;
 
 use crate::send::SendItem;
+use crate::share::SharedFilePayload;
 
 struct AdoptedEntry {
     file: File,
@@ -165,6 +166,32 @@ impl AdoptedFiles {
         match state.files.remove(id) {
             Some(_) => Ok(()),
             None => Err(format!("unknown adopted file id: {id}")),
+        }
+    }
+}
+
+/// Adopts detached file descriptors into the in-memory registry before intent delivery to the frontend.
+pub fn adopt_payloads<F>(adopted: &AdoptedFiles, files: &mut [SharedFilePayload], open: F)
+where
+    F: Fn(i32) -> Result<File, String>,
+{
+    for payload in files.iter_mut() {
+        if let Some(raw) = payload.fd.take() {
+            match open(raw) {
+                Ok(file) => match adopted.adopt(file, &payload.name) {
+                    Ok(id) => {
+                        payload.adopted_id = Some(id);
+                    }
+                    Err(e) => {
+                        eprintln!("failed to adopt file '{}': {e}", payload.name);
+                        payload.adopted_id = None;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("failed to open descriptor for '{}': {e}", payload.name);
+                    payload.adopted_id = None;
+                }
+            }
         }
     }
 }

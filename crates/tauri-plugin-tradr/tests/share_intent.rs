@@ -115,6 +115,7 @@ fn serialize_round_trip_shared_file_payload() {
         size: 999,
         cache_path: Some("/tmp/test.dat".to_string()),
         fd: None,
+        adopted_id: None,
     };
     let serialized = serde_json::to_string(&payload).expect("serialize");
     let deserialized: SharedFilePayload = serde_json::from_str(&serialized).expect("deserialize");
