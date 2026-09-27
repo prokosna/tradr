@@ -214,7 +214,24 @@ tradr/
 
 **Progress is three lines an item rather than a bar.** `execute_send_files_with_progress` fires its callback per chunk, and a bar over that has to know whether it is writing to a terminal, redraw on a width it did not ask for, and interleave with two items at once. `starting`, then `sent` or `failed`, and the paths the transfer placed at the end -- the same event the GUI draws a bar from, spent on the thing a pipe can also read.
 
-**Pasting the address the browser ended on replaces the forward as the way in, decided 2026-09-23 by DCR-151 at the request of the person using it.** A forward has to be set up from the machine with the browser before the run that needs it, on every run that signs in. **The browser already holds everything the listener was waiting for**: after sign-in it is redirected to `http://127.0.0.1:21821/callback?code=..&state=..`, and on a machine where nothing listens that page fails to load with the whole address still in the address bar. So when the browser cannot be opened, the command also reads one line from standard input, and **whichever arrives first wins** -- the pasted address or a callback through a forward, which keeps working for anyone who set one up. The pasted line goes through the same `parse_callback` the listener uses, so `state` is checked exactly as it is for a real callback; a whole address and a bare query are both accepted, since that parser already tolerates what precedes the `?`. **The GUI reads no standard input and passes no paste source**, so nothing changes there. The message names the paste first and the forward second.
+**Pasting the address the browser ended on replaces the forward as the way in, decided 2026-09-23 by DCR-151 at the request of the person using it.** A forward has to be set up from the machine with the browser before the run that needs it, on every run that signs in. **The browser already holds everything the listener was waiting for**: after sign-in it is redirected to `http://127.0.0.1:21821/callback?code=..&state=..`, and on a machine where nothing listens that page fails to load with the whole address still in the address bar. So when the browser cannot be opened, the command also reads one line from standard input, and **whichever arrives first wins** -- the pasted address or a callback through a forward, which keeps working for anyone who set one up. The pasted line goes through the same `parse_callback` the listener uses, so `state` is checked exactly as it is for a real callback; a whole address and a bare query are both accepted, since that parser already tolerates what precedes the `?`. **The GUI reads no standard input and passes no paste source**, so nothing changes there. The message named the paste first and the forward second; DCR-166 below reverses that.
+
+**The message is written for someone who has never seen it, and it ends on the step being waited for, decided 2026-09-28 by DCR-166 ruling DF-112.** The person using it chose to keep the pasted address over a device flow (DF-95 closed negative) and over a hosted code page, and asked for the prompt to read like a login that expects to be done this way rather than an error with a workaround attached. With a paste source it is exactly:
+
+```
+could not open a browser here (<why>)
+
+open this address in a browser on any device and sign in:
+
+<url>
+
+to have sign-in finish by itself, first run this on that device, where USER@HOST is this machine:
+ssh -L 21821:localhost:21821 USER@HOST
+
+otherwise that browser ends on a page that cannot load; copy its whole address and paste it here:
+```
+
+**The address and the forward each stand alone on a line**, between blank lines, so a terminal's selection copies either with nothing around it. **The paste instruction is the last line**, directly above where the pasted line is read, because it is the step the command is waiting on; the forward is offered before it as the alternative that needs no paste, reversing DCR-151's order of the two. `<why>` is the launcher's error with the address redacted, first, because it explains why a browser did not simply open and is otherwise noise. **Without a paste source**, which is the GUI, the last paragraph is absent and the forward's line reads `for sign-in to finish, first run this on that device, where USER@HOST is this machine:`, since the forward is then the only way in.
 
 ### Where the talk to an identity provider lives
 
