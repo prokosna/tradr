@@ -4,7 +4,8 @@
 //! are refused with ProtocolViolation, while unassigned in-plane codes are skipped.
 
 use tradr_app::transfer::{
-    ReceiveRequest, SendRequest, SessionStreams, TransferSessionError, receive_file, send_file,
+    ReceiveRequest, SendRequest, SessionStreams, TransferSessionError, prepare_item, receive_file,
+    send_file,
 };
 use tradr_core::{
     BoxFuture, ChunkDataHeader, ChunkIndex, ChunkRequest, ItemComplete, ItemId, RecvStream,
@@ -163,12 +164,22 @@ async fn item_complete_on_the_data_stream_is_refused() {
         data_recv: &mut data_sender.1,
     };
 
+    let prepared = prepare_item(
+        &sender_vfs,
+        root_sender,
+        &src_rel,
+        sender_vfs.scratch_file().unwrap(),
+    )
+    .await
+    .unwrap();
+
     let send_req = SendRequest {
         root: root_sender,
         rel_path: &src_rel,
         transfer_id,
         item_id,
         max_frame_size: FRAME_BOUND,
+        item: &prepared,
     };
 
     let peer_task = async {

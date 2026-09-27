@@ -11,13 +11,12 @@ use tradr_core::{
 };
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
-use tradr_integrity::outboard;
 use tradr_proto::control::{decode_transfer_accept_frame, encode_transfer_offer_frame};
 use tradr_proto::framing::{Frame, FrameDecoder, encode_frame};
 use tradr_vfs::NativeVfs;
 
 use crate::handshake::{HandshakeParams, perform_handshake};
-use crate::transfer::{SendRequest, SessionStreams, send_file_with_progress};
+use crate::transfer::{SendRequest, SessionStreams, prepare_item, send_file_with_progress};
 
 /// Progress payload emitted during file transfer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -247,35 +246,25 @@ where
     let mut offer_items = Vec::with_capacity(items.len());
 
     let mut actual_roots = std::collections::HashMap::new();
+    let mut prepared_items = std::collections::HashMap::new();
     for (idx, item) in items.iter().enumerate() {
         let actual_root = item.root;
         let rel_path = item.rel_path.clone();
 
-        let read_handle = vfs
-            .open_read(actual_root, &rel_path)
+        let spool = vfs
+            .scratch_file()
+            .map_err(|e| format!("failed to allocate scratch file for '{rel_path}': {e}"))?;
+        let prepared = prepare_item(vfs, actual_root, &rel_path, spool)
             .await
-            .map_err(|e| format!("failed to open '{rel_path}': {e}"))?;
+            .map_err(|e| format!("failed to prepare '{rel_path}': {e}"))?;
 
-        let mut content = vec![0u8; item.size_bytes as usize];
-        let mut total_read = 0;
-        while total_read < content.len() {
-            let n = read_handle
-                .read_at(total_read as u64, &mut content[total_read..])
-                .await
-                .map_err(|e| format!("read error on '{rel_path}': {e}"))?;
-            if n == 0 {
-                break;
-            }
-            total_read += n;
-        }
-
-        let (_, hash) = outboard(&content);
         let item_id = ItemId::new(&format!("item_{}", idx + 1))
             .map_err(|e| format!("invalid item id: {e}"))?;
         actual_roots.insert(item_id, actual_root);
-        let offer_item = OfferItem::new(item_id, rel_path, item.size_bytes, hash)
+        let offer_item = OfferItem::new(item_id, rel_path, prepared.size(), *prepared.hash())
             .map_err(|e| format!("invalid offer item: {e}"))?;
         offer_items.push(offer_item);
+        prepared_items.insert(item_id, prepared);
     }
 
     let total_bytes: u64 = offer_items.iter().map(|i| i.size()).sum();
@@ -335,12 +324,16 @@ where
             .get(offer_item.item_id())
             .copied()
             .ok_or_else(|| format!("missing root for item {}", offer_item.item_id()))?;
+        let prepared_item = prepared_items
+            .get(offer_item.item_id())
+            .ok_or_else(|| format!("missing prepared item for {}", offer_item.item_id()))?;
         let send_req = SendRequest {
             root: actual_root,
             rel_path: offer_item.rel_path(),
             transfer_id,
             item_id: *offer_item.item_id(),
             max_frame_size: negotiated_frame_bound,
+            item: prepared_item,
         };
 
         let mut streams = SessionStreams {
@@ -376,6 +369,8 @@ where
             });
             format!("failed sending {}: {e}", offer_item.rel_path())
         })?;
+
+        prepared_items.remove(offer_item.item_id());
 
         if ok {
             on_progress(TransferProgressPayload {

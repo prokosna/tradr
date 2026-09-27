@@ -14,7 +14,7 @@ use tradr_app::listener::{
     listen_for_transfers, remove_partial_dir, run_listener,
 };
 use tradr_app::peer_trust::OwnAttestation;
-use tradr_app::transfer::{SendRequest, SessionStreams, send_file};
+use tradr_app::transfer::{SendRequest, SessionStreams, prepare_item, send_file};
 use tradr_core::{
     BoxFuture, Capabilities, Clock, DeviceId, DomainTag, Incoming, ItemId, KeyBinding, KeyStore,
     Monotonic, OfferItem, PublicIdentity, RecvStream, RelPath, Rng, RngError, RootId,
@@ -464,6 +464,14 @@ async fn single_file_transfer_via_listener_end_to_end() {
         assert_eq!(accept.items()[0].resume_chunk(), 0);
 
         let (mut data_send, mut data_recv) = sender_chan.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &src_rel,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
         let send_req = SendRequest {
             root: root_sender,
             rel_path: &src_rel,
@@ -472,6 +480,7 @@ async fn single_file_transfer_via_listener_end_to_end() {
             max_frame_size: sender_session
                 .peer_max_frame_size()
                 .min(sender_chan.max_frame_size()),
+            item: &prepared,
         };
         let mut streams = SessionStreams {
             control_send: sender_ctrl_send.as_mut(),
@@ -611,6 +620,14 @@ async fn multiple_files_transfer_via_listener() {
 
         // First item
         let (mut data_send_1, mut data_recv_1) = sender_chan.open_bi().await.unwrap();
+        let prepared_1 = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &rel_1,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
         let send_req_1 = SendRequest {
             root: root_sender,
             rel_path: &rel_1,
@@ -619,6 +636,7 @@ async fn multiple_files_transfer_via_listener() {
             max_frame_size: sender_session
                 .peer_max_frame_size()
                 .min(sender_chan.max_frame_size()),
+            item: &prepared_1,
         };
         let mut streams_1 = SessionStreams {
             control_send: sender_ctrl_send.as_mut(),
@@ -633,6 +651,14 @@ async fn multiple_files_transfer_via_listener() {
 
         // Second item
         let (mut data_send_2, mut data_recv_2) = sender_chan.open_bi().await.unwrap();
+        let prepared_2 = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &rel_2,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
         let send_req_2 = SendRequest {
             root: root_sender,
             rel_path: &rel_2,
@@ -641,6 +667,7 @@ async fn multiple_files_transfer_via_listener() {
             max_frame_size: sender_session
                 .peer_max_frame_size()
                 .min(sender_chan.max_frame_size()),
+            item: &prepared_2,
         };
         let mut streams_2 = SessionStreams {
             control_send: sender_ctrl_send.as_mut(),
@@ -811,6 +838,14 @@ async fn resumed_transfer_via_listener_skips_existing_chunks() {
         assert_eq!(accept.items()[0].resume_chunk(), 1);
 
         let (mut data_send, mut data_recv) = sender_chan.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &src_rel,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
         let send_req = SendRequest {
             root: root_sender,
             rel_path: &src_rel,
@@ -819,6 +854,7 @@ async fn resumed_transfer_via_listener_skips_existing_chunks() {
             max_frame_size: sender_session
                 .peer_max_frame_size()
                 .min(sender_chan.max_frame_size()),
+            item: &prepared,
         };
         let mut streams = SessionStreams {
             control_send: sender_ctrl_send.as_mut(),
@@ -972,6 +1008,14 @@ async fn selective_item_acceptance_declines_filtered_items() {
 
         // Transfer keep.txt
         let (mut data_send, mut data_recv) = sender_chan.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &rel_keep,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
         let send_req = SendRequest {
             root: root_sender,
             rel_path: &rel_keep,
@@ -980,6 +1024,7 @@ async fn selective_item_acceptance_declines_filtered_items() {
             max_frame_size: sender_session
                 .peer_max_frame_size()
                 .min(sender_chan.max_frame_size()),
+            item: &prepared,
         };
         let mut streams = SessionStreams {
             control_send: sender_ctrl_send.as_mut(),
@@ -1189,6 +1234,14 @@ async fn unknown_control_plane_messages_ignored_before_offer() {
         accept.for_offer(&offer).unwrap();
 
         let (mut data_send, mut data_recv) = sender_chan.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &src_rel,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
         let send_req = SendRequest {
             root: root_sender,
             rel_path: &src_rel,
@@ -1197,6 +1250,7 @@ async fn unknown_control_plane_messages_ignored_before_offer() {
             max_frame_size: sender_session
                 .peer_max_frame_size()
                 .min(sender_chan.max_frame_size()),
+            item: &prepared,
         };
         let mut streams = SessionStreams {
             control_send: sender_ctrl_send.as_mut(),
@@ -1335,6 +1389,14 @@ async fn accept_and_handle_transfer_from_mock_incoming() {
         accept.for_offer(&offer).unwrap();
 
         let (mut data_send, mut data_recv) = sender_chan.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &src_rel,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
         let send_req = SendRequest {
             root: root_sender,
             rel_path: &src_rel,
@@ -1343,6 +1405,7 @@ async fn accept_and_handle_transfer_from_mock_incoming() {
             max_frame_size: sender_session
                 .peer_max_frame_size()
                 .min(sender_chan.max_frame_size()),
+            item: &prepared,
         };
         let mut streams = SessionStreams {
             control_send: sender_ctrl_send.as_mut(),
@@ -1644,6 +1707,14 @@ async fn listen_for_transfers_reports_each_placed_path() {
         accept.for_offer(&offer).unwrap();
 
         let (mut data_send, mut data_recv) = sender_chan.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &src_rel,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
         let send_req = SendRequest {
             root: root_sender,
             rel_path: &src_rel,
@@ -1652,6 +1723,7 @@ async fn listen_for_transfers_reports_each_placed_path() {
             max_frame_size: sender_session
                 .peer_max_frame_size()
                 .min(sender_chan.max_frame_size()),
+            item: &prepared,
         };
         let mut streams = SessionStreams {
             control_send: sender_ctrl_send.as_mut(),
@@ -1794,6 +1866,14 @@ async fn run_listener_reports_each_placed_path() {
         accept.for_offer(&offer).unwrap();
 
         let (mut data_send, mut data_recv) = sender_chan.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &src_rel,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
         let send_req = SendRequest {
             root: root_sender,
             rel_path: &src_rel,
@@ -1802,6 +1882,7 @@ async fn run_listener_reports_each_placed_path() {
             max_frame_size: sender_session
                 .peer_max_frame_size()
                 .min(sender_chan.max_frame_size()),
+            item: &prepared,
         };
         let mut streams = SessionStreams {
             control_send: sender_ctrl_send.as_mut(),
@@ -2364,6 +2445,14 @@ async fn failure_between_items_names_the_item() {
         assert_eq!(accept.items().len(), 3);
 
         let (mut data_send_1, mut data_recv_1) = sender_chan.open_bi().await.unwrap();
+        let prepared_1 = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &rel_1,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
         let send_req_1 = SendRequest {
             root: root_sender,
             rel_path: &rel_1,
@@ -2372,6 +2461,7 @@ async fn failure_between_items_names_the_item() {
             max_frame_size: sender_session
                 .peer_max_frame_size()
                 .min(sender_chan.max_frame_size()),
+            item: &prepared_1,
         };
         let mut streams_1 = SessionStreams {
             control_send: sender_ctrl_send.as_mut(),
