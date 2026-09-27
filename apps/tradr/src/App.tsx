@@ -23,7 +23,7 @@ interface SharedFilePayload {
 	name: string;
 	size: number;
 	cachePath: string | null;
-	fd: number | null;
+	adoptedId: string | null;
 }
 interface ShareIntent {
 	action: string;
@@ -34,20 +34,29 @@ interface ShareIntent {
 	files: SharedFilePayload[];
 }
 
+interface StagedAdoptedFile {
+	id: string;
+	name: string;
+}
+
 function stagePayloads(files: SharedFilePayload[]): {
 	paths: string[];
+	adoptedIds: StagedAdoptedFile[];
 	refused: string[];
 } {
 	const paths: string[] = [];
+	const adoptedIds: StagedAdoptedFile[] = [];
 	const refused: string[] = [];
 	for (const file of files) {
-		if (file.cachePath !== null) {
+		if (file.adoptedId !== null) {
+			adoptedIds.push({ id: file.adoptedId, name: file.name });
+		} else if (file.cachePath !== null) {
 			paths.push(file.cachePath);
 		} else {
 			refused.push(file.name);
 		}
 	}
-	return { paths, refused };
+	return { paths, adoptedIds, refused };
 }
 
 // Mirrors the Rust struct crates/tauri-plugin-tradr/src/sign_in.rs
@@ -214,6 +223,7 @@ export function App() {
 	const [peerListError, setPeerListError] = useState<string | null>(null);
 	const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
 	const [stagedFiles, setStagedFiles] = useState<string[]>([]);
+	const [stagedAdopted, setStagedAdopted] = useState<StagedAdoptedFile[]>([]);
 	const [fileSelectError, setFileSelectError] = useState<string | null>(null);
 	const [isDragging, setIsDragging] = useState(false);
 	const [sendState, setSendState] = useState<SendState>({ status: "idle" });
@@ -430,16 +440,15 @@ export function App() {
 		listen<ShareIntent>("share-intent", async (event) => {
 			const intent = event.payload;
 			if (intent.files && intent.files.length > 0) {
-				const { paths, refused } = stagePayloads(intent.files);
+				const { paths, adoptedIds, refused } = stagePayloads(intent.files);
+				setStagedFiles(paths);
+				setStagedAdopted(adoptedIds);
 				if (refused.length > 0) {
-					setFileSelectError(
-						`Files of 50 MB or more cannot be sent from Android yet: ${refused.join(", ")}`,
-					);
+					setFileSelectError(`Could not read files: ${refused.join(", ")}`);
 				} else {
 					setFileSelectError(null);
 				}
-				if (paths.length > 0) {
-					setStagedFiles(paths);
+				if (paths.length > 0 || adoptedIds.length > 0) {
 					setSendState({ status: "idle" });
 
 					const targetPeer = intent.targetDevice || null;
@@ -462,10 +471,12 @@ export function App() {
 						invoke<string[]>("plugin:tradr|send_files", {
 							peerId: targetPeer,
 							files: paths,
+							adoptedIds: adoptedIds.map((a) => a.id),
 						})
 							.then((sentFiles) => {
 								setSendState({ status: "success", sentFiles });
 								setStagedFiles([]);
+								setStagedAdopted([]);
 							})
 							.catch((e) => {
 								setSendState({ status: "error", message: String(e) });
@@ -488,6 +499,7 @@ export function App() {
 						setIsDragging(false);
 						if (event.payload.paths.length > 0) {
 							setStagedFiles(event.payload.paths);
+							setStagedAdopted([]);
 							setSendState({ status: "idle" });
 						}
 					} else {
@@ -544,17 +556,22 @@ export function App() {
 	};
 
 	const handleSendFiles = () => {
-		if (!selectedPeerId || stagedFiles.length === 0) {
+		if (
+			!selectedPeerId ||
+			(stagedFiles.length === 0 && stagedAdopted.length === 0)
+		) {
 			return;
 		}
 		setSendState({ status: "sending" });
 		invoke<string[]>("plugin:tradr|send_files", {
 			peerId: selectedPeerId,
 			files: stagedFiles,
+			adoptedIds: stagedAdopted.map((a) => a.id),
 		}).then(
 			(sentFiles) => {
 				setSendState({ status: "success", sentFiles });
 				setStagedFiles([]);
+				setStagedAdopted([]);
 			},
 			(error) => {
 				setSendState({ status: "error", message: String(error) });
@@ -568,6 +585,7 @@ export function App() {
 		const items = Array.from(event.dataTransfer.files).map((f) => f.name);
 		if (items.length > 0) {
 			setStagedFiles(items);
+			setStagedAdopted([]);
 			setSendState({ status: "idle" });
 		}
 	};
@@ -898,22 +916,25 @@ export function App() {
 									setFileSelectError(null);
 									if (Array.isArray(selected) && selected.length > 0) {
 										setStagedFiles(selected);
+										setStagedAdopted([]);
 										setSendState({ status: "idle" });
 									} else if (typeof selected === "string") {
 										setStagedFiles([selected]);
+										setStagedAdopted([]);
 										setSendState({ status: "idle" });
 									}
 								} else if (picked.length > 0) {
-									const { paths, refused } = stagePayloads(picked);
+									const { paths, adoptedIds, refused } = stagePayloads(picked);
+									setStagedFiles(paths);
+									setStagedAdopted(adoptedIds);
 									if (refused.length > 0) {
 										setFileSelectError(
-											`Files of 50 MB or more cannot be sent from Android yet: ${refused.join(", ")}`,
+											`Could not read files: ${refused.join(", ")}`,
 										);
 									} else {
 										setFileSelectError(null);
 									}
-									if (paths.length > 0) {
-										setStagedFiles(paths);
+									if (paths.length > 0 || adoptedIds.length > 0) {
 										setSendState({ status: "idle" });
 									}
 								}
@@ -931,18 +952,25 @@ export function App() {
 					)}
 				</div>
 
-				{stagedFiles.length > 0 && (
+				{(stagedFiles.length > 0 || stagedAdopted.length > 0) && (
 					<div style={{ marginTop: "1rem" }}>
-						<h3>Staged files ({stagedFiles.length})</h3>
+						<h3>Staged files ({stagedFiles.length + stagedAdopted.length})</h3>
 						<ul>
 							{stagedFiles.map((file) => (
 								<li key={file}>{file}</li>
+							))}
+							{stagedAdopted.map((item) => (
+								<li key={`adopted-${item.id}`}>{item.name}</li>
 							))}
 						</ul>
 						<button
 							type="button"
 							onClick={handleSendFiles}
-							disabled={!selectedPeerId || sendState.status === "sending"}
+							disabled={
+								!selectedPeerId ||
+								(stagedFiles.length === 0 && stagedAdopted.length === 0) ||
+								sendState.status === "sending"
+							}
 							style={{ marginRight: "0.5rem" }}
 						>
 							{sendState.status === "sending"
@@ -951,7 +979,10 @@ export function App() {
 						</button>
 						<button
 							type="button"
-							onClick={() => setStagedFiles([])}
+							onClick={() => {
+								setStagedFiles([]);
+								setStagedAdopted([]);
+							}}
 							disabled={sendState.status === "sending"}
 						>
 							Clear Staged Files

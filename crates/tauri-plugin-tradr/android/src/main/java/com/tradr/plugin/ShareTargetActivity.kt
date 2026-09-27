@@ -15,7 +15,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val TAG = "ShareTargetActivity"
-private const val LARGE_FILE_THRESHOLD_BYTES = 50L * 1024L * 1024L
 const val EXTRA_SHARED_FILES_JSON = "com.tradr.plugin.EXTRA_SHARED_FILES_JSON"
 const val ACTION_SHARED_FILES = "com.tradr.plugin.ACTION_SHARED_FILES"
 const val EXTRA_TARGET_DEVICE = "com.tradr.plugin.EXTRA_TARGET_DEVICE"
@@ -188,29 +187,6 @@ object ShareIntentProcessor {
         }
     }
 
-    fun obtainDetachedFd(
-        contentResolver: ContentResolver,
-        uri: Uri,
-        filename: String,
-        knownSize: Long
-    ): SharedFileEntry? {
-        return try {
-            val pfd = contentResolver.openFileDescriptor(uri, "r") ?: return null
-            val statSize = pfd.statSize
-            val rawFd = pfd.detachFd()
-            val finalSize = if (knownSize >= 0) knownSize else if (statSize >= 0) statSize else 0L
-            SharedFileEntry(
-                name = filename,
-                size = finalSize,
-                cachePath = null,
-                fd = rawFd
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed opening ParcelFileDescriptor", e)
-            null
-        }
-    }
-
     fun processUri(
         context: Context,
         contentResolver: ContentResolver,
@@ -219,12 +195,41 @@ object ShareIntentProcessor {
     ): SharedFileEntry? {
         val filename = resolveDisplayName(contentResolver, uri)
         val size = resolveFileSize(contentResolver, uri)
-        return if (size >= LARGE_FILE_THRESHOLD_BYTES) {
-            obtainDetachedFd(contentResolver, uri, filename, size)
-        } else {
-            copyToCache(contentResolver, cacheDir, uri, filename)
-                ?: obtainDetachedFd(contentResolver, uri, filename, size)
+        val pfd = try {
+            contentResolver.openFileDescriptor(uri, "r")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed opening ParcelFileDescriptor for $uri", e)
+            null
         }
+        if (pfd != null) {
+            var detached = false
+            try {
+                val statSize = pfd.statSize
+                if (statSize >= 0) {
+                    val rawFd = pfd.detachFd()
+                    detached = true
+                    val finalSize = if (size >= 0) size else statSize
+                    return SharedFileEntry(
+                        name = filename,
+                        size = finalSize,
+                        cachePath = null,
+                        fd = rawFd
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed inspecting statSize for $uri", e)
+            } finally {
+                // Pipes cannot seek to offsets, so unseekable descriptors are closed before falling back to cache.
+                if (!detached) {
+                    try {
+                        pfd.close()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed closing ParcelFileDescriptor", e)
+                    }
+                }
+            }
+        }
+        return copyToCache(contentResolver, cacheDir, uri, filename)
     }
 }
 

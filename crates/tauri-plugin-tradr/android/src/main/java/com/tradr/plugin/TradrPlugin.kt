@@ -12,8 +12,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Base64
+import android.util.Log
+import android.webkit.WebView
 import androidx.activity.result.ActivityResult
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -32,9 +36,11 @@ import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 
+private const val TAG = "TradrPlugin"
 // Only affects when logcat shows the push; Rust never blocks waiting for it.
 private const val CHANNEL_PUSH_DELAY_MS = 1500L
 private const val SHORTCUT_CATEGORY_SEND = "com.tradr.category.SEND"
@@ -147,6 +153,38 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
         } catch (e: Exception) {
             Logger.error("TradrPlugin: could not start the receive service", e)
         }
+    }
+
+    override fun load(webView: WebView) {
+        super.load(webView)
+        sweepSharedIncomingCache()
+    }
+
+    // Cleans cached incoming files from previous process executions without removing cold-start copies.
+    private fun sweepSharedIncomingCache() {
+        Thread {
+            try {
+                val processStartTimeMs = System.currentTimeMillis() - (SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime())
+                val sharedIncomingDir = File(activity.cacheDir, "shared_incoming")
+                if (!sharedIncomingDir.exists() || !sharedIncomingDir.isDirectory) {
+                    return@Thread
+                }
+                val children = sharedIncomingDir.listFiles() ?: return@Thread
+                for (child in children) {
+                    if (child.lastModified() < processStartTimeMs) {
+                        try {
+                            if (!child.deleteRecursively()) {
+                                Log.w(TAG, "Failed deleting cached incoming directory: ${child.absolutePath}")
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Exception deleting cached incoming directory: ${child.absolutePath}", e)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed sweeping shared incoming cache", e)
+            }
+        }.start()
     }
 
     // Prompts runtime permissions on demand for individual or batched capabilities.
