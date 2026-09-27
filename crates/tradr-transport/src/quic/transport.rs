@@ -113,6 +113,14 @@ impl QuicTransport {
     pub fn local_addr(&self) -> Result<SocketAddr, std::io::Error> {
         self.endpoint.local_addr()
     }
+
+    /// Flushes connection close before a process exits (DCR-163).
+    pub async fn close_and_drain(&self, limit: std::time::Duration) -> bool {
+        self.endpoint.close(0u32.into(), b"");
+        tokio::time::timeout(limit, self.endpoint.wait_idle())
+            .await
+            .is_ok()
+    }
 }
 
 impl Transport for QuicTransport {

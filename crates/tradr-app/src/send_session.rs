@@ -25,6 +25,7 @@ use crate::{identity, paths};
 
 const DISCOVERY_WINDOW: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
+const SEND_CLOSE_DRAIN_LIMIT: Duration = Duration::from_secs(2);
 
 /// Coordinates mDNS and static peer discovery sources across polling windows.
 pub struct PeerDiscovery {
@@ -178,7 +179,7 @@ pub async fn run_send(
     let total: u64 = items.iter().map(|item| item.size_bytes).sum();
 
     let transport = bind_quic_dialler(identity.key_store())?;
-    let transports = TransportSet::new(vec![transport as Arc<dyn Transport>]);
+    let transports = TransportSet::new(vec![transport.clone() as Arc<dyn Transport>]);
 
     let static_peers_path = dir.join("static-peers.json");
     let daemon = network::mdns_daemon()?;
@@ -222,7 +223,7 @@ pub async fn run_send(
         link_registry,
         Arc::new(SystemClock),
     );
-    execute_send_files_with_progress(
+    let result = execute_send_files_with_progress(
         channel.as_ref(),
         &vfs,
         &items,
@@ -233,5 +234,13 @@ pub async fn run_send(
         verifier,
         move |payload| on_progress(&payload),
     )
-    .await
+    .await;
+    drop(channel);
+    if !transport.close_and_drain(SEND_CLOSE_DRAIN_LIMIT).await {
+        eprintln!(
+            "send: the connection close did not finish within {:?}",
+            SEND_CLOSE_DRAIN_LIMIT
+        );
+    }
+    result
 }
