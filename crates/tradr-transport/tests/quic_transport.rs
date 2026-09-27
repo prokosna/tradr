@@ -381,3 +381,138 @@ async fn a_dialler_failing_handshake_is_discarded_and_the_next_peer_is_accepted(
     .await
     .expect("the sequence completes well inside the bound");
 }
+
+#[tokio::test]
+async fn dialler_close_and_drain_answers_true_after_channel_dropped() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let dialler_store = device(0x11);
+        let listener_store = device(0x22);
+
+        let listener =
+            QuicTransport::new(listener_store.clone(), loopback()).expect("loopback binds");
+        let listener_addr = listener
+            .local_addr()
+            .expect("a bound endpoint reports its address");
+        let dialler = QuicTransport::new(dialler_store, loopback()).expect("loopback binds");
+
+        let mut incoming = listener.listen().await.expect("listening starts");
+        let candidate = Candidate::new(dialler.id(), &listener_addr.to_string())
+            .expect("a socket address is valid candidate syntax");
+
+        let expect = PeerExpectation::Device(listener_store.device_id());
+        let dial = dialler.connect(&candidate, &expect);
+        let accept = incoming.accept();
+
+        let (dial_result, accept_result) = tokio::join!(dial, accept);
+        let dialler_channel = dial_result.expect("dial completes");
+        let _listener_channel = accept_result.expect("dial arrives");
+
+        drop(dialler_channel);
+        assert!(dialler.close_and_drain(Duration::from_secs(2)).await);
+    })
+    .await
+    .expect("test completes within bound");
+}
+
+#[tokio::test]
+async fn second_dial_after_close_and_drain_fails() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let dialler_store = device(0x11);
+        let listener_store = device(0x22);
+
+        let listener =
+            QuicTransport::new(listener_store.clone(), loopback()).expect("loopback binds");
+        let listener_addr = listener
+            .local_addr()
+            .expect("a bound endpoint reports its address");
+        let dialler = QuicTransport::new(dialler_store, loopback()).expect("loopback binds");
+
+        let mut incoming = listener.listen().await.expect("listening starts");
+        let candidate = Candidate::new(dialler.id(), &listener_addr.to_string())
+            .expect("a socket address is valid candidate syntax");
+
+        let expect = PeerExpectation::Device(listener_store.device_id());
+        let dial = dialler.connect(&candidate, &expect);
+        let accept = incoming.accept();
+
+        let (dial_result, accept_result) = tokio::join!(dial, accept);
+        let dialler_channel = dial_result.expect("dial completes");
+        let _listener_channel = accept_result.expect("dial arrives");
+
+        drop(dialler_channel);
+        assert!(dialler.close_and_drain(Duration::from_secs(2)).await);
+
+        let second_dial = dialler.connect(&candidate, &expect).await;
+        assert!(
+            second_dial.is_err(),
+            "second dial must fail because the endpoint is closed"
+        );
+    })
+    .await
+    .expect("test completes within bound");
+}
+
+#[tokio::test]
+async fn listener_stream_read_errors_within_bound_after_dialler_close_and_drain() {
+    tokio::time::timeout(TEST_TIMEOUT, async {
+        let dialler_store = device(0x11);
+        let listener_store = device(0x22);
+
+        let listener =
+            QuicTransport::new(listener_store.clone(), loopback()).expect("loopback binds");
+        let listener_addr = listener
+            .local_addr()
+            .expect("a bound endpoint reports its address");
+        let dialler = QuicTransport::new(dialler_store, loopback()).expect("loopback binds");
+
+        let mut incoming = listener.listen().await.expect("listening starts");
+        let candidate = Candidate::new(dialler.id(), &listener_addr.to_string())
+            .expect("a socket address is valid candidate syntax");
+
+        let expect = PeerExpectation::Device(listener_store.device_id());
+        let dial = dialler.connect(&candidate, &expect);
+        let accept = incoming.accept();
+
+        let (dial_result, accept_result) = tokio::join!(dial, accept);
+        let dialler_channel = dial_result.expect("dial completes");
+        let listener_channel = accept_result.expect("dial arrives");
+
+        let (mut dial_send, _dial_recv) = dialler_channel
+            .open_bi()
+            .await
+            .expect("dialler opens bi stream");
+        dial_send
+            .write_all(b"ping")
+            .await
+            .expect("dialler writes ping");
+
+        let (_listen_send, mut listen_recv) = listener_channel
+            .accept_bi()
+            .await
+            .expect("listener accepts bi stream");
+        let mut buf = [0u8; 4];
+        let n = listen_recv.read(&mut buf).await.expect("reads ping");
+        assert_eq!(n, 4);
+
+        drop(dialler_channel);
+
+        let drain_task = async {
+            assert!(dialler.close_and_drain(Duration::from_secs(2)).await);
+            drop(dial_send);
+        };
+        let read_task = async {
+            let mut read_buf = [0u8; 4];
+            let read_res =
+                tokio::time::timeout(Duration::from_secs(5), listen_recv.read(&mut read_buf))
+                    .await
+                    .expect("read must complete within timeout");
+            assert!(
+                read_res.is_err(),
+                "read on stream must return error after close_and_drain"
+            );
+        };
+        tokio::join!(drain_task, read_task);
+    })
+    .await
+    .expect("test completes within bound");
+}
