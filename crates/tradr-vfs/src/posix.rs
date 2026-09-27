@@ -6,10 +6,11 @@ use rustix::fs::ResolveFlags;
 use rustix::fs::{AtFlags, Dir, FileType, Mode, OFlags};
 use rustix::io::Errno;
 use std::collections::HashMap;
+use std::os::unix::fs::{FileExt, MetadataExt};
 use std::path::PathBuf;
-use std::sync::RwLock;
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 use tradr_core::{
     BoxFuture, DirEntry, EntryKind, Metadata, ReadAt, RelPath, RootId, UnixTime, Vfs, VfsError,
@@ -24,6 +25,12 @@ use crate::sanitization::{
 struct RootEntry {
     canonical_path: PathBuf,
     read_only: bool,
+}
+
+#[derive(Debug, Clone)]
+struct OpenFileEntry {
+    file: Arc<std::fs::File>,
+    name: String,
 }
 
 #[cfg(target_os = "linux")]
@@ -535,10 +542,62 @@ impl WriteAt for PosixWriteHandle {
     }
 }
 
+#[derive(Debug)]
+struct OpenFileReadHandle {
+    file: Arc<std::fs::File>,
+}
+
+impl ReadAt for OpenFileReadHandle {
+    fn read_at<'a>(
+        &'a self,
+        offset: u64,
+        buf: &'a mut [u8],
+    ) -> BoxFuture<'a, Result<usize, VfsError>> {
+        let file = Arc::clone(&self.file);
+        let len = buf.len();
+        Box::pin(async move {
+            if len == 0 {
+                return Ok(0);
+            }
+            let (res, chunk) = tokio::task::spawn_blocking(move || {
+                let mut chunk = vec![0u8; len];
+                let res = file.read_at(&mut chunk, offset);
+                (res, chunk)
+            })
+            .await
+            .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?;
+
+            let bytes_read = res.map_err(map_io_err)?;
+            buf[..bytes_read].copy_from_slice(&chunk[..bytes_read]);
+            Ok(bytes_read)
+        })
+    }
+}
+
+fn open_file_metadata(file: &std::fs::File) -> Result<Metadata, VfsError> {
+    let meta = file.metadata().map_err(map_io_err)?;
+    Ok(Metadata {
+        kind: EntryKind::File,
+        size_bytes: meta.len(),
+        modified: UnixTime::from_secs(meta.mtime()),
+    })
+}
+
+fn open_file_dir_entry(entry: OpenFileEntry) -> Result<DirEntry, VfsError> {
+    let meta = open_file_metadata(&entry.file)?;
+    Ok(DirEntry {
+        name: entry.name,
+        kind: meta.kind,
+        size_bytes: meta.size_bytes,
+        modified: meta.modified,
+    })
+}
+
 /// POSIX filesystem implementation enforcing Share Root boundaries.
 #[derive(Debug, Default)]
 pub struct PosixVfs {
     roots: RwLock<HashMap<u64, RootEntry>>,
+    open_files: RwLock<HashMap<u64, OpenFileEntry>>,
     scratch_dir: Option<PathBuf>,
 }
 
@@ -547,6 +606,7 @@ impl PosixVfs {
     pub fn new() -> Self {
         Self {
             roots: RwLock::new(HashMap::new()),
+            open_files: RwLock::new(HashMap::new()),
             scratch_dir: None,
         }
     }
@@ -566,6 +626,37 @@ impl PosixVfs {
         .map_err(map_io_err)
     }
 
+    /// An open file the platform handed over becomes a root the sender reads by name,
+    /// so no path is ever assembled for it.
+    pub fn register_open_file(
+        &self,
+        root: RootId,
+        file: std::fs::File,
+        name: &str,
+    ) -> Result<(), VfsError> {
+        let rel = RelPath::new(name).map_err(|_| VfsError::OutsideRoot)?;
+        if rel.components().count() != 1 {
+            return Err(VfsError::OutsideRoot);
+        }
+        let mut roots = self
+            .roots
+            .write()
+            .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?;
+        let mut open_files = self
+            .open_files
+            .write()
+            .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?;
+        roots.remove(&root.value());
+        open_files.insert(
+            root.value(),
+            OpenFileEntry {
+                file: Arc::new(file),
+                name: name.to_string(),
+            },
+        );
+        Ok(())
+    }
+
     /// Registers a filesystem boundary for a given `RootId`.
     pub fn register_root(
         &self,
@@ -578,6 +669,11 @@ impl PosixVfs {
             .roots
             .write()
             .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?;
+        let mut open_files = self
+            .open_files
+            .write()
+            .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?;
+        open_files.remove(&root.value());
         roots.insert(
             root.value(),
             RootEntry {
@@ -596,8 +692,27 @@ impl PosixVfs {
         roots.get(&root.value()).cloned().ok_or(VfsError::NotFound)
     }
 
+    fn get_open_file(&self, root: RootId) -> Result<Option<OpenFileEntry>, VfsError> {
+        let open_files = self
+            .open_files
+            .read()
+            .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?;
+        Ok(open_files.get(&root.value()).cloned())
+    }
+
+    fn has_open_file(&self, root: RootId) -> Result<bool, VfsError> {
+        let open_files = self
+            .open_files
+            .read()
+            .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?;
+        Ok(open_files.contains_key(&root.value()))
+    }
+
     /// Lists entries in the partial staging root directory (DCR-155).
     pub async fn list_partial_root(&self, root: RootId) -> Result<Vec<DirEntry>, VfsError> {
+        if self.has_open_file(root)? {
+            return Err(VfsError::WrongKind);
+        }
         let root_entry = self.get_root(root)?;
         let at = partial_root_rel_path();
         let res = tokio::task::spawn_blocking(move || list_dir_sync(&root_entry, &at))
@@ -619,6 +734,15 @@ impl Vfs for PosixVfs {
     ) -> BoxFuture<'a, Result<Vec<DirEntry>, VfsError>> {
         let at = at.clone();
         Box::pin(async move {
+            if let Some(entry) = self.get_open_file(root)? {
+                if !at.as_str().is_empty() {
+                    return Err(VfsError::NotFound);
+                }
+                let dir_entry = tokio::task::spawn_blocking(move || open_file_dir_entry(entry))
+                    .await
+                    .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))??;
+                return Ok(vec![dir_entry]);
+            }
             let root_entry = self.get_root(root)?;
             tokio::task::spawn_blocking(move || list_sync(&root_entry, &at))
                 .await
@@ -633,6 +757,15 @@ impl Vfs for PosixVfs {
     ) -> BoxFuture<'a, Result<Metadata, VfsError>> {
         let at = at.clone();
         Box::pin(async move {
+            if let Some(entry) = self.get_open_file(root)? {
+                if at.as_str() != entry.name {
+                    return Err(VfsError::NotFound);
+                }
+                let meta = tokio::task::spawn_blocking(move || open_file_metadata(&entry.file))
+                    .await
+                    .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))??;
+                return Ok(meta);
+            }
             let root_entry = self.get_root(root)?;
             tokio::task::spawn_blocking(move || stat_sync(&root_entry, &at))
                 .await
@@ -647,6 +780,13 @@ impl Vfs for PosixVfs {
     ) -> BoxFuture<'a, Result<Box<dyn ReadAt>, VfsError>> {
         let at = at.clone();
         Box::pin(async move {
+            if let Some(entry) = self.get_open_file(root)? {
+                if at.as_str() != entry.name {
+                    return Err(VfsError::NotFound);
+                }
+                let handle: Box<dyn ReadAt> = Box::new(OpenFileReadHandle { file: entry.file });
+                return Ok(handle);
+            }
             let root_entry = self.get_root(root)?;
             let std_file = tokio::task::spawn_blocking(move || open_read_sync(&root_entry, &at))
                 .await
@@ -663,6 +803,9 @@ impl Vfs for PosixVfs {
     ) -> BoxFuture<'a, Result<(), VfsError>> {
         let at = at.clone();
         Box::pin(async move {
+            if self.has_open_file(root)? {
+                return Err(VfsError::ReadOnly);
+            }
             let root_entry = self.get_root(root)?;
             tokio::task::spawn_blocking(move || create_dir_sync(&root_entry, &at))
                 .await
@@ -677,6 +820,9 @@ impl Vfs for PosixVfs {
     ) -> BoxFuture<'a, Result<Box<dyn WriteAt>, VfsError>> {
         let at = at.clone();
         Box::pin(async move {
+            if self.has_open_file(root)? {
+                return Err(VfsError::ReadOnly);
+            }
             let root_entry = self.get_root(root)?;
             let std_file = tokio::task::spawn_blocking(move || open_write_sync(&root_entry, &at))
                 .await
@@ -695,6 +841,9 @@ impl Vfs for PosixVfs {
         let from = from.clone();
         let to = to.clone();
         Box::pin(async move {
+            if self.has_open_file(root)? {
+                return Err(VfsError::ReadOnly);
+            }
             let root_entry = self.get_root(root)?;
             tokio::task::spawn_blocking(move || rename_sync(&root_entry, &from, &to))
                 .await
@@ -705,6 +854,9 @@ impl Vfs for PosixVfs {
     fn remove<'a>(&'a self, root: RootId, at: &'a RelPath) -> BoxFuture<'a, Result<(), VfsError>> {
         let at = at.clone();
         Box::pin(async move {
+            if self.has_open_file(root)? {
+                return Err(VfsError::ReadOnly);
+            }
             let root_entry = self.get_root(root)?;
             tokio::task::spawn_blocking(move || remove_sync(&root_entry, &at))
                 .await
