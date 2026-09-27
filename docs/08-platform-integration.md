@@ -92,9 +92,8 @@ On the Kotlin side:
 
 1. Take the `content://` URIs from `Intent.EXTRA_STREAM`, singular or plural
 2. **Never hand the URI straight to Rust.** A `content://` URI's permission is bound to the Intent and expires when the Activity does. `takePersistableUriPermission` applies only to `ACTION_OPEN_DOCUMENT` and friends, never to an `ACTION_SEND` URI
-3. So, while the Activity lives, either read through `ContentResolver.openInputStream` into the app cache, or obtain a `ParcelFileDescriptor` and pass the fd to Rust
-   - **Under 50 MB: copy to cache.** Simple and certain
-   - **Larger: pass the fd.** Avoids the copy cost and the storage consumption. The fd stays valid as long as the process holds it
+3. So, while the Activity lives, obtain a `ParcelFileDescriptor`, detach it, and pass the descriptor to Rust, **whatever the file's size** ([ADR-0023](adr/0023-one-unsafe-call-adopts-an-android-descriptor.md), which retired the rule that files under 50 MB were copied into the cache). Rust adopts it once, on arrival, as a single-file root in `tradr-vfs`
+   - **A descriptor that cannot be read at an offset** (`statSize < 0`, a pipe some cloud providers answer) is copied into the cache instead, and the cache copies are swept when the plugin next starts
 4. Take the filename from `DocumentsContract.Document.COLUMN_DISPLAY_NAME`; the tail of a URI is not necessarily a name
 5. Show the destination picker, or send immediately if one is already chosen
 
@@ -109,7 +108,7 @@ On the Kotlin side:
 - A plugin command `pick_files_to_send` launches `ACTION_OPEN_DOCUMENT` with `EXTRA_ALLOW_MULTIPLE`, the shape `pick_share_root` already has for `ACTION_OPEN_DOCUMENT_TREE`
 - Each URI the picker answers is processed exactly as a share-sheet URI is, by the same function, so the two surfaces cannot drift
 - It answers the same payload the share intent carries. On a platform where the command does not apply it answers "not here", and the front end uses the dialog plugin, whose answers are paths there
-- **An entry that arrives as an fd and not as a cache path is refused by the front end with a message naming the 50 MB limit**, on both surfaces. Nothing reads the fd today (DF-113), and staging the bare name instead, which the share-sheet handler did, only moves the same refusal to a less legible place
+- **An entry that arrives as a descriptor is staged by the opaque id the plugin's registry gave it** ([ADR-0023](adr/0023-one-unsafe-call-adopts-an-android-descriptor.md)); this bullet said such an entry was refused naming the 50 MB limit, which was DCR-159's holding answer while nothing read a descriptor
 
 ### Putting destinations directly in the share sheet
 

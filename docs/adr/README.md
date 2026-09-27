@@ -26,3 +26,4 @@ Decisions and the reasoning behind them. To change a decision, write a new ADR a
 | [0020](0020-noise-xx-for-ble-gatt.md) | `ble-gatt` uses `Noise_XX`, and the handshake payload carries the identity join | Accepted |
 | [0021](0021-macos-is-scan-only-on-ble.md) | macOS is scan-only on BLE, because CoreBluetooth will not advertise Service Data | Accepted |
 | [0022](0022-android-stays-resident-to-receive.md) | Android stays resident to receive, once the app has been opened | Accepted |
+| [0023](0023-one-unsafe-call-adopts-an-android-descriptor.md) | One `unsafe` call adopts a file descriptor Android hands over | Accepted |
