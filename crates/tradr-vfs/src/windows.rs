@@ -371,13 +371,30 @@ impl WriteAt for WindowsWriteHandle {
 #[derive(Debug, Default)]
 pub struct WindowsVfs {
     roots: RwLock<HashMap<u64, RootEntry>>,
+    scratch_dir: Option<PathBuf>,
 }
 
 impl WindowsVfs {
     pub fn new() -> Self {
         Self {
             roots: RwLock::new(HashMap::new()),
+            scratch_dir: None,
         }
+    }
+
+    /// Configures the directory where anonymous scratch files are created.
+    pub fn with_scratch_dir(mut self, dir: PathBuf) -> Self {
+        self.scratch_dir = Some(dir);
+        self
+    }
+
+    /// Allocates an anonymous scratch file for spooling temporary data.
+    pub fn scratch_file(&self) -> Result<std::fs::File, VfsError> {
+        match &self.scratch_dir {
+            Some(dir) => tempfile::tempfile_in(dir),
+            None => tempfile::tempfile_in(std::env::temp_dir()),
+        }
+        .map_err(map_io_err)
     }
 
     pub fn register_root(

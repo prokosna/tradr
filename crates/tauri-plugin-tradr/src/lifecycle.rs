@@ -181,6 +181,15 @@ pub fn init_lifecycle<R: Runtime>(
     std::fs::create_dir_all(&downloads_dir)
         .map_err(|e| format!("could not create downloads directory: {e}"))?;
 
+    #[cfg(target_os = "android")]
+    let vfs = {
+        let app_cache_dir = app
+            .path()
+            .app_cache_dir()
+            .map_err(|e| format!("could not resolve app cache directory: {e}"))?;
+        Arc::new(NativeVfs::new().with_scratch_dir(app_cache_dir))
+    };
+    #[cfg(not(target_os = "android"))]
     let vfs = Arc::new(NativeVfs::new());
     vfs.register_root(downloads_root_id(), downloads_dir, false)
         .map_err(|e| format!("could not register downloads root: {e}"))?;
