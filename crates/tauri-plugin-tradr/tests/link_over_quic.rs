@@ -15,6 +15,7 @@ use rsa::{RsaPrivateKey, RsaPublicKey};
 use sha2::Sha256;
 
 use tauri_plugin_tradr::link_commands::{ReplierDeps, execute_send_link_reply};
+use tradr_app::browse_access::BrowseAccess;
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::link_exchange::{LinkDecision, LinkOutcome};
 use tradr_app::link_invite::{
@@ -339,6 +340,7 @@ async fn run_test() {
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
+            browse_access: Arc::new(BrowseAccess::new()),
         };
 
         let inviter_vfs = NativeVfs::new();

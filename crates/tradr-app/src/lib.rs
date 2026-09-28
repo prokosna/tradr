@@ -7,6 +7,7 @@ pub mod adopted;
 pub mod attestation;
 pub mod broadcast_secrets;
 pub mod browse;
+pub mod browse_access;
 pub mod capabilities;
 pub mod handshake;
 pub mod identity;

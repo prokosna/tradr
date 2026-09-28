@@ -23,6 +23,7 @@ use tradr_proto::link::{LinkFrameError, decode_link_reply_frame};
 use tradr_proto::message_type::{Classification, MessageType, Plane, classify};
 use tradr_vfs::{NativeVfs, partial_dir_rel_path, partial_file_rel_path};
 
+use crate::browse_access::BrowseAccess;
 use crate::capabilities::LocalCapabilities;
 use crate::handshake::{HandshakeError, HandshakeParams, perform_handshake_after_peer_hello};
 use crate::link_exchange::{LinkExchangeError, LinkOutcome};
@@ -75,6 +76,8 @@ pub struct ListenerParams<'a> {
     /// Where this device's declared capability set is read from,
     /// fresh for each connection rather than captured once at startup.
     pub our_capabilities: Arc<LocalCapabilities>,
+    /// Remembers per authenticated device whether it is permitted to browse this device's folder.
+    pub browse_access: Arc<BrowseAccess>,
 }
 
 /// Errors occurring during incoming transfer acceptance and session execution.
@@ -578,6 +581,13 @@ where
                     stream_res = channel.accept_bi() => {
                         let (mut browse_send, mut browse_recv) =
                             stream_res.map_err(ListenerError::Transport)?;
+                        if !params.browse_access.allowed(channel.peer()) {
+                            eprintln!("listener: peer {} has no access", channel.peer());
+                            if let Err(e) = browse_send.finish().await {
+                                eprintln!("listener: closing browse stream failed: {e}");
+                            }
+                            return Ok(Vec::new());
+                        }
                         let codec = tradr_proto::browse::ProtoBrowseCodec::new(channel.max_frame_size());
                         if let Err(e) = tradr_core::handle_browse_stream(
                             browse_recv.as_mut(),
@@ -742,6 +752,7 @@ pub async fn run_listener<F, Fut>(
     our_attestation: Arc<dyn OwnAttestation>,
     root: RootId,
     capabilities: Arc<LocalCapabilities>,
+    browse_access: Arc<BrowseAccess>,
     services: ListenerServices<'_>,
     verify_attestation: F,
     link_service: Option<Arc<dyn LinkStreamService>>,
@@ -776,6 +787,7 @@ where
         our_key_binding: key_binding,
         our_versions: versions,
         our_capabilities: capabilities,
+        browse_access,
     };
 
     listen_for_transfers(

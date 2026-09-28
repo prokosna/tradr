@@ -11,6 +11,7 @@ use tradr_identity::{LinkRegistry, OsRng, SystemClock};
 use tradr_integrity::BaoVerifier;
 use tradr_vfs::NativeVfs;
 
+use crate::browse_access::BrowseAccess;
 use crate::capabilities::LocalCapabilities;
 use crate::peer_trust::{HttpsJwksFetch, PeerTrust};
 use crate::sign_in::{OAuthConfig, SignInState};
@@ -86,6 +87,8 @@ pub async fn run_receive(
             )
         })?;
 
+    let browse_access = Arc::new(BrowseAccess::new());
+
     let verifier: Arc<
         dyn Fn(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>> + Send + Sync,
     > = {
@@ -93,12 +96,14 @@ pub async fn run_receive(
         let sign_in_state = Arc::clone(&sign_in_state);
         let link_registry = Arc::clone(&link_registry);
         let clock: Arc<dyn Clock + Send + Sync> = Arc::new(SystemClock);
+        let access = Arc::clone(&browse_access);
         Arc::new(move |req: AttestationRequest| {
-            sign_in::peer_verifier(
+            sign_in::listener_peer_verifier(
                 Arc::clone(&peer_trust),
                 Arc::clone(&sign_in_state),
                 Arc::clone(&link_registry),
                 Arc::clone(&clock),
+                Arc::clone(&access),
             )(req)
         })
     };
@@ -119,6 +124,7 @@ pub async fn run_receive(
         sign_in_state,
         receive_root_id(),
         capabilities,
+        Arc::clone(&browse_access),
         listener::ListenerServices {
             rng: &OsRng,
             clock: &SystemClock,

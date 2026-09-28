@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use tradr_app::browse_access::BrowseAccess;
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::handshake::{HandshakeParams, perform_handshake};
 use tradr_app::listener::{
@@ -413,6 +414,7 @@ async fn single_file_transfer_via_listener_end_to_end() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(999);
@@ -578,6 +580,7 @@ async fn multiple_files_transfer_via_listener() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(111);
@@ -785,6 +788,7 @@ async fn resumed_transfer_via_listener_skips_existing_chunks() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(333);
@@ -963,6 +967,7 @@ async fn selective_item_acceptance_declines_filtered_items() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(555);
@@ -1091,6 +1096,7 @@ async fn listener_refuses_when_peer_attestation_fails() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(777);
@@ -1182,6 +1188,7 @@ async fn unknown_control_plane_messages_ignored_before_offer() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(1212);
@@ -1341,6 +1348,7 @@ async fn accept_and_handle_transfer_from_mock_incoming() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(5678);
@@ -1469,6 +1477,7 @@ async fn listen_for_transfers_terminates_on_closed_incoming() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(9999);
@@ -1518,6 +1527,7 @@ async fn listen_for_transfers_reads_capabilities_fresh_per_connection() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::clone(&capabilities),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(9999);
@@ -1659,6 +1669,7 @@ async fn listen_for_transfers_reports_each_placed_path() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(5678);
@@ -1921,6 +1932,7 @@ async fn run_listener_reports_each_placed_path() {
         Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         root_receiver,
         Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        Arc::new(BrowseAccess::new()),
         services,
         |_| async { Ok(TrustTier::SameAccount) },
         None,
@@ -1997,6 +2009,7 @@ async fn listen_for_transfers_does_not_report_an_offer_with_every_item_declined(
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(555);
@@ -2150,6 +2163,7 @@ async fn failure_before_any_stream_names_the_peer() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(123);
@@ -2229,6 +2243,7 @@ async fn failure_after_the_handshake_is_in_the_offer_phase() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_task = handle_incoming_channel(
@@ -2311,6 +2326,7 @@ async fn a_peer_closing_after_the_handshake_fails_in_the_offer_phase() {
             our_key_binding: receiver_binding.clone(),
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+            browse_access: Arc::new(BrowseAccess::new()),
         };
 
         let listener_task = handle_incoming_channel(
@@ -2404,6 +2420,7 @@ async fn failure_between_items_names_the_item() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let listener_rng = SeededRng::new(111);
@@ -2593,6 +2610,7 @@ async fn run_listener_sweeps_a_stale_partial_directory_before_accepting() {
         Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         root_receiver,
         Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        Arc::new(BrowseAccess::new()),
         services,
         |_| async { Ok(TrustTier::SameAccount) },
         None,
@@ -2653,6 +2671,7 @@ async fn run_listener_keeps_a_fresh_partial_directory() {
         Arc::new(FixedAttestation("mock-token-receiver".to_string())),
         root_receiver,
         Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        Arc::new(BrowseAccess::new()),
         services,
         |_| async { Ok(TrustTier::SameAccount) },
         None,

@@ -23,6 +23,7 @@ use crate::identity::IdentityState;
 use crate::link_registry::LinkRegistryState;
 use crate::peer_trust::PeerTrustState;
 use tradr_app::broadcast_secrets::DeviceBroadcastSecrets;
+use tradr_app::browse_access::BrowseAccess;
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::link_invite::{
     LinkInviteState, LinkProposalDto, LinkService, LinkServiceParts, ProposalSink,
@@ -34,7 +35,7 @@ use tradr_app::network::{
     bind_quic_transport, device_txt_record, mdns_daemon, register_advertisement,
 };
 use tradr_app::peer_trust::OwnAttestation;
-use tradr_app::sign_in::SignInState;
+use tradr_app::sign_in::{SignInState, listener_peer_verifier};
 
 #[cfg(target_os = "android")]
 use crate::ble_gatt_android::{AcceptorPeripheral, AndroidGattAcceptor};
@@ -77,6 +78,7 @@ pub struct TransferListener {
     our_attestation: Arc<dyn OwnAttestation>,
     root: RootId,
     capabilities: Arc<LocalCapabilities>,
+    browse_access: Arc<BrowseAccess>,
     verify_attestation: Arc<
         dyn Fn(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>> + Send + Sync,
     >,
@@ -117,6 +119,7 @@ impl TransferListener {
             Arc::clone(&self.our_attestation),
             self.root,
             Arc::clone(&self.capabilities),
+            Arc::clone(&self.browse_access),
             services,
             move |req| verifier(req),
             self.link_service.clone(),
@@ -216,41 +219,27 @@ pub fn init_lifecycle<R: Runtime>(
     // rather than aborting the listener: a fresh clone with no configured
     // OAuth client ids still accepts channels, it just cannot yet promote
     // any of them past the handshake.
+    let browse_access = Arc::new(BrowseAccess::new());
+
     let peer_trust = peer_trust_state.peer_trust();
     let sign_in_for_verify = sign_in_state.clone();
     // Reported the same way as `peer_trust` above, through `let links =
     // links?;` inside the closure, rather than substituting an empty list.
     let link_registry = link_registry_state.registry();
 
+    let access_for_verify = Arc::clone(&browse_access);
     let verify_attestation: Arc<
         dyn Fn(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>> + Send + Sync,
     > = Arc::new(move |req: AttestationRequest| {
         let peer_trust = peer_trust.clone();
         let sign_in = sign_in_for_verify.clone();
         let links = link_registry.clone();
+        let access = Arc::clone(&access_for_verify);
         Box::pin(async move {
             let trust = peer_trust?;
-            let own_account = sign_in.own_account();
-            // Read out and drop the guard before this block ends,
-            // so no `std::sync::Mutex` guard is ever held across
-            // the `.await` in `trust.classify` below.
-            let linked_accounts = {
-                let links = links?;
-                let links = links
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                links.linked_accounts()
-            };
-            trust
-                .classify(
-                    req.token(),
-                    req.identity_pub(),
-                    req.agreement_pub(),
-                    own_account.as_ref(),
-                    &linked_accounts,
-                    &SystemClock,
-                )
-                .await
+            let links = links?;
+            let clock = Arc::new(SystemClock);
+            listener_peer_verifier(trust, sign_in, links, clock, access)(req).await
         })
     });
 
@@ -272,6 +261,7 @@ pub fn init_lifecycle<R: Runtime>(
         our_attestation: sign_in_state.clone(),
         root: downloads_root_id(),
         capabilities: capabilities.clone(),
+        browse_access,
         verify_attestation,
         link_service: Some(link_service),
     });
