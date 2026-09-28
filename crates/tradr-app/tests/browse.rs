@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use tradr_app::browse::{execute_download_file, execute_list_peer_directory};
+use tradr_app::browse_access::BrowseAccess;
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::listener::{ListenerParams, handle_incoming_channel};
 use tradr_app::peer_trust::OwnAttestation;
@@ -73,6 +74,9 @@ async fn list_peer_directory_succeeds_over_quic_loopback() {
     let rx_store_clone = server_store.clone();
     let rx_vfs_clone = server_vfs.clone();
 
+    let access = Arc::new(BrowseAccess::new());
+    access.record(client_id.device_id(), true);
+
     let server_handle = tokio::spawn(async move {
         let channel = incoming.accept().await.expect("accept channel");
         let clock = SystemClock;
@@ -90,6 +94,7 @@ async fn list_peer_directory_succeeds_over_quic_loopback() {
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
+            browse_access: access,
         };
 
         let res = handle_incoming_channel(
@@ -191,6 +196,9 @@ async fn list_peer_nested_directory_succeeds() {
     let rx_store_clone = server_store.clone();
     let rx_vfs_clone = server_vfs.clone();
 
+    let access = Arc::new(BrowseAccess::new());
+    access.record(client_id.device_id(), true);
+
     let server_handle = tokio::spawn(async move {
         let channel = incoming.accept().await.expect("accept channel");
         let clock = SystemClock;
@@ -208,6 +216,7 @@ async fn list_peer_nested_directory_succeeds() {
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
+            browse_access: access,
         };
 
         let res = handle_incoming_channel(
@@ -300,6 +309,9 @@ async fn download_file_succeeds_over_quic_loopback() {
     let rx_store_clone = server_store.clone();
     let rx_vfs_clone = server_vfs.clone();
 
+    let access = Arc::new(BrowseAccess::new());
+    access.record(client_id.device_id(), true);
+
     let server_handle = tokio::spawn(async move {
         let channel = incoming.accept().await.expect("accept channel");
         let clock = SystemClock;
@@ -317,6 +329,7 @@ async fn download_file_succeeds_over_quic_loopback() {
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
+            browse_access: access,
         };
 
         let res = handle_incoming_channel(

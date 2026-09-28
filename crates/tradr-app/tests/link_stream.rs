@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use tradr_app::browse_access::BrowseAccess;
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::handshake::{HandshakeParams, perform_handshake};
 use tradr_app::link_exchange::{
@@ -1149,6 +1150,7 @@ async fn a_hello_first_frame_still_completes_the_ordinary_handshake() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).expect("valid range"),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
 
     let hello_seen = Arc::new(Mutex::new(false));
@@ -1213,6 +1215,7 @@ async fn a_linkreply_first_frame_with_a_service_reaches_it() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).expect("valid range"),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
     let listener_rng = SeededRng::new(2);
 
@@ -1273,6 +1276,7 @@ async fn a_linkreply_first_frame_with_no_service_is_refused() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).expect("valid range"),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
     let listener_rng = SeededRng::new(2);
 
@@ -1323,6 +1327,7 @@ async fn an_unassigned_control_code_as_the_first_frame_is_refused() {
         our_key_binding: receiver_binding,
         our_versions: VersionRange::new(1, 1).expect("valid range"),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
     };
     let listener_rng = SeededRng::new(2);
 

@@ -8,6 +8,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tradr_app::browse_access::BrowseAccess;
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::listener::{ListenerParams, handle_incoming_channel};
 use tradr_app::peer_trust::OwnAttestation;
@@ -117,6 +118,7 @@ async fn run_test() {
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
+            browse_access: Arc::new(BrowseAccess::new()),
         };
 
         let res = handle_incoming_channel(

@@ -20,7 +20,7 @@ use serde::Serialize;
 
 #[cfg(not(target_os = "android"))]
 use tradr_core::Rng;
-use tradr_core::{BoxFuture, Clock, PublicIdentity, TrustTier};
+use tradr_core::{BoxFuture, Clock, DeviceId, PublicIdentity, TrustTier};
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{
     AccountId, AttestationPolicy, LinkRegistry, Platform, ProviderProfile, classify_with_profile,
@@ -34,6 +34,7 @@ use tradr_oidc::{
 };
 
 use crate::attestation::{FUTURE_SKEW_LIMIT_SECS, STALENESS_LIMIT_SECS};
+use crate::browse_access::BrowseAccess;
 use crate::kept_sign_in::SIGN_IN_REUSE_LIMIT_SECS;
 #[cfg(not(target_os = "android"))]
 use crate::kept_sign_in::{keep_token, load_kept_token};
@@ -638,6 +639,65 @@ pub fn peer_verifier(
                     &*clock,
                 )
                 .await
+        })
+    }
+}
+
+/// Builds the verifier closure for the transfer listener, recording whether authenticated peers may access the folder.
+pub fn listener_peer_verifier(
+    trust: Arc<PeerTrust>,
+    sign_in: Arc<SignInState>,
+    links: Arc<std::sync::Mutex<LinkRegistry>>,
+    clock: Arc<dyn Clock + Send + Sync>,
+    access: Arc<BrowseAccess>,
+) -> impl FnOnce(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>> {
+    move |req: AttestationRequest| {
+        Box::pin(async move {
+            let own_account = sign_in.own_account();
+            // Read out and drop the guard before classifying: the registry must never stay locked across an await.
+            let (linked_accounts, full_access_accounts) = {
+                let registry = links
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                (registry.linked_accounts(), registry.full_access_accounts())
+            };
+            let tier = trust
+                .classify(
+                    req.token(),
+                    req.identity_pub(),
+                    req.agreement_pub(),
+                    own_account.as_ref(),
+                    &linked_accounts,
+                    &*clock,
+                )
+                .await?;
+
+            let device = DeviceId::from_identity_digest(
+                blake3::hash(req.identity_pub().as_bytes()).as_bytes(),
+            );
+            match tier {
+                TrustTier::SameAccount => {
+                    access.record(device, true);
+                }
+                TrustTier::Linked => {
+                    let full_access_result = trust
+                        .classify(
+                            req.token(),
+                            req.identity_pub(),
+                            req.agreement_pub(),
+                            own_account.as_ref(),
+                            &full_access_accounts,
+                            &*clock,
+                        )
+                        .await;
+                    let granted = matches!(full_access_result, Ok(TrustTier::Linked));
+                    access.record(device, granted);
+                }
+                _ => {
+                    access.record(device, false);
+                }
+            }
+            Ok(tier)
         })
     }
 }

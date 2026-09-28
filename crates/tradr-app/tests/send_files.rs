@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tradr_app::browse_access::BrowseAccess;
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::listener::{ListenerParams, handle_incoming_channel};
 use tradr_app::peer_trust::OwnAttestation;
@@ -95,6 +96,7 @@ async fn send_files_end_to_end_over_quic_loopback() {
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
+            browse_access: Arc::new(BrowseAccess::new()),
         };
 
         let res = handle_incoming_channel(
@@ -221,6 +223,7 @@ async fn send_files_respects_receiver_item_filtering() {
             our_key_binding,
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
+            browse_access: Arc::new(BrowseAccess::new()),
         };
 
         let filter = |item: &tradr_core::OfferItem| item.rel_path().as_str() != "rejected.txt";
