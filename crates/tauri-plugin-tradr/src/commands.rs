@@ -312,7 +312,6 @@ pub async fn download_file<R: tauri::Runtime>(
     peer_id: String,
     share_id: String,
     path: String,
-    dest_path: String,
     identity_state: State<'_, IdentityState>,
     sign_in_state: State<'_, Arc<SignInState>>,
     peer_trust_state: State<'_, PeerTrustState>,
@@ -322,6 +321,7 @@ pub async fn download_file<R: tauri::Runtime>(
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
     transports: State<'_, Arc<TransportSet>>,
+    vfs: State<'_, Arc<NativeVfs>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<u64, String> {
     let self_id = identity_state.public_identity()?.device_id();
@@ -363,20 +363,30 @@ pub async fn download_file<R: tauri::Runtime>(
         .map_err(|e| format!("invalid share_id '{share_id}': {e}"))?;
     let parsed_path =
         RelPath::new(&path).map_err(|e| format!("invalid relative path '{path}': {e}"))?;
-    let dest_path_buf = std::path::PathBuf::from(dest_path);
+    let file_name = path
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&path);
+    let dest = RelPath::new(file_name)
+        .map_err(|e| format!("invalid destination file name '{file_name}': {e}"))?;
 
-    execute_download_file(
+    let (bytes_written, _placed_at) = execute_download_file(
         channel.as_ref(),
         parsed_share_id,
         parsed_path,
-        &dest_path_buf,
+        vfs.as_ref(),
+        downloads_root_id(),
+        dest,
         &public_identity,
         key_store.as_ref(),
         attestation_token,
         capabilities.get(),
         verify_attestation,
     )
-    .await
+    .await?;
+
+    Ok(bytes_written)
 }
 
 /// Publishes dynamic sharing shortcuts to the platform share sheet.
