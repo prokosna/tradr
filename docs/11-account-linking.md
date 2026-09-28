@@ -249,7 +249,8 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
       "peer_sub": "9273...",          // subject, unique only within that issuer
       "peer_label": "Bob",            // display only, dropped when absent
       "created_at": 1756684800,       // seconds since the Unix epoch
-      "fingerprint_verified": true
+      "fingerprint_verified": true,
+      "full_access": false            // ADR-0024; absent reads as false
     }
   ]
 }
@@ -266,6 +267,8 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
 **`policy` and `known_devices` are left out on the same grounds**: nothing reads either one, and a per-Link transfer policy is a decision open decision 9 has not settled. Both return when something consults them.
 
 **What is here is what the milestone's own criterion needs**: the account, so `AttestationPolicy::linked_accounts` stops being `&[]`; the `link_id`, so removal names one Link; and `fingerprint_verified`, which the exchange writes and docs/05's changed-fingerprint refusal will read.
+
+**`full_access` was added on 2026-09-28 by ADR-0024 (DCR-167).** When `true`, the devices of that account may read and write this device's folder over the Browse plane exactly as this account's own devices may. It is `false` for every new Link, is set only by the person on this device, and grants nothing in the other direction. A file written before the field existed has no such key, and it reads as `false`, so upgrading grants no one anything.
 
 #### What the registry refuses
 
