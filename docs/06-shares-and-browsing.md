@@ -133,3 +133,25 @@ A `Watch` request establishes a continuous stream of `FsEvent` messages. The pro
 
 ### Downloading Files
 A file read begins by opening a new, dedicated bidirectional QUIC stream. The requester sends a `ReadFile` message on this stream. The provider validates the request, responds with `ReadFileBegin` on the same stream, and then immediately transmits the raw file bytes on that same stream until EOF. This avoids both head-of-line blocking on the main Browse stream and the need for separate correlation IDs.
+
+## Defining a Share -- a proposal awaiting decisions (DF-109)
+
+> **Not yet ruled. No Work Item may be cut from this section** until the user has answered decision 16 in [STATE.md](../STATE.md) and the answers have been written back here as a DCR. It was drafted on 2026-09-28 from a reading of the code, and it records what that reading found.
+
+### What the code does today, read on 2026-09-28
+
+- **The Browse plane ignores the Share and the peer.** `handle_browse_stream` in `crates/tradr-core/src/browse.rs` takes the listener's one `RootId` and answers `ListDir`, `Stat` and `ReadFile` against it whatever `share_id` says, without being told the peer's Trust Tier. That root is the receive directory -- the downloads directory on the desktop and on Android, and the directory `tradr receive` was given. **So every device that completes a handshake can list and download everything in it**, and since only `SameAccount` and `Linked` peers complete one (`ephemeral_receive` is `false` everywhere), that means the devices of every linked account as well as one's own. This is DF-120
+- `get_visible_shares` answers one constant entry without contacting the peer, and `HelloAck.visible_shares` is written empty, as DF-109 records
+- `WriteFile`, `Mkdir`, `Delete`, `Rename` and `Watch` are decoded and refused; nothing implements `rw`, live updates or `limits`
+- `ReadFileBegin.content_hash` is 32 zero bytes, so a download over the Browse plane is not verified against anything
+- **M3's record says a device "browsed a peer's configured Share"; no Share could be configured**, so what was browsed was the receive directory under the constant `share_id`. M3's own completion criterion -- the adversarial path suite -- was met and still is
+
+### The proposal
+
+1. **A store of Share definitions on the device**, `shares.json` in the application data directory beside `static-peers.json` and the Link registry, written atomically the way those two are. A record is docs/06's JSON above: `share_id` (UUIDv7), `label`, `root`, `mode`, `audience`, `enabled`. `limits` is left out until something enforces it, as DF-28 argues for fields nothing reads. It lives in `tradr-app` so both front ends share it
+2. **The listener resolves `share_id` before any `Vfs` call.** Each enabled Share is registered as its own `RootId`, `read_only` when its mode is `ro`, and `handle_browse_stream` is handed a resolver instead of one root. A request is served only when `allow(peer, share, operation)` above holds; otherwise it is refused with the same answer as a Share that does not exist, so a peer cannot probe for Shares it may not see. **The receive directory stops being browsable** unless someone defines a Share over it
+3. **`allow` needs to know which Link a linked peer came through**, and today the handshake yields a bare `TrustTier`. The session has to carry the peer's `AccountId` so that `link:<link_id>` can be matched against the Link registry. This is the one change that reaches the handshake's signature
+4. **`HelloAck.visible_shares` is filled per peer** from the same `allow`, read-only operation, and `get_visible_shares` performs the handshake and answers what the peer sent, instead of a constant
+5. **Defining a Share**: in the GUI, a Shares panel -- choose a directory (the desktop's folder dialog, or the SAF tree picker `pick_share_root` already has on Android), a label, `ro`/`rw`, an Audience of "my devices" and any of the current Links, an on/off switch, and remove. In the CLI, `tradr share add <dir> --label <l> [--link <id>]...`, `tradr share list` and `tradr share remove <id>`, served while `tradr receive` runs
+6. **Android as the serving side needs DF-110's `SafBridge`**, a Kotlin `DocumentFile` walk behind `SafVfs`; until then an Android device browses other devices and serves nothing
+7. **Out of this proposal unless the user says otherwise**: `rw` (the write messages, and decision 11's default write limit), `Watch`, `limits`, and a verified `content_hash` on `ReadFileBegin`, each its own later Work Item
