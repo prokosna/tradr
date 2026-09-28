@@ -1762,7 +1762,7 @@ ADR-0005 asks for something specific: **CI runs the Tier 0 and Tier 1 integratio
 
 ## Closed milestones: M2, M3 and M4
 
-Their Work Item rows, moved out of `STATE.md`'s current-milestone table on 2026-08-31 when M5 opened. **M2's criterion was met on 2026-08-30**: the user chose a photo in the Android gallery and delivered it to a PC through Tradr's share sheet. **M3's was met the same day**: a device browsed a peer's configured Share and downloaded a file over the Browse plane. **M4's was met on 2026-08-31**, with signing for macOS and Windows in CI.
+Their Work Item rows, moved out of `STATE.md`'s current-milestone table on 2026-08-31 when M5 opened. **M2's criterion was met on 2026-08-30**: the user chose a photo in the Android gallery and delivered it to a PC through Tradr's share sheet. **M3's was met the same day**: a device browsed a peer's configured Share and downloaded a file over the Browse plane. **Corrected 2026-09-28 (DF-109, DF-120): no Share could be configured; what was browsed was the receive directory under a constant `share_id`. M3's own criterion, the adversarial path suite, is what was met.** **M4's was met on 2026-08-31**, with signing for macOS and Windows in CI.
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
