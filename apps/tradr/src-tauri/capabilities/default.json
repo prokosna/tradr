@@ -32,6 +32,7 @@
 		"tradr:allow-pending-link-proposal",
 		"tradr:allow-list-links",
 		"tradr:allow-remove-link",
+		"tradr:allow-set-link-full-access",
 		"dialog:allow-open"
 	]
 }

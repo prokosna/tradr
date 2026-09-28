@@ -75,6 +75,7 @@ pub fn init<R: Runtime>(
             link_commands::pending_link_proposal,
             link_commands::list_links,
             link_commands::remove_link,
+            link_commands::set_link_full_access,
         ])
         .setup(move |app, _api| {
             #[cfg(target_os = "android")]

@@ -28,6 +28,7 @@ const COMMANDS: &[&str] = &[
     "pending_link_proposal",
     "list_links",
     "remove_link",
+    "set_link_full_access",
 ];
 
 fn main() {
