@@ -80,7 +80,7 @@ async fn read_frame(
 }
 
 // A sender-assigned UUIDv7 pins time and randomness through traits (DCR-157).
-fn generate_transfer_id(rng: &dyn Rng, clock: &dyn Clock) -> Result<TransferId, String> {
+pub(crate) fn generate_transfer_id(rng: &dyn Rng, clock: &dyn Clock) -> Result<TransferId, String> {
     let secs_u64 = u64::try_from(clock.now().as_secs()).map_err(|e| e.to_string())?;
     let now_ms = secs_u64
         .checked_mul(1000)
