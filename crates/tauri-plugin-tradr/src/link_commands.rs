@@ -369,6 +369,8 @@ pub struct LinkDto {
     pub peer_label: Option<String>,
     /// When this Link was created, seconds since the Unix epoch.
     pub created_at: i64,
+    /// Whether this peer's account has full access.
+    pub full_access: bool,
 }
 
 /// Lists every Link this device currently holds.
@@ -386,6 +388,7 @@ pub fn list_links(link_registry: State<'_, LinkRegistryState>) -> Result<Vec<Lin
             peer_sub: link.peer_account().sub().to_string(),
             peer_label: link.peer_label().map(str::to_string),
             created_at: link.created_at().as_secs(),
+            full_access: link.full_access(),
         })
         .collect();
     Ok(links)
@@ -409,6 +412,25 @@ pub fn remove_link(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .remove(&id, secrets.as_ref())
+        .map_err(|e| e.to_string())
+}
+
+/// Sets whether the Link carrying `link_id` is granted full access
+/// to this device's folder (ADR-0024).
+#[tauri::command]
+pub fn set_link_full_access(
+    link_id: String,
+    allowed: bool,
+    link_registry: State<'_, LinkRegistryState>,
+) -> Result<(), String> {
+    let id = link_id
+        .parse::<LinkId>()
+        .map_err(|e| format!("invalid link id '{link_id}': {e}"))?;
+    let registry = link_registry.registry()?;
+    registry
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .set_full_access(&id, allowed)
         .map_err(|e| e.to_string())
 }
 

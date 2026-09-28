@@ -22,6 +22,7 @@ interface LinkDto {
 	peer_sub: string;
 	peer_label: string | null;
 	created_at: number;
+	full_access: boolean;
 }
 
 interface LinkInvitePreviewDto {
@@ -242,6 +243,7 @@ export function Linking() {
 	const [removeState, setRemoveState] = useState<RemoveState>({
 		status: "idle",
 	});
+	const [toggleErrors, setToggleErrors] = useState<Record<string, string>>({});
 
 	const fetchLinks = useCallback(() => {
 		invoke<LinkDto[]>("plugin:tradr|list_links")
@@ -345,6 +347,27 @@ export function Linking() {
 				})
 				.catch((e) => {
 					setRemoveState({ status: "error", message: String(e) });
+				});
+		},
+		[fetchLinks],
+	);
+
+	const handleFullAccessToggle = useCallback(
+		(linkId: string, allowed: boolean) => {
+			setToggleErrors((prev) => {
+				const next = { ...prev };
+				delete next[linkId];
+				return next;
+			});
+			invoke("plugin:tradr|set_link_full_access", { linkId, allowed })
+				.then(() => {
+					fetchLinks();
+				})
+				.catch((e) => {
+					setToggleErrors((prev) => ({
+						...prev,
+						[linkId]: String(e),
+					}));
 				});
 		},
 		[fetchLinks],
@@ -520,6 +543,7 @@ export function Linking() {
 									<th style={{ padding: "0.5rem" }}>Label</th>
 									<th style={{ padding: "0.5rem" }}>Link ID</th>
 									<th style={{ padding: "0.5rem" }}>Created</th>
+									<th style={{ padding: "0.5rem" }}>Access</th>
 									<th style={{ padding: "0.5rem" }}>Actions</th>
 								</tr>
 							</thead>
@@ -528,6 +552,7 @@ export function Linking() {
 									const isRemoving =
 										removeState.status === "removing" &&
 										removeState.linkId === link.link_id;
+									const toggleError = toggleErrors[link.link_id];
 									return (
 										<tr
 											key={link.link_id}
@@ -551,6 +576,38 @@ export function Linking() {
 											</td>
 											<td style={{ padding: "0.5rem" }}>
 												{formatTimestamp(link.created_at)}
+											</td>
+											<td style={{ padding: "0.5rem" }}>
+												<label
+													style={{
+														display: "inline-flex",
+														alignItems: "center",
+														gap: "0.5rem",
+													}}
+												>
+													<input
+														type="checkbox"
+														checked={link.full_access}
+														onChange={(e) =>
+															handleFullAccessToggle(
+																link.link_id,
+																e.target.checked,
+															)
+														}
+													/>
+													Let this account's devices read and write my folder
+												</label>
+												{toggleError && (
+													<span
+														style={{
+															marginLeft: "0.5rem",
+															color: "red",
+															fontSize: "0.85em",
+														}}
+													>
+														{toggleError}
+													</span>
+												)}
 											</td>
 											<td style={{ padding: "0.5rem" }}>
 												<button

@@ -608,6 +608,32 @@ Denies the send_files command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-set-link-full-access`
+
+</td>
+<td>
+
+Enables the set_link_full_access command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-set-link-full-access`
+
+</td>
+<td>
+
+Denies the set_link_full_access command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-show-incoming-transfer-notification`
 
 </td>

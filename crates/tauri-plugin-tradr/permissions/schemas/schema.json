@@ -571,6 +571,18 @@
           "markdownDescription": "Denies the send_files command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_link_full_access command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-link-full-access",
+          "markdownDescription": "Enables the set_link_full_access command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_link_full_access command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-link-full-access",
+          "markdownDescription": "Denies the set_link_full_access command without any pre-configured scope."
+        },
+        {
           "description": "Enables the show_incoming_transfer_notification command without any pre-configured scope.",
           "type": "string",
           "const": "allow-show-incoming-transfer-notification",

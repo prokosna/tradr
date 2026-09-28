@@ -76,8 +76,9 @@ pub fn device_fingerprint(
 
 /// One Link this device holds with a peer's account (docs/11, "State
 /// after linking"): the account, the id removal and Fingerprint
-/// verification address it by, and the created-at and verified flags. Per
-/// DCR-069, `peer_email`, `policy` and `known_devices` are absent.
+/// verification address it by, and the created-at, verified, and
+/// full-access flags. Per DCR-069, `peer_email`, `policy` and
+/// `known_devices` are absent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Link {
     link_id: LinkId,
@@ -85,12 +86,13 @@ pub struct Link {
     peer_label: Option<String>,
     created_at: UnixTime,
     fingerprint_verified: bool,
+    full_access: bool,
 }
 
 impl Link {
-    /// Builds a `Link` from everything mandatory. `peer_label` and
-    /// `fingerprint_verified` start absent and `false` respectively, set
-    /// through `with_label` and `with_fingerprint_verified`.
+    /// Builds a `Link` from everything mandatory. `peer_label`,
+    /// `fingerprint_verified`, and `full_access` start absent, `false`, and
+    /// `false` respectively.
     pub fn new(link_id: LinkId, peer_account: AccountId, created_at: UnixTime) -> Self {
         Self {
             link_id,
@@ -98,6 +100,7 @@ impl Link {
             peer_label: None,
             created_at,
             fingerprint_verified: false,
+            full_access: false,
         }
     }
 
@@ -110,6 +113,12 @@ impl Link {
     /// Records whether this peer's Fingerprint has been verified.
     pub fn with_fingerprint_verified(mut self, verified: bool) -> Self {
         self.fingerprint_verified = verified;
+        self
+    }
+
+    /// Records whether this peer's account has full access.
+    pub fn with_full_access(mut self, allowed: bool) -> Self {
+        self.full_access = allowed;
         self
     }
 
@@ -138,6 +147,11 @@ impl Link {
         self.fingerprint_verified
     }
 
+    /// Whether this peer's account has full access.
+    pub fn full_access(&self) -> bool {
+        self.full_access
+    }
+
     // Builds the record this Link serializes to on disk.
     fn to_record(&self) -> LinkRecord {
         LinkRecord {
@@ -147,6 +161,7 @@ impl Link {
             peer_label: self.peer_label.clone(),
             created_at: self.created_at.as_secs(),
             fingerprint_verified: self.fingerprint_verified,
+            full_access: self.full_access,
         }
     }
 
@@ -163,7 +178,8 @@ impl Link {
         let created_at = UnixTime::from_secs(record.created_at);
 
         let mut link = Self::new(link_id, peer_account, created_at)
-            .with_fingerprint_verified(record.fingerprint_verified);
+            .with_fingerprint_verified(record.fingerprint_verified)
+            .with_full_access(record.full_access);
         if let Some(label) = record.peer_label {
             link = link.with_label(&label);
         }
@@ -183,6 +199,8 @@ struct LinkRecord {
     peer_label: Option<String>,
     created_at: i64,
     fingerprint_verified: bool,
+    #[serde(default)]
+    full_access: bool,
 }
 
 /// The whole file `links.json` holds.
@@ -211,8 +229,8 @@ pub enum LinkRegistryError {
     /// `link_id`. The slot is addressed by `link_id`, so a mismatched pair
     /// would store the secret under a name nothing could find it by.
     SecretMismatch,
-    /// `remove` or `set_fingerprint_verified` was called with a `link_id`
-    /// this registry does not hold.
+    /// `remove`, `set_fingerprint_verified`, or `set_full_access` was called
+    /// with a `link_id` this registry does not hold.
     UnknownLink,
     /// The `SecretStore` failed while `add` stored, `remove` discarded, or
     /// `link_secret` read a Link Secret.
@@ -345,6 +363,15 @@ impl LinkRegistry {
             .collect()
     }
 
+    /// Every linked account granted full access to this device's folder.
+    pub fn full_access_accounts(&self) -> Vec<AccountId> {
+        self.links
+            .iter()
+            .filter(|link| link.full_access)
+            .map(|link| link.peer_account.clone())
+            .collect()
+    }
+
     /// Registers `link`, storing `secret` under the slot `link_id` names.
     /// Refuses an already-held account or `link_id`, or a `secret` not
     /// derived from `link`'s own `link_id`. Stores the secret before the
@@ -461,6 +488,23 @@ impl LinkRegistry {
 
         let mut prospective = self.links.clone();
         prospective[index].fingerprint_verified = verified;
+        self.persist(&prospective)?;
+
+        self.links = prospective;
+        Ok(())
+    }
+
+    /// Sets whether the Link carrying `id` has full access. Refuses
+    /// an id this registry does not hold, changing nothing.
+    pub fn set_full_access(&mut self, id: &LinkId, allowed: bool) -> Result<(), LinkRegistryError> {
+        let index = self
+            .links
+            .iter()
+            .position(|link| &link.link_id == id)
+            .ok_or(LinkRegistryError::UnknownLink)?;
+
+        let mut prospective = self.links.clone();
+        prospective[index].full_access = allowed;
         self.persist(&prospective)?;
 
         self.links = prospective;
