@@ -589,6 +589,7 @@ where
                             return Ok(Vec::new());
                         }
                         let codec = tradr_proto::browse::ProtoBrowseCodec::new(channel.max_frame_size());
+                        let uploads = crate::upload_paths::PartialUploadPaths;
                         if let Err(e) = tradr_core::handle_browse_stream(
                             browse_recv.as_mut(),
                             browse_send.as_mut(),
@@ -596,6 +597,7 @@ where
                             vfs,
                             params.root,
                             channel.max_frame_size(),
+                            &uploads,
                         )
                         .await
                         {

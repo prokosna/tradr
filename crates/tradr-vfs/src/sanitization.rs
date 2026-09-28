@@ -261,7 +261,7 @@ pub fn partial_file_rel_path(transfer_id: TransferId, item_id: &ItemId) -> RelPa
 
 /// Resolves destination collisions by appending numeric suffixes if the file exists.
 pub async fn resolve_collision(
-    vfs: &impl Vfs,
+    vfs: &(impl Vfs + ?Sized),
     root: RootId,
     rel_path: &RelPath,
 ) -> Result<RelPath, VfsError> {

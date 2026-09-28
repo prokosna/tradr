@@ -28,6 +28,7 @@ pub mod send_session;
 pub mod share;
 pub mod sign_in;
 pub mod transfer;
+pub mod upload_paths;
 
 #[cfg(test)]
 pub(crate) mod test_recv {
