@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-upload-to-peer"
+description = "Enables the upload_to_peer command without any pre-configured scope."
+commands.allow = ["upload_to_peer"]
+
+[[permission]]
+identifier = "deny-upload-to-peer"
+description = "Denies the upload_to_peer command without any pre-configured scope."
+commands.deny = ["upload_to_peer"]
