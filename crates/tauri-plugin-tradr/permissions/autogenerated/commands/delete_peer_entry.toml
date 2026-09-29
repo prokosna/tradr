@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-delete-peer-entry"
+description = "Enables the delete_peer_entry command without any pre-configured scope."
+commands.allow = ["delete_peer_entry"]
+
+[[permission]]
+identifier = "deny-delete-peer-entry"
+description = "Denies the delete_peer_entry command without any pre-configured scope."
+commands.deny = ["delete_peer_entry"]

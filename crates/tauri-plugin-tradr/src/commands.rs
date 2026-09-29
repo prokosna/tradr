@@ -5,8 +5,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use tradr_core::{PeerList, RelPath};
+use tradr_core::{BoxFuture, PeerList, PublicIdentity, RelPath, SecureChannel, TrustTier};
 use tradr_discovery::{MdnsSource, StaticPeerId, StaticPeerRegistry, StaticPeerSource};
+use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
 use tradr_transport::selection::TransferSize;
 use tradr_transport::set::TransportSet;
@@ -17,7 +18,9 @@ use crate::lifecycle::downloads_root_id;
 use crate::link_registry::LinkRegistryState;
 use crate::peer_trust::PeerTrustState;
 use tradr_app::browse::{
-    DirListingDto, ShareInfo, execute_download_file, execute_list_peer_directory,
+    BrowseAuth, DirListingDto, ShareInfo, execute_delete_entry, execute_download_file,
+    execute_list_peer_directory, execute_make_directory, execute_rename_entry,
+    execute_upload_items,
 };
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::peers::{
@@ -225,6 +228,68 @@ pub async fn send_files<R: tauri::Runtime>(
     send_result
 }
 
+struct BrowseContext<'a> {
+    public_identity: &'a PublicIdentity,
+    key_store: &'a (dyn tradr_core::KeyStore + Sync),
+    sign_in_state: Arc<SignInState>,
+    peer_trust_state: &'a PeerTrustState,
+    link_registry: &'a LinkRegistryState,
+    mdns_source: &'a tokio::sync::Mutex<MdnsSource>,
+    static_peer_source: &'a tokio::sync::Mutex<StaticPeerSource>,
+    static_peer_registry: &'a tokio::sync::Mutex<StaticPeerRegistry>,
+    peer_list: &'a tokio::sync::Mutex<PeerList>,
+    transports: &'a TransportSet,
+    capabilities: &'a LocalCapabilities,
+}
+
+async fn prepare_browse<'a>(
+    ctx: &'a BrowseContext<'a>,
+    peer_id: &str,
+    size: TransferSize,
+    sign_in_action: &str,
+) -> Result<
+    (
+        Box<dyn SecureChannel>,
+        BrowseAuth<'a>,
+        impl FnOnce(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>>,
+    ),
+    String,
+> {
+    let self_id = ctx.public_identity.device_id();
+    {
+        let mut mdns = ctx.mdns_source.lock().await;
+        let mut static_source = ctx.static_peer_source.lock().await;
+        let mut list = ctx.peer_list.lock().await;
+        drain_peer_sources(&mut mdns, &mut static_source, &mut list, self_id).await?;
+    }
+
+    let resolved = {
+        let list = ctx.peer_list.lock().await;
+        let registry = ctx.static_peer_registry.lock().await;
+        resolve_peer(peer_id, &list, &registry, ctx.transports, size)?
+    };
+    let channel = connect_and_pin(ctx.transports, ctx.static_peer_registry, resolved).await?;
+
+    let attestation_token = ctx
+        .sign_in_state
+        .id_token()
+        .ok_or_else(|| format!("sign in before {sign_in_action}"))?;
+    let auth = BrowseAuth {
+        identity: ctx.public_identity,
+        key_store: ctx.key_store,
+        attestation_token,
+        capabilities: ctx.capabilities.get(),
+    };
+    let verify_attestation = peer_verifier(
+        ctx.peer_trust_state.peer_trust()?,
+        ctx.sign_in_state.clone(),
+        ctx.link_registry.registry()?,
+        Arc::new(SystemClock),
+    );
+
+    Ok((channel, auth, verify_attestation))
+}
+
 /// Dials a peer over QUIC, runs the Hello handshake, opens a Browse stream, and lists directory entries.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
@@ -245,39 +310,28 @@ pub async fn list_peer_directory(
     transports: State<'_, Arc<TransportSet>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
 ) -> Result<DirListingDto, String> {
-    let self_id = identity_state.public_identity()?.device_id();
-    {
-        let mut mdns = mdns_source.lock().await;
-        let mut static_source = static_peer_source.lock().await;
-        let mut list = peer_list.lock().await;
-        drain_peer_sources(&mut mdns, &mut static_source, &mut list, self_id).await?;
-    }
-
-    let resolved = {
-        let list = peer_list.lock().await;
-        let registry = static_peer_registry.lock().await;
-        resolve_peer(
-            &peer_id,
-            &list,
-            &registry,
-            transports.as_ref(),
-            TransferSize::Bytes(0),
-        )?
-    };
-    let channel =
-        connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved).await?;
-
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
-    let attestation_token = sign_in_state
-        .id_token()
-        .ok_or_else(|| "sign in before browsing a peer's share".to_string())?;
-    let verify_attestation = peer_verifier(
-        peer_trust_state.peer_trust()?,
-        sign_in_state.inner().clone(),
-        link_registry.registry()?,
-        Arc::new(SystemClock),
-    );
+    let ctx = BrowseContext {
+        public_identity: &public_identity,
+        key_store: key_store.as_ref(),
+        sign_in_state: sign_in_state.inner().clone(),
+        peer_trust_state: &peer_trust_state,
+        link_registry: &link_registry,
+        mdns_source: &mdns_source,
+        static_peer_source: &static_peer_source,
+        static_peer_registry: &static_peer_registry,
+        peer_list: &peer_list,
+        transports: &transports,
+        capabilities: &capabilities,
+    };
+    let (channel, auth, verify_attestation) = prepare_browse(
+        &ctx,
+        &peer_id,
+        TransferSize::Bytes(0),
+        "browsing a peer's share",
+    )
+    .await?;
 
     let parsed_share_id: tradr_core::ShareId = share_id
         .parse()
@@ -295,16 +349,16 @@ pub async fn list_peer_directory(
         parsed_path,
         cursor.unwrap_or_default(),
         limit.unwrap_or(500),
-        &public_identity,
-        key_store.as_ref(),
-        attestation_token,
-        capabilities.get(),
+        auth.identity,
+        auth.key_store,
+        auth.attestation_token,
+        auth.capabilities,
         verify_attestation,
     )
     .await
 }
 
-/// Downloads a file from a peer's share over the Browse plane.
+/// Downloads a file from a peer's share into this device's folder, returning its relative path.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn download_file<R: tauri::Runtime>(
@@ -323,40 +377,29 @@ pub async fn download_file<R: tauri::Runtime>(
     transports: State<'_, Arc<TransportSet>>,
     vfs: State<'_, Arc<NativeVfs>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
-) -> Result<u64, String> {
-    let self_id = identity_state.public_identity()?.device_id();
-    {
-        let mut mdns = mdns_source.lock().await;
-        let mut static_source = static_peer_source.lock().await;
-        let mut list = peer_list.lock().await;
-        drain_peer_sources(&mut mdns, &mut static_source, &mut list, self_id).await?;
-    }
-
-    let resolved = {
-        let list = peer_list.lock().await;
-        let registry = static_peer_registry.lock().await;
-        resolve_peer(
-            &peer_id,
-            &list,
-            &registry,
-            transports.as_ref(),
-            TransferSize::Unknown,
-        )?
-    };
-    let channel =
-        connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved).await?;
-
+) -> Result<String, String> {
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
-    let attestation_token = sign_in_state
-        .id_token()
-        .ok_or_else(|| "sign in before downloading from a peer's share".to_string())?;
-    let verify_attestation = peer_verifier(
-        peer_trust_state.peer_trust()?,
-        sign_in_state.inner().clone(),
-        link_registry.registry()?,
-        Arc::new(SystemClock),
-    );
+    let ctx = BrowseContext {
+        public_identity: &public_identity,
+        key_store: key_store.as_ref(),
+        sign_in_state: sign_in_state.inner().clone(),
+        peer_trust_state: &peer_trust_state,
+        link_registry: &link_registry,
+        mdns_source: &mdns_source,
+        static_peer_source: &static_peer_source,
+        static_peer_registry: &static_peer_registry,
+        peer_list: &peer_list,
+        transports: &transports,
+        capabilities: &capabilities,
+    };
+    let (channel, auth, verify_attestation) = prepare_browse(
+        &ctx,
+        &peer_id,
+        TransferSize::Unknown,
+        "downloading from a peer's share",
+    )
+    .await?;
 
     let parsed_share_id: tradr_core::ShareId = share_id
         .parse()
@@ -371,22 +414,314 @@ pub async fn download_file<R: tauri::Runtime>(
     let dest = RelPath::new(file_name)
         .map_err(|e| format!("invalid destination file name '{file_name}': {e}"))?;
 
-    let (bytes_written, _placed_at) = execute_download_file(
+    let (_bytes_written, placed_at) = execute_download_file(
         channel.as_ref(),
         parsed_share_id,
         parsed_path,
         vfs.as_ref(),
         downloads_root_id(),
         dest,
-        &public_identity,
-        key_store.as_ref(),
-        attestation_token,
-        capabilities.get(),
+        auth.identity,
+        auth.key_store,
+        auth.attestation_token,
+        auth.capabilities,
         verify_attestation,
     )
     .await?;
 
-    Ok(bytes_written)
+    Ok(placed_at.as_str().to_string())
+}
+
+/// Uploads files from the local receive directory or adopted paths into a peer's folder.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn upload_to_peer<R: tauri::Runtime>(
+    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+    peer_id: String,
+    share_id: String,
+    dest_dir: String,
+    files: Vec<String>,
+    adopted_ids: Option<Vec<String>>,
+    identity_state: State<'_, IdentityState>,
+    sign_in_state: State<'_, Arc<SignInState>>,
+    peer_trust_state: State<'_, PeerTrustState>,
+    link_registry: State<'_, LinkRegistryState>,
+    mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
+    static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
+    static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
+    peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
+    transports: State<'_, Arc<TransportSet>>,
+    vfs: State<'_, Arc<NativeVfs>>,
+    capabilities: State<'_, Arc<LocalCapabilities>>,
+) -> Result<Vec<String>, String> {
+    #[cfg(not(target_os = "android"))]
+    if let Some(ref ids) = adopted_ids
+        && !ids.is_empty()
+    {
+        return Err("adopted files exist only on Android".to_string());
+    }
+
+    let items = resolve_send_items(vfs.as_ref(), downloads_root_id(), &files).await?;
+
+    #[cfg(target_os = "android")]
+    let (items, staged_count, adopted_ctx) = {
+        use tauri::Manager;
+        let mut items = items;
+        let ids = adopted_ids.unwrap_or_default();
+        if !ids.is_empty() {
+            let adopted = app
+                .try_state::<Arc<tradr_app::adopted::AdoptedFiles>>()
+                .ok_or_else(|| "adopted files not found".to_string())?;
+            let staged = adopted.send_items(vfs.as_ref(), &ids).await?;
+            let count = staged.len();
+            items.extend(staged);
+            (items, count, Some((adopted, ids)))
+        } else {
+            (items, 0, None)
+        }
+    };
+
+    let total_bytes: u64 = items.iter().map(|item| item.size_bytes).sum();
+    let public_identity = identity_state.public_identity()?;
+    let key_store = identity_state.key_store()?;
+    let ctx = BrowseContext {
+        public_identity: &public_identity,
+        key_store: key_store.as_ref(),
+        sign_in_state: sign_in_state.inner().clone(),
+        peer_trust_state: &peer_trust_state,
+        link_registry: &link_registry,
+        mdns_source: &mdns_source,
+        static_peer_source: &static_peer_source,
+        static_peer_registry: &static_peer_registry,
+        peer_list: &peer_list,
+        transports: &transports,
+        capabilities: &capabilities,
+    };
+
+    let upload_result = async {
+        let (channel, auth, verify_attestation) = prepare_browse(
+            &ctx,
+            &peer_id,
+            TransferSize::Bytes(total_bytes),
+            "browsing a peer's share",
+        )
+        .await?;
+
+        let parsed_share_id: tradr_core::ShareId = share_id
+            .parse()
+            .map_err(|e| format!("invalid share_id '{share_id}': {e}"))?;
+        let dest_path = if dest_dir.is_empty() {
+            RelPath::root()
+        } else {
+            RelPath::new(&dest_dir)
+                .map_err(|e| format!("invalid destination path '{dest_dir}': {e}"))?
+        };
+
+        execute_upload_items(
+            channel.as_ref(),
+            parsed_share_id,
+            dest_path,
+            &items,
+            vfs.as_ref(),
+            &auth,
+            verify_attestation,
+        )
+        .await
+    }
+    .await;
+
+    #[cfg(target_os = "android")]
+    if let Some((adopted, ids)) = adopted_ctx {
+        let staged = &items[items.len() - staged_count..];
+        if let Err(e) = adopted.unstage(vfs.as_ref(), staged) {
+            eprintln!("failed to unstage adopted files: {e}");
+        }
+        if upload_result.is_ok() {
+            for id in &ids {
+                if let Err(e) = adopted.release(id) {
+                    eprintln!("failed to release adopted file {id}: {e}");
+                }
+            }
+        }
+    }
+
+    upload_result
+}
+
+/// Creates a directory at the specified path in a peer's folder.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn make_peer_directory(
+    peer_id: String,
+    share_id: String,
+    path: String,
+    identity_state: State<'_, IdentityState>,
+    sign_in_state: State<'_, Arc<SignInState>>,
+    peer_trust_state: State<'_, PeerTrustState>,
+    link_registry: State<'_, LinkRegistryState>,
+    mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
+    static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
+    static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
+    peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
+    transports: State<'_, Arc<TransportSet>>,
+    capabilities: State<'_, Arc<LocalCapabilities>>,
+) -> Result<(), String> {
+    let public_identity = identity_state.public_identity()?;
+    let key_store = identity_state.key_store()?;
+    let ctx = BrowseContext {
+        public_identity: &public_identity,
+        key_store: key_store.as_ref(),
+        sign_in_state: sign_in_state.inner().clone(),
+        peer_trust_state: &peer_trust_state,
+        link_registry: &link_registry,
+        mdns_source: &mdns_source,
+        static_peer_source: &static_peer_source,
+        static_peer_registry: &static_peer_registry,
+        peer_list: &peer_list,
+        transports: &transports,
+        capabilities: &capabilities,
+    };
+    let (channel, auth, verify_attestation) = prepare_browse(
+        &ctx,
+        &peer_id,
+        TransferSize::Bytes(0),
+        "browsing a peer's share",
+    )
+    .await?;
+
+    let parsed_share_id: tradr_core::ShareId = share_id
+        .parse()
+        .map_err(|e| format!("invalid share_id '{share_id}': {e}"))?;
+    let parsed_path =
+        RelPath::new(&path).map_err(|e| format!("invalid relative path '{path}': {e}"))?;
+
+    execute_make_directory(
+        channel.as_ref(),
+        parsed_share_id,
+        parsed_path,
+        &auth,
+        verify_attestation,
+    )
+    .await
+}
+
+/// Deletes a file or directory entry in a peer's folder.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn delete_peer_entry(
+    peer_id: String,
+    share_id: String,
+    path: String,
+    recursive: bool,
+    identity_state: State<'_, IdentityState>,
+    sign_in_state: State<'_, Arc<SignInState>>,
+    peer_trust_state: State<'_, PeerTrustState>,
+    link_registry: State<'_, LinkRegistryState>,
+    mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
+    static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
+    static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
+    peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
+    transports: State<'_, Arc<TransportSet>>,
+    capabilities: State<'_, Arc<LocalCapabilities>>,
+) -> Result<(), String> {
+    let public_identity = identity_state.public_identity()?;
+    let key_store = identity_state.key_store()?;
+    let ctx = BrowseContext {
+        public_identity: &public_identity,
+        key_store: key_store.as_ref(),
+        sign_in_state: sign_in_state.inner().clone(),
+        peer_trust_state: &peer_trust_state,
+        link_registry: &link_registry,
+        mdns_source: &mdns_source,
+        static_peer_source: &static_peer_source,
+        static_peer_registry: &static_peer_registry,
+        peer_list: &peer_list,
+        transports: &transports,
+        capabilities: &capabilities,
+    };
+    let (channel, auth, verify_attestation) = prepare_browse(
+        &ctx,
+        &peer_id,
+        TransferSize::Bytes(0),
+        "browsing a peer's share",
+    )
+    .await?;
+
+    let parsed_share_id: tradr_core::ShareId = share_id
+        .parse()
+        .map_err(|e| format!("invalid share_id '{share_id}': {e}"))?;
+    let parsed_path =
+        RelPath::new(&path).map_err(|e| format!("invalid relative path '{path}': {e}"))?;
+
+    execute_delete_entry(
+        channel.as_ref(),
+        parsed_share_id,
+        parsed_path,
+        recursive,
+        &auth,
+        verify_attestation,
+    )
+    .await
+}
+
+/// Renames or moves a file or directory in a peer's folder.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn rename_peer_entry(
+    peer_id: String,
+    share_id: String,
+    from: String,
+    to: String,
+    identity_state: State<'_, IdentityState>,
+    sign_in_state: State<'_, Arc<SignInState>>,
+    peer_trust_state: State<'_, PeerTrustState>,
+    link_registry: State<'_, LinkRegistryState>,
+    mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
+    static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
+    static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
+    peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
+    transports: State<'_, Arc<TransportSet>>,
+    capabilities: State<'_, Arc<LocalCapabilities>>,
+) -> Result<(), String> {
+    let public_identity = identity_state.public_identity()?;
+    let key_store = identity_state.key_store()?;
+    let ctx = BrowseContext {
+        public_identity: &public_identity,
+        key_store: key_store.as_ref(),
+        sign_in_state: sign_in_state.inner().clone(),
+        peer_trust_state: &peer_trust_state,
+        link_registry: &link_registry,
+        mdns_source: &mdns_source,
+        static_peer_source: &static_peer_source,
+        static_peer_registry: &static_peer_registry,
+        peer_list: &peer_list,
+        transports: &transports,
+        capabilities: &capabilities,
+    };
+    let (channel, auth, verify_attestation) = prepare_browse(
+        &ctx,
+        &peer_id,
+        TransferSize::Bytes(0),
+        "browsing a peer's share",
+    )
+    .await?;
+
+    let parsed_share_id: tradr_core::ShareId = share_id
+        .parse()
+        .map_err(|e| format!("invalid share_id '{share_id}': {e}"))?;
+    let parsed_from =
+        RelPath::new(&from).map_err(|e| format!("invalid relative path '{from}': {e}"))?;
+    let parsed_to = RelPath::new(&to).map_err(|e| format!("invalid relative path '{to}': {e}"))?;
+
+    execute_rename_entry(
+        channel.as_ref(),
+        parsed_share_id,
+        parsed_from,
+        parsed_to,
+        &auth,
+        verify_attestation,
+    )
+    .await
 }
 
 /// Publishes dynamic sharing shortcuts to the platform share sheet.

@@ -140,6 +140,32 @@ Denies the decline_link command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-delete-peer-entry`
+
+</td>
+<td>
+
+Enables the delete_peer_entry command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-delete-peer-entry`
+
+</td>
+<td>
+
+Denies the delete_peer_entry command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-device-identity`
 
 </td>
@@ -315,6 +341,32 @@ Enables the list_static_peers command without any pre-configured scope.
 <td>
 
 Denies the list_static_peers command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-make-peer-directory`
+
+</td>
+<td>
+
+Enables the make_peer_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-make-peer-directory`
+
+</td>
+<td>
+
+Denies the make_peer_directory command without any pre-configured scope.
 
 </td>
 </tr>
@@ -530,6 +582,32 @@ Denies the remove_static_peer command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-rename-peer-entry`
+
+</td>
+<td>
+
+Enables the rename_peer_entry command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-rename-peer-entry`
+
+</td>
+<td>
+
+Denies the rename_peer_entry command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-reply-to-link-invite`
 
 </td>
@@ -705,6 +783,32 @@ Enables the sign_in_status command without any pre-configured scope.
 <td>
 
 Denies the sign_in_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-upload-to-peer`
+
+</td>
+<td>
+
+Enables the upload_to_peer command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-upload-to-peer`
+
+</td>
+<td>
+
+Denies the upload_to_peer command without any pre-configured scope.
 
 </td>
 </tr>

@@ -355,6 +355,18 @@
           "markdownDescription": "Denies the decline_link command without any pre-configured scope."
         },
         {
+          "description": "Enables the delete_peer_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-peer-entry",
+          "markdownDescription": "Enables the delete_peer_entry command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete_peer_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-peer-entry",
+          "markdownDescription": "Denies the delete_peer_entry command without any pre-configured scope."
+        },
+        {
           "description": "Enables the device_identity command without any pre-configured scope.",
           "type": "string",
           "const": "allow-device-identity",
@@ -437,6 +449,18 @@
           "type": "string",
           "const": "deny-list-static-peers",
           "markdownDescription": "Denies the list_static_peers command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the make_peer_directory command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-make-peer-directory",
+          "markdownDescription": "Enables the make_peer_directory command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the make_peer_directory command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-make-peer-directory",
+          "markdownDescription": "Denies the make_peer_directory command without any pre-configured scope."
         },
         {
           "description": "Enables the open_link_invite command without any pre-configured scope.",
@@ -535,6 +559,18 @@
           "markdownDescription": "Denies the remove_static_peer command without any pre-configured scope."
         },
         {
+          "description": "Enables the rename_peer_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-rename-peer-entry",
+          "markdownDescription": "Enables the rename_peer_entry command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the rename_peer_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-rename-peer-entry",
+          "markdownDescription": "Denies the rename_peer_entry command without any pre-configured scope."
+        },
+        {
           "description": "Enables the reply_to_link_invite command without any pre-configured scope.",
           "type": "string",
           "const": "allow-reply-to-link-invite",
@@ -617,6 +653,18 @@
           "type": "string",
           "const": "deny-sign-in-status",
           "markdownDescription": "Denies the sign_in_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the upload_to_peer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-upload-to-peer",
+          "markdownDescription": "Enables the upload_to_peer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the upload_to_peer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-upload-to-peer",
+          "markdownDescription": "Denies the upload_to_peer command without any pre-configured scope."
         },
         {
           "description": "Enables the verify_peer_attestation command without any pre-configured scope.",
