@@ -335,6 +335,30 @@ struct StagedUpload<'a> {
     size: u64,
 }
 
+#[derive(Debug)]
+enum BrowseFailure {
+    Refused(RefusalReason),
+    Stream(crate::channel::TransportError),
+}
+
+impl From<crate::channel::TransportError> for BrowseFailure {
+    fn from(err: crate::channel::TransportError) -> Self {
+        Self::Stream(err)
+    }
+}
+
+fn refusal_for(err: VfsError) -> RefusalReason {
+    match err {
+        VfsError::NotFound => RefusalReason::NotFound,
+        VfsError::OutsideRoot
+        | VfsError::DenyListed
+        | VfsError::UnsupportedEntry
+        | VfsError::ReadOnly => RefusalReason::NotAllowed,
+        VfsError::WrongKind => RefusalReason::WrongKind,
+        VfsError::Io(_) => RefusalReason::Failed,
+    }
+}
+
 /// The Browse plane handler, reading requests from `recv` and writing responses to `send`.
 pub async fn handle_browse_stream<'a>(
     recv: &'a mut dyn RecvStream,
@@ -374,7 +398,28 @@ pub async fn handle_browse_stream<'a>(
                 Ok(Some((msg, consumed))) => {
                     buffer.buf.copy_within(consumed..buffer.pos, 0);
                     buffer.pos -= consumed;
-                    handle_message(msg, recv, send, &ctx, &mut buffer).await?;
+                    if let Err(failure) = handle_message(msg, recv, send, &ctx, &mut buffer).await {
+                        match failure {
+                            BrowseFailure::Refused(reason) => {
+                                let resp = BrowseMessage::Refused(Refused {
+                                    request_id: String::new(),
+                                    reason,
+                                });
+                                let encoded = ctx
+                                    .codec
+                                    .encode_frame(&resp, ctx.max_frame_size)
+                                    .map_err(|_| {
+                                        crate::channel::TransportError::Io(
+                                            std::io::ErrorKind::InvalidData,
+                                        )
+                                    })?;
+                                send.write_all(&encoded).await?;
+                                send.finish().await?;
+                                return Ok(());
+                            }
+                            BrowseFailure::Stream(e) => return Err(e),
+                        }
+                    }
                 }
                 Ok(None) => break, // Need more data
                 Err(_) => {
@@ -387,24 +432,7 @@ pub async fn handle_browse_stream<'a>(
     Ok(())
 }
 
-fn vfs_to_transport_error(err: VfsError) -> crate::channel::TransportError {
-    match err {
-        VfsError::NotFound => crate::channel::TransportError::Io(std::io::ErrorKind::NotFound),
-        VfsError::OutsideRoot | VfsError::DenyListed | VfsError::UnsupportedEntry => {
-            crate::channel::TransportError::Io(std::io::ErrorKind::PermissionDenied)
-        }
-        VfsError::WrongKind => crate::channel::TransportError::Io(std::io::ErrorKind::InvalidInput),
-        VfsError::ReadOnly => {
-            crate::channel::TransportError::Io(std::io::ErrorKind::PermissionDenied)
-        }
-        VfsError::Io(kind) => crate::channel::TransportError::Io(kind),
-    }
-}
-
-async fn send_ack(
-    send: &mut dyn SendStream,
-    ctx: &BrowseContext<'_>,
-) -> Result<(), crate::channel::TransportError> {
+async fn send_ack(send: &mut dyn SendStream, ctx: &BrowseContext<'_>) -> Result<(), BrowseFailure> {
     let resp = BrowseMessage::Ack(Ack {
         request_id: String::new(),
     });
@@ -412,7 +440,8 @@ async fn send_ack(
         .codec
         .encode_frame(&resp, ctx.max_frame_size)
         .map_err(|_| crate::channel::TransportError::Io(std::io::ErrorKind::InvalidData))?;
-    send.write_all(&encoded).await
+    send.write_all(&encoded).await?;
+    Ok(())
 }
 
 fn remove_dir_recursive<'a>(
@@ -449,41 +478,40 @@ async fn handle_write_file(
     send: &mut dyn SendStream,
     ctx: &BrowseContext<'_>,
     buffer: &mut StreamBuffer,
-) -> Result<(), crate::channel::TransportError> {
+) -> Result<(), BrowseFailure> {
     let target_path = match req.mode {
         WriteMode::CreateNew => match ctx.vfs.stat(ctx.root, &req.path).await {
             Ok(_) => {
-                return Err(crate::channel::TransportError::Io(
-                    std::io::ErrorKind::AlreadyExists,
-                ));
+                return Err(BrowseFailure::Refused(RefusalReason::AlreadyExists));
             }
             Err(VfsError::NotFound) => req.path,
-            Err(e) => return Err(vfs_to_transport_error(e)),
+            Err(e) => return Err(BrowseFailure::Refused(refusal_for(e))),
         },
         WriteMode::Overwrite => match ctx.vfs.stat(ctx.root, &req.path).await {
             Ok(meta) => {
                 if meta.kind == EntryKind::Directory {
-                    return Err(crate::channel::TransportError::Io(
-                        std::io::ErrorKind::InvalidInput,
-                    ));
+                    return Err(BrowseFailure::Refused(RefusalReason::WrongKind));
                 }
                 req.path
             }
             Err(VfsError::NotFound) => req.path,
-            Err(e) => return Err(vfs_to_transport_error(e)),
+            Err(e) => return Err(BrowseFailure::Refused(refusal_for(e))),
         },
         WriteMode::RenameIfExists => ctx
             .uploads
             .free_name(ctx.vfs, ctx.root, &req.path)
             .await
-            .map_err(vfs_to_transport_error)?,
+            .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?,
     };
 
-    let (staging_dir, staging_file) = ctx.uploads.staging().map_err(vfs_to_transport_error)?;
+    let (staging_dir, staging_file) = ctx
+        .uploads
+        .staging()
+        .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
     ctx.vfs
         .create_dir(ctx.root, &staging_dir)
         .await
-        .map_err(vfs_to_transport_error)?;
+        .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
 
     let staged = StagedUpload {
         target_path: &target_path,
@@ -512,7 +540,7 @@ async fn handle_write_file(
 
             match cleanup_res {
                 Ok(()) => Err(err),
-                Err(clean_err) => Err(vfs_to_transport_error(clean_err)),
+                Err(clean_err) => Err(BrowseFailure::Refused(refusal_for(clean_err))),
             }
         }
     }
@@ -524,12 +552,12 @@ async fn write_staged_content(
     send: &mut dyn SendStream,
     ctx: &BrowseContext<'_>,
     buffer: &mut StreamBuffer,
-) -> Result<(), crate::channel::TransportError> {
+) -> Result<(), BrowseFailure> {
     let mut writer = ctx
         .vfs
         .open_write(ctx.root, staged.staging_file)
         .await
-        .map_err(vfs_to_transport_error)?;
+        .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
 
     let mut written = 0u64;
     let from_buf = (buffer.pos as u64).min(staged.size) as usize;
@@ -537,7 +565,7 @@ async fn write_staged_content(
         writer
             .write_at(written, &buffer.buf[..from_buf])
             .await
-            .map_err(vfs_to_transport_error)?;
+            .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
         written += from_buf as u64;
         buffer.buf.copy_within(from_buf..buffer.pos, 0);
         buffer.pos -= from_buf;
@@ -549,28 +577,33 @@ async fn write_staged_content(
             let needed = ((staged.size - written).min(chunk.len() as u64)) as usize;
             let n = recv.read(&mut chunk[..needed]).await?;
             if n == 0 {
-                return Err(crate::channel::TransportError::Closed);
+                return Err(BrowseFailure::Stream(
+                    crate::channel::TransportError::Closed,
+                ));
             }
             writer
                 .write_at(written, &chunk[..n])
                 .await
-                .map_err(vfs_to_transport_error)?;
+                .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
             written += n as u64;
         }
     }
 
-    writer.sync().await.map_err(vfs_to_transport_error)?;
+    writer
+        .sync()
+        .await
+        .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
     drop(writer);
 
     ctx.vfs
         .rename(ctx.root, staged.staging_file, staged.target_path)
         .await
-        .map_err(vfs_to_transport_error)?;
+        .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
 
     ctx.vfs
         .remove(ctx.root, staged.staging_dir)
         .await
-        .map_err(vfs_to_transport_error)?;
+        .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
 
     send_ack(send, ctx).await
 }
@@ -581,78 +614,64 @@ async fn handle_message(
     send: &mut dyn SendStream,
     ctx: &BrowseContext<'_>,
     buffer: &mut StreamBuffer,
-) -> Result<(), crate::channel::TransportError> {
+) -> Result<(), BrowseFailure> {
     match msg {
         BrowseMessage::ListDir(req) => {
-            let entries_result = ctx.vfs.list(ctx.root, &req.path).await;
-            match entries_result {
-                Ok(entries) => {
-                    let mut sorted = entries;
-                    sorted.sort_by(|a, b| a.name.cmp(&b.name));
+            let entries = ctx
+                .vfs
+                .list(ctx.root, &req.path)
+                .await
+                .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
 
-                    let start_idx = if req.cursor.is_empty() {
-                        0
-                    } else {
-                        sorted
-                            .iter()
-                            .position(|e| e.name == req.cursor)
-                            .map(|i| i + 1)
-                            .unwrap_or(0)
-                    };
+            let mut sorted = entries;
+            sorted.sort_by(|a, b| a.name.cmp(&b.name));
 
-                    let limit = if req.limit == 0 {
-                        500
-                    } else {
-                        req.limit as usize
-                    };
-                    let mut end_idx = start_idx + limit;
-                    let has_more = end_idx < sorted.len();
-                    if end_idx > sorted.len() {
-                        end_idx = sorted.len();
-                    }
+            let start_idx = if req.cursor.is_empty() {
+                0
+            } else {
+                sorted
+                    .iter()
+                    .position(|e| e.name == req.cursor)
+                    .map(|i| i + 1)
+                    .unwrap_or(0)
+            };
 
-                    let page = sorted[start_idx..end_idx].to_vec();
-                    let next_cursor = if has_more {
-                        page.last().map(|e| e.name.clone()).unwrap_or_default()
-                    } else {
-                        String::new()
-                    };
-
-                    let resp = BrowseMessage::DirListing(DirListing {
-                        entries: page,
-                        next_cursor,
-                        total_estimate: sorted.len() as u64,
-                    });
-
-                    let encoded =
-                        ctx.codec
-                            .encode_frame(&resp, ctx.max_frame_size)
-                            .map_err(|_| {
-                                crate::channel::TransportError::Io(std::io::ErrorKind::InvalidData)
-                            })?;
-                    send.write_all(&encoded).await?;
-                }
-                Err(_) => {
-                    let resp = BrowseMessage::DirListing(DirListing {
-                        entries: vec![],
-                        next_cursor: String::new(),
-                        total_estimate: 0,
-                    });
-                    let encoded =
-                        ctx.codec
-                            .encode_frame(&resp, ctx.max_frame_size)
-                            .map_err(|_| {
-                                crate::channel::TransportError::Io(std::io::ErrorKind::InvalidData)
-                            })?;
-                    send.write_all(&encoded).await?;
-                }
+            let limit = if req.limit == 0 {
+                500
+            } else {
+                req.limit as usize
+            };
+            let mut end_idx = start_idx + limit;
+            let has_more = end_idx < sorted.len();
+            if end_idx > sorted.len() {
+                end_idx = sorted.len();
             }
+
+            let page = sorted[start_idx..end_idx].to_vec();
+            let next_cursor = if has_more {
+                page.last().map(|e| e.name.clone()).unwrap_or_default()
+            } else {
+                String::new()
+            };
+
+            let resp = BrowseMessage::DirListing(DirListing {
+                entries: page,
+                next_cursor,
+                total_estimate: sorted.len() as u64,
+            });
+
+            let encoded = ctx
+                .codec
+                .encode_frame(&resp, ctx.max_frame_size)
+                .map_err(|_| crate::channel::TransportError::Io(std::io::ErrorKind::InvalidData))?;
+            send.write_all(&encoded).await?;
         }
         BrowseMessage::Stat(req) => {
-            let metadata =
-                ctx.vfs.stat(ctx.root, &req.path).await.map_err(|_| {
-                    crate::channel::TransportError::Io(std::io::ErrorKind::NotFound)
-                })?;
+            let metadata = ctx
+                .vfs
+                .stat(ctx.root, &req.path)
+                .await
+                .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
             let name = req
                 .path
                 .as_str()
@@ -674,19 +693,19 @@ async fn handle_message(
             send.write_all(&encoded).await?;
         }
         BrowseMessage::ReadFile(req) => {
-            let metadata =
-                ctx.vfs.stat(ctx.root, &req.path).await.map_err(|_| {
-                    crate::channel::TransportError::Io(std::io::ErrorKind::NotFound)
-                })?;
+            let metadata = ctx
+                .vfs
+                .stat(ctx.root, &req.path)
+                .await
+                .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
             if metadata.kind != crate::vfs::EntryKind::File {
-                return Err(crate::channel::TransportError::Io(
-                    std::io::ErrorKind::InvalidInput,
-                ));
+                return Err(BrowseFailure::Refused(RefusalReason::WrongKind));
             }
-            let reader =
-                ctx.vfs.open_read(ctx.root, &req.path).await.map_err(|_| {
-                    crate::channel::TransportError::Io(std::io::ErrorKind::NotFound)
-                })?;
+            let reader = ctx
+                .vfs
+                .open_read(ctx.root, &req.path)
+                .await
+                .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
 
             let total_size = metadata.size_bytes;
             let offset = req.offset;
@@ -737,13 +756,11 @@ async fn handle_message(
                         send_ack(send, ctx).await?;
                         return Ok(());
                     } else {
-                        return Err(crate::channel::TransportError::Io(
-                            std::io::ErrorKind::AlreadyExists,
-                        ));
+                        return Err(BrowseFailure::Refused(RefusalReason::AlreadyExists));
                     }
                 }
                 Err(VfsError::NotFound) => {}
-                Err(e) => return Err(vfs_to_transport_error(e)),
+                Err(e) => return Err(BrowseFailure::Refused(refusal_for(e))),
             }
 
             if !req.parents {
@@ -752,9 +769,8 @@ async fn handle_message(
                     if parent_str.is_empty() {
                         true
                     } else {
-                        let parent_path = RelPath::new(parent_str).map_err(|_| {
-                            crate::channel::TransportError::Io(std::io::ErrorKind::InvalidInput)
-                        })?;
+                        let parent_path = RelPath::new(parent_str)
+                            .map_err(|_| BrowseFailure::Refused(RefusalReason::Failed))?;
                         match ctx.vfs.stat(ctx.root, &parent_path).await {
                             Ok(meta) => meta.kind == EntryKind::Directory,
                             Err(_) => false,
@@ -765,16 +781,14 @@ async fn handle_message(
                 };
 
                 if !parent_is_dir {
-                    return Err(crate::channel::TransportError::Io(
-                        std::io::ErrorKind::NotFound,
-                    ));
+                    return Err(BrowseFailure::Refused(RefusalReason::NotFound));
                 }
             }
 
             ctx.vfs
                 .create_dir(ctx.root, &req.path)
                 .await
-                .map_err(vfs_to_transport_error)?;
+                .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
             send_ack(send, ctx).await?;
         }
         BrowseMessage::Delete(req) => {
@@ -782,33 +796,31 @@ async fn handle_message(
                 .vfs
                 .stat(ctx.root, &req.path)
                 .await
-                .map_err(vfs_to_transport_error)?;
+                .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
             match meta.kind {
                 EntryKind::File => {
                     ctx.vfs
                         .remove(ctx.root, &req.path)
                         .await
-                        .map_err(vfs_to_transport_error)?;
+                        .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
                 }
                 EntryKind::Directory => {
                     let entries = ctx
                         .vfs
                         .list(ctx.root, &req.path)
                         .await
-                        .map_err(vfs_to_transport_error)?;
+                        .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
                     if entries.is_empty() {
                         ctx.vfs
                             .remove(ctx.root, &req.path)
                             .await
-                            .map_err(vfs_to_transport_error)?;
+                            .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
                     } else if req.recursive {
                         remove_dir_recursive(ctx.vfs, ctx.root, &req.path)
                             .await
-                            .map_err(vfs_to_transport_error)?;
+                            .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
                     } else {
-                        return Err(crate::channel::TransportError::Io(
-                            std::io::ErrorKind::DirectoryNotEmpty,
-                        ));
+                        return Err(BrowseFailure::Refused(RefusalReason::WrongKind));
                     }
                 }
             }
@@ -818,29 +830,23 @@ async fn handle_message(
             let from_str = req.from.as_str();
             let to_str = req.to.as_str();
             if to_str == from_str || to_str.starts_with(&format!("{from_str}/")) {
-                return Err(crate::channel::TransportError::Io(
-                    std::io::ErrorKind::InvalidInput,
-                ));
+                return Err(BrowseFailure::Refused(RefusalReason::NotAllowed));
             }
             match ctx.vfs.stat(ctx.root, &req.to).await {
                 Ok(_) => {
-                    return Err(crate::channel::TransportError::Io(
-                        std::io::ErrorKind::AlreadyExists,
-                    ));
+                    return Err(BrowseFailure::Refused(RefusalReason::AlreadyExists));
                 }
                 Err(VfsError::NotFound) => {}
-                Err(e) => return Err(vfs_to_transport_error(e)),
+                Err(e) => return Err(BrowseFailure::Refused(refusal_for(e))),
             }
             ctx.vfs
                 .rename(ctx.root, &req.from, &req.to)
                 .await
-                .map_err(vfs_to_transport_error)?;
+                .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
             send_ack(send, ctx).await?;
         }
         _ => {
-            return Err(crate::channel::TransportError::Io(
-                std::io::ErrorKind::InvalidInput,
-            ));
+            return Err(BrowseFailure::Refused(RefusalReason::Failed));
         }
     }
     Ok(())

@@ -5,6 +5,7 @@
 use std::fmt;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tradr_core::{
     BoxFuture, ChunkIndex, Clock, ContentVerifier, DeviceId, DomainTag, Incoming, ItemAcceptance,
@@ -30,6 +31,8 @@ use crate::link_exchange::{LinkExchangeError, LinkOutcome};
 use crate::partial_sweep::sweep_stale_partials;
 use crate::peer_trust::OwnAttestation;
 use crate::transfer::{ReceiveRequest, SessionStreams, TransferSessionError, receive_file};
+
+const BROWSE_CLOSE_WAIT_LIMIT: Duration = Duration::from_secs(2);
 
 /// Serves a Control stream that opened with a `LinkReply` (docs/04). A
 /// listener with none refuses such a stream, which is what a device with
@@ -583,25 +586,56 @@ where
                             stream_res.map_err(ListenerError::Transport)?;
                         if !params.browse_access.allowed(channel.peer()) {
                             eprintln!("listener: peer {} has no access", channel.peer());
+                            let refused = tradr_core::Refused {
+                                request_id: String::new(),
+                                reason: tradr_core::RefusalReason::NoAccess,
+                            };
+                            match tradr_proto::browse::encode_refused_frame(
+                                &refused,
+                                channel.max_frame_size(),
+                            ) {
+                                Ok(frame) => {
+                                    if let Err(e) = browse_send.write_all(&frame).await {
+                                        eprintln!("listener: writing refused frame failed: {e}");
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("listener: encoding refused frame failed: {e}");
+                                }
+                            }
                             if let Err(e) = browse_send.finish().await {
                                 eprintln!("listener: closing browse stream failed: {e}");
                             }
-                            return Ok(Vec::new());
+                        } else {
+                            let codec = tradr_proto::browse::ProtoBrowseCodec::new(channel.max_frame_size());
+                            let uploads = crate::upload_paths::PartialUploadPaths;
+                            if let Err(e) = tradr_core::handle_browse_stream(
+                                browse_recv.as_mut(),
+                                browse_send.as_mut(),
+                                &codec,
+                                vfs,
+                                params.root,
+                                channel.max_frame_size(),
+                                &uploads,
+                            )
+                            .await
+                            {
+                                eprintln!("listener: handle browse stream failed: {e}");
+                            }
                         }
-                        let codec = tradr_proto::browse::ProtoBrowseCodec::new(channel.max_frame_size());
-                        let uploads = crate::upload_paths::PartialUploadPaths;
-                        if let Err(e) = tradr_core::handle_browse_stream(
-                            browse_recv.as_mut(),
-                            browse_send.as_mut(),
-                            &codec,
-                            vfs,
-                            params.root,
-                            channel.max_frame_size(),
-                            &uploads,
+                        drop(browse_recv);
+                        drop(browse_send);
+                        if tokio::time::timeout(
+                            BROWSE_CLOSE_WAIT_LIMIT,
+                            finish_and_wait_for_control_close(
+                                control_send.as_mut(),
+                                control_recv.as_mut(),
+                            ),
                         )
                         .await
+                        .is_err()
                         {
-                            eprintln!("listener: handle browse stream failed: {e}");
+                            eprintln!("listener: peer did not close within the limit");
                         }
                         Ok(Vec::new())
                     }

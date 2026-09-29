@@ -347,31 +347,101 @@ async fn listener_gate_refuses_peer_without_access() {
         .await
         .expect("connect");
 
+    let (mut control_send, mut control_recv) = channel.open_bi().await.expect("open control");
+    let clock = SystemClock;
+    let not_after = UnixTime::from_secs(clock.now().as_secs() + 30 * 24 * 3600);
+    let keybind_sig = client_store
+        .sign(DomainTag::KeyBind, client_id.agreement_pub().as_bytes())
+        .expect("sign");
+    let our_key_binding =
+        KeyBinding::new(client_id.agreement_pub().clone(), keybind_sig, not_after);
+
+    let handshake_params = tradr_app::handshake::HandshakeParams {
+        authenticated_peer: channel.peer(),
+        our_channel_max_frame_size: channel.max_frame_size(),
+        our_identity: &client_id,
+        our_attestation_token: String::new(),
+        our_key_binding,
+        our_versions: VersionRange::new(1, 1).expect("version range"),
+        our_capabilities: Capabilities::DIRECT_QUIC,
+    };
+
+    let session = tradr_app::handshake::perform_handshake(
+        control_send.as_mut(),
+        control_recv.as_mut(),
+        handshake_params,
+        client_store.as_ref(),
+        &FixedRng,
+        &SystemClock,
+        |_| async { Ok(TrustTier::SameAccount) },
+    )
+    .await
+    .expect("handshake");
+
+    let negotiated_frame_bound = session.peer_max_frame_size().min(channel.max_frame_size());
+    let (mut browse_send, mut browse_recv) = channel.open_bi().await.expect("open browse");
+
     let share_id: ShareId = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f"
         .parse()
         .expect("share_id");
 
-    let (list_result, server_outcome) = tokio::join!(
-        execute_list_peer_directory(
-            channel.as_ref(),
-            share_id,
-            RelPath::root(),
-            String::new(),
-            500,
-            &client_id,
-            client_store.as_ref(),
-            String::new(),
-            Capabilities::DIRECT_QUIC,
-            |_| async { Ok(TrustTier::SameAccount) },
-        ),
-        server_handle,
-    );
+    let list_dir_msg = tradr_core::ListDir {
+        share_id,
+        path: RelPath::root(),
+        cursor: String::new(),
+        limit: 500,
+        with_hash: false,
+    };
+
+    let frame_bytes =
+        tradr_proto::browse::encode_list_dir_frame(&list_dir_msg, negotiated_frame_bound)
+            .expect("encode list dir frame");
+    browse_send
+        .write_all(&frame_bytes)
+        .await
+        .expect("send list dir frame");
+
+    let mut len_bytes = [0u8; 4];
+    let mut offset = 0;
+    while offset < 4 {
+        let n = browse_recv
+            .read(&mut len_bytes[offset..])
+            .await
+            .expect("read len");
+        assert!(n > 0, "stream closed before announced len");
+        offset += n;
+    }
+    let announced = u32::from_be_bytes(len_bytes);
+    let mut raw = vec![0u8; 4 + announced as usize];
+    raw[..4].copy_from_slice(&len_bytes);
+    let mut payload_offset = 4;
+    while payload_offset < raw.len() {
+        let n = browse_recv
+            .read(&mut raw[payload_offset..])
+            .await
+            .expect("read payload");
+        assert!(n > 0, "stream closed before payload complete");
+        payload_offset += n;
+    }
+
+    let mut decoder = tradr_proto::framing::FrameDecoder::new(channel.max_frame_size());
+    decoder.feed(&raw);
+    let frame = decoder.next_frame().expect("decode").expect("frame");
 
     assert!(
-        list_result.is_err(),
+        tradr_proto::browse::decode_dir_listing_frame(&frame).is_err(),
         "unauthorized peer must receive no DirListing response"
     );
-    let (server_res, _server_chan) = server_outcome.expect("server join");
+
+    let refused = tradr_proto::browse::decode_refused_frame(&frame)
+        .expect("unauthorized peer must receive Refused response");
+    assert_eq!(refused.reason, tradr_core::RefusalReason::NoAccess);
+
+    drop(browse_recv);
+    drop(browse_send);
+    control_send.finish().await.expect("finish control send");
+
+    let (server_res, _server_chan) = server_handle.await.expect("server join");
     assert!(server_res.is_ok());
 }
 

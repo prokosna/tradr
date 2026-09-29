@@ -10,9 +10,9 @@ use tradr_app::listener::{ListenerParams, handle_incoming_channel};
 use tradr_app::peer_trust::OwnAttestation;
 use tradr_core::{
     Ack, BrowseCodec, BrowseMessage, Candidate, Capabilities, Clock, ContentHash, Delete,
-    DomainTag, KeyBinding, KeyStore, Mkdir, PeerExpectation, RecvStream, RelPath, Rename, RootId,
-    SecureChannel, SendStream, ShareId, Transport, TransportId, TrustTier, UnixTime, VersionRange,
-    WriteFile, WriteMode,
+    DomainTag, KeyBinding, KeyStore, ListDir, Mkdir, PeerExpectation, ReadFile, RecvStream,
+    RefusalReason, Refused, RelPath, Rename, RootId, SecureChannel, SendStream, ShareId, Transport,
+    TransportId, TrustTier, UnixTime, VersionRange, WriteFile, WriteMode,
 };
 use tradr_identity::{OsRng, SoftwareKeyStore, SystemClock};
 use tradr_integrity::BaoVerifier;
@@ -211,6 +211,35 @@ async fn read_ack(
     }
 }
 
+async fn read_refused(
+    recv: &mut dyn RecvStream,
+    codec: &ProtoBrowseCodec,
+    max_frame_size: u32,
+) -> Result<Refused, String> {
+    let mut len_bytes = [0u8; 4];
+    read_exact(recv, &mut len_bytes).await?;
+    let announced = u32::from_be_bytes(len_bytes);
+    if announced == 0 {
+        return Err("empty frame announced".to_string());
+    }
+    if announced > max_frame_size {
+        return Err(format!("frame oversized: {announced} > {max_frame_size}"));
+    }
+
+    let mut raw = vec![0u8; 4 + announced as usize];
+    raw[..4].copy_from_slice(&len_bytes);
+    read_exact(recv, &mut raw[4..]).await?;
+
+    match codec.decode_frame(&raw, max_frame_size) {
+        Ok(Some((BrowseMessage::Refused(refused), consumed))) if consumed == raw.len() => {
+            Ok(refused)
+        }
+        Ok(Some((other, _))) => Err(format!("expected Refused, received: {other:?}")),
+        Ok(None) => Err("incomplete frame decoded".to_string()),
+        Err(e) => Err(format!("decode error: {e}")),
+    }
+}
+
 #[tokio::test]
 async fn upload_3mib_plus_17_bytes_create_new_succeeds() {
     let ctx = setup_harness().await;
@@ -286,11 +315,10 @@ async fn create_new_onto_existing_file_refused_and_unchanged() {
         .await
         .expect("send data");
 
-    let ack_res = read_ack(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size).await;
-    assert!(
-        ack_res.is_err(),
-        "create_new onto existing file must end stream without Ack"
-    );
+    let refused = read_refused(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read refused");
+    assert_eq!(refused.reason, RefusalReason::AlreadyExists);
 
     let content = std::fs::read(&existing_path).expect("read existing");
     assert_eq!(content, b"original content");
@@ -542,11 +570,10 @@ async fn mkdir_without_parents_missing_parent_refused() {
         .encode_frame(&msg_no_parents_fail, ctx.max_frame_size)
         .expect("encode");
     browse_send.write_all(&frame).await.expect("send");
-    let ack_res = read_ack(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size).await;
-    assert!(
-        ack_res.is_err(),
-        "mkdir without parents on missing parent must be refused"
-    );
+    let refused = read_refused(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read refused");
+    assert_eq!(refused.reason, RefusalReason::NotFound);
 }
 
 #[tokio::test]
@@ -567,8 +594,10 @@ async fn mkdir_onto_existing_file_refused() {
         .encode_frame(&msg_file_exists, ctx.max_frame_size)
         .expect("encode");
     browse_send.write_all(&frame).await.expect("send");
-    let ack_res = read_ack(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size).await;
-    assert!(ack_res.is_err(), "mkdir on existing file must be refused");
+    let refused = read_refused(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read refused");
+    assert_eq!(refused.reason, RefusalReason::AlreadyExists);
 }
 
 #[tokio::test]
@@ -634,11 +663,10 @@ async fn delete_non_empty_directory_without_recursive_refused() {
         .encode_frame(&del_nonempty_no_rec, ctx.max_frame_size)
         .expect("encode");
     browse_send.write_all(&frame).await.expect("send");
-    let ack_res = read_ack(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size).await;
-    assert!(
-        ack_res.is_err(),
-        "delete non-empty directory without recursive must be refused"
-    );
+    let refused = read_refused(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read refused");
+    assert_eq!(refused.reason, RefusalReason::WrongKind);
     assert!(
         tree_dir.join("nested").join("item.txt").exists(),
         "tree content must be untouched"
@@ -721,11 +749,10 @@ async fn rename_onto_existing_target_refused() {
         .encode_frame(&rename_occupied, ctx.max_frame_size)
         .expect("encode");
     browse_send.write_all(&frame).await.expect("send");
-    let ack_res = read_ack(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size).await;
-    assert!(
-        ack_res.is_err(),
-        "rename onto existing target must be refused"
-    );
+    let refused = read_refused(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read refused");
+    assert_eq!(refused.reason, RefusalReason::AlreadyExists);
     assert_eq!(
         std::fs::read(&existing_path).expect("read occupied"),
         b"already here"
@@ -754,8 +781,10 @@ async fn rename_into_self_refused() {
         .encode_frame(&rename_inside_self, ctx.max_frame_size)
         .expect("encode");
     browse_send.write_all(&frame).await.expect("send");
-    let ack_res = read_ack(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size).await;
-    assert!(ack_res.is_err(), "rename into self/child must be refused");
+    let refused = read_refused(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read refused");
+    assert_eq!(refused.reason, RefusalReason::NotAllowed);
 }
 
 #[tokio::test]
@@ -779,11 +808,10 @@ async fn rename_directory_into_itself_refused_and_content_unchanged() {
         .expect("encode");
     browse_send.write_all(&frame).await.expect("send");
 
-    let ack_res = read_ack(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size).await;
-    assert!(
-        ack_res.is_err(),
-        "rename of directory a to a/b must end stream without Ack"
-    );
+    let refused = read_refused(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read refused");
+    assert_eq!(refused.reason, RefusalReason::NotAllowed);
 
     assert!(dir_a.is_dir(), "directory a must still exist");
     assert_eq!(
@@ -794,5 +822,130 @@ async fn rename_directory_into_itself_refused_and_content_unchanged() {
     assert!(
         !dir_a.join("b").exists(),
         "nested target a/b must not exist"
+    );
+}
+
+#[tokio::test]
+async fn list_dir_missing_path_refused_not_found() {
+    let ctx = setup_harness().await;
+    let (mut browse_send, mut browse_recv) = ctx.channel.open_bi().await.expect("open browse");
+
+    let list_msg = BrowseMessage::ListDir(ListDir {
+        share_id: ctx.share_id,
+        path: RelPath::new("missing_folder").expect("relpath"),
+        cursor: String::new(),
+        limit: 100,
+        with_hash: false,
+    });
+    let frame = ctx
+        .codec
+        .encode_frame(&list_msg, ctx.max_frame_size)
+        .expect("encode");
+    browse_send.write_all(&frame).await.expect("send");
+
+    let refused = read_refused(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read refused");
+    assert_eq!(refused.reason, RefusalReason::NotFound);
+
+    let mut end_buf = [0u8; 1];
+    let n = browse_recv
+        .read(&mut end_buf)
+        .await
+        .expect("read at stream end");
+    assert_eq!(n, 0, "stream must be finished after refusal");
+}
+
+#[tokio::test]
+async fn read_file_of_directory_refused_wrong_kind() {
+    let ctx = setup_harness().await;
+    let dir_path = ctx.server_dir.path().join("a_directory");
+    std::fs::create_dir(&dir_path).expect("create dir");
+
+    let (mut browse_send, mut browse_recv) = ctx.channel.open_bi().await.expect("open browse");
+
+    let read_msg = BrowseMessage::ReadFile(ReadFile {
+        share_id: ctx.share_id,
+        path: RelPath::new("a_directory").expect("relpath"),
+        offset: 0,
+        length: 100,
+    });
+    let frame = ctx
+        .codec
+        .encode_frame(&read_msg, ctx.max_frame_size)
+        .expect("encode");
+    browse_send.write_all(&frame).await.expect("send");
+
+    let refused = read_refused(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read refused");
+    assert_eq!(refused.reason, RefusalReason::WrongKind);
+
+    let mut end_buf = [0u8; 1];
+    let n = browse_recv
+        .read(&mut end_buf)
+        .await
+        .expect("read at stream end");
+    assert_eq!(n, 0, "stream must be finished after refusal");
+}
+
+#[tokio::test]
+async fn delete_missing_path_refused_not_found() {
+    let ctx = setup_harness().await;
+    let (mut browse_send, mut browse_recv) = ctx.channel.open_bi().await.expect("open browse");
+
+    let del_msg = BrowseMessage::Delete(Delete {
+        share_id: ctx.share_id,
+        path: RelPath::new("does_not_exist.txt").expect("relpath"),
+        recursive: false,
+    });
+    let frame = ctx
+        .codec
+        .encode_frame(&del_msg, ctx.max_frame_size)
+        .expect("encode");
+    browse_send.write_all(&frame).await.expect("send");
+
+    let refused = read_refused(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read refused");
+    assert_eq!(refused.reason, RefusalReason::NotFound);
+
+    let mut end_buf = [0u8; 1];
+    let n = browse_recv
+        .read(&mut end_buf)
+        .await
+        .expect("read at stream end");
+    assert_eq!(n, 0, "stream must be finished after refusal");
+}
+
+#[tokio::test]
+async fn after_refused_reading_browse_stream_reaches_end() {
+    let ctx = setup_harness().await;
+    let (mut browse_send, mut browse_recv) = ctx.channel.open_bi().await.expect("open browse");
+
+    let del_msg = BrowseMessage::Delete(Delete {
+        share_id: ctx.share_id,
+        path: RelPath::new("non_existent").expect("relpath"),
+        recursive: false,
+    });
+    let frame = ctx
+        .codec
+        .encode_frame(&del_msg, ctx.max_frame_size)
+        .expect("encode");
+    browse_send.write_all(&frame).await.expect("send");
+
+    let refused = read_refused(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read refused");
+    assert_eq!(refused.reason, RefusalReason::NotFound);
+
+    let mut end_buf = [0u8; 16];
+    let n = browse_recv
+        .read(&mut end_buf)
+        .await
+        .expect("read after refusal");
+    assert_eq!(
+        n, 0,
+        "reading browse stream after refusal must reach 0 bytes"
     );
 }

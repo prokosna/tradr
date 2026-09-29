@@ -2684,3 +2684,85 @@ async fn run_listener_keeps_a_fresh_partial_directory() {
     assert!(transfer_dir.exists());
     assert!(receiver_dir.path().join(".tradr-partial").exists());
 }
+
+#[tokio::test(start_paused = true)]
+async fn browse_stream_with_unclosed_control_stream_times_out_and_succeeds() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (
+        (sender_store, sender_id, sender_binding),
+        (receiver_store, receiver_id, receiver_binding),
+    ) = create_test_identities();
+
+    let (sender_chan, listener_chan) =
+        mock_channel_pair(sender_id.device_id(), receiver_id.device_id(), MAX_FRAME);
+
+    let sender_rng = SeededRng::new(333);
+    let listener_rng = SeededRng::new(444);
+
+    let sender_task = async {
+        let (mut sender_ctrl_send, mut sender_ctrl_recv) =
+            sender_chan.open_bi().await.expect("open ctrl bi");
+        let sender_params = HandshakeParams {
+            authenticated_peer: receiver_id.device_id(),
+            our_channel_max_frame_size: MAX_FRAME,
+            our_identity: &sender_id,
+            our_attestation_token: "mock-token-sender".to_string(),
+            our_key_binding: sender_binding,
+            our_versions: VersionRange::new(1, 1).unwrap(),
+            our_capabilities: Capabilities::empty(),
+        };
+        perform_handshake(
+            sender_ctrl_send.as_mut(),
+            sender_ctrl_recv.as_mut(),
+            sender_params,
+            &sender_store,
+            &sender_rng,
+            &clock,
+            |_| async { Ok(TrustTier::SameAccount) },
+        )
+        .await
+        .expect("sender handshake completes");
+
+        let (mut browse_send, mut browse_recv) =
+            sender_chan.open_bi().await.expect("open browse bi");
+        browse_send.finish().await.expect("finish browse send");
+        let mut buf = [0u8; 256];
+        let n = browse_recv.read(&mut buf).await.expect("read refused");
+        assert!(n > 0);
+        std::mem::forget(sender_ctrl_send);
+    };
+
+    let receiver_vfs = NativeVfs::new();
+    let root_receiver = RootId::new(40);
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
+    };
+
+    let listener_task = handle_incoming_channel(
+        &listener_chan,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+    );
+
+    let (_, listener_res) = tokio::join!(sender_task, listener_task);
+    assert!(
+        listener_res.is_ok(),
+        "listener must succeed despite unclosed control stream: {:?}",
+        listener_res.err()
+    );
+}

@@ -45,7 +45,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M8-061b`** (DCR-168, the serving side answers a refusal with `Refused`), next to dispatch to `agy` on Gemini 3.8 Flash. `WI-M8-061a` landed 2026-09-29. Then `WI-M8-061c` (the browsing side words it)
+- **`WI-M8-061c`** (DCR-168, the browsing side reads `Refused` and words it), next to dispatch to `agy` on Gemini 3.8 Flash. `WI-M8-061a` and `WI-M8-061b` landed 2026-09-29
 
 ## Decisions
 
