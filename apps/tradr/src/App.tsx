@@ -238,6 +238,22 @@ export function App() {
 	const [browseState, setBrowseState] = useState<BrowseState>({
 		status: "idle",
 	});
+	const [browseOpRunning, setBrowseOpRunning] = useState(false);
+	const [browseError, setBrowseError] = useState<string | null>(null);
+	const [downloadStatus, setDownloadStatus] = useState<Record<string, string>>(
+		{},
+	);
+	const [newFolderName, setNewFolderName] = useState("");
+	const [renamingEntry, setRenamingEntry] = useState<string | null>(null);
+	const [renameValue, setRenameValue] = useState("");
+	const [deletingEntry, setDeletingEntry] = useState<string | null>(null);
+
+	const isBrowseBusy = browseOpRunning || browseState.status === "loading";
+
+	const buildEntryPath = useCallback(
+		(name: string) => (browsePath ? `${browsePath}/${name}` : name),
+		[browsePath],
+	);
 
 	const [staticPeerList, setStaticPeerList] = useState<StaticPeerListState>({
 		status: "loading",
@@ -273,6 +289,10 @@ export function App() {
 			setSelectedShareId("");
 			setBrowsePath("");
 			setBrowseState({ status: "idle" });
+			setBrowseError(null);
+			setDownloadStatus({});
+			setRenamingEntry(null);
+			setDeletingEntry(null);
 			setSharesError(null);
 		}
 	}, [selectedPeerId, loadShares]);
@@ -282,6 +302,7 @@ export function App() {
 			if (!selectedPeerId || !selectedShareId) {
 				return;
 			}
+			setBrowseError(null);
 			setBrowseState({ status: "loading" });
 			invoke<DirListingDto>("plugin:tradr|list_peer_directory", {
 				peerId: selectedPeerId,
@@ -294,13 +315,19 @@ export function App() {
 					setBrowseState({ status: "loaded", listing });
 				})
 				.catch((error) => {
-					setBrowseState({ status: "error", message: String(error) });
+					const msg = String(error);
+					setBrowseState({ status: "error", message: msg });
+					setBrowseError(`Failed to browse directory: ${msg}`);
 				});
 		},
 		[selectedPeerId, selectedShareId],
 	);
 
 	const handleNavigate = (newPath: string) => {
+		setBrowseError(null);
+		setDownloadStatus({});
+		setRenamingEntry(null);
+		setDeletingEntry(null);
 		setBrowsePath(newPath);
 		fetchDirectory(newPath);
 	};
@@ -320,6 +347,168 @@ export function App() {
 			const parts = browsePath.split("/").filter(Boolean);
 			const newPath = parts.slice(0, index + 1).join("/");
 			handleNavigate(newPath);
+		}
+	};
+
+	const handleDownloadFile = async (entryName: string) => {
+		if (!selectedPeerId || !selectedShareId) return;
+		setBrowseError(null);
+		setBrowseOpRunning(true);
+		const entryPath = buildEntryPath(entryName);
+		try {
+			const placedAt = await invoke<string>("plugin:tradr|download_file", {
+				peerId: selectedPeerId,
+				shareId: selectedShareId,
+				path: entryPath,
+			});
+			setDownloadStatus((prev) => ({
+				...prev,
+				[entryName]: `Saved as ${placedAt}`,
+			}));
+		} catch (error) {
+			const msg = String(error);
+			setDownloadStatus((prev) => ({
+				...prev,
+				[entryName]: msg,
+			}));
+			setBrowseError(msg);
+		} finally {
+			setBrowseOpRunning(false);
+		}
+	};
+
+	const handleStartRename = (name: string) => {
+		setBrowseError(null);
+		setDeletingEntry(null);
+		setRenamingEntry(name);
+		setRenameValue(name);
+	};
+
+	const handleCancelRename = () => {
+		setRenamingEntry(null);
+		setRenameValue("");
+	};
+
+	const handleSaveRename = async (oldName: string) => {
+		if (!selectedPeerId || !selectedShareId) return;
+		const trimmed = renameValue.trim();
+		if (!trimmed) return;
+		if (trimmed === oldName) {
+			setRenamingEntry(null);
+			setRenameValue("");
+			return;
+		}
+		setBrowseError(null);
+		setDownloadStatus({});
+		setBrowseOpRunning(true);
+		const from = buildEntryPath(oldName);
+		const to = buildEntryPath(trimmed);
+		try {
+			await invoke<void>("plugin:tradr|rename_peer_entry", {
+				peerId: selectedPeerId,
+				shareId: selectedShareId,
+				from,
+				to,
+			});
+			setRenamingEntry(null);
+			setRenameValue("");
+			fetchDirectory(browsePath);
+		} catch (error) {
+			setBrowseError(String(error));
+		} finally {
+			setBrowseOpRunning(false);
+		}
+	};
+
+	const handleConfirmDelete = async (entry: FileEntryDto) => {
+		if (!selectedPeerId || !selectedShareId) return;
+		setBrowseError(null);
+		setDownloadStatus({});
+		setBrowseOpRunning(true);
+		const targetPath = buildEntryPath(entry.name);
+		try {
+			await invoke<void>("plugin:tradr|delete_peer_entry", {
+				peerId: selectedPeerId,
+				shareId: selectedShareId,
+				path: targetPath,
+				recursive: entry.kind === "directory",
+			});
+			setDeletingEntry(null);
+			fetchDirectory(browsePath);
+		} catch (error) {
+			setBrowseError(String(error));
+		} finally {
+			setBrowseOpRunning(false);
+		}
+	};
+
+	const handleMakeDirectory = async () => {
+		if (!selectedPeerId || !selectedShareId) return;
+		const trimmed = newFolderName.trim();
+		if (!trimmed) return;
+		setBrowseError(null);
+		setDownloadStatus({});
+		setBrowseOpRunning(true);
+		const targetPath = buildEntryPath(trimmed);
+		try {
+			await invoke<void>("plugin:tradr|make_peer_directory", {
+				peerId: selectedPeerId,
+				shareId: selectedShareId,
+				path: targetPath,
+			});
+			setNewFolderName("");
+			fetchDirectory(browsePath);
+		} catch (error) {
+			setBrowseError(String(error));
+		} finally {
+			setBrowseOpRunning(false);
+		}
+	};
+
+	const handleUploadFiles = async () => {
+		if (!selectedPeerId || !selectedShareId) return;
+		setBrowseError(null);
+		setDownloadStatus({});
+		setBrowseOpRunning(true);
+		try {
+			let uploadFiles: string[] = [];
+			let uploadAdoptedIds: string[] = [];
+
+			const picked = await invoke<SharedFilePayload[] | null>(
+				"plugin:tradr|pick_files_to_send",
+			);
+			if (picked === null) {
+				const selected = await open({
+					multiple: true,
+				});
+				if (Array.isArray(selected) && selected.length > 0) {
+					uploadFiles = selected;
+				} else if (typeof selected === "string") {
+					uploadFiles = [selected];
+				}
+			} else if (picked.length > 0) {
+				const { paths, adoptedIds, refused } = stagePayloads(picked);
+				if (refused.length > 0) {
+					setBrowseError(`Could not read files: ${refused.join(", ")}`);
+				}
+				uploadFiles = paths;
+				uploadAdoptedIds = adoptedIds.map((a) => a.id);
+			}
+
+			if (uploadFiles.length > 0 || uploadAdoptedIds.length > 0) {
+				await invoke<string[]>("plugin:tradr|upload_to_peer", {
+					peerId: selectedPeerId,
+					shareId: selectedShareId,
+					destDir: browsePath,
+					files: uploadFiles,
+					adoptedIds: uploadAdoptedIds,
+				});
+				fetchDirectory(browsePath);
+			}
+		} catch (error) {
+			setBrowseError(String(error));
+		} finally {
+			setBrowseOpRunning(false);
 		}
 	};
 
@@ -1064,7 +1253,14 @@ export function App() {
 							<select
 								id="share-select"
 								value={selectedShareId}
-								onChange={(e) => setSelectedShareId(e.target.value)}
+								onChange={(e) => {
+									setSelectedShareId(e.target.value);
+									setBrowsePath("");
+									setBrowseError(null);
+									setDownloadStatus({});
+									setRenamingEntry(null);
+									setDeletingEntry(null);
+								}}
 								style={{ padding: "0.25rem 0.5rem" }}
 							>
 								{shares.map((share) => (
@@ -1080,7 +1276,7 @@ export function App() {
 							<button
 								type="button"
 								onClick={() => fetchDirectory(browsePath)}
-								disabled={browseState.status === "loading"}
+								disabled={isBrowseBusy}
 							>
 								{browseState.status === "loading"
 									? "Loading..."
@@ -1102,7 +1298,7 @@ export function App() {
 							<button
 								type="button"
 								onClick={handleNavigateUp}
-								disabled={!browsePath || browseState.status === "loading"}
+								disabled={!browsePath || isBrowseBusy}
 								style={{ padding: "0.2rem 0.6rem" }}
 							>
 								⬆ Up
@@ -1112,11 +1308,12 @@ export function App() {
 							<button
 								type="button"
 								onClick={() => handleBreadcrumbClick(-1)}
+								disabled={isBrowseBusy}
 								style={{
 									background: "none",
 									border: "none",
 									color: "#0078d4",
-									cursor: "pointer",
+									cursor: isBrowseBusy ? "default" : "pointer",
 									padding: 0,
 									textDecoration: "underline",
 								}}
@@ -1139,11 +1336,12 @@ export function App() {
 										<button
 											type="button"
 											onClick={() => handleBreadcrumbClick(idx)}
+											disabled={isBrowseBusy}
 											style={{
 												background: "none",
 												border: "none",
 												color: "#0078d4",
-												cursor: "pointer",
+												cursor: isBrowseBusy ? "default" : "pointer",
 												padding: 0,
 												textDecoration:
 													idx === arr.length - 1 ? "none" : "underline",
@@ -1156,13 +1354,58 @@ export function App() {
 								))}
 						</div>
 
+						{selectedShareId && (
+							<div
+								style={{
+									display: "flex",
+									alignItems: "center",
+									gap: "0.5rem",
+									marginBottom: "0.75rem",
+									flexWrap: "wrap",
+								}}
+							>
+								<button
+									type="button"
+									onClick={handleUploadFiles}
+									disabled={isBrowseBusy}
+								>
+									Upload files
+								</button>
+								<div
+									style={{
+										display: "inline-flex",
+										alignItems: "center",
+										gap: "0.25rem",
+									}}
+								>
+									<input
+										type="text"
+										placeholder="New folder name"
+										value={newFolderName}
+										onChange={(e) => setNewFolderName(e.target.value)}
+										disabled={isBrowseBusy}
+										onKeyDown={(e) => {
+											if (e.key === "Enter") {
+												handleMakeDirectory();
+											}
+										}}
+										style={{ padding: "0.25rem 0.5rem" }}
+									/>
+									<button
+										type="button"
+										onClick={handleMakeDirectory}
+										disabled={isBrowseBusy || !newFolderName.trim()}
+									>
+										New folder
+									</button>
+								</div>
+							</div>
+						)}
+
+						{browseError && <p style={{ color: "red" }}>{browseError}</p>}
+
 						{browseState.status === "loading" && (
 							<p>Loading directory listing...</p>
-						)}
-						{browseState.status === "error" && (
-							<p style={{ color: "red" }}>
-								Failed to browse directory: {browseState.message}
-							</p>
 						)}
 						{browseState.status === "loaded" && (
 							<div>
@@ -1189,6 +1432,7 @@ export function App() {
 												<th style={{ padding: "0.5rem" }}>Type</th>
 												<th style={{ padding: "0.5rem" }}>Size</th>
 												<th style={{ padding: "0.5rem" }}>Modified</th>
+												<th style={{ padding: "0.5rem" }}>Actions</th>
 											</tr>
 										</thead>
 										<tbody>
@@ -1200,20 +1444,63 @@ export function App() {
 													}}
 												>
 													<td style={{ padding: "0.5rem" }}>
-														{entry.kind === "directory" ? (
+														{renamingEntry === entry.name ? (
+															<div
+																style={{
+																	display: "inline-flex",
+																	alignItems: "center",
+																	gap: "0.25rem",
+																}}
+															>
+																<span>
+																	{entry.kind === "directory" ? "📁" : "📄"}
+																</span>
+																<input
+																	type="text"
+																	value={renameValue}
+																	onChange={(e) =>
+																		setRenameValue(e.target.value)
+																	}
+																	disabled={isBrowseBusy}
+																	onKeyDown={(e) => {
+																		if (e.key === "Enter") {
+																			handleSaveRename(entry.name);
+																		} else if (e.key === "Escape") {
+																			handleCancelRename();
+																		}
+																	}}
+																	style={{ padding: "0.2rem" }}
+																/>
+																<button
+																	type="button"
+																	onClick={() => handleSaveRename(entry.name)}
+																	disabled={isBrowseBusy || !renameValue.trim()}
+																	style={{ padding: "0.2rem 0.5rem" }}
+																>
+																	Save
+																</button>
+																<button
+																	type="button"
+																	onClick={handleCancelRename}
+																	disabled={isBrowseBusy}
+																	style={{ padding: "0.2rem 0.5rem" }}
+																>
+																	Cancel
+																</button>
+															</div>
+														) : entry.kind === "directory" ? (
 															<button
 																type="button"
 																onClick={() => {
-																	const next = browsePath
-																		? `${browsePath}/${entry.name}`
-																		: entry.name;
+																	const next = buildEntryPath(entry.name);
 																	handleNavigate(next);
 																}}
+																disabled={isBrowseBusy}
 																style={{
 																	background: "none",
 																	border: "none",
 																	color: "#0078d4",
-																	cursor: "pointer",
+																	cursor: isBrowseBusy ? "default" : "pointer",
 																	padding: 0,
 																	font: "inherit",
 																	textAlign: "left",
@@ -1242,6 +1529,69 @@ export function App() {
 													<td style={{ padding: "0.5rem" }}>
 														{formatTimestamp(entry.modified)}
 													</td>
+													<td style={{ padding: "0.5rem" }}>
+														{entry.kind === "file" && (
+															<button
+																type="button"
+																onClick={() => handleDownloadFile(entry.name)}
+																disabled={isBrowseBusy}
+																style={{ marginRight: "0.5rem" }}
+															>
+																Download
+															</button>
+														)}
+														{renamingEntry !== entry.name && (
+															<button
+																type="button"
+																onClick={() => handleStartRename(entry.name)}
+																disabled={isBrowseBusy}
+																style={{ marginRight: "0.5rem" }}
+															>
+																Rename
+															</button>
+														)}
+														{deletingEntry === entry.name ? (
+															<button
+																type="button"
+																onClick={() => handleConfirmDelete(entry)}
+																disabled={isBrowseBusy}
+																style={{
+																	color: "red",
+																	fontWeight: "bold",
+																}}
+															>
+																Confirm delete
+															</button>
+														) : (
+															<button
+																type="button"
+																onClick={() => {
+																	setBrowseError(null);
+																	setDownloadStatus({});
+																	setDeletingEntry(entry.name);
+																}}
+																disabled={isBrowseBusy}
+															>
+																Delete
+															</button>
+														)}
+														{entry.kind === "file" &&
+															downloadStatus[entry.name] && (
+																<span
+																	style={{
+																		marginLeft: "0.5rem",
+																		fontSize: "0.85em",
+																		color: downloadStatus[
+																			entry.name
+																		]?.startsWith("Saved as")
+																			? "green"
+																			: "red",
+																	}}
+																>
+																	{downloadStatus[entry.name]}
+																</span>
+															)}
+													</td>
 												</tr>
 											))}
 										</tbody>
@@ -1257,6 +1607,7 @@ export function App() {
 													browseState.listing.nextCursor,
 												)
 											}
+											disabled={isBrowseBusy}
 										>
 											Load More Entries
 										</button>
