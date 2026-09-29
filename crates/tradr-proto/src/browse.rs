@@ -6,8 +6,8 @@ use crate::v1;
 use prost::Message;
 use tradr_core::{
     Ack, BrowseCodec, BrowseDomainError, BrowseMessage, ContentHash, Delete, DirEntry, DirListing,
-    EntryKind, ListDir, Mkdir, ReadFile, ReadFileBegin, RelPath, Rename, Stat, StatResult,
-    UnixTime, WriteFile, WriteMode,
+    EntryKind, ListDir, Mkdir, ReadFile, ReadFileBegin, RefusalReason, Refused, RelPath, Rename,
+    Stat, StatResult, UnixTime, WriteFile, WriteMode,
 };
 
 /// Errors arising during encoding or decoding framed Browse messages.
@@ -556,6 +556,55 @@ pub fn encode_ack_frame(msg: &Ack, max_size: u32) -> Result<Vec<u8>, BrowseFrame
         .map_err(BrowseFrameError::Framing)
 }
 
+pub fn refused_from_wire(msg: v1::Refused) -> Result<Refused, BrowseDomainError> {
+    let reason = match v1::RefusalReason::try_from(msg.reason) {
+        Ok(v1::RefusalReason::NoAccess) => RefusalReason::NoAccess,
+        Ok(v1::RefusalReason::NotFound) => RefusalReason::NotFound,
+        Ok(v1::RefusalReason::AlreadyExists) => RefusalReason::AlreadyExists,
+        Ok(v1::RefusalReason::WrongKind) => RefusalReason::WrongKind,
+        Ok(v1::RefusalReason::NotAllowed) => RefusalReason::NotAllowed,
+        Ok(v1::RefusalReason::Failed) => RefusalReason::Failed,
+        Ok(v1::RefusalReason::Unspecified) | Err(_) => RefusalReason::Failed,
+    };
+    Ok(Refused {
+        request_id: msg.request_id,
+        reason,
+    })
+}
+
+pub fn refused_to_wire(msg: &Refused) -> v1::Refused {
+    let reason = match msg.reason {
+        RefusalReason::NoAccess => v1::RefusalReason::NoAccess as i32,
+        RefusalReason::NotFound => v1::RefusalReason::NotFound as i32,
+        RefusalReason::AlreadyExists => v1::RefusalReason::AlreadyExists as i32,
+        RefusalReason::WrongKind => v1::RefusalReason::WrongKind as i32,
+        RefusalReason::NotAllowed => v1::RefusalReason::NotAllowed as i32,
+        RefusalReason::Failed => v1::RefusalReason::Failed as i32,
+    };
+    v1::Refused {
+        request_id: msg.request_id.clone(),
+        reason,
+    }
+}
+
+pub fn decode_refused_frame(frame: &Frame) -> Result<Refused, BrowseFrameError> {
+    let expected = MessageType::Refused.code();
+    if frame.type_code() != expected {
+        return Err(BrowseFrameError::WrongMessageType {
+            expected,
+            got: frame.type_code(),
+        });
+    }
+    let wire = v1::Refused::decode(frame.payload()).map_err(BrowseFrameError::Decode)?;
+    refused_from_wire(wire).map_err(BrowseFrameError::Wire)
+}
+
+pub fn encode_refused_frame(msg: &Refused, max_size: u32) -> Result<Vec<u8>, BrowseFrameError> {
+    let wire = refused_to_wire(msg);
+    encode_frame(MessageType::Refused.code(), &wire.encode_to_vec(), max_size)
+        .map_err(BrowseFrameError::Framing)
+}
+
 fn frame_error_to_domain(err: BrowseFrameError) -> BrowseDomainError {
     match err {
         BrowseFrameError::Wire(e) => e,
@@ -643,6 +692,9 @@ impl BrowseCodec for ProtoBrowseCodec {
                 BrowseMessage::Rename(decode_rename_frame(&frame).map_err(frame_error_to_domain)?)
             }
             0x4a => BrowseMessage::Ack(decode_ack_frame(&frame).map_err(frame_error_to_domain)?),
+            0x4d => {
+                BrowseMessage::Refused(decode_refused_frame(&frame).map_err(frame_error_to_domain)?)
+            }
             _ => return Err(BrowseDomainError::UnsupportedMessage),
         };
         Ok(Some((msg, total_len)))
@@ -686,6 +738,9 @@ impl BrowseCodec for ProtoBrowseCodec {
             }
             BrowseMessage::Ack(m) => {
                 encode_ack_frame(m, max_frame_size).map_err(frame_error_to_domain)
+            }
+            BrowseMessage::Refused(m) => {
+                encode_refused_frame(m, max_frame_size).map_err(frame_error_to_domain)
             }
             _ => Err(BrowseDomainError::UnsupportedMessage),
         }

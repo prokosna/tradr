@@ -141,6 +141,32 @@ pub struct Ack {
     pub request_id: String,
 }
 
+/// Category explaining why a browse operation was refused by the peer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefusalReason {
+    /// Peer lacks access to the requested share root.
+    NoAccess,
+    /// Requested path was not found on the peer.
+    NotFound,
+    /// Target path already exists where creation was required.
+    AlreadyExists,
+    /// Entry kind is incompatible with the operation or directory is not empty.
+    WrongKind,
+    /// Operation violates boundary containment, denylist, or filesystem policy.
+    NotAllowed,
+    /// Unspecified error or internal failure on the serving side.
+    Failed,
+}
+
+/// Refusal response sent when a browse request cannot be served.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refused {
+    /// Request identifier matching the incoming browse request.
+    pub request_id: String,
+    /// Reason explaining why the request was refused.
+    pub reason: RefusalReason,
+}
+
 /// Request to watch for file system changes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Watch {
@@ -247,6 +273,8 @@ pub enum BrowseMessage {
     Rename(Rename),
     /// Ack response.
     Ack(Ack),
+    /// Refused response.
+    Refused(Refused),
     /// Watch request.
     Watch(Watch),
     /// FsEvent response.

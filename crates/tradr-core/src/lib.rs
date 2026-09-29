@@ -41,8 +41,8 @@ pub use broadcast::{
 };
 pub use browse::{
     Ack, BrowseCodec, BrowseDomainError, BrowseMessage, Delete, DirListing, FsChange, FsChangeKind,
-    FsEvent, ListDir, Mkdir, ReadFile, ReadFileBegin, Rename, Stat, StatResult, UploadPaths, Watch,
-    WriteFile, WriteMode, handle_browse_stream,
+    FsEvent, ListDir, Mkdir, ReadFile, ReadFileBegin, RefusalReason, Refused, Rename, Stat,
+    StatResult, UploadPaths, Watch, WriteFile, WriteMode, handle_browse_stream,
 };
 pub use channel::{RecvStream, SecureChannel, SendStream, TransportError, TransportId};
 pub use chunk_index::{ChunkIndex, ChunkIndexError, REFERENCE_CHUNK_SIZE_BYTES};

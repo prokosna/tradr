@@ -56,6 +56,7 @@ fn expected_classification(code: u8, arriving_on: Plane) -> Classification {
         (Plane::Browse, 0x4a) => Some(MessageType::Ack),
         (Plane::Browse, 0x4b) => Some(MessageType::Watch),
         (Plane::Browse, 0x4c) => Some(MessageType::FsEvent),
+        (Plane::Browse, 0x4d) => Some(MessageType::Refused),
         _ => None,
     };
     match assigned {
@@ -280,6 +281,7 @@ fn all_matches_an_independently_enumerated_list_of_every_variant() {
         Ack,
         Watch,
         FsEvent,
+        Refused,
     ];
 
     let ground_truth_set: HashSet<MessageType> = ground_truth.into_iter().collect();
@@ -295,7 +297,7 @@ fn all_matches_an_independently_enumerated_list_of_every_variant() {
     );
     assert_eq!(
         ground_truth_set.len(),
-        32,
-        "15 Control + 4 Data + 13 Browse"
+        33,
+        "15 Control + 4 Data + 14 Browse"
     );
 }
