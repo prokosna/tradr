@@ -76,7 +76,7 @@ pub enum MessageType {
     ChunkRerequest,
     ChunkData,
     FlowControl,
-    // Browse: 0x40-0x5f, 13 assigned.
+    // Browse: 0x40-0x5f, 14 assigned.
     ListDir,
     DirListing,
     Stat,
@@ -90,6 +90,7 @@ pub enum MessageType {
     Ack,
     Watch,
     FsEvent,
+    Refused,
 }
 
 impl MessageType {
@@ -129,6 +130,7 @@ impl MessageType {
         Self::Ack,
         Self::Watch,
         Self::FsEvent,
+        Self::Refused,
     ];
 
     /// The type byte docs/04 assigns this message.
@@ -166,6 +168,7 @@ impl MessageType {
             Self::Ack => 0x4a,
             Self::Watch => 0x4b,
             Self::FsEvent => 0x4c,
+            Self::Refused => 0x4d,
         }
     }
 
@@ -202,7 +205,8 @@ impl MessageType {
             | Self::Rename
             | Self::Ack
             | Self::Watch
-            | Self::FsEvent => Plane::Browse,
+            | Self::FsEvent
+            | Self::Refused => Plane::Browse,
         }
     }
 }

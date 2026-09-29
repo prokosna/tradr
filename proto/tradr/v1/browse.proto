@@ -61,6 +61,17 @@ message Mkdir  { string share_id = 1; string path = 2; bool parents = 3; }
 message Delete { string share_id = 1; string path = 2; bool recursive = 3; }
 message Rename { string share_id = 1; string from = 2; string to = 3; }
 message Ack    { string request_id = 1; }
+message Refused { string request_id = 1; RefusalReason reason = 2; }
+
+enum RefusalReason {
+  REFUSAL_REASON_UNSPECIFIED    = 0;  // Unspecified refusal; treated as failed
+  REFUSAL_REASON_NO_ACCESS      = 1;  // Peer has no access
+  REFUSAL_REASON_NOT_FOUND      = 2;  // Path that no longer exists
+  REFUSAL_REASON_ALREADY_EXISTS = 3;  // Name already taken
+  REFUSAL_REASON_WRONG_KIND     = 4;  // A file where a directory was wanted, the reverse, or a directory that is not empty
+  REFUSAL_REASON_NOT_ALLOWED    = 5;  // Outside the folder, on the deny list, or a symlink or device
+  REFUSAL_REASON_FAILED         = 6;  // Anything else on the serving side
+}
 
 message Watch {
   string share_id = 1;
