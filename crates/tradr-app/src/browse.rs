@@ -5,12 +5,14 @@ use std::future::Future;
 use serde::{Deserialize, Serialize};
 
 use tradr_core::{
-    Capabilities, Clock, DomainTag, KeyBinding, KeyStore, PublicIdentity, RecvStream, RelPath,
-    RootId, SecureChannel, SendStream, TrustTier, UnixTime, VersionRange, Vfs,
+    Capabilities, Clock, DomainTag, KeyBinding, KeyStore, PublicIdentity, RecvStream,
+    RefusalReason, RelPath, RootId, SecureChannel, SendStream, TransportError, TrustTier, UnixTime,
+    VersionRange, Vfs,
 };
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
 use tradr_proto::framing::{Frame, FrameDecoder};
+use tradr_proto::message_type::MessageType;
 use tradr_vfs::NativeVfs;
 
 use crate::handshake::{HandshakeParams, perform_handshake};
@@ -136,6 +138,17 @@ where
     })
 }
 
+fn refusal_text(reason: RefusalReason) -> &'static str {
+    match reason {
+        RefusalReason::NoAccess => "no access to its folder",
+        RefusalReason::NotFound => "it does not exist there",
+        RefusalReason::AlreadyExists => "that name is already taken",
+        RefusalReason::WrongKind => "a file and a folder were confused, or the folder is not empty",
+        RefusalReason::NotAllowed => "that place is not allowed",
+        RefusalReason::Failed => "the other device could not do it",
+    }
+}
+
 // Bounded length and payload check protects against malicious frame allocations.
 async fn read_exact(
     recv: &mut (impl RecvStream + ?Sized),
@@ -154,12 +167,26 @@ async fn read_exact(
     Ok(())
 }
 
-async fn read_frame(
+async fn read_frame_or_eof(
     recv: &mut (impl RecvStream + ?Sized),
     max_frame_size: u32,
-) -> Result<Frame, String> {
+) -> Result<Option<Frame>, String> {
     let mut len_bytes = [0u8; 4];
-    read_exact(recv, &mut len_bytes).await?;
+    let mut read_bytes = 0;
+    while read_bytes < 4 {
+        let n = match recv.read(&mut len_bytes[read_bytes..]).await {
+            Ok(n) => n,
+            Err(TransportError::Closed) if read_bytes == 0 => return Ok(None),
+            Err(e) => return Err(format!("transport error: {e}")),
+        };
+        if n == 0 {
+            if read_bytes == 0 {
+                return Ok(None);
+            }
+            return Err("stream closed unexpectedly".to_string());
+        }
+        read_bytes += n;
+    }
     let announced = u32::from_be_bytes(len_bytes);
     if announced == 0 {
         return Err("empty frame announced".to_string());
@@ -174,19 +201,75 @@ async fn read_frame(
 
     let mut decoder = FrameDecoder::new(max_frame_size);
     decoder.feed(&raw);
-    decoder
+    let frame = decoder
         .next_frame()
         .map_err(|e| format!("frame decoder error: {e}"))?
-        .ok_or_else(|| "incomplete frame in buffer".to_string())
+        .ok_or_else(|| "incomplete frame in buffer".to_string())?;
+    Ok(Some(frame))
 }
 
-async fn wait_for_ack(
+#[cfg(test)]
+async fn read_frame(
     recv: &mut (impl RecvStream + ?Sized),
     max_frame_size: u32,
-) -> Result<tradr_core::Ack, String> {
-    let frame = read_frame(recv, max_frame_size).await?;
-    tradr_proto::browse::decode_ack_frame(&frame)
-        .map_err(|e| format!("failed to decode Ack frame: {e}"))
+) -> Result<Frame, String> {
+    match read_frame_or_eof(recv, max_frame_size).await? {
+        Some(frame) => Ok(frame),
+        None => Err("stream closed unexpectedly".to_string()),
+    }
+}
+
+enum Answer {
+    Frame(Frame),
+    Refused(RefusalReason),
+    Ended,
+}
+
+async fn read_answer(
+    recv: &mut (impl RecvStream + ?Sized),
+    max_frame_size: u32,
+) -> Result<Answer, String> {
+    let maybe_frame = read_frame_or_eof(recv, max_frame_size).await?;
+    let frame = match maybe_frame {
+        Some(f) => f,
+        None => return Ok(Answer::Ended),
+    };
+    if frame.type_code() == MessageType::Refused.code() {
+        let refused = tradr_proto::browse::decode_refused_frame(&frame)
+            .map_err(|e| format!("failed to decode Refused frame: {e}"))?;
+        return Ok(Answer::Refused(refused.reason));
+    }
+    Ok(Answer::Frame(frame))
+}
+
+async fn read_answer_frame(
+    recv: &mut (impl RecvStream + ?Sized),
+    max_frame_size: u32,
+    name: &str,
+) -> Result<Frame, String> {
+    match read_answer(recv, max_frame_size).await? {
+        Answer::Frame(frame) => Ok(frame),
+        Answer::Refused(reason) => {
+            let text = refusal_text(reason);
+            Err(format!("peer refused '{name}': {text}"))
+        }
+        Answer::Ended => Err(format!("peer did not answer '{name}'")),
+    }
+}
+
+async fn read_refusal_or_write_error(
+    recv: &mut (impl RecvStream + ?Sized),
+    max_frame_size: u32,
+    name: &str,
+    write_err: impl std::fmt::Display,
+) -> String {
+    match read_answer(recv, max_frame_size).await {
+        Ok(Answer::Refused(reason)) => {
+            let text = refusal_text(reason);
+            format!("peer refused '{name}': {text}")
+        }
+        _ => format!("failed to write '{name}': {write_err}"),
+    }
 }
 
 /// Executes the browse plane listing operation over an open secure channel.
@@ -217,7 +300,7 @@ where
 
     let list_dir_msg = tradr_core::ListDir {
         share_id,
-        path,
+        path: path.clone(),
         cursor,
         limit,
         with_hash: false,
@@ -226,15 +309,22 @@ where
     let frame_bytes =
         tradr_proto::browse::encode_list_dir_frame(&list_dir_msg, session.negotiated_frame_bound)
             .map_err(|e| format!("failed to encode ListDir frame: {e}"))?;
-    session
-        .browse_send
-        .write_all(&frame_bytes)
-        .await
-        .map_err(|e| format!("failed to send ListDir frame: {e}"))?;
+    if let Err(e) = session.browse_send.write_all(&frame_bytes).await {
+        return Err(read_refusal_or_write_error(
+            session.browse_recv.as_mut(),
+            channel.max_frame_size(),
+            path.as_str(),
+            e,
+        )
+        .await);
+    }
 
-    let resp_frame = read_frame(session.browse_recv.as_mut(), channel.max_frame_size())
-        .await
-        .map_err(|e| format!("failed to read DirListing response: {e}"))?;
+    let resp_frame = read_answer_frame(
+        session.browse_recv.as_mut(),
+        channel.max_frame_size(),
+        path.as_str(),
+    )
+    .await?;
 
     let dir_listing = tradr_proto::browse::decode_dir_listing_frame(&resp_frame)
         .map_err(|e| format!("failed to decode DirListing frame: {e}"))?;
@@ -285,7 +375,7 @@ where
     let mut session = open_browse_session(channel, auth, verify_attestation).await?;
     let mut uploaded_names = Vec::with_capacity(items.len());
 
-    for (idx, item) in items.iter().enumerate() {
+    for item in items {
         let file_name = item
             .rel_path
             .as_str()
@@ -315,11 +405,14 @@ where
         )
         .map_err(|e| format!("failed to encode WriteFile frame: {e}"))?;
 
-        if let Err(e) = session.browse_send.write_all(&frame_bytes).await {
-            if idx == 0 {
-                return Err(format!("peer refused '{file_name}': no access ({e})"));
-            }
-            return Err(format!("peer refused '{file_name}': {e}"));
+        if let Err(write_err) = session.browse_send.write_all(&frame_bytes).await {
+            return Err(read_refusal_or_write_error(
+                session.browse_recv.as_mut(),
+                channel.max_frame_size(),
+                file_name,
+                write_err,
+            )
+            .await);
         }
 
         let reader = vfs
@@ -340,26 +433,27 @@ where
             if n == 0 {
                 return Err(format!("unexpected EOF reading '{}'", item.rel_path));
             }
-            if let Err(e) = session.browse_send.write_all(&buf[..n]).await {
-                if idx == 0 {
-                    return Err(format!("peer refused '{file_name}': no access ({e})"));
-                }
-                return Err(format!("peer refused '{file_name}': {e}"));
+            if let Err(write_err) = session.browse_send.write_all(&buf[..n]).await {
+                return Err(read_refusal_or_write_error(
+                    session.browse_recv.as_mut(),
+                    channel.max_frame_size(),
+                    file_name,
+                    write_err,
+                )
+                .await);
             }
             offset += n as u64;
         }
 
-        match wait_for_ack(session.browse_recv.as_mut(), channel.max_frame_size()).await {
-            Ok(_) => {
-                uploaded_names.push(file_name.to_string());
-            }
-            Err(_) => {
-                if idx == 0 {
-                    return Err(format!("peer refused '{file_name}': no access"));
-                }
-                return Err(format!("peer refused '{file_name}'"));
-            }
-        }
+        let resp_frame = read_answer_frame(
+            session.browse_recv.as_mut(),
+            channel.max_frame_size(),
+            file_name,
+        )
+        .await?;
+        tradr_proto::browse::decode_ack_frame(&resp_frame)
+            .map_err(|e| format!("failed to decode Ack frame: {e}"))?;
+        uploaded_names.push(file_name.to_string());
     }
 
     if let Err(e) = session.browse_send.finish().await {
@@ -397,15 +491,23 @@ where
             .map_err(|e| format!("failed to encode Mkdir frame: {e}"))?;
 
     if let Err(e) = session.browse_send.write_all(&frame_bytes).await {
-        return Err(format!("peer refused '{path}': no access ({e})"));
+        return Err(read_refusal_or_write_error(
+            session.browse_recv.as_mut(),
+            channel.max_frame_size(),
+            path.as_str(),
+            e,
+        )
+        .await);
     }
 
-    match wait_for_ack(session.browse_recv.as_mut(), channel.max_frame_size()).await {
-        Ok(_) => {}
-        Err(_) => {
-            return Err(format!("peer refused '{path}': no access"));
-        }
-    }
+    let resp_frame = read_answer_frame(
+        session.browse_recv.as_mut(),
+        channel.max_frame_size(),
+        path.as_str(),
+    )
+    .await?;
+    tradr_proto::browse::decode_ack_frame(&resp_frame)
+        .map_err(|e| format!("failed to decode Ack frame: {e}"))?;
 
     if let Err(e) = session.browse_send.finish().await {
         eprintln!("make directory: closing browse send stream failed: {e}");
@@ -443,15 +545,23 @@ where
             .map_err(|e| format!("failed to encode Delete frame: {e}"))?;
 
     if let Err(e) = session.browse_send.write_all(&frame_bytes).await {
-        return Err(format!("peer refused '{path}': no access ({e})"));
+        return Err(read_refusal_or_write_error(
+            session.browse_recv.as_mut(),
+            channel.max_frame_size(),
+            path.as_str(),
+            e,
+        )
+        .await);
     }
 
-    match wait_for_ack(session.browse_recv.as_mut(), channel.max_frame_size()).await {
-        Ok(_) => {}
-        Err(_) => {
-            return Err(format!("peer refused '{path}': no access"));
-        }
-    }
+    let resp_frame = read_answer_frame(
+        session.browse_recv.as_mut(),
+        channel.max_frame_size(),
+        path.as_str(),
+    )
+    .await?;
+    tradr_proto::browse::decode_ack_frame(&resp_frame)
+        .map_err(|e| format!("failed to decode Ack frame: {e}"))?;
 
     if let Err(e) = session.browse_send.finish().await {
         eprintln!("delete entry: closing browse send stream failed: {e}");
@@ -489,15 +599,23 @@ where
             .map_err(|e| format!("failed to encode Rename frame: {e}"))?;
 
     if let Err(e) = session.browse_send.write_all(&frame_bytes).await {
-        return Err(format!("peer refused '{from}': no access ({e})"));
+        return Err(read_refusal_or_write_error(
+            session.browse_recv.as_mut(),
+            channel.max_frame_size(),
+            from.as_str(),
+            e,
+        )
+        .await);
     }
 
-    match wait_for_ack(session.browse_recv.as_mut(), channel.max_frame_size()).await {
-        Ok(_) => {}
-        Err(_) => {
-            return Err(format!("peer refused '{from}': no access"));
-        }
-    }
+    let resp_frame = read_answer_frame(
+        session.browse_recv.as_mut(),
+        channel.max_frame_size(),
+        from.as_str(),
+    )
+    .await?;
+    tradr_proto::browse::decode_ack_frame(&resp_frame)
+        .map_err(|e| format!("failed to decode Ack frame: {e}"))?;
 
     if let Err(e) = session.browse_send.finish().await {
         eprintln!("rename entry: closing browse send stream failed: {e}");
@@ -538,7 +656,7 @@ where
 
     let read_file_msg = tradr_core::ReadFile {
         share_id,
-        path,
+        path: path.clone(),
         offset: 0,
         length: 0,
     };
@@ -546,19 +664,26 @@ where
     let frame_bytes =
         tradr_proto::browse::encode_read_file_frame(&read_file_msg, session.negotiated_frame_bound)
             .map_err(|e| format!("failed to encode ReadFile frame: {e}"))?;
-    session
-        .browse_send
-        .write_all(&frame_bytes)
-        .await
-        .map_err(|e| format!("failed to send ReadFile frame: {e}"))?;
+    if let Err(e) = session.browse_send.write_all(&frame_bytes).await {
+        return Err(read_refusal_or_write_error(
+            session.browse_recv.as_mut(),
+            channel.max_frame_size(),
+            path.as_str(),
+            e,
+        )
+        .await);
+    }
 
     if let Err(e) = session.browse_send.finish().await {
         eprintln!("download file: closing the browse send stream failed: {e}");
     }
 
-    let resp_frame = read_frame(session.browse_recv.as_mut(), channel.max_frame_size())
-        .await
-        .map_err(|e| format!("failed to read ReadFileBegin response: {e}"))?;
+    let resp_frame = read_answer_frame(
+        session.browse_recv.as_mut(),
+        channel.max_frame_size(),
+        path.as_str(),
+    )
+    .await?;
 
     let _read_file_begin = tradr_proto::browse::decode_read_file_begin_frame(&resp_frame)
         .map_err(|e| format!("failed to decode ReadFileBegin frame: {e}"))?;
