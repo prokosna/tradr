@@ -355,18 +355,26 @@ async fn download_file_succeeds_over_quic_loopback() {
         .await
         .expect("connect");
 
+    let client_vfs = Arc::new(NativeVfs::new());
+    let root_client = RootId::new(20);
+    client_vfs
+        .register_root(root_client, client_dir.path().to_path_buf(), false)
+        .expect("register client root");
+
     let share_id: ShareId = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f"
         .parse()
         .expect("share_id");
     let file_path = RelPath::new("sub/data.bin").expect("relpath");
-    let dest_file_path = client_dir.path().join("downloads").join("data.bin");
+    let dest_rel = RelPath::new("downloads/data.bin").expect("dest relpath");
 
     let (download_result, server_outcome) = tokio::join!(
         execute_download_file(
             channel.as_ref(),
             share_id,
             file_path,
-            &dest_file_path,
+            client_vfs.as_ref(),
+            root_client,
+            dest_rel.clone(),
             &client_id,
             client_store.as_ref(),
             String::new(),
@@ -376,11 +384,13 @@ async fn download_file_succeeds_over_quic_loopback() {
         server_handle,
     );
 
-    let bytes_written = download_result.expect("execute_download_file");
+    let (bytes_written, placed_at) = download_result.expect("execute_download_file");
     let (server_res, _server_chan) = server_outcome.expect("server join");
     server_res.expect("server handle channel");
 
     assert_eq!(bytes_written, test_content.len() as u64);
+    assert_eq!(placed_at, dest_rel);
+    let dest_file_path = client_dir.path().join("downloads").join("data.bin");
     let downloaded_data = std::fs::read(&dest_file_path).expect("read downloaded file");
     assert_eq!(downloaded_data, test_content);
 }
