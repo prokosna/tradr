@@ -1093,7 +1093,7 @@ fn test_identities() -> (
     )
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_hello_first_frame_still_completes_the_ordinary_handshake() {
     let clock = FakeClock {
         now: UnixTime::from_secs(NOW),
