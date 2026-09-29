@@ -140,11 +140,11 @@ A file read begins by opening a new, dedicated bidirectional QUIC stream. The re
 
 **A device exposes exactly one folder, its receive directory, read and write.** The listener already serves it; it is addressed by the constant `share_id` the front end uses, and every path in it is resolved by `tradr-vfs` as before.
 
-**Who may use it is decided per connection**: a `SameAccount` peer always; a `Linked` peer only when this device's Link record for that account has `full_access`; anyone else never. The grant is set by the person on this device from the Linking screen and is one-directional -- it lets the peer in here and says nothing about this device's access there. A refused peer's Browse stream is closed without an answer, and the front end reports that it has no access.
+**Who may use it is decided per connection**: a `SameAccount` peer always; a `Linked` peer only when this device's Link record for that account has `full_access`; anyone else never. The grant is set by the person on this device from the Linking screen and is one-directional -- it lets the peer in here and says nothing about this device's access there. A refused peer's Browse stream is answered with `Refused` carrying `NO_ACCESS` and then closed, and the front end reports that it has no access (DCR-168).
 
 **The decision is taken when the Attestation is classified**, by the same verifier the listener already runs, and remembered for that connection's authenticated `DeviceId`; the Browse stream consults it. Nothing about verification or the handshake's signature changes.
 
-**Writes use the messages docs/04 assigns.** A request that succeeds is answered with `Ack`; a refused or failed one closes the stream without it.
+**Writes use the messages docs/04 assigns.** A request that succeeds is answered with `Ack`; a refused or failed one is answered with `Refused` and a reason, and the stream closes (DCR-168). The front end words each reason for a person -- a name already taken, a path that no longer exists, no access -- rather than calling every refusal a lack of access.
 
 - `WriteFile` is followed on the same stream by exactly `size` bytes, as `ReadFile`'s answer is. The file is written under `.tradr-partial` and renamed into place when complete, so a broken upload leaves nothing half-written at its name. `CREATE_NEW` refuses an existing name, `OVERWRITE` replaces it, `RENAME_IF_EXISTS` uses the receive path's collision rule. `content_hash` is not checked yet, as downloads' is not
 - `Mkdir` creates one directory, or every missing parent when `parents` is set

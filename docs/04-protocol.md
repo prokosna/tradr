@@ -186,7 +186,7 @@ Every code is listed here and nowhere else, and the ranges are by plane.
 | `0x00` | — | **Never valid.** A zero byte is what padding, a truncated write and an uninitialised buffer all produce, so it is the one code that must never mean a message |
 | `0x01`-`0x1f` | Control | `0x01` `Hello`, `0x02` `HelloAck`, `0x03` `TransferOffer`, `0x04` `TransferAccept`, `0x05` `TransferReject`, `0x06` `TransferComplete`, `0x07` `TransferAbort`, `0x08` `PathChanged`, `0x09` `KeepAlive`, `0x0a` `ItemComplete`, `0x0b` `TransferProgress`, `0x0c` `LinkReply`, `0x0d` `LinkApprove`, `0x0e` `LinkDecline`, `0x10` `BroadcastKeyOffer` |
 | `0x20`-`0x3f` | Data | `0x20` `ChunkRequest`, `0x21` `ChunkRerequest`, `0x22` `ChunkData`, `0x23` `FlowControl` |
-| `0x40`-`0x5f` | Browse | `0x40` `ListDir`, `0x41` `DirListing`, `0x42` `Stat`, `0x43` `StatResult`, `0x44` `ReadFile`, `0x45` `ReadFileBegin`, `0x46` `WriteFile`, `0x47` `Mkdir`, `0x48` `Delete`, `0x49` `Rename`, `0x4a` `Ack`, `0x4b` `Watch`, `0x4c` `FsEvent` |
+| `0x40`-`0x5f` | Browse | `0x40` `ListDir`, `0x41` `DirListing`, `0x42` `Stat`, `0x43` `StatResult`, `0x44` `ReadFile`, `0x45` `ReadFileBegin`, `0x46` `WriteFile`, `0x47` `Mkdir`, `0x48` `Delete`, `0x49` `Rename`, `0x4a` `Ack`, `0x4b` `Watch`, `0x4c` `FsEvent`, `0x4d` `Refused` |
 | `0x60`-`0x7f` | — | The in-band multiplexing frame above, which `ble-gatt` and `relay` need and the QUIC paths never send: `0x60` `StreamData`, `0x61` `StreamFin`. It travels one layer below the planes, so it is never valid on a plane's stream, and an unassigned code in this range is refused rather than skipped |
 | `0x80`-`0xff` | — | Unassigned |
 
@@ -557,8 +557,11 @@ Remote operations on Share Roots. Every request carries a `share_id`, and the re
 | `Delete { share_id, path, recursive }` | `Ack` | rw |
 | `Rename { share_id, from, to }` | `Ack` | rw |
 | `Watch { share_id, path }` | A stream of `FsEvent` | ro |
+| — | `Refused { request_id, reason }`, in place of any answer above | — |
 
 `ListDir` pages by cursor, since a directory of tens of thousands of entries will not fit one frame. Default page size is 500.
+
+**A request that cannot be served is answered with `Refused` and the stream then closes, decided 2026-09-29 by DCR-168 ruling DF-121.** Until then the only refusal was a stream ending without an answer, so a peer with no access, a name already taken and a path that no longer exists all looked the same, and the browsing side could only guess. `reason` is one of `NO_ACCESS`, `NOT_FOUND`, `ALREADY_EXISTS`, `WRONG_KIND` (a file where a directory was wanted, the reverse, or a directory that is not empty), `NOT_ALLOWED` (outside the folder, on the deny list, or a symlink or device) and `FAILED` (anything else on the serving side). **The reason says which rule refused, never a path or an operating-system message**, so it tells a peer nothing about the folder that the request itself did not. A stream that still ends with neither `Ack` nor `Refused` is reported as an unanswered request, not as a lack of access.
 
 `Watch` uses inotify, FSEvents, `ReadDirectoryChangesW`, or Android's `ContentObserver`, coalescing events with a 250 ms debounce.
 
