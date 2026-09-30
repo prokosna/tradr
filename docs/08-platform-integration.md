@@ -4,6 +4,8 @@
 
 ### Residency and UI
 
+> **The layout sketched below is superseded by [docs/12](12-user-interface.md) (DCR-169, 2026-09-30).** Residency in the tray and the drag-and-drop rules still hold.
+
 - Resident in the tray or menu bar. Closing the window leaves it listening
 - Two panes:
 
