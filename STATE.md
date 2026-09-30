@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M8-062d`** (DCR-169, the folder view), dispatched 2026-09-30 to `agy` on Gemini 3.8 Flash from branch `wi-m8-062d-folder`, stacked on `WI-M8-062c`. `WI-M8-062a` to `WI-M8-062c` landed 2026-09-30. **The preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
+- **`WI-M8-062e`** (DCR-169, the `files-received` event and the Received card), dispatched 2026-09-30 to `agy` on Gemini 3.8 Flash from branch `wi-m8-062e-received`, stacked on `WI-M8-062d`. `WI-M8-062a` to `WI-M8-062d` landed 2026-09-30. **The preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
 ## Decisions
 
@@ -98,7 +98,6 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M8-062d | **Folder view**: back, breadcrumb from the device's name, rows with icons, Upload / New folder / Download / Rename / Delete restyled; the Share selector removed | planned | |
 | WI-M8-062e | **Received**: `files-received` emitted from the plugin's listener with the sender's Device ID and the placed paths, and the Received card on Home | planned | |
 | WI-M8-062f | **Settings page and wording pass**: Account, Linked accounts, Add a device by address, Advanced collapsed; every string on screen checked against docs/12's word table; errors as one sentence plus details. **Carried from `WI-M8-062c`'s review**: at 1280 px "on this network, added by address" still truncates in a device tile, and the Linking section is still a developer's table | planned | |
 | WI-M6-009 | **Scanning a QR with a camera.** `WI-M6-007b` shows a QR and accepts a pasted blob, which is the whole payload either way (docs/11: "one payload and one parser"), so a QR read by any camera application already links. **A scanner inside Tradr is a platform integration and not an interface change** -- Android has `@tauri-apps/plugin-barcode-scanner` and a camera permission to justify, and the desktop has no camera API at all -- so it is its own Work Item rather than a line in one about React | planned | |
