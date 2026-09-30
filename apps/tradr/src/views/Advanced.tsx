@@ -64,7 +64,7 @@ export function Advanced({ signedIn = false }: AdvancedProps) {
 
 	return (
 		<div className="stack">
-			{identity.status === "loading" && <p>Loading device identity...</p>}
+			{identity.status === "loading" && <p>Loading device identity…</p>}
 			{identity.status === "error" && (
 				<p className="error-text">
 					Could not open the key store: {identity.message}
@@ -88,7 +88,7 @@ export function Advanced({ signedIn = false }: AdvancedProps) {
 							Show this device's Attestation
 						</button>
 					</div>
-					{bundle.status === "loading" && <p>Loading...</p>}
+					{bundle.status === "loading" && <p>Loading…</p>}
 					{bundle.status === "error" && (
 						<p className="error-text">
 							Could not build the bundle: {bundle.message}
@@ -126,7 +126,7 @@ export function Advanced({ signedIn = false }: AdvancedProps) {
 						Verify
 					</button>
 				</div>
-				{peerVerify.status === "verifying" && <p>Verifying...</p>}
+				{peerVerify.status === "verifying" && <p>Verifying…</p>}
 				{peerVerify.status === "error" && (
 					<p className="error-text">Could not verify: {peerVerify.message}</p>
 				)}

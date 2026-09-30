@@ -124,7 +124,12 @@ export function SendCard({
 				</div>
 			)}
 
-			{error && <p className="error-text">{error}</p>}
+			{error && (
+				<div className="stack">
+					<p className="error-text">Couldn't send.</p>
+					<p className="small muted">{error}</p>
+				</div>
+			)}
 		</section>
 	);
 }

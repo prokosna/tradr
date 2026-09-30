@@ -108,7 +108,7 @@ export function StaticPeers() {
 					onClick={handleAdd}
 					disabled={action.status === "adding"}
 				>
-					{action.status === "adding" ? "Adding..." : "Add device"}
+					{action.status === "adding" ? "Adding…" : "Add device"}
 				</button>
 			</div>
 
@@ -116,7 +116,7 @@ export function StaticPeers() {
 				<p className="error-text">{action.message}</p>
 			)}
 
-			{list.status === "loading" && <p className="muted">Loading devices...</p>}
+			{list.status === "loading" && <p className="muted">Loading devices…</p>}
 			{list.status === "error" && (
 				<p className="error-text">Could not load devices: {list.message}</p>
 			)}
@@ -144,7 +144,7 @@ export function StaticPeers() {
 											onClick={() => handleRemove(entry.id)}
 											disabled={isRemoving}
 										>
-											{isRemoving ? "Removing..." : "Remove"}
+											{isRemoving ? "Removing…" : "Remove"}
 										</button>
 									</div>
 								</li>

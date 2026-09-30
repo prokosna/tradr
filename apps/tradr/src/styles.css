@@ -95,7 +95,7 @@ button {
 	cursor: pointer;
 }
 
-input,
+input:not([type="checkbox"]):not([type="radio"]),
 select {
 	font-family: inherit;
 	font-size: inherit;
@@ -104,6 +104,31 @@ select {
 	border: 1px solid var(--border);
 	border-radius: var(--radius-sm);
 	padding: var(--space-2) var(--space-3);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+	width: 20px;
+	height: 20px;
+	min-width: 20px;
+	min-height: 20px;
+	max-width: 20px;
+	max-height: 20px;
+	flex-shrink: 0;
+	margin: 0;
+	padding: 0;
+	accent-color: var(--accent);
+	cursor: pointer;
+}
+
+label:has(input[type="checkbox"]),
+label:has(input[type="radio"]) {
+	display: flex;
+	flex-direction: row;
+	flex-wrap: nowrap;
+	align-items: center;
+	gap: var(--space-2);
+	cursor: pointer;
 }
 
 details {
@@ -118,10 +143,15 @@ summary {
 
 @media (max-width: 719px) {
 	button,
-	input,
+	input:not([type="checkbox"]):not([type="radio"]),
 	select,
 	.btn,
-	.input {
+	.input:not([type="checkbox"]):not([type="radio"]) {
+		min-height: 44px;
+	}
+
+	label:has(input[type="checkbox"]),
+	label:has(input[type="radio"]) {
 		min-height: 44px;
 	}
 
@@ -253,6 +283,16 @@ summary {
 	background: var(--danger);
 	color: #ffffff;
 	border-color: var(--danger);
+}
+
+.btn--ghost.btn--danger {
+	background: transparent;
+	border-color: transparent;
+	color: var(--danger);
+}
+
+.btn--ghost.btn--danger:hover {
+	background: rgba(220, 38, 38, 0.1);
 }
 
 .btn--icon {
@@ -714,4 +754,47 @@ button:disabled,
 	.file-row-content {
 		flex-wrap: wrap;
 	}
+}
+
+.qr {
+	display: inline-flex;
+	padding: var(--space-3);
+	background: #ffffff;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	align-self: flex-start;
+}
+
+.code-box {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+}
+
+.code-box textarea {
+	font-family:
+		ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+		"Courier New", monospace;
+	font-size: 0.8125rem;
+	word-break: break-all;
+}
+
+.words {
+	display: grid;
+	grid-template-columns: repeat(4, auto);
+	gap: var(--space-2) var(--space-4);
+	font-family:
+		ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+		"Courier New", monospace;
+	font-size: 0.875rem;
+}
+
+.link-item {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2);
+	padding: var(--space-3);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: var(--surface);
 }

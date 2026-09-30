@@ -1,7 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { QRCodeSVG } from "qrcode.react";
-import { type ChangeEvent, useCallback, useEffect, useState } from "react";
+import {
+	type ChangeEvent,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import type {
 	LinkDto,
 	LinkInviteDto,
@@ -44,37 +50,39 @@ type ReplyState =
 function declineReasonText(reason: string | null): string {
 	switch (reason) {
 		case "user-declined":
-			return "The other device's holder declined.";
+			return "They declined.";
 		case "invite-expired":
-			return "The invite expired before the other device's holder answered.";
+			return "The code expired before they answered.";
 		case "verification-failed":
-			return "The other device could not verify this device's Attestation.";
-		case null:
-			return "The other device declined and gave no reason.";
+			return "Their device couldn't confirm this device's sign-in.";
 		default:
-			// docs/11: an unrecognised reason is dropped and the decline still stands.
-			return reason;
+			return "They declined.";
 	}
 }
 
-function formatTimestamp(timestampSecs: number): string {
-	if (!timestampSecs) return "-";
-	const date = new Date(timestampSecs * 1000);
-	return date.toLocaleString();
-}
+const WORD_SLOTS = [
+	"w0",
+	"w1",
+	"w2",
+	"w3",
+	"w4",
+	"w5",
+	"w6",
+	"w7",
+	"w8",
+	"w9",
+	"w10",
+	"w11",
+];
 
-function chunkFingerprint(words: string[]) {
-	const rows = [];
-	for (let r = 0; r < 3; r++) {
-		const rowWords = [];
-		for (let c = 0; c < 4; c++) {
-			const pos = r * 4 + c;
-			const word = words[pos] || "";
-			rowWords.push({ id: `w-${pos}-${word}`, word });
-		}
-		rows.push({ id: `r-${r}`, words: rowWords });
-	}
-	return rows;
+function TwelveWords({ words }: { words: string[] }) {
+	return (
+		<div className="words">
+			{WORD_SLOTS.map((slot, i) => (
+				<span key={slot}>{words[i] || ""}</span>
+			))}
+		</div>
+	);
 }
 
 function LinkReplier({ onLinked }: { onLinked: () => void }) {
@@ -128,19 +136,25 @@ function LinkReplier({ onLinked }: { onLinked: () => void }) {
 			: null;
 
 	return (
-		<div style={{ marginTop: "1.5rem" }}>
-			<h3>Reply to an invite</h3>
-			<textarea
-				rows={6}
-				cols={80}
-				placeholder="Paste an invite blob here"
-				value={blobText}
-				onChange={handleBlobChange}
-				disabled={state.status === "previewing" || state.status === "replying"}
-			/>
-			<div style={{ marginTop: "0.5rem" }}>
+		<div className="stack">
+			<h3>Join with a code</h3>
+			<label className="field">
+				<span className="small">Paste a code from another account</span>
+				<textarea
+					rows={4}
+					className="input"
+					placeholder="Paste a code from another account"
+					value={blobText}
+					onChange={handleBlobChange}
+					disabled={
+						state.status === "previewing" || state.status === "replying"
+					}
+				/>
+			</label>
+			<div>
 				<button
 					type="button"
+					className="btn"
 					onClick={handleCheckInvite}
 					disabled={
 						blobText.trim().length === 0 ||
@@ -148,54 +162,48 @@ function LinkReplier({ onLinked }: { onLinked: () => void }) {
 						state.status === "replying"
 					}
 				>
-					{state.status === "previewing" ? "Checking..." : "Check invite"}
+					{state.status === "previewing" ? "Checking…" : "Check code"}
 				</button>
 			</div>
 			{pause && (
-				<div style={{ marginTop: "1rem" }}>
-					<div style={{ fontFamily: "monospace" }}>
-						{chunkFingerprint(pause.peer_fingerprint).map((row) => (
-							<div key={row.id} style={{ display: "flex", gap: "1rem" }}>
-								{row.words.map((item) => (
-									<span key={item.id}>{item.word}</span>
-								))}
-							</div>
-						))}
-					</div>
-					<p style={{ fontSize: "0.9em", color: "#444" }}>
-						Read these words against the other device's screen and continue only
-						if all twelve match.
+				<div className="stack">
+					<p className="small muted">
+						Check these words match the other device's screen
 					</p>
+					<TwelveWords words={pause.peer_fingerprint} />
 					{pause.expired && (
-						<p style={{ color: "red" }}>
-							This device's clock reads the invite as already expired; the
-							inviter will probably refuse the reply.
+						<p className="error-text">
+							This code looks expired by this device's clock; the other side
+							will probably refuse it.
 						</p>
 					)}
 					{state.status === "previewed" && (
-						<button type="button" onClick={handleSendReply}>
-							Send reply
-						</button>
+						<div>
+							<button
+								type="button"
+								className="btn btn--primary"
+								onClick={handleSendReply}
+							>
+								Link accounts
+							</button>
+						</div>
 					)}
-					{state.status === "replying" && <p>Sending reply...</p>}
+					{state.status === "replying" && <p className="muted">Linking…</p>}
 				</div>
 			)}
 			{state.status === "done" && (
-				<div style={{ marginTop: "1rem" }}>
+				<div className="stack">
 					{state.outcome.linked ? (
-						<p>
-							This link is now held by both sides:{" "}
-							<span style={{ fontFamily: "monospace" }}>
-								{state.outcome.link_id}
-							</span>
-						</p>
+						<p className="success-text">Linked.</p>
 					) : (
-						<p>{declineReasonText(state.outcome.decline_reason)}</p>
+						<p className="error-text">
+							{declineReasonText(state.outcome.decline_reason)}
+						</p>
 					)}
 				</div>
 			)}
 			{state.status === "error" && (
-				<p style={{ color: "red" }}>{state.message}</p>
+				<p className="error-text">{state.message}</p>
 			)}
 		</div>
 	);
@@ -205,6 +213,10 @@ export function Linking() {
 	const [inviteState, setInviteState] = useState<InviteState>({
 		status: "idle",
 	});
+	const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
+	const [copyError, setCopyError] = useState<string | null>(null);
+	const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
 	const [proposalState, setProposalState] = useState<ProposalState>({
 		status: "idle",
 	});
@@ -215,6 +227,14 @@ export function Linking() {
 		status: "idle",
 	});
 	const [toggleErrors, setToggleErrors] = useState<Record<string, string>>({});
+
+	useEffect(() => {
+		return () => {
+			if (copyTimerRef.current) {
+				clearTimeout(copyTimerRef.current);
+			}
+		};
+	}, []);
 
 	const fetchLinks = useCallback(() => {
 		invoke<LinkDto[]>("plugin:tradr|list_links")
@@ -268,6 +288,8 @@ export function Linking() {
 
 	const handleOpenInvite = useCallback(() => {
 		setInviteState({ status: "loading" });
+		setCopyStatus("idle");
+		setCopyError(null);
 		invoke<LinkInviteDto>("plugin:tradr|open_link_invite")
 			.then((invite) => {
 				setInviteState({ status: "loaded", invite });
@@ -276,6 +298,25 @@ export function Linking() {
 				setInviteState({ status: "error", message: String(e) });
 			});
 	}, []);
+
+	const handleCopyCode = useCallback(() => {
+		if (inviteState.status !== "loaded") return;
+		setCopyError(null);
+		navigator.clipboard
+			.writeText(inviteState.invite.blob)
+			.then(() => {
+				setCopyStatus("copied");
+				if (copyTimerRef.current) {
+					clearTimeout(copyTimerRef.current);
+				}
+				copyTimerRef.current = setTimeout(() => {
+					setCopyStatus("idle");
+				}, 2000);
+			})
+			.catch((e) => {
+				setCopyError(String(e));
+			});
+	}, [inviteState]);
 
 	const handleApprove = useCallback(() => {
 		setProposalState((prev) =>
@@ -345,264 +386,177 @@ export function Linking() {
 	);
 
 	return (
-		<div>
-			<div>
-				<button
-					type="button"
-					onClick={handleOpenInvite}
-					disabled={inviteState.status === "loading"}
-				>
-					{inviteState.status === "loading"
-						? "Opening invite..."
-						: "Show link invite"}
-				</button>
+		<div className="stack">
+			<div className="stack">
+				<div>
+					<button
+						type="button"
+						className="btn btn--primary"
+						onClick={handleOpenInvite}
+						disabled={inviteState.status === "loading"}
+					>
+						{inviteState.status === "loading"
+							? "Inviting…"
+							: "Invite another account"}
+					</button>
+				</div>
 				{inviteState.status === "error" && (
-					<p style={{ color: "red" }}>{inviteState.message}</p>
+					<p className="error-text">{inviteState.message}</p>
 				)}
 				{inviteState.status === "loaded" && (
-					<div style={{ marginTop: "1rem" }}>
-						<p>
-							This invite is single-use and short-lived; show a fresh one if a
-							link does not complete.
-						</p>
-						{inviteState.invite.blob.length <= 2953 ? (
-							// docs/11: QR byte mode holds 2953 bytes at error-correction level L.
-							<QRCodeSVG value={inviteState.invite.blob} level="L" size={320} />
-						) : (
-							<p>
-								This invite is too large for a QR code and must be handed over
-								by pasting the blob below.
-							</p>
-						)}
-						<div
-							style={{
-								display: "flex",
-								gap: "1.5rem",
-								alignItems: "center",
-								marginTop: "1rem",
-								flexWrap: "wrap",
-							}}
-						>
-							<div style={{ fontFamily: "monospace" }}>
-								{chunkFingerprint(inviteState.invite.fingerprint).map((row) => (
-									<div key={row.id} style={{ display: "flex", gap: "1rem" }}>
-										{row.words.map((item) => (
-											<span key={item.id}>{item.word}</span>
-										))}
-									</div>
-								))}
-							</div>
-							<p>
-								These are the words the other device's holder must read back.
-							</p>
+					<div className="stack">
+						<div className="qr">
+							{inviteState.invite.blob.length <= 2953 ? (
+								// docs/11: QR byte mode holds 2953 bytes at error-correction level L.
+								<QRCodeSVG
+									value={inviteState.invite.blob}
+									level="L"
+									size={320}
+								/>
+							) : (
+								<p className="muted">
+									This invite is too large for a QR code and must be handed over
+									by pasting the code below.
+								</p>
+							)}
 						</div>
-						<div style={{ marginTop: "1rem" }}>
+						<p className="muted">
+							Scan this on the other device, or copy the code and send it.
+						</p>
+						<div className="code-box">
 							<textarea
 								readOnly
-								rows={6}
-								cols={80}
+								rows={4}
+								className="input"
 								value={inviteState.invite.blob}
 							/>
+							<div>
+								<button type="button" className="btn" onClick={handleCopyCode}>
+									{copyStatus === "copied" ? "Copied" : "Copy code"}
+								</button>
+							</div>
+							{copyError && <p className="error-text">{copyError}</p>}
 						</div>
+						<div className="stack">
+							<p className="small muted">
+								Check these words match on the other device
+							</p>
+							<TwelveWords words={inviteState.invite.fingerprint} />
+						</div>
+						<p className="small muted">
+							This invite works once and expires in five minutes.
+						</p>
 					</div>
 				)}
 			</div>
 
+			<LinkReplier onLinked={fetchLinks} />
+
 			{(proposalState.status === "loaded" ||
 				proposalState.status === "answering") && (
-				<div
-					style={{
-						marginTop: "1.5rem",
-						padding: "1rem",
-						border: "1px solid #ddd",
-						borderRadius: "4px",
-					}}
-				>
-					<h3>Pending Link Proposal</h3>
-					<p>
-						<strong>Account:</strong> {proposalState.proposal.peer_sub} (
-						{proposalState.proposal.peer_iss})
-					</p>
-					{proposalState.proposal.peer_label && (
-						<p>
-							<strong>Label:</strong> {proposalState.proposal.peer_label}
+				<div className="card stack">
+					<h3 className="card-title">
+						{proposalState.proposal.peer_label || "Another account"} wants to
+						link
+					</h3>
+					<div className="stack">
+						<p className="small muted">
+							Check these words match on their screen
 						</p>
-					)}
-					<p>
-						<strong>Link ID:</strong> {proposalState.proposal.link_id}
-					</p>
-					<div>
-						<strong>Replier Fingerprint:</strong>
-						<div
-							style={{
-								fontFamily: "monospace",
-								marginTop: "0.25rem",
-								marginBottom: "0.5rem",
-							}}
-						>
-							{chunkFingerprint(proposalState.proposal.peer_fingerprint).map(
-								(row) => (
-									<div key={row.id} style={{ display: "flex", gap: "1rem" }}>
-										{row.words.map((item) => (
-											<span key={item.id}>{item.word}</span>
-										))}
-									</div>
-								),
-							)}
-						</div>
-						<p style={{ fontSize: "0.9em", color: "#444" }}>
-							Read these words aloud against the other device's screen and
-							approve only if all twelve match.
-						</p>
+						<TwelveWords words={proposalState.proposal.peer_fingerprint} />
 					</div>
-					<div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+					<div className="row">
 						<button
 							type="button"
+							className="btn btn--primary"
 							onClick={handleApprove}
 							disabled={proposalState.status === "answering"}
 						>
-							{proposalState.status === "answering"
-								? "Approving..."
-								: "Approve"}
+							{proposalState.status === "answering" ? "Linking…" : "Link"}
 						</button>
 						<button
 							type="button"
+							className="btn btn--ghost"
 							onClick={handleDecline}
 							disabled={proposalState.status === "answering"}
 						>
-							{proposalState.status === "answering"
-								? "Declining..."
-								: "Decline"}
+							{proposalState.status === "answering" ? "Declining…" : "Decline"}
 						</button>
 					</div>
 				</div>
 			)}
 			{proposalState.status === "error" && (
-				<p style={{ color: "red" }}>{proposalState.message}</p>
+				<p className="error-text">{proposalState.message}</p>
 			)}
 
-			<LinkReplier onLinked={fetchLinks} />
-
-			<div style={{ marginTop: "1.5rem" }}>
-				<h3>Links</h3>
+			<div className="stack">
 				{removeState.status === "error" && (
-					<p style={{ color: "red" }}>{removeState.message}</p>
+					<p className="error-text">{removeState.message}</p>
 				)}
-				{linksState.status === "loading" && <p>Loading links...</p>}
+				{linksState.status === "loading" && (
+					<p className="muted">Loading links…</p>
+				)}
 				{linksState.status === "error" && (
-					<p style={{ color: "red" }}>{linksState.message}</p>
+					<p className="error-text">{linksState.message}</p>
 				)}
 				{linksState.status === "loaded" &&
 					(linksState.links.length === 0 ? (
-						<p>No links held.</p>
+						<p className="muted">No accounts linked.</p>
 					) : (
-						<table
-							style={{
-								width: "100%",
-								borderCollapse: "collapse",
-								marginTop: "0.5rem",
-							}}
-						>
-							<thead>
-								<tr
-									style={{
-										borderBottom: "2px solid #ddd",
-										textAlign: "left",
-									}}
-								>
-									<th style={{ padding: "0.5rem" }}>Account</th>
-									<th style={{ padding: "0.5rem" }}>Label</th>
-									<th style={{ padding: "0.5rem" }}>Link ID</th>
-									<th style={{ padding: "0.5rem" }}>Created</th>
-									<th style={{ padding: "0.5rem" }}>Access</th>
-									<th style={{ padding: "0.5rem" }}>Actions</th>
-								</tr>
-							</thead>
-							<tbody>
-								{linksState.links.map((link) => {
-									const isRemoving =
-										removeState.status === "removing" &&
-										removeState.linkId === link.link_id;
-									const toggleError = toggleErrors[link.link_id];
-									return (
-										<tr
-											key={link.link_id}
-											style={{
-												borderBottom: "1px solid #eee",
-											}}
-										>
-											<td style={{ padding: "0.5rem" }}>
-												{link.peer_sub} ({link.peer_iss})
-											</td>
-											<td style={{ padding: "0.5rem" }}>
-												{link.peer_label || "-"}
-											</td>
-											<td
-												style={{
-													padding: "0.5rem",
-													fontFamily: "monospace",
-												}}
+						<div className="list">
+							{linksState.links.map((link) => {
+								const isRemoving =
+									removeState.status === "removing" &&
+									removeState.linkId === link.link_id;
+								const toggleError = toggleErrors[link.link_id];
+								return (
+									<div key={link.link_id} className="link-item">
+										<div className="row">
+											<strong>{link.peer_label || "Linked account"}</strong>
+											<span className="small muted">
+												linked on{" "}
+												{link.created_at
+													? new Date(
+															link.created_at * 1000,
+														).toLocaleDateString()
+													: "-"}
+											</span>
+										</div>
+										<div>
+											<label className="row small">
+												<input
+													type="checkbox"
+													checked={link.full_access}
+													onChange={(e) =>
+														handleFullAccessToggle(
+															link.link_id,
+															e.target.checked,
+														)
+													}
+												/>
+												Let this account's devices open and change my folder
+											</label>
+											{toggleError && (
+												<p className="error-text small">{toggleError}</p>
+											)}
+										</div>
+										<div className="row">
+											<button
+												type="button"
+												className="btn btn--ghost btn--danger"
+												onClick={() => handleRemove(link.link_id)}
+												disabled={isRemoving}
 											>
-												{link.link_id}
-											</td>
-											<td style={{ padding: "0.5rem" }}>
-												{formatTimestamp(link.created_at)}
-											</td>
-											<td style={{ padding: "0.5rem" }}>
-												<label
-													style={{
-														display: "inline-flex",
-														alignItems: "center",
-														gap: "0.5rem",
-													}}
-												>
-													<input
-														type="checkbox"
-														checked={link.full_access}
-														onChange={(e) =>
-															handleFullAccessToggle(
-																link.link_id,
-																e.target.checked,
-															)
-														}
-													/>
-													Let this account's devices read and write my folder
-												</label>
-												{toggleError && (
-													<span
-														style={{
-															marginLeft: "0.5rem",
-															color: "red",
-															fontSize: "0.85em",
-														}}
-													>
-														{toggleError}
-													</span>
-												)}
-											</td>
-											<td style={{ padding: "0.5rem" }}>
-												<button
-													type="button"
-													onClick={() => handleRemove(link.link_id)}
-													disabled={isRemoving}
-												>
-													{isRemoving ? "Removing..." : "Remove"}
-												</button>
-												<span
-													style={{
-														marginLeft: "0.5rem",
-														fontSize: "0.85em",
-														color: "#666",
-													}}
-												>
-													Files already handed over cannot be recalled.
-												</span>
-											</td>
-										</tr>
-									);
-								})}
-							</tbody>
-						</table>
+												{isRemoving ? "Removing…" : "Remove"}
+											</button>
+											<span className="small muted">
+												Files already handed over cannot be recalled.
+											</span>
+										</div>
+									</div>
+								);
+							})}
+						</div>
 					))}
 			</div>
 		</div>

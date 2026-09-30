@@ -41,7 +41,7 @@ export function Settings({ signIn, onSignIn, onBack }: SettingsProps) {
 						</div>
 					</div>
 				)}
-				{signIn.status === "signing_in" && <p>Signing in with Google...</p>}
+				{signIn.status === "signing_in" && <p>Signing in with Google…</p>}
 				{signIn.status === "failed" && (
 					<div className="stack">
 						<p>Not signed in.</p>
