@@ -1,5 +1,6 @@
 import type { SignInUiState } from "../App.js";
 import { DeviceTile, type PeerSendStatus } from "../components/DeviceTile.js";
+import { ReceivedCard, type ReceivedItem } from "../components/ReceivedCard.js";
 import {
 	type ActiveSendInfo,
 	SendCard,
@@ -19,6 +20,7 @@ export interface HomeProps {
 	progress: TransferProgressPayload | null;
 	sendError: string | null;
 	peerSendStates: Record<string, PeerSendStatus>;
+	receivedFiles: ReceivedItem[];
 	onSelectFiles: () => void;
 	onClearWaitingFiles: () => void;
 	onTileTap: (peer: PeerInfo) => void;
@@ -36,6 +38,7 @@ export function Home({
 	progress,
 	sendError,
 	peerSendStates,
+	receivedFiles,
 	onSelectFiles,
 	onClearWaitingFiles,
 	onTileTap,
@@ -95,15 +98,19 @@ export function Home({
 				)}
 			</section>
 
-			<SendCard
-				files={waitingFiles}
-				isSending={isSending}
-				activeSend={activeSend}
-				progress={progress}
-				error={sendError}
-				onSelectFiles={onSelectFiles}
-				onClear={onClearWaitingFiles}
-			/>
+			<div className="column">
+				<SendCard
+					files={waitingFiles}
+					isSending={isSending}
+					activeSend={activeSend}
+					progress={progress}
+					error={sendError}
+					onSelectFiles={onSelectFiles}
+					onClear={onClearWaitingFiles}
+				/>
+
+				<ReceivedCard items={receivedFiles} peers={peers} />
+			</div>
 		</div>
 	);
 }

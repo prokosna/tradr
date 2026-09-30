@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub use tradr_core::RelPath;
-use tradr_core::{BoxFuture, Capabilities, Clock, RootId, Transport, TrustTier};
+use tradr_core::{BoxFuture, Capabilities, Clock, DeviceId, RootId, Transport, TrustTier};
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{LinkRegistry, OsRng, SystemClock};
 use tradr_integrity::BaoVerifier;
@@ -27,7 +27,7 @@ fn receive_root_id() -> RootId {
 pub async fn run_receive(
     receive_dir: PathBuf,
     oauth: &OAuthConfig,
-    on_arrival: Arc<dyn Fn(&[RelPath]) + Send + Sync>,
+    on_arrival: Arc<dyn Fn(DeviceId, &[RelPath]) + Send + Sync>,
 ) -> Result<(), String> {
     let dir = paths::app_data_dir()?;
     let keys_dir = paths::device_keys_dir(&dir);

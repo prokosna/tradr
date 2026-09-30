@@ -65,7 +65,7 @@ async fn run_receive_command(dir_arg: Option<String>) -> Result<(), String> {
             .ok_or_else(|| "could not resolve download directory".to_string())?,
     };
     let oauth = OAuthConfig::from_env();
-    let on_arrival = Arc::new(|paths: &[RelPath]| {
+    let on_arrival = Arc::new(|_from, paths: &[RelPath]| {
         for path in paths {
             println!("{path}");
         }

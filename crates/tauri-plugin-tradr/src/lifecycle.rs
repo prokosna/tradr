@@ -4,11 +4,12 @@
 
 use std::sync::Arc;
 
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use tradr_core::{
-    BoxFuture, Capabilities, DisplayName, Incoming, KeyBinding, KeyStore, PeerList, PublicIdentity,
-    RootId, Transport, TrustTier,
+    BoxFuture, Capabilities, DeviceId, DisplayName, Incoming, KeyBinding, KeyStore, PeerList,
+    PublicIdentity, RelPath, RootId, Transport, TrustTier,
 };
 use tradr_discovery::{DeclaredCapabilities, MdnsSource, StaticPeerRegistry};
 use tradr_identity::hello::AttestationRequest;
@@ -53,6 +54,13 @@ pub fn downloads_root_id() -> RootId {
     RootId::new(1)
 }
 
+/// Payload for the `files-received` event.
+#[derive(Serialize, Clone)]
+pub struct FilesReceivedPayload {
+    pub device_id: String,
+    pub files: Vec<String>,
+}
+
 // Announces a `LinkProposal` as a Tauri event, the mechanism
 // `android.rs`'s `share-intent` and `commands.rs`'s `transfer-progress`
 // already use. `emit`'s `Result` is returned rather than discarded (rule
@@ -70,6 +78,8 @@ impl<R: Runtime> ProposalSink for EmitProposalSink<R> {
     }
 }
 
+type ArrivalHook = Arc<dyn Fn(DeviceId, &[RelPath]) + Send + Sync>;
+
 /// Everything a transfer listener needs, so each transport runs the same loop.
 pub struct TransferListener {
     vfs: Arc<NativeVfs>,
@@ -83,6 +93,7 @@ pub struct TransferListener {
         dyn Fn(AttestationRequest) -> BoxFuture<'static, Result<TrustTier, String>> + Send + Sync,
     >,
     link_service: Option<Arc<dyn LinkStreamService>>,
+    on_arrival: ArrivalHook,
 }
 
 impl TransferListener {
@@ -123,7 +134,7 @@ impl TransferListener {
             services,
             move |req| verifier(req),
             self.link_service.clone(),
-            None,
+            Some(self.on_arrival.clone()),
         )
         .await
     }
@@ -254,6 +265,17 @@ pub fn init_lifecycle<R: Runtime>(
         Arc::new(SystemClock),
     ));
 
+    let app_handle = app.clone();
+    let on_arrival: ArrivalHook = Arc::new(move |peer: DeviceId, paths: &[RelPath]| {
+        let payload = FilesReceivedPayload {
+            device_id: peer.to_string(),
+            files: paths.iter().map(|p| p.to_string()).collect(),
+        };
+        if let Err(e) = app_handle.emit("files-received", payload) {
+            eprintln!("failed to emit files-received event: {e}");
+        }
+    });
+
     let listener = Arc::new(TransferListener {
         vfs: vfs.clone(),
         key_store: key_store.clone(),
@@ -264,6 +286,7 @@ pub fn init_lifecycle<R: Runtime>(
         browse_access,
         verify_attestation,
         link_service: Some(link_service),
+        on_arrival,
     });
 
     let listener_for_quic = listener.clone();

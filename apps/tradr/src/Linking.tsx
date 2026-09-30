@@ -228,14 +228,14 @@ export function Linking() {
 
 	useEffect(() => {
 		let unlistenProposal: UnlistenFn | undefined;
-		let disposed = false;
+		let cancelled = false;
 
 		listen<LinkProposalDto>("link-proposal", (event) => {
 			// The exchange already took the invite out of the window.
 			setInviteState({ status: "idle" });
 			setProposalState({ status: "loaded", proposal: event.payload });
 		}).then((unlisten) => {
-			if (disposed) {
+			if (cancelled) {
 				unlisten();
 			} else {
 				unlistenProposal = unlisten;
@@ -244,7 +244,7 @@ export function Linking() {
 
 		invoke<LinkProposalDto | null>("plugin:tradr|pending_link_proposal")
 			.then((pending) => {
-				if (disposed) return;
+				if (cancelled) return;
 				if (pending) {
 					// The exchange already took the invite out of the window.
 					setInviteState({ status: "idle" });
@@ -252,14 +252,14 @@ export function Linking() {
 				}
 			})
 			.catch((e) => {
-				if (disposed) return;
+				if (cancelled) return;
 				setProposalState({ status: "error", message: String(e) });
 			});
 
 		fetchLinks();
 
 		return () => {
-			disposed = true;
+			cancelled = true;
 			if (unlistenProposal) {
 				unlistenProposal();
 			}

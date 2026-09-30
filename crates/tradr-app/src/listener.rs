@@ -721,7 +721,7 @@ pub async fn listen_for_transfers<V, F, Fut>(
     verify_attestation: F,
     item_filter: Option<&(dyn Fn(&OfferItem) -> bool + Send + Sync)>,
     link_service: Option<&dyn LinkStreamService>,
-    on_arrival: Option<&(dyn Fn(&[RelPath]) + Send + Sync)>,
+    on_arrival: Option<&(dyn Fn(DeviceId, &[RelPath]) + Send + Sync)>,
 ) -> Result<(), ListenerError>
 where
     V: Vfs,
@@ -752,7 +752,7 @@ where
                 if let Some(cb) = on_arrival {
                     // A browse stream and a link exchange each place nothing, so an empty placement is not an arrival (DCR-129).
                     if !placed.is_empty() {
-                        cb(&placed);
+                        cb(channel.peer(), &placed);
                     }
                 }
             }
@@ -792,7 +792,7 @@ pub async fn run_listener<F, Fut>(
     services: ListenerServices<'_>,
     verify_attestation: F,
     link_service: Option<Arc<dyn LinkStreamService>>,
-    on_arrival: Option<Arc<dyn Fn(&[RelPath]) + Send + Sync>>,
+    on_arrival: Option<Arc<dyn Fn(DeviceId, &[RelPath]) + Send + Sync>>,
 ) -> Result<(), ListenerError>
 where
     F: Fn(AttestationRequest) -> Fut + Clone,

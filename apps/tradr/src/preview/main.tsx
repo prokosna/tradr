@@ -1,9 +1,12 @@
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "../App.js";
-import { activeScenario, fixtureCommands } from "./fixtures.js";
+import {
+	activeScenario,
+	fixtureCommands,
+	fixtureReceivedFilesPayload,
+} from "./fixtures.js";
 /* stylesheet */ import "../styles.css";
 
 mockWindows("main");
@@ -13,14 +16,13 @@ const shareIntentSubscribed = new Promise<void>((resolve) => {
 	onShareIntentSubscribed = resolve;
 });
 
+let onFilesReceivedSubscribed: (() => void) | null = null;
+const filesReceivedSubscribed = new Promise<void>((resolve) => {
+	onFilesReceivedSubscribed = resolve;
+});
+
 mockIPC(
 	async (cmd: string, payload?: unknown) => {
-		if (cmd === "plugin:event|listen") {
-			const args = payload as { event?: string } | undefined;
-			if (args?.event === "share-intent") {
-				onShareIntentSubscribed?.();
-			}
-		}
 		const handler = fixtureCommands[cmd];
 		if (handler) {
 			return handler(payload);
@@ -30,7 +32,7 @@ mockIPC(
 	{ shouldMockEvents: true },
 );
 
-// Intercepts IPC invocations to resolve once the frontend registers the share listener.
+// Signals when the frontend registers listeners so the harness can emit mock events.
 const tauriInternals = (
 	window as unknown as {
 		__TAURI_INTERNALS__?: {
@@ -54,6 +56,9 @@ if (tauriInternals) {
 			if (payload?.event === "share-intent") {
 				onShareIntentSubscribed?.();
 			}
+			if (payload?.event === "files-received") {
+				onFilesReceivedSubscribed?.();
+			}
 		}
 		return rawInvoke(cmd, args, options);
 	};
@@ -64,11 +69,14 @@ if (!container) {
 	throw new Error("root element missing from index.html");
 }
 
-createRoot(container).render(
-	<StrictMode>
-		<App />
-	</StrictMode>,
-);
+// Mirrors a production build so each event is subscribed once.
+createRoot(container).render(<App />);
+
+if (activeScenario === "signed-in") {
+	await filesReceivedSubscribed;
+	await emit("files-received", fixtureReceivedFilesPayload);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+}
 
 if (activeScenario === "share") {
 	await shareIntentSubscribed;
