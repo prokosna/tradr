@@ -169,21 +169,36 @@ export const fixtureVerifiedPeer: VerifiedPeer = {
 	account: "preview-account",
 };
 
+const fixtureFingerprint = [
+	"apple",
+	"river",
+	"shadow",
+	"bright",
+	"silver",
+	"echo",
+	"harbor",
+	"forest",
+	"quiet",
+	"window",
+	"amber",
+	"stone",
+];
+
 export const fixtureLinkInvite: LinkInviteDto = {
 	blob: "preview-invite-blob",
-	fingerprint: ["12", "34", "56", "78"],
+	fingerprint: fixtureFingerprint,
 };
 
 export const fixtureLinkProposal: LinkProposalDto = {
 	peer_iss: "https://accounts.google.com",
 	peer_sub: "112233445566778899001",
-	peer_fingerprint: ["12", "34", "56", "78"],
+	peer_fingerprint: fixtureFingerprint,
 	peer_label: "Personal Tablet",
 	link_id: "link-tablet",
 };
 
 export const fixtureLinkInvitePreview: LinkInvitePreviewDto = {
-	peer_fingerprint: ["12", "34", "56", "78"],
+	peer_fingerprint: fixtureFingerprint,
 	expired: false,
 };
 
@@ -191,7 +206,7 @@ export const fixtureLinkReply: LinkReplyDto = {
 	linked: true,
 	link_id: "link-tablet",
 	decline_reason: null,
-	peer_fingerprint: ["12", "34", "56", "78"],
+	peer_fingerprint: fixtureFingerprint,
 };
 
 export interface ScenarioData {

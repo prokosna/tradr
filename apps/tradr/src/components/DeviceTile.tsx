@@ -19,11 +19,16 @@ export interface DeviceTileProps {
 	onOpenFolder: (peerKey: string) => void;
 }
 
-const SOURCE_PHRASES: Record<string, string> = {
-	mdns: "on this network",
-	"static-peer": "added by address",
-	ble: "nearby",
-};
+function formatDeviceSource(sources: string[]): string {
+	if (sources.length === 0) return "";
+	if (sources.includes("mdns")) {
+		return "on this network";
+	}
+	if (sources.includes("ble")) {
+		return "nearby";
+	}
+	return "added by address";
+}
 
 export function DeviceTile({
 	peer,
@@ -34,7 +39,7 @@ export function DeviceTile({
 }: DeviceTileProps) {
 	const name = peer.display_name || "Unnamed device";
 	const initial = (name[0] || "?").toUpperCase();
-	const sourceText = peer.sources.map((s) => SOURCE_PHRASES[s] ?? s).join(", ");
+	const sourceText = formatDeviceSource(peer.sources);
 
 	const isBusy =
 		sendState?.status === "sending" || sendState?.status === "waiting";

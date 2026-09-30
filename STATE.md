@@ -35,7 +35,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## Next three actions
 
-> **2026-09-30: the person asked for an ordinary, Quick Share-like app design, flows first.** It is designed in [docs/12](docs/12-user-interface.md) (DCR-169) and cut as `WI-M8-062a` to `WI-M8-062f` in the Work Items table below; they need no hardware and go in that order. The three actions below are what the device runs owe and stand as they were.
+> **2026-09-30: the person asked for an ordinary, Quick Share-like app design, flows first.** It is designed in [docs/12](docs/12-user-interface.md) (DCR-169) and built as `WI-M8-062a` to `WI-M8-062f`, all landed the same day (the Review record in [RECORD.md](RECORD.md) carries each). **What is owed is the person using it on the devices**: send by tapping and by dropping on a device, receive and see it in Received, open another device's folder, link an account from Settings, and on Android check that nothing sits under the status bar (DF-8). What they find is the next Work Item list, as docs/09 says for M8. The three actions below stand as they were.
 
 > **Implementation first, decided 2026-09-23 by the user: every device run is deferred, and the three actions below need no hardware and no person.** What the device runs still owe is listed after them so it is not lost. **The kept sign-in and send-by-name were confirmed on hardware the same day** -- a second `send minori` printed `signed in with the kept sign-in` and opened no browser, and the MacBook GUI came up signed in after a restart -- so DCR-149 and DCR-150 are measured, not only tested.
 
@@ -47,7 +47,9 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M8-062f`** (DCR-169, Linked accounts restyled and the wording pass), dispatched 2026-09-30 to `agy` on Gemini 3.8 Flash from branch `wi-m8-062f-wording`, stacked on `WI-M8-062e`. `WI-M8-062a` to `WI-M8-062e` landed 2026-09-30. **The preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
+(none)
+
+**For the next UI Work Item: the preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
 ## Decisions
 
@@ -98,7 +100,6 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M8-062f | **Settings page and wording pass**: Account, Linked accounts, Add a device by address, Advanced collapsed; every string on screen checked against docs/12's word table; errors as one sentence plus details. **Carried from `WI-M8-062c`'s review**: at 1280 px "on this network, added by address" still truncates in a device tile, and the Linking section is still a developer's table | planned | |
 | WI-M6-009 | **Scanning a QR with a camera.** `WI-M6-007b` shows a QR and accepts a pasted blob, which is the whole payload either way (docs/11: "one payload and one parser"), so a QR read by any camera application already links. **A scanner inside Tradr is a platform integration and not an interface change** -- Android has `@tauri-apps/plugin-barcode-scanner` and a camera permission to justify, and the desktop has no camera API at all -- so it is its own Work Item rather than a line in one about React | planned | |
 
 ## Deferred
@@ -173,7 +174,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 | DF-9 | **`KeyStore` is synchronous and two of its operations block.** An Android Keystore `sign` is an IPC to `keystore2`, and `agree` runs once per Noise connection; both occupy a runtime worker for milliseconds. [ADR-0013](docs/adr/0013-layer-1-async-traits-return-boxed-futures.md) left `KeyStore` sync rather than reopening [ADR-0011](docs/adr/0011-keystore-exposes-operations.md) with no implementation to measure against. Resolving it means either `BoxFuture` on `KeyStore` too, or `spawn_blocking` at every Layer 3 call site | Before M1's Noise work | ADR-0013 |
 | DF-7 | **`SharedSecret` is not zeroized on drop.** It cannot be, in `tradr-core`: `zeroize` is a dependency the crate may not have, and a hand-written `Drop` needs `write_volatile`, which needs `unsafe`, which `#![forbid(unsafe_code)]` rules out. An ECDH secret therefore lingers in freed memory until overwritten. Resolving it means either letting a Layer 3 type own the zeroizing and having `KeyStore::agree` return something it implements, or accepting the exposure and saying so | Before M1's Noise work | WI-M0-006c |
 | DF-6 | `useExactTypes=false` in `buf.gen.yaml`. ts-proto's `Exact<DeepPartial<T>, I>` signature does not resolve under TypeScript 7.0.2, so `fromPartial` and `create` lose excess-property checking. Revisit when ts-proto supports TypeScript 7 | Undecided | WI-M0-001c |
-| DF-8 | **To be closed by `WI-M8-062b` (docs/12, safe-area insets).** **The Android WebView renders under the status bar.** The `<h1>` in WI-M0-004b's screenshot sits on top of the system clock: no `viewport-fit=cover`, no `env(safe-area-inset-*)`, no edge-to-edge handling anywhere. Harmless at one heading and wrong for every screen after it | Before M2's Android integration | WI-M0-004b |
+| DF-8 | **Closed in code by `WI-M8-062b` (`viewport-fit=cover` and safe-area padding); to be confirmed on the phone, then moved to RECORD.md.** **The Android WebView renders under the status bar.** The `<h1>` in WI-M0-004b's screenshot sits on top of the system clock: no `viewport-fit=cover`, no `env(safe-area-inset-*)`, no edge-to-edge handling anywhere. Harmless at one heading and wrong for every screen after it | Before M2's Android integration | WI-M0-004b |
 
 ---
 
