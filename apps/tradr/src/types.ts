@@ -140,3 +140,10 @@ export interface LinkReplyDto {
 	// be the comparison DCR-077 moved consent away from (docs/11).
 	peer_fingerprint: string[];
 }
+
+// Mirrors the Rust struct crates/tauri-plugin-tradr/src/lifecycle.rs
+// received from the `files-received` event.
+export interface FilesReceivedPayload {
+	device_id: string;
+	files: string[];
+}

@@ -3,6 +3,7 @@ import type {
 	AttestationBundle,
 	DeviceIdentitySnapshot,
 	DirListingDto,
+	FilesReceivedPayload,
 	LinkDto,
 	LinkInviteDto,
 	LinkInvitePreviewDto,
@@ -15,6 +16,11 @@ import type {
 	TransferProgressPayload,
 	VerifiedPeer,
 } from "../types.js";
+
+export const fixtureReceivedFilesPayload: FilesReceivedPayload = {
+	device_id: "dev-pixel-8",
+	files: ["report-2026.pdf", "family-photo.jpg"],
+};
 
 export type Scenario = "signed-in" | "signed-out" | "empty" | "share";
 

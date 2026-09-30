@@ -1752,7 +1752,7 @@ async fn listen_for_transfers_reports_each_placed_path() {
 
     let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
     let recorded_cb = Arc::clone(&recorded);
-    let callback = move |paths: &[RelPath]| {
+    let callback = move |_from, paths: &[RelPath]| {
         let mut r = recorded_cb.lock().unwrap();
         for p in paths {
             r.push(p.as_str().to_string());
@@ -1783,6 +1783,176 @@ async fn listen_for_transfers_reports_each_placed_path() {
     assert_eq!(
         std::fs::read(receiver_dir.path().join("test.txt")).unwrap(),
         content
+    );
+}
+
+#[tokio::test]
+async fn listen_for_transfers_reports_sender_device_id_and_placed_paths() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (
+        (sender_store, sender_id, sender_binding),
+        (receiver_store, receiver_id, receiver_binding),
+    ) = create_test_identities();
+
+    let (sender_chan, listener_chan) =
+        mock_channel_pair(sender_id.device_id(), receiver_id.device_id(), MAX_FRAME);
+
+    let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(1);
+    let mut incoming = MockIncoming {
+        channels: incoming_rx,
+    };
+    incoming_tx
+        .send(Box::new(listener_chan) as Box<dyn SecureChannel>)
+        .await
+        .unwrap();
+
+    let sender_dir = tempfile::tempdir().expect("sender tempdir");
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
+    let root_sender = RootId::new(910);
+    let root_receiver = RootId::new(911);
+    sender_vfs
+        .register_root(root_sender, sender_dir.path().to_path_buf(), false)
+        .unwrap();
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let content = b"arrival hook test data";
+    std::fs::write(sender_dir.path().join("arrival.txt"), content).unwrap();
+    let (_, hash) = outboard(content);
+
+    let transfer_id = sample_transfer(VALID_V7_A);
+    let item_id = ItemId::new("arr_item").unwrap();
+    let src_rel = RelPath::new("arrival.txt").unwrap();
+    let offer_item = OfferItem::new(item_id, src_rel.clone(), content.len() as u64, hash).unwrap();
+
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
+    };
+
+    let listener_rng = SeededRng::new(5678);
+    let sender_rng = SeededRng::new(1234);
+
+    let sender_task = async {
+        let (mut sender_ctrl_send, mut sender_ctrl_recv) =
+            sender_chan.open_bi().await.expect("open ctrl bi");
+        let sender_params = HandshakeParams {
+            authenticated_peer: receiver_id.device_id(),
+            our_channel_max_frame_size: MAX_FRAME,
+            our_identity: &sender_id,
+            our_attestation_token: "mock-token-sender".to_string(),
+            our_key_binding: sender_binding,
+            our_versions: VersionRange::new(1, 1).unwrap(),
+            our_capabilities: Capabilities::empty(),
+        };
+        let sender_session = perform_handshake(
+            sender_ctrl_send.as_mut(),
+            sender_ctrl_recv.as_mut(),
+            sender_params,
+            &sender_store,
+            &sender_rng,
+            &clock,
+            |_| async { Ok(TrustTier::SameAccount) },
+        )
+        .await
+        .expect("sender handshake");
+
+        let offer = TransferOffer::new(
+            transfer_id,
+            vec![offer_item],
+            content.len() as u64,
+            None,
+            None,
+        )
+        .unwrap();
+        let offer_bytes =
+            encode_transfer_offer_frame(&offer, sender_session.peer_max_frame_size()).unwrap();
+        sender_ctrl_send.write_all(&offer_bytes).await.unwrap();
+
+        let accept_frame = read_frame_helper(sender_ctrl_recv.as_mut(), MAX_FRAME)
+            .await
+            .unwrap();
+        let accept = decode_transfer_accept_frame(&accept_frame).unwrap();
+        accept.for_offer(&offer).unwrap();
+
+        let (mut data_send, mut data_recv) = sender_chan.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &src_rel,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
+        let send_req = SendRequest {
+            root: root_sender,
+            rel_path: &src_rel,
+            transfer_id,
+            item_id,
+            max_frame_size: sender_session
+                .peer_max_frame_size()
+                .min(sender_chan.max_frame_size()),
+            item: &prepared,
+        };
+        let mut streams = SessionStreams {
+            control_send: sender_ctrl_send.as_mut(),
+            control_recv: sender_ctrl_recv.as_mut(),
+            data_send: data_send.as_mut(),
+            data_recv: data_recv.as_mut(),
+        };
+        let send_res = send_file(&sender_vfs, &send_req, &mut streams)
+            .await
+            .unwrap();
+        assert!(send_res);
+        drop(incoming_tx);
+        Ok::<(), ListenerError>(())
+    };
+
+    let arrivals = Arc::new(Mutex::new(Vec::<(DeviceId, Vec<RelPath>)>::new()));
+    let arrivals_cb = Arc::clone(&arrivals);
+    let callback = move |from: DeviceId, paths: &[RelPath]| {
+        arrivals_cb.lock().unwrap().push((from, paths.to_vec()));
+    };
+
+    let listener_task = listen_for_transfers(
+        &mut incoming,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+        Some(&callback),
+    );
+
+    let (sender_res, listener_res) = tokio::join!(sender_task, listener_task);
+    sender_res.unwrap();
+    listener_res.unwrap();
+
+    let recorded = arrivals.lock().unwrap().clone();
+    assert_eq!(recorded.len(), 1, "hook must be called exactly once");
+    assert_eq!(
+        recorded[0].0,
+        sender_id.device_id(),
+        "hook must receive sender device id"
+    );
+    assert_eq!(
+        recorded[0].1,
+        vec![src_rel],
+        "hook must receive placed paths"
     );
 }
 
@@ -1911,7 +2081,7 @@ async fn run_listener_reports_each_placed_path() {
 
     let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
     let recorded_cb = Arc::clone(&recorded);
-    let callback = move |paths: &[RelPath]| {
+    let callback = move |_from, paths: &[RelPath]| {
         let mut r = recorded_cb.lock().unwrap();
         for p in paths {
             r.push(p.as_str().to_string());
@@ -2069,7 +2239,7 @@ async fn listen_for_transfers_does_not_report_an_offer_with_every_item_declined(
 
     let recorded = Arc::new(Mutex::new(Vec::<String>::new()));
     let recorded_cb = Arc::clone(&recorded);
-    let callback = move |paths: &[RelPath]| {
+    let callback = move |_from, paths: &[RelPath]| {
         let mut r = recorded_cb.lock().unwrap();
         if paths.is_empty() {
             r.push("<empty>".to_string());

@@ -6,8 +6,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PeerSendStatus } from "./components/DeviceTile.js";
 import { Header } from "./components/Header.js";
+import type { ReceivedItem } from "./components/ReceivedCard.js";
 import type { ActiveSendInfo, StagedFile } from "./components/SendCard.js";
 import type {
+	FilesReceivedPayload,
 	PeerInfo,
 	ShareIntent,
 	SharedFilePayload,
@@ -37,6 +39,24 @@ function payloadsToStagedFiles(files: SharedFilePayload[]): {
 		}
 	}
 	return { staged, refused };
+}
+
+function subscribe(subscribePromise: Promise<UnlistenFn>): () => void {
+	let cancelled = false;
+	let unlisten: UnlistenFn | undefined;
+	subscribePromise.then((fn) => {
+		if (cancelled) {
+			fn();
+		} else {
+			unlisten = fn;
+		}
+	});
+	return () => {
+		cancelled = true;
+		if (unlisten) {
+			unlisten();
+		}
+	};
 }
 
 export type SignInUiState =
@@ -84,6 +104,7 @@ export function App() {
 		null,
 	);
 	const [isDragging, setIsDragging] = useState(false);
+	const [receivedFiles, setReceivedFiles] = useState<ReceivedItem[]>([]);
 
 	const activeSendRef = useRef<ActiveSendInfo | null>(null);
 	activeSendRef.current = activeSend;
@@ -237,127 +258,142 @@ export function App() {
 			},
 		);
 
-		let unlistenProgress: UnlistenFn | undefined;
-		let unlistenSignInRestored: UnlistenFn | undefined;
-		let unlistenDragDrop: UnlistenFn | undefined;
-		let unlistenShareIntent: UnlistenFn | undefined;
+		const unlistens: (() => void)[] = [];
 
 		// Subscribes to transfer progress emitted by the composition root.
-		listen<TransferProgressPayload>("transfer-progress", (event) => {
-			setProgress(event.payload);
-			const current = activeSendRef.current;
-			if (current) {
-				const fileName =
-					event.payload.rel_path || current.files[0]?.name || "file";
-				setPeerSendStates((prev) => {
-					if (prev[current.peerKey]?.status === "sending") {
-						return {
-							...prev,
-							[current.peerKey]: {
-								status: "sending",
-								fileName,
-								progress: event.payload,
-							},
-						};
+		unlistens.push(
+			subscribe(
+				listen<TransferProgressPayload>("transfer-progress", (event) => {
+					setProgress(event.payload);
+					const current = activeSendRef.current;
+					if (current) {
+						const fileName =
+							event.payload.rel_path || current.files[0]?.name || "file";
+						setPeerSendStates((prev) => {
+							if (prev[current.peerKey]?.status === "sending") {
+								return {
+									...prev,
+									[current.peerKey]: {
+										status: "sending",
+										fileName,
+										progress: event.payload,
+									},
+								};
+							}
+							return prev;
+						});
 					}
-					return prev;
-				});
-			}
-		}).then((unlisten) => {
-			unlistenProgress = unlisten;
-		});
+				}),
+			),
+		);
 
 		// Subscribes to kept sign-in restoration emitted after startup.
-		listen<SignInOutcome>("sign-in-restored", (event) => {
-			setSignIn({ status: "signed_in", outcome: event.payload });
-		}).then((unlisten) => {
-			unlistenSignInRestored = unlisten;
-		});
+		unlistens.push(
+			subscribe(
+				listen<SignInOutcome>("sign-in-restored", (event) => {
+					setSignIn({ status: "signed_in", outcome: event.payload });
+				}),
+			),
+		);
 
 		// Subscribes to share intents emitted by Android platform integration.
-		listen<ShareIntent>("share-intent", async (event) => {
-			const intent = event.payload;
-			if (intent.files && intent.files.length > 0) {
-				const { staged, refused } = payloadsToStagedFiles(intent.files);
-				if (refused.length > 0) {
-					setSendError(`Could not read files: ${refused.join(", ")}`);
-				} else {
-					setSendError(null);
-				}
-				if (staged.length > 0) {
-					const targetPeer = intent.targetDevice || null;
-					if (targetPeer) {
-						enqueueSend(targetPeer, staged);
-					} else {
-						setWaitingFiles(staged);
-					}
-				}
-			}
-		}).then((unlisten) => {
-			unlistenShareIntent = unlisten;
-		});
-
-		// Subscribes to native window drag-and-drop events from Tauri.
-		try {
-			getCurrentWebview()
-				// biome-ignore lint/suspicious/noExplicitAny: Event type not strongly typed by Tauri here
-				.onDragDropEvent((event: any) => {
-					if (event.payload.type === "enter" || event.payload.type === "over") {
-						setIsDragging(true);
-					} else if (event.payload.type === "drop") {
-						setIsDragging(false);
-						const paths: string[] = event.payload.paths ?? [];
-						if (paths.length > 0) {
-							const staged: StagedFile[] = paths.map((path) => ({
-								name: path.split(/[/\\]/).pop() || path,
-								cachePath: path,
-								adoptedId: null,
-							}));
-							const pos = event.payload.position;
-							let targetPeerKey: string | null = null;
-							if (
-								pos &&
-								typeof pos.x === "number" &&
-								typeof pos.y === "number"
-							) {
-								const dpr = window.devicePixelRatio || 1;
-								const clientX = pos.x / dpr;
-								const clientY = pos.y / dpr;
-								const el = document.elementFromPoint(clientX, clientY);
-								const tile = el?.closest("[data-device-key]");
-								if (tile) {
-									targetPeerKey = tile.getAttribute("data-device-key");
-								}
-							}
-							if (targetPeerKey) {
-								enqueueSend(targetPeerKey, staged);
+		unlistens.push(
+			subscribe(
+				listen<ShareIntent>("share-intent", async (event) => {
+					const intent = event.payload;
+					if (intent.files && intent.files.length > 0) {
+						const { staged, refused } = payloadsToStagedFiles(intent.files);
+						if (refused.length > 0) {
+							setSendError(`Could not read files: ${refused.join(", ")}`);
+						} else {
+							setSendError(null);
+						}
+						if (staged.length > 0) {
+							const targetPeer = intent.targetDevice || null;
+							if (targetPeer) {
+								enqueueSend(targetPeer, staged);
 							} else {
 								setWaitingFiles(staged);
 							}
 						}
-					} else {
-						setIsDragging(false);
 					}
-				})
-				.then((unlisten) => {
-					unlistenDragDrop = unlisten;
-				});
+				}),
+			),
+		);
+
+		// Subscribes to files received emitted by the transfer listener.
+		unlistens.push(
+			subscribe(
+				listen<FilesReceivedPayload>("files-received", (event) => {
+					const { device_id, files } = event.payload;
+					const now = new Date();
+					const incoming: ReceivedItem[] = files.map((filePath, idx) => ({
+						id: `${now.getTime()}-${idx}-${filePath}`,
+						deviceId: device_id,
+						fileName: filePath.split(/[/\\]/).pop() || filePath,
+						receivedAt: now,
+					}));
+					setReceivedFiles((prev) => [...incoming, ...prev].slice(0, 50));
+				}),
+			),
+		);
+
+		// Subscribes to native window drag-and-drop events from Tauri.
+		try {
+			unlistens.push(
+				subscribe(
+					getCurrentWebview()
+						// biome-ignore lint/suspicious/noExplicitAny: Event type not strongly typed by Tauri here
+						.onDragDropEvent((event: any) => {
+							if (
+								event.payload.type === "enter" ||
+								event.payload.type === "over"
+							) {
+								setIsDragging(true);
+							} else if (event.payload.type === "drop") {
+								setIsDragging(false);
+								const paths: string[] = event.payload.paths ?? [];
+								if (paths.length > 0) {
+									const staged: StagedFile[] = paths.map((path) => ({
+										name: path.split(/[/\\]/).pop() || path,
+										cachePath: path,
+										adoptedId: null,
+									}));
+									const pos = event.payload.position;
+									let targetPeerKey: string | null = null;
+									if (
+										pos &&
+										typeof pos.x === "number" &&
+										typeof pos.y === "number"
+									) {
+										const dpr = window.devicePixelRatio || 1;
+										const clientX = pos.x / dpr;
+										const clientY = pos.y / dpr;
+										const el = document.elementFromPoint(clientX, clientY);
+										const tile = el?.closest("[data-device-key]");
+										if (tile) {
+											targetPeerKey = tile.getAttribute("data-device-key");
+										}
+									}
+									if (targetPeerKey) {
+										enqueueSend(targetPeerKey, staged);
+									} else {
+										setWaitingFiles(staged);
+									}
+								}
+							} else {
+								setIsDragging(false);
+							}
+						}),
+				),
+			);
 		} catch {
 			// Fallback remains active when running in standard browser environments.
 		}
 
 		return () => {
-			if (unlistenProgress) {
-				unlistenProgress();
-			}
-			if (unlistenSignInRestored) {
-				unlistenSignInRestored();
-			}
-			if (unlistenDragDrop) {
-				unlistenDragDrop();
-			}
-			if (unlistenShareIntent) {
-				unlistenShareIntent();
+			for (const unlisten of unlistens) {
+				unlisten();
 			}
 		};
 	}, [enqueueSend]);
@@ -506,6 +542,7 @@ export function App() {
 						progress={progress}
 						sendError={sendError}
 						peerSendStates={peerSendStates}
+						receivedFiles={receivedFiles}
 						onSelectFiles={handleSelectFiles}
 						onClearWaitingFiles={handleClearWaitingFiles}
 						onTileTap={handleTileTap}
