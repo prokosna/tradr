@@ -2,42 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { QRCodeSVG } from "qrcode.react";
 import { type ChangeEvent, useCallback, useEffect, useState } from "react";
-
-interface LinkInviteDto {
-	blob: string;
-	fingerprint: string[];
-}
-
-interface LinkProposalDto {
-	peer_iss: string;
-	peer_sub: string;
-	peer_fingerprint: string[];
-	peer_label: string | null;
-	link_id: string;
-}
-
-interface LinkDto {
-	link_id: string;
-	peer_iss: string;
-	peer_sub: string;
-	peer_label: string | null;
-	created_at: number;
-	full_access: boolean;
-}
-
-interface LinkInvitePreviewDto {
-	peer_fingerprint: string[];
-	expired: boolean;
-}
-
-interface LinkReplyDto {
-	linked: boolean;
-	link_id: string | null;
-	decline_reason: string | null;
-	// Read at the pause already; showing it again after the exchange would
-	// be the comparison DCR-077 moved consent away from (docs/11).
-	peer_fingerprint: string[];
-}
+import type {
+	LinkDto,
+	LinkInviteDto,
+	LinkInvitePreviewDto,
+	LinkProposalDto,
+	LinkReplyDto,
+} from "./types.js";
 
 type InviteState =
 	| { status: "idle" }

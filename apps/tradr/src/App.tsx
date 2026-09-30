@@ -4,35 +4,25 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useState } from "react";
 import { Linking } from "./Linking.js";
-
-// Mirrors the Rust struct crates/tauri-plugin-tradr/src/identity.rs
-// returns from the `device_identity` command.
-interface DeviceIdentitySnapshot {
-	device_id: string;
-	backing: string;
-	reason: string | null;
-	storage: string;
-}
+import type {
+	AttestationBundle,
+	DeviceIdentitySnapshot,
+	DirListingDto,
+	FileEntryDto,
+	PeerInfo,
+	ShareInfo,
+	ShareIntent,
+	SharedFilePayload,
+	SignInOutcome,
+	StaticPeerInfo,
+	TransferProgressPayload,
+	VerifiedPeer,
+} from "./types.js";
 
 type IdentityLoadState =
 	| { status: "loading" }
 	| { status: "loaded"; snapshot: DeviceIdentitySnapshot }
 	| { status: "error"; message: string };
-
-interface SharedFilePayload {
-	name: string;
-	size: number;
-	cachePath: string | null;
-	adoptedId: string | null;
-}
-interface ShareIntent {
-	action: string;
-	mimeType: string | null;
-	extraText: string | null;
-	targetDevice: string | null;
-	transferId: string | null;
-	files: SharedFilePayload[];
-}
 
 interface StagedAdoptedFile {
 	id: string;
@@ -59,27 +49,11 @@ function stagePayloads(files: SharedFilePayload[]): {
 	return { paths, adoptedIds, refused };
 }
 
-// Mirrors the Rust struct crates/tauri-plugin-tradr/src/sign_in.rs
-// returns from `sign_in` and `sign_in_status`.
-interface SignInOutcome {
-	issuer: string;
-	subject: string;
-	tier: string;
-}
-
 type SignInUiState =
 	| { status: "signed_out" }
 	| { status: "signing_in" }
 	| { status: "signed_in"; outcome: SignInOutcome }
 	| { status: "failed"; message: string };
-
-// Mirrors the Rust struct crates/tauri-plugin-tradr/src/attestation.rs
-// returns from `attestation_bundle` and parses from `verify_peer_attestation`.
-interface AttestationBundle {
-	id_token: string;
-	identity_pub: string;
-	agreement_pub: string;
-}
 
 type BundleLoadState =
 	| { status: "idle" }
@@ -87,32 +61,11 @@ type BundleLoadState =
 	| { status: "loaded"; bundle: AttestationBundle }
 	| { status: "error"; message: string };
 
-// Mirrors the Rust struct crates/tauri-plugin-tradr/src/attestation.rs
-// returns from `verify_peer_attestation`.
-interface VerifiedPeer {
-	tier: string;
-	account: string;
-}
-
 type PeerVerifyState =
 	| { status: "idle" }
 	| { status: "verifying" }
 	| { status: "verified"; peer: VerifiedPeer }
 	| { status: "error"; message: string };
-
-// Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
-// returns from `get_peers`. `device_id` is empty for a peer nothing has
-// identified yet -- a Static Peer entry before its first connection --
-// so `key` (the Device ID, or the ObservationId before one is known) is
-// what selection and list keys must use instead.
-interface PeerInfo {
-	device_id: string;
-	key: string;
-	display_name: string | null;
-	addresses: string[];
-	capabilities: number;
-	sources: string[];
-}
 
 const SOURCE_PHRASES: Record<string, string> = {
 	mdns: "on this network",
@@ -124,56 +77,11 @@ function formatSource(source: string): string {
 	return SOURCE_PHRASES[source] ?? source;
 }
 
-// Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
-// returns from `list_static_peers`.
-interface StaticPeerInfo {
-	id: string;
-	label: string | null;
-	endpoints: string[];
-	expectDeviceId: string | null;
-}
-
-// Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
-// received from the `transfer-progress` event.
-interface TransferProgressPayload {
-	transfer_id: string;
-	item_id: string;
-	rel_path: string;
-	bytes_transferred: number;
-	total_bytes: number;
-	status: string;
-}
-
 type SendState =
 	| { status: "idle" }
 	| { status: "sending" }
 	| { status: "success"; sentFiles: string[] }
 	| { status: "error"; message: string };
-
-// Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
-// returns from `get_visible_shares`.
-interface ShareInfo {
-	shareId: string;
-	label: string;
-	mode: string;
-}
-
-// Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
-// returns file entries in `list_peer_directory`.
-interface FileEntryDto {
-	name: string;
-	kind: "file" | "directory";
-	sizeBytes: number;
-	modified: number;
-}
-
-// Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
-// returns paginated directory listing from `list_peer_directory`.
-interface DirListingDto {
-	entries: FileEntryDto[];
-	nextCursor: string;
-	totalEstimate: number;
-}
 
 type BrowseState =
 	| { status: "idle" }
