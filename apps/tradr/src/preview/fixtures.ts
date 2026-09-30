@@ -16,12 +16,12 @@ import type {
 	VerifiedPeer,
 } from "../types.js";
 
-export type Scenario = "signed-in" | "signed-out" | "empty";
+export type Scenario = "signed-in" | "signed-out" | "empty" | "share";
 
 export function getScenario(): Scenario {
 	if (typeof window !== "undefined") {
 		const s = new URLSearchParams(window.location.search).get("scenario");
-		if (s === "signed-out" || s === "empty") {
+		if (s === "signed-out" || s === "empty" || s === "share") {
 			return s;
 		}
 	}
@@ -220,6 +220,7 @@ export function getScenarioData(scenario: Scenario): ScenarioData {
 				shares: [],
 				directory: { entries: [], nextCursor: "", totalEstimate: 0 },
 			};
+		case "share":
 		case "signed-in":
 			return {
 				identity: fixtureIdentity,
@@ -262,6 +263,14 @@ export const fixtureCommands: Record<
 	"plugin:tradr|delete_peer_entry": () => null,
 	"plugin:tradr|make_peer_directory": () => null,
 	"plugin:tradr|upload_to_peer": () => ["report-2026.pdf"],
+	"plugin:tradr|pick_files_to_send": () => [
+		{
+			name: "report-2026.pdf",
+			size: 2457600,
+			cachePath: "/tmp/report-2026.pdf",
+			adoptedId: null,
+		},
+	],
 	"plugin:tradr|pick_shared_files": () => [
 		{
 			name: "report-2026.pdf",

@@ -3,8 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { PeerSendStatus } from "./components/DeviceTile.js";
 import { Header } from "./components/Header.js";
+import type { ActiveSendInfo, StagedFile } from "./components/SendCard.js";
 import type {
 	DirListingDto,
 	FileEntryDto,
@@ -15,6 +17,7 @@ import type {
 	SignInOutcome,
 	TransferProgressPayload,
 } from "./types.js";
+import { Home } from "./views/Home.js";
 import { Settings } from "./views/Settings.js";
 
 interface StagedAdoptedFile {
@@ -42,27 +45,49 @@ function stagePayloads(files: SharedFilePayload[]): {
 	return { paths, adoptedIds, refused };
 }
 
+function payloadsToStagedFiles(files: SharedFilePayload[]): {
+	staged: StagedFile[];
+	refused: string[];
+} {
+	const staged: StagedFile[] = [];
+	const refused: string[] = [];
+	for (const file of files) {
+		if (file.adoptedId !== null || file.cachePath !== null) {
+			staged.push({
+				name: file.name,
+				size: file.size,
+				cachePath: file.cachePath,
+				adoptedId: file.adoptedId,
+			});
+		} else {
+			refused.push(file.name);
+		}
+	}
+	return { staged, refused };
+}
+
 export type SignInUiState =
 	| { status: "signed_out" }
 	| { status: "signing_in" }
 	| { status: "signed_in"; outcome: SignInOutcome }
 	| { status: "failed"; message: string };
 
-const SOURCE_PHRASES: Record<string, string> = {
-	mdns: "on this network",
-	"static-peer": "added by hand",
-	ble: "nearby over Bluetooth",
-};
+export type Route =
+	| { view: "home" }
+	| { view: "settings" }
+	| { view: "folder"; peerKey: string };
 
-function formatSource(source: string): string {
-	return SOURCE_PHRASES[source] ?? source;
+export function parseRoute(hash: string): Route {
+	const h = hash.startsWith("#") ? hash.slice(1) : hash;
+	if (h === "/settings") {
+		return { view: "settings" };
+	}
+	if (h.startsWith("/folder/")) {
+		const rawKey = h.slice("/folder/".length);
+		return { view: "folder", peerKey: decodeURIComponent(rawKey) };
+	}
+	return { view: "home" };
 }
-
-type SendState =
-	| { status: "idle" }
-	| { status: "sending" }
-	| { status: "success"; sentFiles: string[] }
-	| { status: "error"; message: string };
 
 type BrowseState =
 	| { status: "idle" }
@@ -86,20 +111,32 @@ function formatTimestamp(timestampSecs: number): string {
 }
 
 export function App() {
-	const [view, setView] = useState<"home" | "settings">("home");
+	const [route, setRoute] = useState<Route>(() =>
+		typeof window !== "undefined"
+			? parseRoute(window.location.hash)
+			: { view: "home" },
+	);
 	const [signIn, setSignIn] = useState<SignInUiState>({ status: "signed_out" });
 
 	const [peers, setPeers] = useState<PeerInfo[]>([]);
-	const [peerListError, setPeerListError] = useState<string | null>(null);
+	const [, setPeerListError] = useState<string | null>(null);
+	const [hasLoadedPeersOnce, setHasLoadedPeersOnce] = useState(false);
 	const [selectedPeerId, setSelectedPeerId] = useState<string | null>(null);
-	const [stagedFiles, setStagedFiles] = useState<string[]>([]);
-	const [stagedAdopted, setStagedAdopted] = useState<StagedAdoptedFile[]>([]);
-	const [fileSelectError, setFileSelectError] = useState<string | null>(null);
-	const [isDragging, setIsDragging] = useState(false);
-	const [sendState, setSendState] = useState<SendState>({ status: "idle" });
+
+	const [waitingFiles, setWaitingFiles] = useState<StagedFile[]>([]);
+	const [activeSend, setActiveSend] = useState<ActiveSendInfo | null>(null);
+	const [sendQueue, setSendQueue] = useState<ActiveSendInfo[]>([]);
+	const [peerSendStates, setPeerSendStates] = useState<
+		Record<string, PeerSendStatus>
+	>({});
+	const [sendError, setSendError] = useState<string | null>(null);
 	const [progress, setProgress] = useState<TransferProgressPayload | null>(
 		null,
 	);
+	const [isDragging, setIsDragging] = useState(false);
+
+	const activeSendRef = useRef<ActiveSendInfo | null>(null);
+	activeSendRef.current = activeSend;
 
 	const [shares, setShares] = useState<ShareInfo[]>([]);
 	const [sharesError, setSharesError] = useState<string | null>(null);
@@ -124,6 +161,20 @@ export function App() {
 		(name: string) => (browsePath ? `${browsePath}/${name}` : name),
 		[browsePath],
 	);
+
+	useEffect(() => {
+		const handleHashChange = () => {
+			setRoute(parseRoute(window.location.hash));
+		};
+		window.addEventListener("hashchange", handleHashChange);
+		return () => window.removeEventListener("hashchange", handleHashChange);
+	}, []);
+
+	useEffect(() => {
+		if (route.view === "folder") {
+			setSelectedPeerId(route.peerKey);
+		}
+	}, [route]);
 
 	const loadShares = useCallback((peerId: string) => {
 		invoke<ShareInfo[]>("plugin:tradr|get_visible_shares", { peerId })
@@ -379,16 +430,11 @@ export function App() {
 			.then((list) => {
 				setPeerListError(null);
 				setPeers(list);
-				setSelectedPeerId((prev) => {
-					if (list.length > 0 && prev === null) {
-						const first = list[0];
-						return first ? first.key : null;
-					}
-					return prev;
-				});
+				setHasLoadedPeersOnce(true);
 			})
 			.catch((e) => {
 				setPeerListError(String(e));
+				setHasLoadedPeersOnce(true);
 			});
 	}, []);
 
@@ -397,6 +443,118 @@ export function App() {
 		const interval = setInterval(refreshPeers, 2000);
 		return () => clearInterval(interval);
 	}, [refreshPeers]);
+
+	const enqueueSend = useCallback(
+		(peerKey: string, filesToSend: StagedFile[]) => {
+			if (filesToSend.length === 0) return;
+			// Prevents duplicate queuing if this peer is already active or in queue.
+			if (
+				activeSend?.peerKey === peerKey ||
+				sendQueue.some((item) => item.peerKey === peerKey)
+			) {
+				return;
+			}
+
+			const peer = peers.find((p) => p.key === peerKey);
+			const targetName = peer?.display_name || "Unnamed device";
+			const job: ActiveSendInfo = {
+				peerKey,
+				targetName,
+				files: [...filesToSend],
+			};
+
+			if (activeSend === null) {
+				setActiveSend(job);
+				setPeerSendStates((prev) => ({
+					...prev,
+					[peerKey]: {
+						status: "sending",
+						fileName: job.files[0]?.name ?? "file",
+						progress: null,
+					},
+				}));
+			} else {
+				setSendQueue((prev) => [...prev, job]);
+				setPeerSendStates((prev) => ({
+					...prev,
+					[peerKey]: { status: "waiting" },
+				}));
+			}
+		},
+		[activeSend, sendQueue, peers],
+	);
+
+	useEffect(() => {
+		if (!activeSend) {
+			if (sendQueue.length > 0) {
+				const [next, ...rest] = sendQueue;
+				if (next) {
+					setSendQueue(rest);
+					setActiveSend(next);
+					setPeerSendStates((prev) => ({
+						...prev,
+						[next.peerKey]: {
+							status: "sending",
+							fileName: next.files[0]?.name ?? "file",
+							progress: null,
+						},
+					}));
+				}
+			}
+			return;
+		}
+
+		let isCurrent = true;
+		const { peerKey, files } = activeSend;
+		const paths = files
+			.filter((f) => f.cachePath !== null)
+			.map((f) => f.cachePath as string);
+		const adoptedIds = files
+			.filter((f) => f.adoptedId !== null)
+			.map((f) => f.adoptedId as string);
+
+		invoke<string[]>("plugin:tradr|send_files", {
+			peerId: peerKey,
+			files: paths,
+			adoptedIds: adoptedIds,
+		})
+			.then(() => {
+				if (!isCurrent) return;
+				// Clears waiting files and displays sent check for 4 seconds on success.
+				setWaitingFiles([]);
+				setSendError(null);
+				setPeerSendStates((prev) => ({
+					...prev,
+					[peerKey]: { status: "sent" },
+				}));
+				setTimeout(() => {
+					setPeerSendStates((prev) => {
+						if (prev[peerKey]?.status === "sent") {
+							const copy = { ...prev };
+							delete copy[peerKey];
+							return copy;
+						}
+						return prev;
+					});
+				}, 4000);
+				setActiveSend(null);
+			})
+			.catch((e) => {
+				if (!isCurrent) return;
+				// Preserves waiting files for retry and reports error on failure.
+				const msg = String(e);
+				setSendError(msg);
+				setPeerSendStates((prev) => ({
+					...prev,
+					[peerKey]: { status: "failed", error: msg },
+				}));
+				setActiveSend(null);
+			});
+
+		return () => {
+			isCurrent = false;
+		};
+	}, [activeSend, sendQueue]);
 
 	useEffect(() => {
 		// Restores an active sign-in session across webview reloads.
@@ -416,6 +574,24 @@ export function App() {
 		// Subscribes to transfer progress emitted by the composition root.
 		listen<TransferProgressPayload>("transfer-progress", (event) => {
 			setProgress(event.payload);
+			const current = activeSendRef.current;
+			if (current) {
+				const fileName =
+					event.payload.rel_path || current.files[0]?.name || "file";
+				setPeerSendStates((prev) => {
+					if (prev[current.peerKey]?.status === "sending") {
+						return {
+							...prev,
+							[current.peerKey]: {
+								status: "sending",
+								fileName,
+								progress: event.payload,
+							},
+						};
+					}
+					return prev;
+				});
+			}
 		}).then((unlisten) => {
 			unlistenProgress = unlisten;
 		});
@@ -431,47 +607,18 @@ export function App() {
 		listen<ShareIntent>("share-intent", async (event) => {
 			const intent = event.payload;
 			if (intent.files && intent.files.length > 0) {
-				const { paths, adoptedIds, refused } = stagePayloads(intent.files);
-				setStagedFiles(paths);
-				setStagedAdopted(adoptedIds);
+				const { staged, refused } = payloadsToStagedFiles(intent.files);
 				if (refused.length > 0) {
-					setFileSelectError(`Could not read files: ${refused.join(", ")}`);
+					setSendError(`Could not read files: ${refused.join(", ")}`);
 				} else {
-					setFileSelectError(null);
+					setSendError(null);
 				}
-				if (paths.length > 0 || adoptedIds.length > 0) {
-					setSendState({ status: "idle" });
-
+				if (staged.length > 0) {
 					const targetPeer = intent.targetDevice || null;
-
-					if (!targetPeer) {
-						try {
-							const currentPeers = await invoke<PeerInfo[]>(
-								"plugin:tradr|get_peers",
-							);
-							setPeerListError(null);
-							if (currentPeers.length > 0) {
-								setSelectedPeerId(currentPeers[0]?.key || null);
-							}
-						} catch (e) {
-							setPeerListError(String(e));
-						}
+					if (targetPeer) {
+						enqueueSend(targetPeer, staged);
 					} else {
-						setSelectedPeerId(targetPeer);
-						setSendState({ status: "sending" });
-						invoke<string[]>("plugin:tradr|send_files", {
-							peerId: targetPeer,
-							files: paths,
-							adoptedIds: adoptedIds.map((a) => a.id),
-						})
-							.then((sentFiles) => {
-								setSendState({ status: "success", sentFiles });
-								setStagedFiles([]);
-								setStagedAdopted([]);
-							})
-							.catch((e) => {
-								setSendState({ status: "error", message: String(e) });
-							});
+						setWaitingFiles(staged);
 					}
 				}
 			}
@@ -488,10 +635,34 @@ export function App() {
 						setIsDragging(true);
 					} else if (event.payload.type === "drop") {
 						setIsDragging(false);
-						if (event.payload.paths.length > 0) {
-							setStagedFiles(event.payload.paths);
-							setStagedAdopted([]);
-							setSendState({ status: "idle" });
+						const paths: string[] = event.payload.paths ?? [];
+						if (paths.length > 0) {
+							const staged: StagedFile[] = paths.map((path) => ({
+								name: path.split(/[/\\]/).pop() || path,
+								cachePath: path,
+								adoptedId: null,
+							}));
+							const pos = event.payload.position;
+							let targetPeerKey: string | null = null;
+							if (
+								pos &&
+								typeof pos.x === "number" &&
+								typeof pos.y === "number"
+							) {
+								const dpr = window.devicePixelRatio || 1;
+								const clientX = pos.x / dpr;
+								const clientY = pos.y / dpr;
+								const el = document.elementFromPoint(clientX, clientY);
+								const tile = el?.closest("[data-device-key]");
+								if (tile) {
+									targetPeerKey = tile.getAttribute("data-device-key");
+								}
+							}
+							if (targetPeerKey) {
+								enqueueSend(targetPeerKey, staged);
+							} else {
+								setWaitingFiles(staged);
+							}
 						}
 					} else {
 						setIsDragging(false);
@@ -518,7 +689,7 @@ export function App() {
 				unlistenShareIntent();
 			}
 		};
-	}, []);
+	}, [enqueueSend]);
 
 	const startSignIn = () => {
 		setSignIn({ status: "signing_in" });
@@ -528,40 +699,88 @@ export function App() {
 		);
 	};
 
-	const handleSendFiles = () => {
-		if (
-			!selectedPeerId ||
-			(stagedFiles.length === 0 && stagedAdopted.length === 0)
-		) {
-			return;
+	const handleSelectFiles = async () => {
+		try {
+			const picked = await invoke<SharedFilePayload[] | null>(
+				"plugin:tradr|pick_files_to_send",
+			);
+			if (picked === null) {
+				const selected = await open({
+					multiple: true,
+				});
+				setSendError(null);
+				if (Array.isArray(selected) && selected.length > 0) {
+					const staged: StagedFile[] = selected.map((p) => ({
+						name: p.split(/[/\\]/).pop() || p,
+						cachePath: p,
+						adoptedId: null,
+					}));
+					setWaitingFiles(staged);
+				}
+			} else if (picked.length > 0) {
+				const { staged, refused } = payloadsToStagedFiles(picked);
+				if (refused.length > 0) {
+					setSendError(`Could not read files: ${refused.join(", ")}`);
+				} else {
+					setSendError(null);
+				}
+				if (staged.length > 0) {
+					setWaitingFiles(staged);
+				}
+			}
+		} catch (e) {
+			setSendError(String(e));
 		}
-		setSendState({ status: "sending" });
-		invoke<string[]>("plugin:tradr|send_files", {
-			peerId: selectedPeerId,
-			files: stagedFiles,
-			adoptedIds: stagedAdopted.map((a) => a.id),
-		}).then(
-			(sentFiles) => {
-				setSendState({ status: "success", sentFiles });
-				setStagedFiles([]);
-				setStagedAdopted([]);
-			},
-			(error) => {
-				setSendState({ status: "error", message: String(error) });
-			},
-		);
 	};
 
 	const handleHtmlDrop = (event: React.DragEvent<HTMLDivElement>) => {
 		event.preventDefault();
 		setIsDragging(false);
-		const items = Array.from(event.dataTransfer.files).map((f) => f.name);
-		if (items.length > 0) {
-			setStagedFiles(items);
-			setStagedAdopted([]);
-			setSendState({ status: "idle" });
+		const files = Array.from(event.dataTransfer.files);
+		if (files.length > 0) {
+			const staged: StagedFile[] = files.map((f) => ({
+				name: f.name,
+				size: f.size,
+				cachePath: null,
+				adoptedId: null,
+			}));
+			const target = event.target as HTMLElement | null;
+			const tile =
+				target?.closest("[data-device-key]") ??
+				document
+					.elementFromPoint(event.clientX, event.clientY)
+					?.closest("[data-device-key]");
+			const targetPeerKey = tile?.getAttribute("data-device-key");
+			if (targetPeerKey) {
+				enqueueSend(targetPeerKey, staged);
+			} else {
+				setWaitingFiles(staged);
+			}
 		}
 	};
+
+	const handleTileTap = (peer: PeerInfo) => {
+		if (waitingFiles.length > 0) {
+			enqueueSend(peer.key, waitingFiles);
+		} else {
+			window.location.hash = `#/folder/${encodeURIComponent(peer.key)}`;
+		}
+	};
+
+	const handleOpenFolder = (peerKey: string) => {
+		window.location.hash = `#/folder/${encodeURIComponent(peerKey)}`;
+	};
+
+	const handleClearWaitingFiles = () => {
+		setWaitingFiles([]);
+	};
+
+	const currentFolderPeer =
+		route.view === "folder" ? peers.find((p) => p.key === route.peerKey) : null;
+	const folderPeerName =
+		currentFolderPeer?.display_name ||
+		(route.view === "folder" ? route.peerKey : "") ||
+		"Unnamed device";
 
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: Window shell accepts file drop across the view
@@ -575,297 +794,41 @@ export function App() {
 			onDrop={handleHtmlDrop}
 		>
 			{isDragging && (
-				<div
-					style={{
-						position: "fixed",
-						inset: 0,
-						backgroundColor: "rgba(0, 120, 255, 0.15)",
-						border: "3px dashed #0078d4",
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-						zIndex: 1000,
-						pointerEvents: "none",
-					}}
-				>
-					<h2>Drop files anywhere to stage transfer</h2>
+				<div className="overlay">
+					<h2>Drop to send</h2>
 				</div>
 			)}
 
 			<Header
 				status={signIn.status}
-				onOpenSettings={() => setView("settings")}
+				onOpenSettings={() => {
+					window.location.hash = "#/settings";
+				}}
 			/>
 
 			<main className="app-main">
-				{view === "settings" ? (
+				{route.view === "settings" ? (
 					<Settings
 						signIn={signIn}
 						onSignIn={startSignIn}
-						onBack={() => setView("home")}
+						onBack={() => {
+							window.location.hash = "#/";
+						}}
 					/>
-				) : (
+				) : route.view === "folder" ? (
 					<div className="stack">
-						<section
-							className="card"
-							style={{
-								marginTop: "1.5rem",
-								borderTop: "1px solid #ccc",
-								paddingTop: "1rem",
-							}}
-						>
-							<h2 className="card-title">Peers</h2>
-							<button type="button" onClick={refreshPeers}>
-								Refresh Peers
-							</button>
-							{peerListError && (
-								<p style={{ color: "red" }}>
-									Failed to get peers: {peerListError}
-								</p>
-							)}
-							{peers.length === 0 ? (
-								<p>
-									No peers found on the local network, added by hand, or nearby
-									over Bluetooth yet.
-								</p>
-							) : (
-								<ul style={{ listStyle: "none", padding: 0 }}>
-									{peers.map((peer) => {
-										const isIdentified = peer.device_id.length > 0;
-										return (
-											<li
-												key={peer.key}
-												style={{
-													margin: "0.5rem 0",
-													padding: "0.5rem",
-													border:
-														selectedPeerId === peer.key
-															? "2px solid #0078d4"
-															: "1px solid #ddd",
-													borderRadius: "4px",
-													cursor: "pointer",
-												}}
-												onClick={() => setSelectedPeerId(peer.key)}
-												onKeyDown={(e) => {
-													if (e.key === "Enter" || e.key === " ") {
-														setSelectedPeerId(peer.key);
-													}
-												}}
-											>
-												<label style={{ cursor: "pointer", display: "block" }}>
-													<input
-														type="radio"
-														name="peer-selection"
-														value={peer.key}
-														checked={selectedPeerId === peer.key}
-														onChange={() => setSelectedPeerId(peer.key)}
-														style={{ marginRight: "0.5rem" }}
-													/>
-													<strong>
-														{peer.display_name || "Unnamed device"}
-													</strong>
-													<span
-														style={{
-															fontSize: "0.85em",
-															color: "#666",
-															marginLeft: "0.5rem",
-														}}
-													>
-														{isIdentified
-															? `(${peer.device_id.slice(0, 8)}...)`
-															: "(not yet identified)"}
-													</span>
-												</label>
-												{peer.sources.length > 0 && (
-													<p
-														style={{
-															margin: "0.25rem 0 0 1.5rem",
-															fontSize: "0.85em",
-															color: "#666",
-														}}
-													>
-														{peer.sources.map(formatSource).join(", ")}
-													</p>
-												)}
-												{peer.addresses.length > 0 && (
-													<p
-														style={{
-															margin: "0.25rem 0 0 1.5rem",
-															fontSize: "0.8em",
-															color: "#666",
-														}}
-													>
-														Addresses: {peer.addresses.join(", ")}
-													</p>
-												)}
-											</li>
-										);
-									})}
-								</ul>
-							)}
-						</section>
-
-						<section
-							className="card"
-							style={{
-								marginTop: "1.5rem",
-								borderTop: "1px solid #ccc",
-								paddingTop: "1rem",
-							}}
-						>
-							<h2 className="card-title">Send Files (Drag and Drop)</h2>
-							<div
-								style={{
-									border: "2px dashed #999",
-									borderRadius: "8px",
-									padding: "1.5rem",
-									textAlign: "center",
-									backgroundColor: "#fafafa",
+						<div className="page-header">
+							<button
+								type="button"
+								className="btn"
+								onClick={() => {
+									window.location.hash = "#/";
 								}}
 							>
-								<p>
-									Drag and drop files anywhere into the window, or choose files
-									below.
-								</p>
-								<button
-									type="button"
-									onClick={async () => {
-										try {
-											const picked = await invoke<SharedFilePayload[] | null>(
-												"plugin:tradr|pick_files_to_send",
-											);
-											if (picked === null) {
-												const selected = await open({
-													multiple: true,
-												});
-												setFileSelectError(null);
-												if (Array.isArray(selected) && selected.length > 0) {
-													setStagedFiles(selected);
-													setStagedAdopted([]);
-													setSendState({ status: "idle" });
-												} else if (typeof selected === "string") {
-													setStagedFiles([selected]);
-													setStagedAdopted([]);
-													setSendState({ status: "idle" });
-												}
-											} else if (picked.length > 0) {
-												const { paths, adoptedIds, refused } =
-													stagePayloads(picked);
-												setStagedFiles(paths);
-												setStagedAdopted(adoptedIds);
-												if (refused.length > 0) {
-													setFileSelectError(
-														`Could not read files: ${refused.join(", ")}`,
-													);
-												} else {
-													setFileSelectError(null);
-												}
-												if (paths.length > 0 || adoptedIds.length > 0) {
-													setSendState({ status: "idle" });
-												}
-											}
-										} catch (e) {
-											setFileSelectError(String(e));
-										}
-									}}
-								>
-									Select Files
-								</button>
-								{fileSelectError && (
-									<p style={{ color: "red" }}>
-										Failed to open file dialog: {fileSelectError}
-									</p>
-								)}
-							</div>
-
-							{(stagedFiles.length > 0 || stagedAdopted.length > 0) && (
-								<div style={{ marginTop: "1rem" }}>
-									<h3>
-										Staged files ({stagedFiles.length + stagedAdopted.length})
-									</h3>
-									<ul>
-										{stagedFiles.map((file) => (
-											<li key={file}>{file}</li>
-										))}
-										{stagedAdopted.map((item) => (
-											<li key={`adopted-${item.id}`}>{item.name}</li>
-										))}
-									</ul>
-									<button
-										type="button"
-										onClick={handleSendFiles}
-										disabled={
-											!selectedPeerId ||
-											(stagedFiles.length === 0 &&
-												stagedAdopted.length === 0) ||
-											sendState.status === "sending"
-										}
-										style={{ marginRight: "0.5rem" }}
-									>
-										{sendState.status === "sending"
-											? "Sending..."
-											: "Send to Selected Peer"}
-									</button>
-									<button
-										type="button"
-										onClick={() => {
-											setStagedFiles([]);
-											setStagedAdopted([]);
-										}}
-										disabled={sendState.status === "sending"}
-									>
-										Clear Staged Files
-									</button>
-								</div>
-							)}
-
-							{sendState.status === "sending" && (
-								<p>Sending files to peer...</p>
-							)}
-							{sendState.status === "error" && (
-								<p style={{ color: "red" }}>
-									Transfer failed: {sendState.message}
-								</p>
-							)}
-							{sendState.status === "success" && (
-								<p style={{ color: "green" }}>
-									Successfully sent {sendState.sentFiles.length} file(s):{" "}
-									{sendState.sentFiles.join(", ")}
-								</p>
-							)}
-
-							{progress && (
-								<div
-									style={{
-										marginTop: "1rem",
-										padding: "0.75rem",
-										border: "1px solid #ccc",
-										borderRadius: "4px",
-									}}
-								>
-									<h4>Transfer Progress</h4>
-									<p>
-										File: {progress.rel_path} ({progress.status})
-									</p>
-									<progress
-										value={progress.bytes_transferred}
-										max={progress.total_bytes || 1}
-										style={{ width: "100%", height: "1.2rem" }}
-									/>
-									<p style={{ fontSize: "0.85em", color: "#666" }}>
-										{progress.bytes_transferred} / {progress.total_bytes} bytes
-										(
-										{progress.total_bytes > 0
-											? Math.round(
-													(progress.bytes_transferred / progress.total_bytes) *
-														100,
-												)
-											: 0}
-										%)
-									</p>
-								</div>
-							)}
-						</section>
+								Back
+							</button>
+							<h2>{folderPeerName}</h2>
+						</div>
 
 						<section
 							className="card"
@@ -1282,6 +1245,23 @@ export function App() {
 							)}
 						</section>
 					</div>
+				) : (
+					<Home
+						signIn={signIn}
+						onSignIn={startSignIn}
+						peers={peers}
+						hasLoadedPeersOnce={hasLoadedPeersOnce}
+						waitingFiles={waitingFiles}
+						isSending={activeSend !== null}
+						activeSend={activeSend}
+						progress={progress}
+						sendError={sendError}
+						peerSendStates={peerSendStates}
+						onSelectFiles={handleSelectFiles}
+						onClearWaitingFiles={handleClearWaitingFiles}
+						onTileTap={handleTileTap}
+						onOpenFolder={handleOpenFolder}
+					/>
 				)}
 			</main>
 		</div>
