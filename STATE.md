@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-(none)
+- **`WI-M8-062b`** (DCR-169, stylesheet and app shell), next to dispatch. `WI-M8-062a` landed 2026-09-30. **The preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty`**; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
 ## Decisions
 
@@ -98,7 +98,6 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M8-062a | **Preview harness** ([docs/12](docs/12-user-interface.md#how-it-is-checked-given-there-is-no-test-runner-for-the-front-end-df-40)): a dev-only page installing `@tauri-apps/api/mocks` with fixtures, so the Supervisor can screenshot the UI with headless Firefox. Plus a new `api.ts` beside `App.tsx` holding the DTO types and typed `invoke` wrappers moved out of `App.tsx`, no behaviour change | planned | |
 | WI-M8-062b | **Stylesheet and app shell**: design tokens, light and dark, safe-area insets (closes DF-8), header with Settings, the Home / Folder / Settings views and the two-width layout; the Attestation panels, Static Peers and Linking move into Settings unchanged in behaviour | planned | |
 | WI-M8-062c | **Home: devices and sending**: device tiles with avatar and "on this network" / "added by address" / "nearby", the send card and tray, tap-a-device to send, drop-on-a-tile, progress on the tile, "Sent" / "Couldn't send", the sign-in card on first run | planned | |
 | WI-M8-062d | **Folder view**: back, breadcrumb from the device's name, rows with icons, Upload / New folder / Download / Rename / Delete restyled; the Share selector removed | planned | |
