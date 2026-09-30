@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "../App.js";
 import { fixtureCommands } from "./fixtures.js";
+/* stylesheet */ import "../styles.css";
 
 mockWindows("main");
 mockIPC(
