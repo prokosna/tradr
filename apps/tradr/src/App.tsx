@@ -78,7 +78,6 @@ export function App() {
 	const [hasLoadedPeersOnce, setHasLoadedPeersOnce] = useState(false);
 	const [waitingFiles, setWaitingFiles] = useState<StagedFile[]>([]);
 	const [activeSend, setActiveSend] = useState<ActiveSendInfo | null>(null);
-	const [sendQueue, setSendQueue] = useState<ActiveSendInfo[]>([]);
 	const [peerSendStates, setPeerSendStates] = useState<
 		Record<string, PeerSendStatus>
 	>({});
@@ -89,8 +88,91 @@ export function App() {
 	const [isDragging, setIsDragging] = useState(false);
 	const [receivedFiles, setReceivedFiles] = useState<ReceivedItem[]>([]);
 
+	const sendQueueRef = useRef<ActiveSendInfo[]>([]);
+	const isSendingRef = useRef(false);
 	const activeSendRef = useRef<ActiveSendInfo | null>(null);
 	activeSendRef.current = activeSend;
+	const peersRef = useRef<PeerInfo[]>(peers);
+	peersRef.current = peers;
+
+	const pumpRef = useRef<() => void>(() => {});
+
+	const pump = useCallback(() => {
+		if (isSendingRef.current) return;
+		const nextJob = sendQueueRef.current.shift();
+		if (!nextJob) {
+			activeSendRef.current = null;
+			setActiveSend(null);
+			setProgress(null);
+			return;
+		}
+
+		isSendingRef.current = true;
+		activeSendRef.current = nextJob;
+		setActiveSend(nextJob);
+		setProgress(null);
+		setPeerSendStates((prev) => {
+			const updated = { ...prev };
+			updated[nextJob.peerKey] = {
+				status: "sending",
+				fileName: nextJob.files[0]?.name ?? "file",
+				progress: null,
+			};
+			for (const queued of sendQueueRef.current) {
+				if (queued.peerKey !== nextJob.peerKey) {
+					updated[queued.peerKey] = { status: "waiting" };
+				}
+			}
+			return updated;
+		});
+
+		const paths = nextJob.files
+			.filter((f) => f.cachePath !== null)
+			.map((f) => f.cachePath as string);
+		const adoptedIds = nextJob.files
+			.filter((f) => f.adoptedId !== null)
+			.map((f) => f.adoptedId as string);
+
+		invoke<string[]>("plugin:tradr|send_files", {
+			peerId: nextJob.peerKey,
+			files: paths,
+			adoptedIds: adoptedIds,
+		})
+			.then(() => {
+				// Clears waiting files and displays sent check for 4 seconds on success.
+				setWaitingFiles([]);
+				setSendError(null);
+				setPeerSendStates((prev) => ({
+					...prev,
+					[nextJob.peerKey]: { status: "sent" },
+				}));
+				setTimeout(() => {
+					setPeerSendStates((prev) => {
+						if (prev[nextJob.peerKey]?.status === "sent") {
+							const copy = { ...prev };
+							delete copy[nextJob.peerKey];
+							return copy;
+						}
+						return prev;
+					});
+				}, 4000);
+			})
+			.catch((e) => {
+				// Preserves waiting files for retry and reports error on failure.
+				const msg = String(e);
+				setSendError(msg);
+				setPeerSendStates((prev) => ({
+					...prev,
+					[nextJob.peerKey]: { status: "failed", error: msg },
+				}));
+			})
+			.finally(() => {
+				isSendingRef.current = false;
+				pumpRef.current();
+			});
+	}, []);
+
+	pumpRef.current = pump;
 
 	useEffect(() => {
 		const handleHashChange = () => {
@@ -122,15 +204,8 @@ export function App() {
 	const enqueueSend = useCallback(
 		(peerKey: string, filesToSend: StagedFile[]) => {
 			if (filesToSend.length === 0) return;
-			// Prevents duplicate queuing if this peer is already active or in queue.
-			if (
-				activeSend?.peerKey === peerKey ||
-				sendQueue.some((item) => item.peerKey === peerKey)
-			) {
-				return;
-			}
 
-			const peer = peers.find((p) => p.key === peerKey);
+			const peer = peersRef.current.find((p) => p.key === peerKey);
 			const targetName = peer?.display_name || "Unnamed device";
 			const job: ActiveSendInfo = {
 				peerKey,
@@ -138,98 +213,22 @@ export function App() {
 				files: [...filesToSend],
 			};
 
-			if (activeSend === null) {
-				setActiveSend(job);
-				setPeerSendStates((prev) => ({
-					...prev,
-					[peerKey]: {
-						status: "sending",
-						fileName: job.files[0]?.name ?? "file",
-						progress: null,
-					},
-				}));
-			} else {
-				setSendQueue((prev) => [...prev, job]);
-				setPeerSendStates((prev) => ({
-					...prev,
-					[peerKey]: { status: "waiting" },
-				}));
-			}
-		},
-		[activeSend, sendQueue, peers],
-	);
-
-	useEffect(() => {
-		if (!activeSend) {
-			if (sendQueue.length > 0) {
-				const [next, ...rest] = sendQueue;
-				if (next) {
-					setSendQueue(rest);
-					setActiveSend(next);
-					setPeerSendStates((prev) => ({
-						...prev,
-						[next.peerKey]: {
-							status: "sending",
-							fileName: next.files[0]?.name ?? "file",
-							progress: null,
-						},
-					}));
-				}
-			}
-			return;
-		}
-
-		let isCurrent = true;
-		const { peerKey, files } = activeSend;
-		const paths = files
-			.filter((f) => f.cachePath !== null)
-			.map((f) => f.cachePath as string);
-		const adoptedIds = files
-			.filter((f) => f.adoptedId !== null)
-			.map((f) => f.adoptedId as string);
-
-		invoke<string[]>("plugin:tradr|send_files", {
-			peerId: peerKey,
-			files: paths,
-			adoptedIds: adoptedIds,
-		})
-			.then(() => {
-				if (!isCurrent) return;
-				// Clears waiting files and displays sent check for 4 seconds on success.
-				setWaitingFiles([]);
-				setSendError(null);
-				setPeerSendStates((prev) => ({
-					...prev,
-					[peerKey]: { status: "sent" },
-				}));
-				setTimeout(() => {
-					setPeerSendStates((prev) => {
-						if (prev[peerKey]?.status === "sent") {
-							const copy = { ...prev };
-							delete copy[peerKey];
-							return copy;
-						}
+			sendQueueRef.current.push(job);
+			if (isSendingRef.current) {
+				setPeerSendStates((prev) => {
+					if (prev[peerKey]?.status === "sending") {
 						return prev;
-					});
-				}, 4000);
-				setActiveSend(null);
-			})
-			.catch((e) => {
-				if (!isCurrent) return;
-				// Preserves waiting files for retry and reports error on failure.
-				const msg = String(e);
-				setSendError(msg);
-				setPeerSendStates((prev) => ({
-					...prev,
-					[peerKey]: { status: "failed", error: msg },
-				}));
-				setActiveSend(null);
-			});
-
-		return () => {
-			isCurrent = false;
-		};
-	}, [activeSend, sendQueue]);
+					}
+					return {
+						...prev,
+						[peerKey]: { status: "waiting" },
+					};
+				});
+			}
+			pumpRef.current();
+		},
+		[],
+	);
 
 	useEffect(() => {
 		// Restores an active sign-in session across webview reloads.
