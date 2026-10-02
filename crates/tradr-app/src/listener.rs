@@ -7,6 +7,9 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
+
 use tradr_core::{
     BoxFuture, ChunkIndex, Clock, ContentVerifier, DeviceId, DomainTag, Incoming, ItemAcceptance,
     ItemAcceptanceError, ItemResumption, KeyBinding, KeyStore, LinkReply, OfferItem,
@@ -708,6 +711,9 @@ where
     .map_err(|failure| failure.error)
 }
 
+// Bounds concurrent channel memory and resources (docs/04, DCR-171).
+const MAX_CONCURRENT_CHANNELS: usize = 8;
+
 /// Continuously accepts incoming channels from `incoming` and processes transfers.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub async fn listen_for_transfers<V, F, Fut>(
@@ -728,36 +734,81 @@ where
     F: Fn(AttestationRequest) -> Fut + Clone,
     Fut: Future<Output = Result<TrustTier, String>>,
 {
-    loop {
-        let channel = match incoming.accept().await {
-            Ok(c) => c,
-            Err(TransportError::Closed) => break Ok(()),
-            Err(e) => return Err(ListenerError::Transport(e)),
-        };
-        match handle_incoming_channel(
-            channel.as_ref(),
-            vfs,
-            params.clone(),
-            key_store,
-            rng,
-            clock,
-            verifier,
-            verify_attestation.clone(),
-            item_filter,
-            link_service,
-        )
-        .await
-        {
+    let mut in_flight = FuturesUnordered::new();
+
+    let report_completion = |peer: DeviceId, outcome: Result<Vec<RelPath>, ChannelFailure>| {
+        match outcome {
             Ok(placed) => {
                 if let Some(cb) = on_arrival {
                     // A browse stream and a link exchange each place nothing, so an empty placement is not an arrival (DCR-129).
                     if !placed.is_empty() {
-                        cb(channel.peer(), &placed);
+                        cb(peer, &placed);
                     }
                 }
             }
             Err(failure) => eprintln!("{failure}"),
         }
+    };
+
+    // Polling accept by reference preserves a handshake across in-flight completions.
+    let incoming = tokio::sync::Mutex::new(incoming);
+    let mut pending_accept: Option<BoxFuture<'_, Result<Box<dyn SecureChannel>, TransportError>>> =
+        None;
+
+    let accept_err = loop {
+        if pending_accept.is_none() && in_flight.len() < MAX_CONCURRENT_CHANNELS {
+            pending_accept = Some(Box::pin(async {
+                let mut guard = incoming.lock().await;
+                guard.accept().await
+            }));
+        }
+
+        tokio::select! {
+            channel_res = async {
+                match pending_accept.as_mut() {
+                    Some(fut) => fut.as_mut().await,
+                    None => std::future::pending().await,
+                }
+            }, if pending_accept.is_some() => {
+                pending_accept = None;
+                match channel_res {
+                    Ok(channel) => {
+                        let params = params.clone();
+                        let verify_attestation = verify_attestation.clone();
+                        in_flight.push(async move {
+                            let peer = channel.peer();
+                            let outcome = handle_incoming_channel(
+                                channel.as_ref(),
+                                vfs,
+                                params,
+                                key_store,
+                                rng,
+                                clock,
+                                verifier,
+                                verify_attestation,
+                                item_filter,
+                                link_service,
+                            )
+                            .await;
+                            (peer, outcome)
+                        });
+                    }
+                    Err(e) => break e,
+                }
+            }
+            Some((peer, outcome)) = in_flight.next(), if !in_flight.is_empty() => {
+                report_completion(peer, outcome);
+            }
+        }
+    };
+
+    while let Some((peer, outcome)) = in_flight.next().await {
+        report_completion(peer, outcome);
+    }
+
+    match accept_err {
+        TransportError::Closed => Ok(()),
+        other => Err(ListenerError::Transport(other)),
     }
 }
 
