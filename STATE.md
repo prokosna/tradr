@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M8-063b`** (DCR-170, Home and folder tests), next. `WI-M8-063a` landed 2026-10-02. **Asked by the person on 2026-10-02 with no device at hand: DCR-170's tests first, then DF-43 (the listener serving one connection at a time).**
+- **`WI-M8-063c`** (the send queue's duplicate dispatch), dispatched 2026-10-02 to `agy` on Gemini 3.8 Flash from branch `wi-m8-063c-send-queue`, stacked on `WI-M8-063b`. `WI-M8-063a` and `WI-M8-063b` landed 2026-10-02. `WI-M8-063a` landed 2026-10-02. **Asked by the person on 2026-10-02 with no device at hand: DCR-170's tests first, then DF-43 (the listener serving one connection at a time).**
 
 **For the next UI Work Item: the preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
@@ -100,7 +100,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M8-063b | **Home and folder tests** (DCR-170): the send queue, tap-to-send versus tap-to-open, `files-received` rows, and a refused folder operation's reason | planned | |
+| WI-M8-063c | **The send queue sends the running transfer twice**, found by `WI-M8-063b`'s tests: enqueueing a second send while one runs re-runs the effect that dispatched the first, so `send_files` is invoked again for the running job, and only the duplicate's completion advances the queue. Fix it so each queued send is dispatched exactly once, and add the strict test `WI-M8-063b` left out (exactly one call per tap; resolving the first send starts the second) | planned | |
 | WI-M6-009 | **Scanning a QR with a camera.** `WI-M6-007b` shows a QR and accepts a pasted blob, which is the whole payload either way (docs/11: "one payload and one parser"), so a QR read by any camera application already links. **A scanner inside Tradr is a platform integration and not an interface change** -- Android has `@tauri-apps/plugin-barcode-scanner` and a camera permission to justify, and the desktop has no camera API at all -- so it is its own Work Item rather than a line in one about React | planned | |
 
 ## Deferred

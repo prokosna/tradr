@@ -209,6 +209,9 @@ export const fixtureLinkReply: LinkReplyDto = {
 	peer_fingerprint: fixtureFingerprint,
 };
 
+export const fixtureRenameRefusal =
+	"peer refused 'a.txt': that name is already taken";
+
 export interface ScenarioData {
 	identity: DeviceIdentitySnapshot;
 	signIn: SignInOutcome | null;
