@@ -290,6 +290,14 @@ Sender                                          Receiver
 
 **The sender assigns it, as a UUIDv7 built from the `Clock` and the `Rng` it is handed, and from nothing else** -- [rule B6](../CLAUDE.md#b-clean-architecture) and rule B7 applied to the one identifier a sender invents. Its 48-bit timestamp field is `Clock::now()` in whole seconds, multiplied by 1000: `UnixTime` resolves to seconds, and RFC 9562 §6.1 lets an implementation fill `unix_ts_ms` from a coarser clock. **Uniqueness does not rest on the timestamp** -- the remaining 74 bits come from the `Rng` -- and nothing in this protocol orders two Transfers by their IDs, so the millisecond digits carried nothing a peer read. **The reason is that a test can now pin a Transfer ID exactly**, which it could not while the timestamp came from the operating system directly.
 
+### A receiver serves several connections at once (DCR-171)
+
+**Until 2026-10-02 the listener served one connection at a time, which was DF-43.** It accepted a channel and handled it to the end -- handshake, offer, every item, the wait for the peer's close -- before accepting the next. So a multi-gigabyte arrival from one device held every other device's send, every folder browse and every link exchange behind it, and a peer that stalled after its handshake held the device indefinitely. With four devices in daily use and a browse panel that opens one connection per operation, that stops being an edge case.
+
+**So the accept loop never waits on a connection.** Each accepted channel is handled concurrently with the others and with the next accept, **up to 8 at once**; at the limit, accepting waits until one finishes, so a flood of connections costs a bounded amount of memory rather than an unbounded one. A channel's failure is reported as it is today and touches no other channel. The bound is a count and not a timeout: a slow transfer is legitimate and is not cut off.
+
+**Concurrency is safe for everything a channel does except placing a file, and placing is made safe rather than serialised.** Partial files live under each transfer's own `.tradr-partial/<transfer_id>/`, and a link invite is consumed atomically by the service that holds it. **What two channels can genuinely race on is a name**: two transfers carrying `photo.jpg` both find the name free, and the second rename would replace the first file -- which the table under "Name collisions and sanitization" forbids. So placement uses a **rename that refuses an existing target** (`Vfs::rename_no_replace`, `VfsError::AlreadyExists`), and a refused placement takes the next collision name and tries again. `NativeVfs` makes the check and the rename one step by holding one lock for both, across every placement in the process; another program writing the same name at the same instant is outside it, as it always was. The Browse plane's `Rename`, `WriteFile` with `CREATE_NEW` or `RENAME_IF_EXISTS`, and the receive path all place this way; `OVERWRITE` alone replaces, because replacing is what it asks for.
+
 ### Why the receiver pulls
 
 Rather than the sender pushing unilaterally, the receiver asks for chunks with `ChunkRequest`.
@@ -512,7 +520,7 @@ The receiver **never trusts an incoming `relative_path`**. It enforces:
 | A colon anywhere in a component, which on NTFS names an alternate data stream | Replace each with `_` |
 | Trailing dots or spaces, which break on Windows | Strip |
 | Path length beyond the OS limit | Reject |
-| Collides with an existing file | Number it as `name (2).ext`. Never overwrite |
+| Collides with an existing file | Number it as `name (2).ext`. Never overwrite, even when two transfers race for the name (DCR-171) |
 | Item is a symlink | Reject in v1, since the target may point outside the Share Root |
 
 This is the same attack surface as zip slip. The path is normalized before joining, and the joined result is re-checked to confirm it is prefixed by the destination's realpath.
