@@ -2,7 +2,7 @@
 //! Validates end-to-end file transfers, multi-item offers, chunk resumption,
 //! selective acceptance filtering, and forward compatibility against a hand-driven sender.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -75,6 +75,7 @@ impl Rng for SeededRng {
     }
 }
 
+#[derive(Clone, Copy)]
 struct FakeClock {
     now: UnixTime,
 }
@@ -2934,5 +2935,986 @@ async fn browse_stream_with_unclosed_control_stream_times_out_and_succeeds() {
         listener_res.is_ok(),
         "listener must succeed despite unclosed control stream: {:?}",
         listener_res.err()
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn stalled_channel_does_not_hold_second_transfer() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (
+        (sender_store_1, sender_id_1, sender_binding_1),
+        (receiver_store, receiver_id, receiver_binding),
+    ) = create_test_identities();
+
+    let (sender_store_2, sender_id_2, sender_binding_2) = {
+        let rng = SeededRng::new(54321);
+        let store = SoftwareKeyStore::generate(&rng).expect("generate store 2");
+        let id = store.public_identity().expect("id 2");
+        let sig = store
+            .sign(DomainTag::KeyBind, id.agreement_pub().as_bytes())
+            .expect("sign 2");
+        let bind = KeyBinding::new(id.agreement_pub().clone(), sig, UnixTime::from_secs(LATER));
+        (store, id, bind)
+    };
+
+    let (sender_chan_1, listener_chan_1) =
+        mock_channel_pair(sender_id_1.device_id(), receiver_id.device_id(), MAX_FRAME);
+    let (sender_chan_2, listener_chan_2) =
+        mock_channel_pair(sender_id_2.device_id(), receiver_id.device_id(), MAX_FRAME);
+
+    let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(2);
+    let mut incoming = MockIncoming {
+        channels: incoming_rx,
+    };
+    incoming_tx
+        .send(Box::new(listener_chan_1) as Box<dyn SecureChannel>)
+        .await
+        .unwrap();
+    incoming_tx
+        .send(Box::new(listener_chan_2) as Box<dyn SecureChannel>)
+        .await
+        .unwrap();
+
+    let sender_dir = tempfile::tempdir().expect("sender tempdir");
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
+    let root_sender = RootId::new(10);
+    let root_receiver = RootId::new(20);
+    sender_vfs
+        .register_root(root_sender, sender_dir.path().to_path_buf(), false)
+        .unwrap();
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let content = b"channel 2 payload";
+    std::fs::write(sender_dir.path().join("ch2.txt"), content).unwrap();
+    let (_, hash) = outboard(content);
+
+    let transfer_id = sample_transfer(VALID_V7_A);
+    let item_id = ItemId::new("ch2_item").unwrap();
+    let src_rel = RelPath::new("ch2.txt").unwrap();
+    let offer_item = OfferItem::new(item_id, src_rel.clone(), content.len() as u64, hash).unwrap();
+
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
+    };
+
+    let listener_rng = SeededRng::new(1001);
+    let sender_rng_1 = SeededRng::new(1002);
+    let sender_rng_2 = SeededRng::new(1003);
+
+    let (chan_1_handshaken_tx, chan_1_handshaken_rx) = tokio::sync::oneshot::channel::<()>();
+    let (close_chan_1_tx, close_chan_1_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let sender_1_task = async {
+        let (mut sender_ctrl_send, mut sender_ctrl_recv) =
+            sender_chan_1.open_bi().await.expect("open ctrl bi 1");
+        let sender_params = HandshakeParams {
+            authenticated_peer: receiver_id.device_id(),
+            our_channel_max_frame_size: MAX_FRAME,
+            our_identity: &sender_id_1,
+            our_attestation_token: "mock-token-sender-1".to_string(),
+            our_key_binding: sender_binding_1,
+            our_versions: VersionRange::new(1, 1).unwrap(),
+            our_capabilities: Capabilities::empty(),
+        };
+        perform_handshake(
+            sender_ctrl_send.as_mut(),
+            sender_ctrl_recv.as_mut(),
+            sender_params,
+            &sender_store_1,
+            &sender_rng_1,
+            &clock,
+            |_| async { Ok(TrustTier::SameAccount) },
+        )
+        .await
+        .expect("sender 1 handshake");
+
+        chan_1_handshaken_tx.send(()).unwrap();
+        close_chan_1_rx.await.ok();
+        drop(sender_ctrl_send);
+        drop(sender_ctrl_recv);
+        drop(sender_chan_1);
+    };
+
+    let sender_2_task = async {
+        chan_1_handshaken_rx.await.unwrap();
+
+        let (mut sender_ctrl_send, mut sender_ctrl_recv) =
+            sender_chan_2.open_bi().await.expect("open ctrl bi 2");
+        let sender_params = HandshakeParams {
+            authenticated_peer: receiver_id.device_id(),
+            our_channel_max_frame_size: MAX_FRAME,
+            our_identity: &sender_id_2,
+            our_attestation_token: "mock-token-sender-2".to_string(),
+            our_key_binding: sender_binding_2,
+            our_versions: VersionRange::new(1, 1).unwrap(),
+            our_capabilities: Capabilities::empty(),
+        };
+        let sender_session = perform_handshake(
+            sender_ctrl_send.as_mut(),
+            sender_ctrl_recv.as_mut(),
+            sender_params,
+            &sender_store_2,
+            &sender_rng_2,
+            &clock,
+            |_| async { Ok(TrustTier::SameAccount) },
+        )
+        .await
+        .expect("sender 2 handshake");
+
+        let offer = TransferOffer::new(
+            transfer_id,
+            vec![offer_item],
+            content.len() as u64,
+            None,
+            None,
+        )
+        .unwrap();
+        let offer_bytes =
+            encode_transfer_offer_frame(&offer, sender_session.peer_max_frame_size()).unwrap();
+        sender_ctrl_send.write_all(&offer_bytes).await.unwrap();
+
+        let accept_frame = read_frame_helper(sender_ctrl_recv.as_mut(), MAX_FRAME)
+            .await
+            .unwrap();
+        let accept = decode_transfer_accept_frame(&accept_frame).unwrap();
+        accept.for_offer(&offer).unwrap();
+
+        let (mut data_send, mut data_recv) = sender_chan_2.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &src_rel,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
+        let send_req = SendRequest {
+            root: root_sender,
+            rel_path: &src_rel,
+            transfer_id,
+            item_id,
+            max_frame_size: sender_session
+                .peer_max_frame_size()
+                .min(sender_chan_2.max_frame_size()),
+            item: &prepared,
+        };
+        let mut streams = SessionStreams {
+            control_send: sender_ctrl_send.as_mut(),
+            control_recv: sender_ctrl_recv.as_mut(),
+            data_send: data_send.as_mut(),
+            data_recv: data_recv.as_mut(),
+        };
+        let send_res = send_file(&sender_vfs, &send_req, &mut streams)
+            .await
+            .unwrap();
+        assert!(send_res);
+    };
+
+    let (arrived_tx, arrived_rx) = tokio::sync::oneshot::channel::<Vec<String>>();
+    let arrived_tx = Arc::new(Mutex::new(Some(arrived_tx)));
+    let on_arrival = move |_from, paths: &[RelPath]| {
+        let list: Vec<String> = paths.iter().map(|p| p.as_str().to_string()).collect();
+        if let Some(tx) = arrived_tx.lock().unwrap().take() {
+            tx.send(list).ok();
+        }
+    };
+
+    let listener_task = listen_for_transfers(
+        &mut incoming,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+        Some(&on_arrival),
+    );
+
+    let ((), (), ()) = tokio::join!(
+        sender_1_task,
+        async {
+            tokio::time::timeout(std::time::Duration::from_secs(2), sender_2_task)
+                .await
+                .expect("sender 2 must complete without being blocked by channel 1");
+            let placed = tokio::time::timeout(std::time::Duration::from_secs(2), arrived_rx)
+                .await
+                .expect("on_arrival must be called within deadline")
+                .expect("arrival received");
+            assert_eq!(
+                placed,
+                vec!["ch2.txt"],
+                "on_arrival must be called for channel 2 while channel 1 is open"
+            );
+            close_chan_1_tx.send(()).unwrap();
+            drop(incoming_tx);
+        },
+        async {
+            let res = listener_task.await;
+            assert!(
+                res.is_ok(),
+                "listen_for_transfers must return Ok(()): {res:?}"
+            );
+        }
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn concurrent_channel_bound_holds_at_eight() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (_sender_default, (receiver_store, receiver_id, receiver_binding)) =
+        create_test_identities();
+
+    let mut senders = Vec::new();
+    for i in 0..9 {
+        let rng = SeededRng::new(3000 + i as u64);
+        let store = SoftwareKeyStore::generate(&rng).expect("generate store");
+        let id = store.public_identity().expect("public identity");
+        let sig = store
+            .sign(DomainTag::KeyBind, id.agreement_pub().as_bytes())
+            .expect("sign keybind");
+        let bind = KeyBinding::new(id.agreement_pub().clone(), sig, UnixTime::from_secs(LATER));
+        senders.push((store, id, bind));
+    }
+
+    let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(16);
+    let mut incoming = MockIncoming {
+        channels: incoming_rx,
+    };
+
+    let mut sender_chans = Vec::new();
+    for (_, id, _) in &senders {
+        let (sender_chan, listener_chan) =
+            mock_channel_pair(id.device_id(), receiver_id.device_id(), MAX_FRAME);
+        sender_chans.push(sender_chan);
+        incoming_tx
+            .send(Box::new(listener_chan) as Box<dyn SecureChannel>)
+            .await
+            .unwrap();
+    }
+
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let receiver_vfs = NativeVfs::new();
+    let root_receiver = RootId::new(50);
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
+    };
+
+    let listener_rng = SeededRng::new(7777);
+
+    let listener_task = listen_for_transfers(
+        &mut incoming,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+        None,
+    );
+
+    let receiver_peer = receiver_id.device_id();
+
+    let handshaken_count = Arc::new(AtomicUsize::new(0));
+    let (release_0_tx, release_0_rx) = tokio::sync::oneshot::channel::<()>();
+    let (release_rest_tx, release_rest_rx) = tokio::sync::watch::channel(false);
+
+    let count_0 = Arc::clone(&handshaken_count);
+    let (store_0, id_0, bind_0) = senders.remove(0);
+    let chan_0 = sender_chans.remove(0);
+    let rng_0 = SeededRng::new(4000);
+    let sender_0_task = async move {
+        let (mut ctrl_send, mut ctrl_recv) = chan_0.open_bi().await.unwrap();
+        let params = HandshakeParams {
+            authenticated_peer: receiver_peer,
+            our_channel_max_frame_size: MAX_FRAME,
+            our_identity: &id_0,
+            our_attestation_token: "mock-token-0".to_string(),
+            our_key_binding: bind_0,
+            our_versions: VersionRange::new(1, 1).unwrap(),
+            our_capabilities: Capabilities::empty(),
+        };
+        perform_handshake(
+            ctrl_send.as_mut(),
+            ctrl_recv.as_mut(),
+            params,
+            &store_0,
+            &rng_0,
+            &clock,
+            |_| async { Ok(TrustTier::SameAccount) },
+        )
+        .await
+        .expect("handshake 0");
+
+        count_0.fetch_add(1, Ordering::SeqCst);
+        release_0_rx.await.ok();
+        drop(ctrl_send);
+        drop(ctrl_recv);
+        drop(chan_0);
+    };
+
+    let mut other_tasks = Vec::new();
+    for i in 1..8 {
+        let (store_i, id_i, bind_i) = senders.remove(0);
+        let chan_i = sender_chans.remove(0);
+        let count_i = Arc::clone(&handshaken_count);
+        let mut rx_i = release_rest_rx.clone();
+        let rng_i = SeededRng::new(4000 + i as u64);
+        other_tasks.push(async move {
+            let (mut ctrl_send, mut ctrl_recv) = chan_i.open_bi().await.unwrap();
+            let params = HandshakeParams {
+                authenticated_peer: receiver_peer,
+                our_channel_max_frame_size: MAX_FRAME,
+                our_identity: &id_i,
+                our_attestation_token: format!("mock-token-{i}"),
+                our_key_binding: bind_i,
+                our_versions: VersionRange::new(1, 1).unwrap(),
+                our_capabilities: Capabilities::empty(),
+            };
+            perform_handshake(
+                ctrl_send.as_mut(),
+                ctrl_recv.as_mut(),
+                params,
+                &store_i,
+                &rng_i,
+                &clock,
+                |_| async { Ok(TrustTier::SameAccount) },
+            )
+            .await
+            .expect("handshake i");
+
+            count_i.fetch_add(1, Ordering::SeqCst);
+            let _ = rx_i.wait_for(|&released| released).await;
+            drop(ctrl_send);
+            drop(ctrl_recv);
+            drop(chan_i);
+        });
+    }
+
+    let (store_8, id_8, bind_8) = senders.remove(0);
+    let chan_8 = sender_chans.remove(0);
+    let rng_8 = SeededRng::new(4008);
+    let (s9_handshaken_tx, s9_handshaken_rx) = tokio::sync::oneshot::channel::<()>();
+    let mut rx_8 = release_rest_rx.clone();
+    let sender_8_task = async move {
+        let (mut ctrl_send, mut ctrl_recv) = chan_8.open_bi().await.unwrap();
+        let params = HandshakeParams {
+            authenticated_peer: receiver_peer,
+            our_channel_max_frame_size: MAX_FRAME,
+            our_identity: &id_8,
+            our_attestation_token: "mock-token-8".to_string(),
+            our_key_binding: bind_8,
+            our_versions: VersionRange::new(1, 1).unwrap(),
+            our_capabilities: Capabilities::empty(),
+        };
+        perform_handshake(
+            ctrl_send.as_mut(),
+            ctrl_recv.as_mut(),
+            params,
+            &store_8,
+            &rng_8,
+            &clock,
+            |_| async { Ok(TrustTier::SameAccount) },
+        )
+        .await
+        .expect("handshake 8");
+
+        s9_handshaken_tx.send(()).ok();
+        let _ = rx_8.wait_for(|&released| released).await;
+        drop(ctrl_send);
+        drop(ctrl_recv);
+        drop(chan_8);
+    };
+
+    let mut s9_handshaken_rx = s9_handshaken_rx;
+    let controller_task = async move {
+        while handshaken_count.load(Ordering::SeqCst) < 8 {
+            tokio::task::yield_now().await;
+        }
+
+        let timeout_res =
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut s9_handshaken_rx).await;
+        assert!(
+            timeout_res.is_err(),
+            "the 9th channel must not complete handshake while 8 channels are in flight"
+        );
+
+        release_0_tx.send(()).unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), &mut s9_handshaken_rx)
+            .await
+            .expect("handshake 9 must complete after channel 0 closes")
+            .expect("handshake 9 signal");
+
+        release_rest_tx.send(true).unwrap();
+        drop(incoming_tx);
+    };
+
+    let ((), _others, (), (), ()) = tokio::join!(
+        sender_0_task,
+        futures_util::future::join_all(other_tasks),
+        sender_8_task,
+        controller_task,
+        async {
+            let res = listener_task.await;
+            assert!(
+                res.is_ok(),
+                "listen_for_transfers must return Ok(()): {res:?}"
+            );
+        }
+    );
+}
+
+#[tokio::test]
+async fn closing_incoming_queue_waits_for_in_flight_transfer() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (
+        (sender_store, sender_id, sender_binding),
+        (receiver_store, receiver_id, receiver_binding),
+    ) = create_test_identities();
+
+    let (sender_chan, listener_chan) =
+        mock_channel_pair(sender_id.device_id(), receiver_id.device_id(), MAX_FRAME);
+
+    let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(1);
+    let mut incoming = MockIncoming {
+        channels: incoming_rx,
+    };
+    incoming_tx
+        .send(Box::new(listener_chan) as Box<dyn SecureChannel>)
+        .await
+        .unwrap();
+
+    let sender_dir = tempfile::tempdir().expect("sender tempdir");
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
+    let root_sender = RootId::new(10);
+    let root_receiver = RootId::new(20);
+    sender_vfs
+        .register_root(root_sender, sender_dir.path().to_path_buf(), false)
+        .unwrap();
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let content = b"in-flight work payload";
+    std::fs::write(sender_dir.path().join("inflight.txt"), content).unwrap();
+    let (_, hash) = outboard(content);
+
+    let transfer_id = sample_transfer(VALID_V7_A);
+    let item_id = ItemId::new("inf_item").unwrap();
+    let src_rel = RelPath::new("inflight.txt").unwrap();
+    let offer_item = OfferItem::new(item_id, src_rel.clone(), content.len() as u64, hash).unwrap();
+
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
+    };
+
+    let listener_rng = SeededRng::new(5001);
+    let sender_rng = SeededRng::new(5002);
+
+    let (offer_accepted_tx, offer_accepted_rx) = tokio::sync::oneshot::channel::<()>();
+    let (incoming_closed_tx, incoming_closed_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let sender_task = async {
+        let (mut sender_ctrl_send, mut sender_ctrl_recv) =
+            sender_chan.open_bi().await.expect("open ctrl bi");
+        let sender_params = HandshakeParams {
+            authenticated_peer: receiver_id.device_id(),
+            our_channel_max_frame_size: MAX_FRAME,
+            our_identity: &sender_id,
+            our_attestation_token: "mock-token-sender".to_string(),
+            our_key_binding: sender_binding,
+            our_versions: VersionRange::new(1, 1).unwrap(),
+            our_capabilities: Capabilities::empty(),
+        };
+        let sender_session = perform_handshake(
+            sender_ctrl_send.as_mut(),
+            sender_ctrl_recv.as_mut(),
+            sender_params,
+            &sender_store,
+            &sender_rng,
+            &clock,
+            |_| async { Ok(TrustTier::SameAccount) },
+        )
+        .await
+        .expect("sender handshake");
+
+        let offer = TransferOffer::new(
+            transfer_id,
+            vec![offer_item],
+            content.len() as u64,
+            None,
+            None,
+        )
+        .unwrap();
+        let offer_bytes =
+            encode_transfer_offer_frame(&offer, sender_session.peer_max_frame_size()).unwrap();
+        sender_ctrl_send.write_all(&offer_bytes).await.unwrap();
+
+        let accept_frame = read_frame_helper(sender_ctrl_recv.as_mut(), MAX_FRAME)
+            .await
+            .unwrap();
+        let accept = decode_transfer_accept_frame(&accept_frame).unwrap();
+        accept.for_offer(&offer).unwrap();
+
+        offer_accepted_tx.send(()).unwrap();
+        incoming_closed_rx.await.unwrap();
+
+        let (mut data_send, mut data_recv) = sender_chan.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &src_rel,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
+        let send_req = SendRequest {
+            root: root_sender,
+            rel_path: &src_rel,
+            transfer_id,
+            item_id,
+            max_frame_size: sender_session
+                .peer_max_frame_size()
+                .min(sender_chan.max_frame_size()),
+            item: &prepared,
+        };
+        let mut streams = SessionStreams {
+            control_send: sender_ctrl_send.as_mut(),
+            control_recv: sender_ctrl_recv.as_mut(),
+            data_send: data_send.as_mut(),
+            data_recv: data_recv.as_mut(),
+        };
+        let send_res = send_file(&sender_vfs, &send_req, &mut streams)
+            .await
+            .unwrap();
+        assert!(send_res);
+        sender_ctrl_send.finish().await.unwrap();
+    };
+
+    let arrived = Arc::new(AtomicBool::new(false));
+    let arrived_cb = Arc::clone(&arrived);
+    let on_arrival = move |_from, paths: &[RelPath]| {
+        if !paths.is_empty() {
+            arrived_cb.store(true, Ordering::SeqCst);
+        }
+    };
+
+    let listener_task = listen_for_transfers(
+        &mut incoming,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+        Some(&on_arrival),
+    );
+
+    let ((), (), ()) = tokio::join!(
+        sender_task,
+        async {
+            offer_accepted_rx.await.unwrap();
+            drop(incoming_tx);
+            incoming_closed_tx.send(()).unwrap();
+        },
+        async {
+            let res = listener_task.await;
+            assert!(
+                res.is_ok(),
+                "listen_for_transfers must return Ok(()): {res:?}"
+            );
+            assert!(
+                arrived.load(Ordering::SeqCst),
+                "transfer must complete and reach on_arrival before listen_for_transfers returns"
+            );
+        }
+    );
+}
+
+struct TestTransferConfig<'a> {
+    sender_chan: &'a dyn SecureChannel,
+    receiver_id: &'a PublicIdentity,
+    sender_store: &'a SoftwareKeyStore,
+    sender_id: &'a PublicIdentity,
+    sender_binding: KeyBinding,
+    sender_vfs: &'a NativeVfs,
+    root_sender: RootId,
+    clock: &'a FakeClock,
+    rng: &'a SeededRng,
+}
+
+async fn run_test_transfer(
+    cfg: &TestTransferConfig<'_>,
+    transfer_id: TransferId,
+    item_id: ItemId,
+    src_rel: RelPath,
+    content: &[u8],
+) {
+    let (mut sender_ctrl_send, mut sender_ctrl_recv) =
+        cfg.sender_chan.open_bi().await.expect("open ctrl bi");
+    let sender_params = HandshakeParams {
+        authenticated_peer: cfg.receiver_id.device_id(),
+        our_channel_max_frame_size: MAX_FRAME,
+        our_identity: cfg.sender_id,
+        our_attestation_token: "mock-token-sender".to_string(),
+        our_key_binding: cfg.sender_binding.clone(),
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Capabilities::empty(),
+    };
+    let sender_session = perform_handshake(
+        sender_ctrl_send.as_mut(),
+        sender_ctrl_recv.as_mut(),
+        sender_params,
+        cfg.sender_store,
+        cfg.rng,
+        cfg.clock,
+        |_| async { Ok(TrustTier::SameAccount) },
+    )
+    .await
+    .expect("sender handshake");
+
+    let (_, hash) = outboard(content);
+    let offer_item = OfferItem::new(item_id, src_rel.clone(), content.len() as u64, hash).unwrap();
+    let offer = TransferOffer::new(
+        transfer_id,
+        vec![offer_item],
+        content.len() as u64,
+        None,
+        None,
+    )
+    .unwrap();
+    let offer_bytes =
+        encode_transfer_offer_frame(&offer, sender_session.peer_max_frame_size()).unwrap();
+    sender_ctrl_send.write_all(&offer_bytes).await.unwrap();
+
+    let accept_frame = read_frame_helper(sender_ctrl_recv.as_mut(), MAX_FRAME)
+        .await
+        .unwrap();
+    let accept = decode_transfer_accept_frame(&accept_frame).unwrap();
+    accept.for_offer(&offer).unwrap();
+
+    let (mut data_send, mut data_recv) = cfg.sender_chan.open_bi().await.unwrap();
+    let prepared = prepare_item(
+        cfg.sender_vfs,
+        cfg.root_sender,
+        &src_rel,
+        cfg.sender_vfs.scratch_file().unwrap(),
+    )
+    .await
+    .unwrap();
+    let send_req = SendRequest {
+        root: cfg.root_sender,
+        rel_path: &src_rel,
+        transfer_id,
+        item_id,
+        max_frame_size: sender_session
+            .peer_max_frame_size()
+            .min(cfg.sender_chan.max_frame_size()),
+        item: &prepared,
+    };
+    let mut streams = SessionStreams {
+        control_send: sender_ctrl_send.as_mut(),
+        control_recv: sender_ctrl_recv.as_mut(),
+        data_send: data_send.as_mut(),
+        data_recv: data_recv.as_mut(),
+    };
+    let send_res = send_file(cfg.sender_vfs, &send_req, &mut streams)
+        .await
+        .unwrap();
+    assert!(send_res);
+}
+
+struct AcceptDropGuard {
+    completed: bool,
+    counter: Arc<AtomicUsize>,
+}
+
+impl Drop for AcceptDropGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.counter.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+struct AcceptTrackingIncoming {
+    channels: tokio::sync::mpsc::Receiver<Box<dyn SecureChannel>>,
+    handshake_notify: Arc<tokio::sync::Notify>,
+    polled_notify: Arc<tokio::sync::Notify>,
+    polled_count: Arc<AtomicUsize>,
+    created_count: Arc<AtomicUsize>,
+    dropped_count: Arc<AtomicUsize>,
+}
+
+impl Incoming for AcceptTrackingIncoming {
+    fn accept(&mut self) -> BoxFuture<'_, Result<Box<dyn SecureChannel>, TransportError>> {
+        self.created_count.fetch_add(1, Ordering::SeqCst);
+        let channels = &mut self.channels;
+        let handshake_notify = Arc::clone(&self.handshake_notify);
+        let polled_notify = Arc::clone(&self.polled_notify);
+        let polled_count = Arc::clone(&self.polled_count);
+        let dropped_count = Arc::clone(&self.dropped_count);
+
+        Box::pin(async move {
+            let mut guard = AcceptDropGuard {
+                completed: false,
+                counter: dropped_count,
+            };
+            polled_count.fetch_add(1, Ordering::SeqCst);
+            polled_notify.notify_waiters();
+            handshake_notify.notified().await;
+            let chan = match channels.recv().await {
+                Some(chan) => chan,
+                None => {
+                    guard.completed = true;
+                    return Err(TransportError::Closed);
+                }
+            };
+            guard.completed = true;
+            Ok(chan)
+        })
+    }
+}
+
+#[tokio::test]
+async fn pending_accept_is_not_dropped_when_in_flight_transfer_completes() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (
+        (sender_store_1, sender_id_1, sender_binding_1),
+        (receiver_store, receiver_id, receiver_binding),
+    ) = create_test_identities();
+    let ((sender_store_2, sender_id_2, sender_binding_2), _) = create_test_identities();
+
+    let (sender_chan_1, listener_chan_1) =
+        mock_channel_pair(sender_id_1.device_id(), receiver_id.device_id(), MAX_FRAME);
+    let (sender_chan_2, listener_chan_2) =
+        mock_channel_pair(sender_id_2.device_id(), receiver_id.device_id(), MAX_FRAME);
+
+    let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(2);
+    let handshake_notify = Arc::new(tokio::sync::Notify::new());
+    let polled_notify = Arc::new(tokio::sync::Notify::new());
+    let polled_count = Arc::new(AtomicUsize::new(0));
+    let created_count = Arc::new(AtomicUsize::new(0));
+    let dropped_count = Arc::new(AtomicUsize::new(0));
+
+    let mut incoming = AcceptTrackingIncoming {
+        channels: incoming_rx,
+        handshake_notify: Arc::clone(&handshake_notify),
+        polled_notify: Arc::clone(&polled_notify),
+        polled_count: Arc::clone(&polled_count),
+        created_count: Arc::clone(&created_count),
+        dropped_count: Arc::clone(&dropped_count),
+    };
+
+    incoming_tx
+        .send(Box::new(listener_chan_1) as Box<dyn SecureChannel>)
+        .await
+        .unwrap();
+    incoming_tx
+        .send(Box::new(listener_chan_2) as Box<dyn SecureChannel>)
+        .await
+        .unwrap();
+
+    let sender_dir_1 = tempfile::tempdir().expect("sender 1 tempdir");
+    let sender_dir_2 = tempfile::tempdir().expect("sender 2 tempdir");
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
+    let root_sender_1 = RootId::new(101);
+    let root_sender_2 = RootId::new(102);
+    let root_receiver = RootId::new(201);
+    sender_vfs
+        .register_root(root_sender_1, sender_dir_1.path().to_path_buf(), false)
+        .unwrap();
+    sender_vfs
+        .register_root(root_sender_2, sender_dir_2.path().to_path_buf(), false)
+        .unwrap();
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let content_1 = b"first channel payload bytes";
+    let content_2 = b"second channel payload bytes";
+    std::fs::write(sender_dir_1.path().join("first.bin"), content_1).unwrap();
+    std::fs::write(sender_dir_2.path().join("second.bin"), content_2).unwrap();
+
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
+    };
+
+    let listener_rng = SeededRng::new(9001);
+    let sender_rng_1 = SeededRng::new(9002);
+    let sender_rng_2 = SeededRng::new(9003);
+
+    let channel_1_arrived = Arc::new(tokio::sync::Notify::new());
+    let channel_2_arrived = Arc::new(tokio::sync::Notify::new());
+    let c1_arrived_signal = Arc::clone(&channel_1_arrived);
+    let c2_arrived_signal = Arc::clone(&channel_2_arrived);
+
+    let on_arrival = move |_from: DeviceId, paths: &[RelPath]| {
+        for p in paths {
+            if p.as_str() == "first.bin" {
+                c1_arrived_signal.notify_waiters();
+            } else if p.as_str() == "second.bin" {
+                c2_arrived_signal.notify_waiters();
+            }
+        }
+    };
+
+    // Pre-seed permit for channel 1 so accept 1 returns immediately.
+    handshake_notify.notify_one();
+
+    let listener_task = listen_for_transfers(
+        &mut incoming,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+        Some(&on_arrival),
+    );
+
+    let ((), ()) = tokio::join!(
+        async {
+            // Wait until accept 2 is created and has entered handshake_notify.notified().
+            while polled_count.load(Ordering::SeqCst) < 2 {
+                let notified = polled_notify.notified();
+                if polled_count.load(Ordering::SeqCst) >= 2 {
+                    break;
+                }
+                notified.await;
+            }
+
+            // Run channel 1 transfer to completion while accept 2 is pending.
+            let cfg_1 = TestTransferConfig {
+                sender_chan: &sender_chan_1,
+                receiver_id: &receiver_id,
+                sender_store: &sender_store_1,
+                sender_id: &sender_id_1,
+                sender_binding: sender_binding_1,
+                sender_vfs: &sender_vfs,
+                root_sender: root_sender_1,
+                clock: &clock,
+                rng: &sender_rng_1,
+            };
+            run_test_transfer(
+                &cfg_1,
+                sample_transfer(VALID_V7_A),
+                ItemId::new("item_1").unwrap(),
+                RelPath::new("first.bin").unwrap(),
+                content_1,
+            )
+            .await;
+
+            // Ensure channel 1 reached listener completion.
+            channel_1_arrived.notified().await;
+
+            // Release accept 2 from simulated handshake.
+            handshake_notify.notify_one();
+
+            // Run channel 2 transfer to completion.
+            let cfg_2 = TestTransferConfig {
+                sender_chan: &sender_chan_2,
+                receiver_id: &receiver_id,
+                sender_store: &sender_store_2,
+                sender_id: &sender_id_2,
+                sender_binding: sender_binding_2,
+                sender_vfs: &sender_vfs,
+                root_sender: root_sender_2,
+                clock: &clock,
+                rng: &sender_rng_2,
+            };
+            run_test_transfer(
+                &cfg_2,
+                sample_transfer(VALID_V7_B),
+                ItemId::new("item_2").unwrap(),
+                RelPath::new("second.bin").unwrap(),
+                content_2,
+            )
+            .await;
+
+            channel_2_arrived.notified().await;
+
+            // Close incoming queue and allow final accept to terminate listener.
+            drop(incoming_tx);
+            handshake_notify.notify_one();
+        },
+        async {
+            let res = listener_task.await;
+            assert!(
+                res.is_ok(),
+                "listen_for_transfers must return Ok(()): {res:?}"
+            );
+        }
+    );
+
+    assert_eq!(
+        std::fs::read(receiver_dir.path().join("first.bin")).unwrap(),
+        content_1
+    );
+    assert_eq!(
+        std::fs::read(receiver_dir.path().join("second.bin")).unwrap(),
+        content_2
+    );
+
+    assert_eq!(
+        dropped_count.load(Ordering::SeqCst),
+        0,
+        "no accept future was dropped before completing"
     );
 }
