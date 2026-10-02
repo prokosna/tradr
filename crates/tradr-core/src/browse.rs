@@ -328,8 +328,12 @@ struct StreamBuffer {
     pos: usize,
 }
 
+const MAX_PLACEMENT_ATTEMPTS: usize = 32;
+
 struct StagedUpload<'a> {
-    target_path: &'a RelPath,
+    target_path: RelPath,
+    requested_path: &'a RelPath,
+    mode: WriteMode,
     staging_dir: &'a RelPath,
     staging_file: &'a RelPath,
     size: u64,
@@ -485,7 +489,7 @@ async fn handle_write_file(
             Ok(_) => {
                 return Err(BrowseFailure::Refused(RefusalReason::AlreadyExists));
             }
-            Err(VfsError::NotFound) => req.path,
+            Err(VfsError::NotFound) => req.path.clone(),
             Err(e) => return Err(BrowseFailure::Refused(refusal_for(e))),
         },
         WriteMode::Overwrite => match ctx.vfs.stat(ctx.root, &req.path).await {
@@ -493,9 +497,9 @@ async fn handle_write_file(
                 if meta.kind == EntryKind::Directory {
                     return Err(BrowseFailure::Refused(RefusalReason::WrongKind));
                 }
-                req.path
+                req.path.clone()
             }
-            Err(VfsError::NotFound) => req.path,
+            Err(VfsError::NotFound) => req.path.clone(),
             Err(e) => return Err(BrowseFailure::Refused(refusal_for(e))),
         },
         WriteMode::RenameIfExists => ctx
@@ -515,7 +519,9 @@ async fn handle_write_file(
         .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
 
     let staged = StagedUpload {
-        target_path: &target_path,
+        target_path,
+        requested_path: &req.path,
+        mode: req.mode,
         staging_dir: &staging_dir,
         staging_file: &staging_file,
         size: req.size,
@@ -596,10 +602,45 @@ async fn write_staged_content(
         .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
     drop(writer);
 
-    ctx.vfs
-        .rename(ctx.root, staged.staging_file, staged.target_path)
-        .await
-        .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
+    match staged.mode {
+        WriteMode::CreateNew => {
+            ctx.vfs
+                .rename_no_replace(ctx.root, staged.staging_file, &staged.target_path)
+                .await
+                .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
+        }
+        WriteMode::Overwrite => {
+            ctx.vfs
+                .rename(ctx.root, staged.staging_file, &staged.target_path)
+                .await
+                .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
+        }
+        WriteMode::RenameIfExists => {
+            let mut target = staged.target_path.clone();
+            let mut attempts = 0;
+            loop {
+                match ctx
+                    .vfs
+                    .rename_no_replace(ctx.root, staged.staging_file, &target)
+                    .await
+                {
+                    Ok(()) => break,
+                    Err(VfsError::AlreadyExists) => {
+                        attempts += 1;
+                        if attempts >= MAX_PLACEMENT_ATTEMPTS {
+                            return Err(BrowseFailure::Refused(RefusalReason::AlreadyExists));
+                        }
+                        target = ctx
+                            .uploads
+                            .free_name(ctx.vfs, ctx.root, staged.requested_path)
+                            .await
+                            .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
+                    }
+                    Err(e) => return Err(BrowseFailure::Refused(refusal_for(e))),
+                }
+            }
+        }
+    }
 
     ctx.vfs
         .remove(ctx.root, staged.staging_dir)
@@ -841,7 +882,7 @@ async fn handle_message(
                 Err(e) => return Err(BrowseFailure::Refused(refusal_for(e))),
             }
             ctx.vfs
-                .rename(ctx.root, &req.from, &req.to)
+                .rename_no_replace(ctx.root, &req.from, &req.to)
                 .await
                 .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
             send_ack(send, ctx).await?;

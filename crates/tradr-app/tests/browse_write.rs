@@ -764,6 +764,41 @@ async fn rename_onto_existing_target_refused() {
 }
 
 #[tokio::test]
+async fn rename_onto_target_created_after_request_sent_refused() {
+    let ctx = setup_harness().await;
+    let src_path = ctx.server_dir.path().join("source.txt");
+    let dest_path = ctx.server_dir.path().join("occupied_later.txt");
+    std::fs::write(&src_path, b"source content").expect("write source");
+
+    let (mut browse_send, mut browse_recv) = ctx.channel.open_bi().await.expect("open browse");
+
+    let rename_msg = BrowseMessage::Rename(Rename {
+        share_id: ctx.share_id,
+        from: RelPath::new("source.txt").expect("relpath"),
+        to: RelPath::new("occupied_later.txt").expect("relpath"),
+    });
+    let frame = ctx
+        .codec
+        .encode_frame(&rename_msg, ctx.max_frame_size)
+        .expect("encode");
+    browse_send.write_all(&frame).await.expect("send");
+    std::fs::write(&dest_path, b"created after request sent").expect("write dest");
+
+    let refused = read_refused(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read refused");
+    assert_eq!(refused.reason, RefusalReason::AlreadyExists);
+    assert_eq!(
+        std::fs::read(&dest_path).expect("read occupied later"),
+        b"created after request sent"
+    );
+    assert_eq!(
+        std::fs::read(&src_path).expect("read source"),
+        b"source content"
+    );
+}
+
+#[tokio::test]
 async fn rename_into_self_refused() {
     let ctx = setup_harness().await;
     let folder_path = ctx.server_dir.path().join("folder");
