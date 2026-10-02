@@ -168,6 +168,15 @@ impl Vfs for FakeVfs {
         Box::pin(async { Err(VfsError::Io(std::io::ErrorKind::Unsupported)) })
     }
 
+    fn rename_no_replace<'a>(
+        &'a self,
+        _root: RootId,
+        _from: &'a RelPath,
+        _to: &'a RelPath,
+    ) -> BoxFuture<'a, Result<(), VfsError>> {
+        Box::pin(async { Err(VfsError::Io(std::io::ErrorKind::Unsupported)) })
+    }
+
     fn remove<'a>(&'a self, _root: RootId, at: &'a RelPath) -> BoxFuture<'a, Result<(), VfsError>> {
         Box::pin(async move {
             let key = at.as_str().to_string();

@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M8-064a`** (DCR-171, `rename_no_replace`, Critical Module), next: the Supervisor's tests first. `WI-M8-063a` to `WI-M8-063c` landed 2026-10-02, closing DF-40 in code
+- **`WI-M8-064b`** (DCR-171, placement through `rename_no_replace`), dispatched 2026-10-03 to `agy` on Gemini 3.8 Flash from branch `wi-m8-064b-placement`, stacked on `WI-M8-064a`. `WI-M8-064a` landed 2026-10-03
 
 **For the next UI Work Item: the preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
@@ -100,7 +100,6 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M8-064a | **`Vfs::rename_no_replace` and `VfsError::AlreadyExists`** ([docs/04](docs/04-protocol.md#a-receiver-serves-several-connections-at-once-dcr-171), DCR-171): the trait method, `NativeVfs` holding one lock across the check and the rename on POSIX and Windows, `SafVfs`, and the test doubles. **Critical Module: the Supervisor's tests are written first** (a new test file under `crates/tradr-vfs/tests/`) | planned | yes |
 | WI-M8-064b | **Placement through it**: the receive path retries the next collision name on `AlreadyExists`; the Browse plane's `Rename`, `CREATE_NEW` and `RENAME_IF_EXISTS` use it, `OVERWRITE` keeps `rename`; `refusal_for` maps `AlreadyExists` | planned | |
 | WI-M8-064c | **The listener serves up to 8 channels at once** (`listen_for_transfers`), with a test that a stalled channel does not hold a second transfer | planned | |
 | WI-M6-009 | **Scanning a QR with a camera.** `WI-M6-007b` shows a QR and accepts a pasted blob, which is the whole payload either way (docs/11: "one payload and one parser"), so a QR read by any camera application already links. **A scanner inside Tradr is a platform integration and not an interface change** -- Android has `@tauri-apps/plugin-barcode-scanner` and a camera permission to justify, and the desktop has no camera API at all -- so it is its own Work Item rather than a line in one about React | planned | |

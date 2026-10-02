@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use tokio::sync::Mutex;
 
 use tradr_core::{
     BoxFuture, DirEntry, EntryKind, Metadata, ReadAt, RelPath, RootId, UnixTime, Vfs, VfsError,
@@ -69,6 +70,7 @@ struct SafRootEntry {
 pub struct SafVfs {
     bridge: Arc<dyn SafBridge>,
     roots: RwLock<HashMap<u64, SafRootEntry>>,
+    placement_lock: Mutex<()>,
 }
 
 impl SafVfs {
@@ -77,6 +79,7 @@ impl SafVfs {
         Self {
             bridge,
             roots: RwLock::new(HashMap::new()),
+            placement_lock: Mutex::new(()),
         }
     }
 
@@ -164,6 +167,63 @@ impl SafVfs {
             }
         }
         Ok(())
+    }
+
+    fn rename_internal<'a>(
+        &'a self,
+        root: RootId,
+        from: &'a RelPath,
+        to: &'a RelPath,
+        no_replace: bool,
+    ) -> BoxFuture<'a, Result<(), VfsError>> {
+        let from = from.clone();
+        let to = to.clone();
+        Box::pin(async move {
+            let root_entry = self.get_root(root)?;
+            if root_entry.read_only {
+                return Err(VfsError::ReadOnly);
+            }
+            check_deny_list_write(&from)?;
+            check_deny_list(&to)?;
+            if from.as_str().is_empty() || to.as_str().is_empty() {
+                return Err(VfsError::WrongKind);
+            }
+
+            let from_components: Vec<&str> = from.components().collect();
+            let from_node = self
+                .resolve_node(&root_entry.root_doc_id, &from_components)
+                .await?;
+
+            let to_components: Vec<&str> = to.components().collect();
+            let (to_target, to_parent_comps) = match to_components.split_last() {
+                Some(pair) => pair,
+                None => return Err(VfsError::NotFound),
+            };
+
+            if !to_parent_comps.is_empty() {
+                let to_parent_rel = to_parent_comps.join("/");
+                if let Ok(rel) = RelPath::new(&to_parent_rel) {
+                    self.create_dir_internal(&root_entry.root_doc_id, &rel)
+                        .await?;
+                }
+            }
+
+            if no_replace {
+                let _guard = self.placement_lock.lock().await;
+                match self
+                    .resolve_node(&root_entry.root_doc_id, &to_components)
+                    .await
+                {
+                    Ok(_) => return Err(VfsError::AlreadyExists),
+                    Err(VfsError::NotFound) => {}
+                    Err(err) => return Err(err),
+                }
+                self.bridge.rename(&from_node.doc_id, to_target).await?;
+            } else {
+                self.bridge.rename(&from_node.doc_id, to_target).await?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -349,41 +409,16 @@ impl Vfs for SafVfs {
         from: &'a RelPath,
         to: &'a RelPath,
     ) -> BoxFuture<'a, Result<(), VfsError>> {
-        let from = from.clone();
-        let to = to.clone();
-        Box::pin(async move {
-            let root_entry = self.get_root(root)?;
-            if root_entry.read_only {
-                return Err(VfsError::ReadOnly);
-            }
-            check_deny_list_write(&from)?;
-            check_deny_list(&to)?;
-            if from.as_str().is_empty() || to.as_str().is_empty() {
-                return Err(VfsError::WrongKind);
-            }
+        self.rename_internal(root, from, to, false)
+    }
 
-            let from_components: Vec<&str> = from.components().collect();
-            let from_node = self
-                .resolve_node(&root_entry.root_doc_id, &from_components)
-                .await?;
-
-            let to_components: Vec<&str> = to.components().collect();
-            let (to_target, to_parent_comps) = match to_components.split_last() {
-                Some(pair) => pair,
-                None => return Err(VfsError::NotFound),
-            };
-
-            if !to_parent_comps.is_empty() {
-                let to_parent_rel = to_parent_comps.join("/");
-                if let Ok(rel) = RelPath::new(&to_parent_rel) {
-                    self.create_dir_internal(&root_entry.root_doc_id, &rel)
-                        .await?;
-                }
-            }
-
-            self.bridge.rename(&from_node.doc_id, to_target).await?;
-            Ok(())
-        })
+    fn rename_no_replace<'a>(
+        &'a self,
+        root: RootId,
+        from: &'a RelPath,
+        to: &'a RelPath,
+    ) -> BoxFuture<'a, Result<(), VfsError>> {
+        self.rename_internal(root, from, to, true)
     }
 
     fn remove<'a>(&'a self, root: RootId, at: &'a RelPath) -> BoxFuture<'a, Result<(), VfsError>> {

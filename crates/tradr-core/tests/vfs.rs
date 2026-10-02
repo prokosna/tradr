@@ -107,6 +107,15 @@ impl Vfs for FakeVfs {
         Box::pin(async move { Err(VfsError::ReadOnly) })
     }
 
+    fn rename_no_replace<'a>(
+        &'a self,
+        _root: RootId,
+        _from: &'a RelPath,
+        _to: &'a RelPath,
+    ) -> BoxFuture<'a, Result<(), VfsError>> {
+        Box::pin(async move { Err(VfsError::ReadOnly) })
+    }
+
     fn remove<'a>(
         &'a self,
         _root: RootId,
