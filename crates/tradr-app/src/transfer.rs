@@ -235,17 +235,34 @@ async fn read_frame(
     Ok(frame)
 }
 
-// Sanitizes destination paths and resolves collisions using VFS.
-async fn resolve_destination_path(
+const MAX_PLACEMENT_ATTEMPTS: usize = 32;
+
+// Places verified partial file into destination, retrying on collision races up to 32 times.
+async fn place_verified_file(
     vfs: &impl Vfs,
     root: RootId,
+    partial_rel: &RelPath,
     dest_rel_path: &RelPath,
 ) -> Result<RelPath, TransferSessionError> {
     let sanitized = sanitize_destination_path(dest_rel_path.as_str())
         .map_err(|e| TransferSessionError::ProtocolViolation(e.to_string()))?;
-    resolve_collision(vfs, root, &sanitized)
-        .await
-        .map_err(TransferSessionError::Vfs)
+
+    let mut attempts = 0;
+    loop {
+        let candidate = resolve_collision(vfs, root, &sanitized)
+            .await
+            .map_err(TransferSessionError::Vfs)?;
+        match vfs.rename_no_replace(root, partial_rel, &candidate).await {
+            Ok(()) => return Ok(candidate),
+            Err(VfsError::AlreadyExists) => {
+                attempts += 1;
+                if attempts >= MAX_PLACEMENT_ATTEMPTS {
+                    return Err(TransferSessionError::Vfs(VfsError::AlreadyExists));
+                }
+            }
+            Err(e) => return Err(TransferSessionError::Vfs(e)),
+        }
+    }
 }
 
 // Removes abandoned partial files to prevent unverified artifacts remaining on disk.
@@ -645,12 +662,13 @@ async fn receive_file_inner(
         return Err(TransferSessionError::VerificationFailed);
     }
 
-    let final_path =
-        resolve_destination_path(session.vfs, session.root, session.dest_rel_path).await?;
-    session
-        .vfs
-        .rename(session.root, session.partial_file_rel, &final_path)
-        .await?;
+    let final_path = place_verified_file(
+        session.vfs,
+        session.root,
+        session.partial_file_rel,
+        session.dest_rel_path,
+    )
+    .await?;
 
     streams
         .data_send

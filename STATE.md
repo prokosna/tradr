@@ -6,7 +6,7 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.** `branch`, `work_items_landed`, and `last_commit` are no longer declared here — see [docs/10](docs/10-implementation-process.md#the-yaml-header--what-is-in-it-and-what-was-removed-dcr-060) for the one-command equivalents.
 
 ```yaml
-last_updated: 2026-10-02
+last_updated: 2026-10-03
 phase: implementing
 current_milestone: M8
 implementation_started: true
@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M8-064b`** (DCR-171, placement through `rename_no_replace`), dispatched 2026-10-03 to `agy` on Gemini 3.8 Flash from branch `wi-m8-064b-placement`, stacked on `WI-M8-064a`. `WI-M8-064a` landed 2026-10-03
+- **`WI-M8-064c`** (DCR-171, the listener serves up to 8 channels at once), dispatched 2026-10-03 to `agy` on Gemini 3.8 Flash from branch `wi-m8-064c-concurrent-listener`, stacked on `WI-M8-064b`. `WI-M8-064a` and `WI-M8-064b` landed 2026-10-03
 
 **For the next UI Work Item: the preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
@@ -100,7 +100,6 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M8-064b | **Placement through it**: the receive path retries the next collision name on `AlreadyExists`; the Browse plane's `Rename`, `CREATE_NEW` and `RENAME_IF_EXISTS` use it, `OVERWRITE` keeps `rename`; `refusal_for` maps `AlreadyExists` | planned | |
 | WI-M8-064c | **The listener serves up to 8 channels at once** (`listen_for_transfers`), with a test that a stalled channel does not hold a second transfer | planned | |
 | WI-M6-009 | **Scanning a QR with a camera.** `WI-M6-007b` shows a QR and accepts a pasted blob, which is the whole payload either way (docs/11: "one payload and one parser"), so a QR read by any camera application already links. **A scanner inside Tradr is a platform integration and not an interface change** -- Android has `@tauri-apps/plugin-barcode-scanner` and a camera permission to justify, and the desktop has no camera API at all -- so it is its own Work Item rather than a line in one about React | planned | |
 
@@ -112,6 +111,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 
 | # | Content | When | Source |
 |---|---|---|---|
+| DF-123 | **A download into this device's own folder writes straight to its final name.** `execute_download_file` picks a free name with `resolve_collision` and then `open_write`s it, which creates or opens without truncating; since DCR-171 an arrival cannot replace it, but two downloads of the same name started together would write into one file. The browse panel runs one operation at a time, so nothing reaches it today. The exit is the shape every other placement now has: write under `.tradr-partial` and `rename_no_replace` into place | When downloads can run concurrently, or with whatever next touches `execute_download_file` | DCR-171, 2026-10-03 |
 | DF-122 | **A received file cannot be opened or shown in its folder from the app.** docs/12's Received card lists arrivals by name only. Opening needs an opener plugin on the desktop and a decision about Android's Downloads provider | After `WI-M8-062e`, when the person asks for it | DCR-169, 2026-09-30 |
 | DF-110 | **No longer needed for M8 since ADR-0024 (2026-09-28)**: Android serves its downloads directory through `NativeVfs`, and SAF Share Roots are deferred with the rest of docs/06's model. **`SafBridge` has no production implementation, so `SafVfs` is reachable from tests alone and no Android Share Root can exist.** Found 2026-09-24 ruling DF-106: `crates/tradr-vfs/src/saf.rs` declares the bridge and only `crates/tradr-vfs/tests/saf_boundary_enforcement.rs` implements it, and no Kotlin `DocumentFile` walk exists. The directory cache docs/06 and docs/08 describe is downstream of it. **M2 is recorded as done with SAF in its content**, so what that row measured needs reading before anything is cut | With DF-109, before M9 | DCR-158, 2026-09-24 |
 | DF-108 | **Nothing pins a peer's Device Key, which docs/02's "Where trust actually lives" gives as steps 2 and 3.** Found 2026-09-24 ruling DF-106. Every connection re-runs docs/05's seven steps against the peer's Attestation, with the JWKS in memory for the life of the process. **What this costs is bounded and worth stating**: a same-account peer is still authenticated by its provider-signed nonce binding on every connection, so nothing is accepted that should not be; what is missing is the memory that would notice a peer's key *changing* under an unchanged Device ID, which docs/05's changed-fingerprint refusal also reads (DF-38). **Whether pinning is still wanted is a decision rather than a repair**, since per-connection verification already gives the property pinning was there to provide on a network with no provider | Before M10's internal security review | DCR-158, 2026-09-24 |
