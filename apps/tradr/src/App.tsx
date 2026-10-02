@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,6 +19,7 @@ import type {
 import { Folder } from "./views/Folder.js";
 import { Home } from "./views/Home.js";
 import { Settings } from "./views/Settings.js";
+import { subscribe } from "./subscribe.js";
 
 function payloadsToStagedFiles(files: SharedFilePayload[]): {
 	staged: StagedFile[];
@@ -39,24 +40,6 @@ function payloadsToStagedFiles(files: SharedFilePayload[]): {
 		}
 	}
 	return { staged, refused };
-}
-
-function subscribe(subscribePromise: Promise<UnlistenFn>): () => void {
-	let cancelled = false;
-	let unlisten: UnlistenFn | undefined;
-	subscribePromise.then((fn) => {
-		if (cancelled) {
-			fn();
-		} else {
-			unlisten = fn;
-		}
-	});
-	return () => {
-		cancelled = true;
-		if (unlisten) {
-			unlisten();
-		}
-	};
 }
 
 export type SignInUiState =
