@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
 import {
@@ -251,5 +252,309 @@ describe("App component", () => {
 			const cappedRows = container.querySelectorAll(".home-received .file-row");
 			expect(cappedRows).toHaveLength(50);
 		});
+	});
+
+	it("dispatches each queued send exactly once sequentially across different peers", async () => {
+		let resolveFirstSend!: (paths: string[]) => void;
+		const firstSendPromise = new Promise<string[]>((resolve) => {
+			resolveFirstSend = resolve;
+		});
+		let resolveSecondSend!: (paths: string[]) => void;
+		const secondSendPromise = new Promise<string[]>((resolve) => {
+			resolveSecondSend = resolve;
+		});
+
+		let sendFilesCallCount = 0;
+		customHandlers["plugin:tradr|send_files"] = () => {
+			sendFilesCallCount++;
+			if (sendFilesCallCount === 1) {
+				return firstSendPromise;
+			}
+			return secondSendPromise;
+		};
+
+		render(<App />);
+		await screen.findByText("Pixel 8");
+		await screen.findByText("ThinkPad");
+
+		await act(async () => {
+			await emit("share-intent", {
+				action: "send",
+				mimeType: null,
+				extraText: null,
+				targetDevice: null,
+				transferId: null,
+				files: [
+					{
+						name: "first.txt",
+						size: 100,
+						cachePath: "/tmp/first.txt",
+						adoptedId: null,
+					},
+				],
+			});
+		});
+
+		fireEvent.click(screen.getByText("Pixel 8"));
+
+		await act(async () => {
+			await emit("share-intent", {
+				action: "send",
+				mimeType: null,
+				extraText: null,
+				targetDevice: null,
+				transferId: null,
+				files: [
+					{
+						name: "second.txt",
+						size: 200,
+						cachePath: "/tmp/second.txt",
+						adoptedId: null,
+					},
+				],
+			});
+		});
+
+		fireEvent.click(screen.getByText("ThinkPad"));
+
+		const sendCallsBeforeResolve = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|send_files",
+		);
+		expect(sendCallsBeforeResolve).toHaveLength(1);
+		expect(sendCallsBeforeResolve[0]?.payload).toMatchObject({
+			peerId: "dev-pixel-8",
+		});
+		expect(screen.getByText("Waiting…")).toBeDefined();
+
+		await act(async () => {
+			resolveFirstSend(["/tmp/first.txt"]);
+		});
+
+		await waitFor(() => {
+			const sendCallsAfterFirst = recordedCalls.filter(
+				(c) => c.cmd === "plugin:tradr|send_files",
+			);
+			expect(sendCallsAfterFirst).toHaveLength(2);
+		});
+
+		const sendCallsAfterFirst = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|send_files",
+		);
+		expect(sendCallsAfterFirst[1]?.payload).toMatchObject({
+			peerId: "dev-thinkpad",
+		});
+
+		await act(async () => {
+			resolveSecondSend(["/tmp/second.txt"]);
+		});
+
+		const sendCallsAfterSecond = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|send_files",
+		);
+		expect(sendCallsAfterSecond).toHaveLength(2);
+	});
+
+	it("dispatches each queued send exactly once sequentially under StrictMode", async () => {
+		let resolveFirstSend!: (paths: string[]) => void;
+		const firstSendPromise = new Promise<string[]>((resolve) => {
+			resolveFirstSend = resolve;
+		});
+		let resolveSecondSend!: (paths: string[]) => void;
+		const secondSendPromise = new Promise<string[]>((resolve) => {
+			resolveSecondSend = resolve;
+		});
+
+		let sendFilesCallCount = 0;
+		customHandlers["plugin:tradr|send_files"] = () => {
+			sendFilesCallCount++;
+			if (sendFilesCallCount === 1) {
+				return firstSendPromise;
+			}
+			return secondSendPromise;
+		};
+
+		render(
+			<StrictMode>
+				<App />
+			</StrictMode>,
+		);
+		await screen.findByText("Pixel 8");
+		await screen.findByText("ThinkPad");
+
+		await act(async () => {
+			await emit("share-intent", {
+				action: "send",
+				mimeType: null,
+				extraText: null,
+				targetDevice: null,
+				transferId: null,
+				files: [
+					{
+						name: "first.txt",
+						size: 100,
+						cachePath: "/tmp/first.txt",
+						adoptedId: null,
+					},
+				],
+			});
+		});
+
+		fireEvent.click(screen.getByText("Pixel 8"));
+
+		await act(async () => {
+			await emit("share-intent", {
+				action: "send",
+				mimeType: null,
+				extraText: null,
+				targetDevice: null,
+				transferId: null,
+				files: [
+					{
+						name: "second.txt",
+						size: 200,
+						cachePath: "/tmp/second.txt",
+						adoptedId: null,
+					},
+				],
+			});
+		});
+
+		fireEvent.click(screen.getByText("ThinkPad"));
+
+		const sendCallsBeforeResolve = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|send_files",
+		);
+		expect(sendCallsBeforeResolve).toHaveLength(1);
+		expect(sendCallsBeforeResolve[0]?.payload).toMatchObject({
+			peerId: "dev-pixel-8",
+		});
+		expect(screen.getByText("Waiting…")).toBeDefined();
+
+		await act(async () => {
+			resolveFirstSend(["/tmp/first.txt"]);
+		});
+
+		await waitFor(() => {
+			const sendCallsAfterFirst = recordedCalls.filter(
+				(c) => c.cmd === "plugin:tradr|send_files",
+			);
+			expect(sendCallsAfterFirst).toHaveLength(2);
+		});
+
+		const sendCallsAfterFirst = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|send_files",
+		);
+		expect(sendCallsAfterFirst[1]?.payload).toMatchObject({
+			peerId: "dev-thinkpad",
+		});
+
+		await act(async () => {
+			resolveSecondSend(["/tmp/second.txt"]);
+		});
+
+		const sendCallsAfterSecond = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|send_files",
+		);
+		expect(sendCallsAfterSecond).toHaveLength(2);
+	});
+
+	it("queues a second send to the same device after the first rather than dispatching both at once", async () => {
+		let resolveFirstSend!: (paths: string[]) => void;
+		const firstSendPromise = new Promise<string[]>((resolve) => {
+			resolveFirstSend = resolve;
+		});
+		let resolveSecondSend!: (paths: string[]) => void;
+		const secondSendPromise = new Promise<string[]>((resolve) => {
+			resolveSecondSend = resolve;
+		});
+
+		let sendFilesCallCount = 0;
+		customHandlers["plugin:tradr|send_files"] = () => {
+			sendFilesCallCount++;
+			if (sendFilesCallCount === 1) {
+				return firstSendPromise;
+			}
+			return secondSendPromise;
+		};
+
+		render(<App />);
+		await screen.findByText("Pixel 8");
+
+		await act(async () => {
+			await emit("share-intent", {
+				action: "send",
+				mimeType: null,
+				extraText: null,
+				targetDevice: null,
+				transferId: null,
+				files: [
+					{
+						name: "first.txt",
+						size: 100,
+						cachePath: "/tmp/first.txt",
+						adoptedId: null,
+					},
+				],
+			});
+		});
+
+		fireEvent.click(screen.getByText("Pixel 8"));
+
+		await act(async () => {
+			await emit("share-intent", {
+				action: "send",
+				mimeType: null,
+				extraText: null,
+				targetDevice: null,
+				transferId: null,
+				files: [
+					{
+						name: "second.txt",
+						size: 200,
+						cachePath: "/tmp/second.txt",
+						adoptedId: null,
+					},
+				],
+			});
+		});
+
+		fireEvent.click(screen.getByText("Pixel 8"));
+
+		const sendCallsBeforeResolve = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|send_files",
+		);
+		expect(sendCallsBeforeResolve).toHaveLength(1);
+		expect(sendCallsBeforeResolve[0]?.payload).toMatchObject({
+			peerId: "dev-pixel-8",
+			files: ["/tmp/first.txt"],
+		});
+
+		await act(async () => {
+			resolveFirstSend(["/tmp/first.txt"]);
+		});
+
+		await waitFor(() => {
+			const sendCallsAfterFirst = recordedCalls.filter(
+				(c) => c.cmd === "plugin:tradr|send_files",
+			);
+			expect(sendCallsAfterFirst).toHaveLength(2);
+		});
+
+		const sendCallsAfterFirst = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|send_files",
+		);
+		expect(sendCallsAfterFirst[1]?.payload).toMatchObject({
+			peerId: "dev-pixel-8",
+			files: ["/tmp/second.txt"],
+		});
+
+		await act(async () => {
+			resolveSecondSend(["/tmp/second.txt"]);
+		});
+
+		const sendCallsAfterSecond = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|send_files",
+		);
+		expect(sendCallsAfterSecond).toHaveLength(2);
 	});
 });
