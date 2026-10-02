@@ -149,5 +149,5 @@ A file read begins by opening a new, dedicated bidirectional QUIC stream. The re
 - `WriteFile` is followed on the same stream by exactly `size` bytes, as `ReadFile`'s answer is. The file is written under `.tradr-partial` and renamed into place when complete, so a broken upload leaves nothing half-written at its name. `CREATE_NEW` refuses an existing name, `OVERWRITE` replaces it, `RENAME_IF_EXISTS` uses the receive path's collision rule. `content_hash` is not checked yet, as downloads' is not
 - `Mkdir` creates one directory, or every missing parent when `parents` is set
 - `Delete` removes a file or an empty directory, or a whole tree when `recursive` is set
-- `Rename` moves within the folder and refuses to replace an existing name
+- `Rename` moves within the folder and refuses to replace an existing name, atomically against this device's own concurrent placements (DCR-171)
 
