@@ -95,11 +95,20 @@ One page, in this order:
 - **An arrival event.** The listener's `on_arrival` hook exists (DCR-129) and the plugin passes `None`, so a desktop never learns a file arrived. The plugin emits **`files-received`** with the sender's Device ID and the placed paths; the front end names the sender from the device list and falls back to "another device".
 - **Nothing else.** Every other flow above uses a command that exists today.
 
-## How it is checked, given there is no test runner for the front end (DF-40)
+## How it is checked
 
 - **A preview harness**: a page served only by the Vite dev server that installs `@tauri-apps/api/mocks`' IPC mock with fixture data (signed in, three devices, a folder listing, a transfer in progress) and renders the same `App`. It is never part of the built application.
 - **The Supervisor screenshots it** with headless Firefox at a wide and a narrow width in both colour schemes, and reviews those images as part of every UI Work Item. It is not a test, and it does not claim to be one: it is the instrument that makes the layout reviewable at all before a device run.
 - The device run is still the judgement that counts.
+
+### Behaviour is tested, decided 2026-10-02 by DCR-170 closing DF-40
+
+**The screenshots check how the screen looks and nothing checks what it does.** DF-40 recorded that the two lines DCR-078 rests on -- the link reply carries the code that was previewed, and editing the code discards the preview -- survive deletion with every gate green, and the rebuild above added more logic of the same kind: the send queue, a tap meaning "send" or "open" depending on waiting files, the Received list, and the subscription helper whose absence listed every arrival twice.
+
+- **Vitest, in `apps/tradr`, with jsdom and React Testing Library**, as development dependencies only, pinned exactly like every other dependency here. Vitest is chosen because the app already builds with Vite, so the test run shares its configuration rather than adding a second toolchain.
+- **Tests drive the real components through the same IPC mock the preview uses** (`@tauri-apps/api/mocks`), asserting on what a person sees and on which commands were invoked with which arguments. A test never reaches into component state.
+- **`pnpm test` at the repository root runs them, and `ci/frontend-gate.sh` runs `pnpm test` as its fourth step**, so they gate every commit through the pre-commit hook and every pull request through the `checks` job, as lint, typecheck and format already do.
+- **What must be covered first**: DCR-078's two rules; sends running one at a time and a second tap waiting; a tap sending when files wait and opening the folder when none do; `files-received` adding one row per file, named after the sender, at most 50; the subscription helper removing a subscription whose cleanup ran before `listen` resolved; and a refused folder operation showing its reason.
 
 ## Out of scope here
 

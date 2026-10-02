@@ -319,7 +319,7 @@ People and models both forget, so the machine checks. These are required and blo
 | **`no-brokr`** | **Tier 0 and Tier 1 integration tests pass with no Brokr running** | **M1** |
 | `hostile-paths` | The `tradr-vfs` adversarial path suite | M3 |
 | `transport-switch` | Forces path switches and confirms transfers resume | M1 |
-| **`frontend-gate`** | **`biome lint`, `tsc` and `biome format` over the TypeScript workspace** | **M6** |
+| **`frontend-gate`** | **`biome lint`, `tsc`, `biome format` and, since DCR-170, `pnpm test` (Vitest over the app's components) across the TypeScript workspace** | **M6** |
 | **`discarded-result`** | **Refuses a value bound to `_` in a production source, mechanizing F6** | **M6** |
 | `empty-catch` | Refuses a `catch` block whose body is only whitespace or comments, mechanizing F6 in Kotlin | M7 |
 | `invoke-commands` | Checks every frontend `invoke()` literal against the plugin's `COMMANDS` list | M0 |
