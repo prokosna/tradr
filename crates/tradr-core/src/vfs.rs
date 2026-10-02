@@ -69,6 +69,8 @@ pub struct Metadata {
 pub enum VfsError {
     /// No entry exists at the given root and relative path.
     NotFound,
+    /// The target already exists.
+    AlreadyExists,
     /// docs/06's boundary check rejected the resolved target.
     OutsideRoot,
     /// The path matches an entry on docs/06's default deny list.
@@ -88,6 +90,7 @@ impl fmt::Display for VfsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotFound => write!(f, "no entry at the given root and relative path"),
+            Self::AlreadyExists => write!(f, "the target already exists"),
             Self::OutsideRoot => write!(f, "the resolved target falls outside its root"),
             Self::DenyListed => write!(f, "the path matches the default deny list"),
             Self::UnsupportedEntry => {
@@ -201,6 +204,16 @@ pub trait Vfs: Send + Sync {
     /// Moves `from` to `to`, both relative to `root`. Used to move a
     /// verified partial file into place atomically (docs/04).
     fn rename<'a>(
+        &'a self,
+        root: RootId,
+        from: &'a RelPath,
+        to: &'a RelPath,
+    ) -> BoxFuture<'a, Result<(), VfsError>>;
+
+    /// Moves `from` to `to`, refusing any existing entry at `to` -- file,
+    /// directory or symlink -- with `AlreadyExists`. Atomic against every
+    /// other placement through the same instance.
+    fn rename_no_replace<'a>(
         &'a self,
         root: RootId,
         from: &'a RelPath,

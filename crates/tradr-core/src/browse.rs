@@ -350,6 +350,7 @@ impl From<crate::channel::TransportError> for BrowseFailure {
 fn refusal_for(err: VfsError) -> RefusalReason {
     match err {
         VfsError::NotFound => RefusalReason::NotFound,
+        VfsError::AlreadyExists => RefusalReason::AlreadyExists,
         VfsError::OutsideRoot
         | VfsError::DenyListed
         | VfsError::UnsupportedEntry

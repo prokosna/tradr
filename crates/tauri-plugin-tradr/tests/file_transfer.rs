@@ -660,6 +660,15 @@ impl Vfs for TruncatedReadVfs {
         self.inner.rename(root, from, to)
     }
 
+    fn rename_no_replace<'a>(
+        &'a self,
+        root: RootId,
+        from: &'a RelPath,
+        to: &'a RelPath,
+    ) -> BoxFuture<'a, Result<(), VfsError>> {
+        self.inner.rename_no_replace(root, from, to)
+    }
+
     fn remove<'a>(&'a self, root: RootId, at: &'a RelPath) -> BoxFuture<'a, Result<(), VfsError>> {
         self.inner.remove(root, at)
     }

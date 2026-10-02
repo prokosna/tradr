@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::SeekFrom;
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{Arc, Mutex, RwLock};
 
 use tradr_core::{
     BoxFuture, DirEntry, EntryKind, Metadata, ReadAt, RelPath, RootId, UnixTime, Vfs, VfsError,
@@ -198,7 +198,17 @@ fn remove_sync(root: &RootEntry, at: &RelPath) -> Result<(), VfsError> {
     Ok(())
 }
 
-fn rename_sync(root: &RootEntry, from: &RelPath, to: &RelPath) -> Result<(), VfsError> {
+enum RenameMode<'a> {
+    Replace,
+    NoReplace(&'a Mutex<()>),
+}
+
+fn rename_internal(
+    root: &RootEntry,
+    from: &RelPath,
+    to: &RelPath,
+    mode: RenameMode<'_>,
+) -> Result<(), VfsError> {
     if root.read_only {
         return Err(VfsError::ReadOnly);
     }
@@ -211,7 +221,10 @@ fn rename_sync(root: &RootEntry, from: &RelPath, to: &RelPath) -> Result<(), Vfs
     let from_path = resolve_path(root, from)?;
 
     let to_components: Vec<&str> = to.components().collect();
-    let (to_target, to_parents) = to_components.split_last().unwrap();
+    let (to_target, to_parents) = match to_components.split_last() {
+        Some(pair) => pair,
+        None => return Err(VfsError::NotFound),
+    };
 
     if !to_parents.is_empty() {
         let to_parent_rel = to_parents.join("/");
@@ -230,12 +243,30 @@ fn rename_sync(root: &RootEntry, from: &RelPath, to: &RelPath) -> Result<(), Vfs
     }
     let to_path = to_parent_path.join(to_target);
 
-    if let Ok(meta) = std::fs::symlink_metadata(&to_path) {
-        check_stat_kind(&meta)?;
+    match mode {
+        RenameMode::Replace => {
+            if let Ok(meta) = std::fs::symlink_metadata(&to_path) {
+                check_stat_kind(&meta)?;
+            }
+            std::fs::rename(&from_path, &to_path).map_err(map_io_err)?;
+        }
+        RenameMode::NoReplace(lock) => {
+            let _guard = lock
+                .lock()
+                .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?;
+            match std::fs::symlink_metadata(&to_path) {
+                Ok(_) => return Err(VfsError::AlreadyExists),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => return Err(map_io_err(err)),
+            }
+            std::fs::rename(&from_path, &to_path).map_err(map_io_err)?;
+        }
     }
-
-    std::fs::rename(&from_path, &to_path).map_err(map_io_err)?;
     Ok(())
+}
+
+fn rename_sync(root: &RootEntry, from: &RelPath, to: &RelPath) -> Result<(), VfsError> {
+    rename_internal(root, from, to, RenameMode::Replace)
 }
 
 fn list_dir_sync(root: &RootEntry, at: &RelPath) -> Result<Vec<DirEntry>, VfsError> {
@@ -372,6 +403,7 @@ impl WriteAt for WindowsWriteHandle {
 pub struct WindowsVfs {
     roots: RwLock<HashMap<u64, RootEntry>>,
     scratch_dir: Option<PathBuf>,
+    placement_lock: Arc<Mutex<()>>,
 }
 
 impl WindowsVfs {
@@ -379,6 +411,7 @@ impl WindowsVfs {
         Self {
             roots: RwLock::new(HashMap::new()),
             scratch_dir: None,
+            placement_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -529,6 +562,25 @@ impl Vfs for WindowsVfs {
             tokio::task::spawn_blocking(move || rename_sync(&root_entry, &from, &to))
                 .await
                 .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?
+        })
+    }
+
+    fn rename_no_replace<'a>(
+        &'a self,
+        root: RootId,
+        from: &'a RelPath,
+        to: &'a RelPath,
+    ) -> BoxFuture<'a, Result<(), VfsError>> {
+        let from = from.clone();
+        let to = to.clone();
+        Box::pin(async move {
+            let root_entry = self.get_root(root)?;
+            let lock = Arc::clone(&self.placement_lock);
+            tokio::task::spawn_blocking(move || {
+                rename_internal(&root_entry, &from, &to, RenameMode::NoReplace(&lock))
+            })
+            .await
+            .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?
         })
     }
 

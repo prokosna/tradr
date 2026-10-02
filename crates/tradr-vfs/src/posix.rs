@@ -10,7 +10,7 @@ use std::os::unix::fs::{FileExt, MetadataExt};
 use std::path::PathBuf;
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 use tradr_core::{
     BoxFuture, DirEntry, EntryKind, Metadata, ReadAt, RelPath, RootId, UnixTime, Vfs, VfsError,
@@ -357,7 +357,17 @@ fn remove_sync(root: &RootEntry, at: &RelPath) -> Result<(), VfsError> {
     Ok(())
 }
 
-fn rename_sync(root: &RootEntry, from: &RelPath, to: &RelPath) -> Result<(), VfsError> {
+enum RenameMode<'a> {
+    Replace,
+    NoReplace(&'a Mutex<()>),
+}
+
+fn rename_internal(
+    root: &RootEntry,
+    from: &RelPath,
+    to: &RelPath,
+    mode: RenameMode<'_>,
+) -> Result<(), VfsError> {
     if root.read_only {
         return Err(VfsError::ReadOnly);
     }
@@ -395,13 +405,34 @@ fn rename_sync(root: &RootEntry, from: &RelPath, to: &RelPath) -> Result<(), Vfs
 
     let to_parent_fd = resolve_dir_fd(&root_fd, to_parent_comps)?;
 
-    if let Ok(to_stat) = rustix::fs::statat(&to_parent_fd, *to_target, AtFlags::SYMLINK_NOFOLLOW) {
-        check_stat_kind(&to_stat)?;
+    match mode {
+        RenameMode::Replace => {
+            if let Ok(to_stat) =
+                rustix::fs::statat(&to_parent_fd, *to_target, AtFlags::SYMLINK_NOFOLLOW)
+            {
+                check_stat_kind(&to_stat)?;
+            }
+            rustix::fs::renameat(&from_parent_fd, *from_target, &to_parent_fd, *to_target)
+                .map_err(map_rustix_err)?;
+        }
+        RenameMode::NoReplace(lock) => {
+            let _guard = lock
+                .lock()
+                .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?;
+            match rustix::fs::statat(&to_parent_fd, *to_target, AtFlags::SYMLINK_NOFOLLOW) {
+                Ok(_) => return Err(VfsError::AlreadyExists),
+                Err(Errno::NOENT) => {}
+                Err(err) => return Err(map_rustix_err(err)),
+            }
+            rustix::fs::renameat(&from_parent_fd, *from_target, &to_parent_fd, *to_target)
+                .map_err(map_rustix_err)?;
+        }
     }
-
-    rustix::fs::renameat(&from_parent_fd, *from_target, &to_parent_fd, *to_target)
-        .map_err(map_rustix_err)?;
     Ok(())
+}
+
+fn rename_sync(root: &RootEntry, from: &RelPath, to: &RelPath) -> Result<(), VfsError> {
+    rename_internal(root, from, to, RenameMode::Replace)
 }
 
 fn list_dir_sync(root: &RootEntry, at: &RelPath) -> Result<Vec<DirEntry>, VfsError> {
@@ -599,6 +630,7 @@ pub struct PosixVfs {
     roots: RwLock<HashMap<u64, RootEntry>>,
     open_files: RwLock<HashMap<u64, OpenFileEntry>>,
     scratch_dir: Option<PathBuf>,
+    placement_lock: Arc<Mutex<()>>,
 }
 
 impl PosixVfs {
@@ -608,6 +640,7 @@ impl PosixVfs {
             roots: RwLock::new(HashMap::new()),
             open_files: RwLock::new(HashMap::new()),
             scratch_dir: None,
+            placement_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -861,6 +894,28 @@ impl Vfs for PosixVfs {
             tokio::task::spawn_blocking(move || rename_sync(&root_entry, &from, &to))
                 .await
                 .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?
+        })
+    }
+
+    fn rename_no_replace<'a>(
+        &'a self,
+        root: RootId,
+        from: &'a RelPath,
+        to: &'a RelPath,
+    ) -> BoxFuture<'a, Result<(), VfsError>> {
+        let from = from.clone();
+        let to = to.clone();
+        Box::pin(async move {
+            if self.has_open_file(root)? {
+                return Err(VfsError::ReadOnly);
+            }
+            let root_entry = self.get_root(root)?;
+            let lock = Arc::clone(&self.placement_lock);
+            tokio::task::spawn_blocking(move || {
+                rename_internal(&root_entry, &from, &to, RenameMode::NoReplace(&lock))
+            })
+            .await
+            .map_err(|_| VfsError::Io(std::io::ErrorKind::Other))?
         })
     }
 
