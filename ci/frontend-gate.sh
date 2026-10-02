@@ -1,7 +1,7 @@
 #!/bin/sh
-# The frontend gate: runs `pnpm lint`, `pnpm typecheck` and
-# `pnpm format:check` in that order, all three regardless of an earlier
-# failure, so one failure never hides another. See ci/README.md.
+# The frontend gate: runs `pnpm lint`, `pnpm typecheck`, `pnpm format:check`
+# and `pnpm test` in that order, all four regardless of an earlier failure,
+# so one failure never hides another. See ci/README.md.
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -29,6 +29,10 @@ if ! pnpm typecheck; then
 fi
 
 if ! pnpm format:check; then
+	status=1
+fi
+
+if ! pnpm test; then
 	status=1
 fi
 

@@ -8,7 +8,7 @@
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"typecheck": "pnpm codegen && tsc --build tsconfig.json",
-		"test": "echo 'no test runner configured yet' && exit 0"
+		"test": "pnpm --filter @tradr/tradr test"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.10",
