@@ -33,7 +33,10 @@ use crate::handshake::{HandshakeError, HandshakeParams, perform_handshake_after_
 use crate::link_exchange::{LinkExchangeError, LinkOutcome};
 use crate::partial_sweep::sweep_stale_partials;
 use crate::peer_trust::OwnAttestation;
-use crate::transfer::{ReceiveRequest, SessionStreams, TransferSessionError, receive_file};
+use crate::transfer::{
+    MAX_CONSECUTIVE_IGNORABLE_FRAMES, ReceiveRequest, SessionStreams, TransferSessionError,
+    receive_file,
+};
 
 const BROWSE_CLOSE_WAIT_LIMIT: Duration = Duration::from_secs(2);
 
@@ -310,6 +313,7 @@ async fn read_transfer_offer(
     control_recv: &mut (impl RecvStream + ?Sized),
     max_frame_size: u32,
 ) -> Result<TransferOffer, ListenerError> {
+    let mut consecutive_ignorable = 0u32;
     loop {
         let frame = read_frame(control_recv, max_frame_size).await?;
         match classify(frame.type_code(), Plane::Control) {
@@ -318,7 +322,15 @@ async fn read_transfer_offer(
                     decode_transfer_offer_frame(&frame).map_err(ListenerError::OfferFrame)?;
                 return Ok(offer);
             }
-            Classification::Ignorable => continue,
+            Classification::Ignorable => {
+                consecutive_ignorable += 1;
+                if consecutive_ignorable > MAX_CONSECUTIVE_IGNORABLE_FRAMES {
+                    return Err(ListenerError::ProtocolViolation(
+                        "more than 16 unassigned frames in a row".to_string(),
+                    ));
+                }
+                continue;
+            }
             Classification::Refused(e) => {
                 return Err(ListenerError::ProtocolViolation(e.to_string()));
             }

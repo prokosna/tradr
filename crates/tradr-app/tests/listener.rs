@@ -3918,3 +3918,415 @@ async fn pending_accept_is_not_dropped_when_in_flight_transfer_completes() {
         "no accept future was dropped before completing"
     );
 }
+
+#[tokio::test]
+async fn sixteen_unassigned_control_frames_before_offer_are_accepted() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (
+        (sender_store, sender_id, sender_binding),
+        (receiver_store, receiver_id, receiver_binding),
+    ) = create_test_identities();
+
+    let (sender_chan, listener_chan) =
+        mock_channel_pair(sender_id.device_id(), receiver_id.device_id(), MAX_FRAME);
+
+    let sender_dir = tempfile::tempdir().expect("sender tempdir");
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
+    let root_sender = RootId::new(410);
+    let root_receiver = RootId::new(510);
+    sender_vfs
+        .register_root(root_sender, sender_dir.path().to_path_buf(), false)
+        .unwrap();
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let content = b"data after sixteen unassigned frames";
+    std::fs::write(sender_dir.path().join("file.bin"), content).unwrap();
+    let (_, hash) = outboard(content);
+
+    let transfer_id = sample_transfer(VALID_V7_A);
+    let item_id = ItemId::new("bin_item").unwrap();
+    let src_rel = RelPath::new("file.bin").unwrap();
+    let offer_item = OfferItem::new(item_id, src_rel.clone(), content.len() as u64, hash).unwrap();
+
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
+    };
+
+    let listener_rng = SeededRng::new(1212);
+    let sender_rng = SeededRng::new(3434);
+
+    let sender_task = async {
+        let (mut sender_ctrl_send, mut sender_ctrl_recv) =
+            sender_chan.open_bi().await.expect("open ctrl bi");
+        let sender_params = HandshakeParams {
+            authenticated_peer: receiver_id.device_id(),
+            our_channel_max_frame_size: MAX_FRAME,
+            our_identity: &sender_id,
+            our_attestation_token: "mock-token-sender".to_string(),
+            our_key_binding: sender_binding,
+            our_versions: VersionRange::new(1, 1).unwrap(),
+            our_capabilities: Capabilities::empty(),
+        };
+        let sender_session = perform_handshake(
+            sender_ctrl_send.as_mut(),
+            sender_ctrl_recv.as_mut(),
+            sender_params,
+            &sender_store,
+            &sender_rng,
+            &clock,
+            |_| async { Ok(TrustTier::SameAccount) },
+        )
+        .await
+        .expect("sender handshake");
+
+        // Send 16 unassigned control frames (0x0f) before the TransferOffer
+        for _ in 0..16 {
+            let unassigned_frame = encode_frame(0x0f, b"future_field", MAX_FRAME).unwrap();
+            sender_ctrl_send.write_all(&unassigned_frame).await.unwrap();
+        }
+
+        let offer = TransferOffer::new(
+            transfer_id,
+            vec![offer_item],
+            content.len() as u64,
+            None,
+            None,
+        )
+        .unwrap();
+        let offer_bytes =
+            encode_transfer_offer_frame(&offer, sender_session.peer_max_frame_size()).unwrap();
+        sender_ctrl_send.write_all(&offer_bytes).await.unwrap();
+
+        let accept_frame = read_frame_helper(sender_ctrl_recv.as_mut(), MAX_FRAME)
+            .await
+            .unwrap();
+        let accept = decode_transfer_accept_frame(&accept_frame).unwrap();
+        accept.for_offer(&offer).unwrap();
+
+        let (mut data_send, mut data_recv) = sender_chan.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &src_rel,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
+        let send_req = SendRequest {
+            root: root_sender,
+            rel_path: &src_rel,
+            transfer_id,
+            item_id,
+            max_frame_size: sender_session
+                .peer_max_frame_size()
+                .min(sender_chan.max_frame_size()),
+            item: &prepared,
+        };
+        let mut streams = SessionStreams {
+            control_send: sender_ctrl_send.as_mut(),
+            control_recv: sender_ctrl_recv.as_mut(),
+            data_send: data_send.as_mut(),
+            data_recv: data_recv.as_mut(),
+        };
+        let send_res = send_file(&sender_vfs, &send_req, &mut streams)
+            .await
+            .unwrap();
+        assert!(send_res);
+        Ok::<(), ListenerError>(())
+    };
+
+    let listener_task = handle_incoming_channel(
+        &listener_chan,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+    );
+
+    let (sender_res, listener_res) = tokio::join!(sender_task, listener_task);
+    sender_res.unwrap();
+    let placed = listener_res.unwrap();
+    assert_eq!(placed.len(), 1);
+    assert_eq!(placed[0].as_str(), "file.bin");
+    assert_eq!(
+        std::fs::read(receiver_dir.path().join("file.bin")).unwrap(),
+        content
+    );
+}
+
+#[tokio::test]
+async fn seventeen_unassigned_control_frames_before_offer_are_refused() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (
+        (sender_store, sender_id, sender_binding),
+        (receiver_store, receiver_id, receiver_binding),
+    ) = create_test_identities();
+
+    let (sender_chan, listener_chan) =
+        mock_channel_pair(sender_id.device_id(), receiver_id.device_id(), MAX_FRAME);
+
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let receiver_vfs = NativeVfs::new();
+    let root_receiver = RootId::new(511);
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
+    };
+
+    let listener_rng = SeededRng::new(1212);
+    let sender_rng = SeededRng::new(3434);
+
+    let sender_task = async {
+        let (mut sender_ctrl_send, mut sender_ctrl_recv) =
+            sender_chan.open_bi().await.expect("open ctrl bi");
+        let sender_params = HandshakeParams {
+            authenticated_peer: receiver_id.device_id(),
+            our_channel_max_frame_size: MAX_FRAME,
+            our_identity: &sender_id,
+            our_attestation_token: "mock-token-sender".to_string(),
+            our_key_binding: sender_binding,
+            our_versions: VersionRange::new(1, 1).unwrap(),
+            our_capabilities: Capabilities::empty(),
+        };
+        perform_handshake(
+            sender_ctrl_send.as_mut(),
+            sender_ctrl_recv.as_mut(),
+            sender_params,
+            &sender_store,
+            &sender_rng,
+            &clock,
+            |_| async { Ok(TrustTier::SameAccount) },
+        )
+        .await
+        .expect("sender handshake");
+
+        // Send 17 unassigned control frames (0x0f)
+        for _ in 0..17 {
+            let unassigned_frame = encode_frame(0x0f, b"future_field", MAX_FRAME).unwrap();
+            sender_ctrl_send.write_all(&unassigned_frame).await.unwrap();
+        }
+    };
+
+    let listener_task = handle_incoming_channel(
+        &listener_chan,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+    );
+
+    let (_, listener_res) = tokio::join!(sender_task, listener_task);
+    let failure = listener_res.expect_err("17 unassigned frames must be refused");
+    assert_eq!(failure.phase, ChannelPhase::Offer);
+    match failure.error {
+        ListenerError::ProtocolViolation(msg) => {
+            assert_eq!(msg, "more than 16 unassigned frames in a row");
+        }
+        other => panic!("expected ProtocolViolation, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn send_loop_resets_ignorable_count_on_assigned_frame() {
+    use tradr_core::{ChunkIndex, ChunkRequest, ItemComplete};
+    use tradr_proto::data::{
+        decode_chunk_data_header_frame, encode_chunk_request_frame, encode_item_complete_frame,
+    };
+
+    let sender_dir = tempfile::tempdir().expect("sender tempdir");
+    let sender_vfs = NativeVfs::new();
+    let root_sender = RootId::new(601);
+    sender_vfs
+        .register_root(root_sender, sender_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let content = b"transfer loop reset test content";
+    let src_rel = RelPath::new("file.bin").unwrap();
+    std::fs::write(sender_dir.path().join("file.bin"), content).unwrap();
+
+    let transfer_id = sample_transfer(VALID_V7_A);
+    let item_id = ItemId::new("bin_item").unwrap();
+    let prepared = prepare_item(
+        &sender_vfs,
+        root_sender,
+        &src_rel,
+        sender_vfs.scratch_file().unwrap(),
+    )
+    .await
+    .unwrap();
+
+    let send_req = SendRequest {
+        root: root_sender,
+        rel_path: &src_rel,
+        transfer_id,
+        item_id,
+        max_frame_size: MAX_FRAME,
+        item: &prepared,
+    };
+
+    let ((mut data_tx_send, mut data_tx_recv), (mut data_peer_send, mut data_peer_recv)) =
+        memory_stream_pair();
+    let ((mut ctrl_tx_send, mut ctrl_tx_recv), (mut ctrl_peer_send, _ctrl_peer_recv)) =
+        memory_stream_pair();
+
+    let peer_task = async move {
+        // Ten unassigned frames followed by an assigned frame to test counter reset.
+        for _ in 0..10 {
+            let unassigned = encode_frame(0x24, b"future_data", MAX_FRAME).unwrap();
+            data_peer_send.write_all(&unassigned).await.unwrap();
+        }
+
+        let flow_control = encode_frame(0x23, b"", MAX_FRAME).unwrap();
+        data_peer_send.write_all(&flow_control).await.unwrap();
+
+        for _ in 0..10 {
+            let unassigned = encode_frame(0x24, b"future_data", MAX_FRAME).unwrap();
+            data_peer_send.write_all(&unassigned).await.unwrap();
+        }
+
+        let req = ChunkRequest::new(transfer_id, item_id, ChunkIndex::new(0), 1);
+        let req_frame = encode_chunk_request_frame(&req, MAX_FRAME).unwrap();
+        data_peer_send.write_all(&req_frame).await.unwrap();
+        data_peer_send.finish().await.unwrap();
+
+        // Serving chunk 0 proves the assigned frame reset the ignorable counter.
+        let header = loop {
+            let frame = read_frame_helper(&mut data_peer_recv, MAX_FRAME)
+                .await
+                .expect("read frame");
+            if let Ok(hdr) = decode_chunk_data_header_frame(&frame)
+                && hdr.chunk_index().value() == 0
+            {
+                break hdr;
+            }
+        };
+        let mut payload = vec![0u8; header.payload_len() as usize];
+        let mut read_bytes = 0;
+        while read_bytes < payload.len() {
+            let n = data_peer_recv
+                .read(&mut payload[read_bytes..])
+                .await
+                .expect("read chunk data payload");
+            assert!(n > 0, "unexpected EOF while reading chunk data payload");
+            read_bytes += n;
+        }
+
+        let item_complete = ItemComplete::new(transfer_id, item_id, true, None);
+        let complete_frame = encode_item_complete_frame(&item_complete, MAX_FRAME).unwrap();
+        ctrl_peer_send.write_all(&complete_frame).await.unwrap();
+    };
+
+    let sender_task = async {
+        let mut streams = SessionStreams {
+            control_send: &mut ctrl_tx_send,
+            control_recv: &mut ctrl_tx_recv,
+            data_send: &mut data_tx_send,
+            data_recv: &mut data_tx_recv,
+        };
+        send_file(&sender_vfs, &send_req, &mut streams).await
+    };
+
+    let ((), send_res) = tokio::join!(peer_task, sender_task);
+    assert!(send_res.expect("send_file must succeed after reset"));
+}
+
+#[tokio::test]
+async fn send_loop_refuses_seventeen_unassigned_frames() {
+    use tradr_app::transfer::TransferSessionError;
+
+    let sender_dir = tempfile::tempdir().expect("sender tempdir");
+    let sender_vfs = NativeVfs::new();
+    let root_sender = RootId::new(602);
+    sender_vfs
+        .register_root(root_sender, sender_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let content = b"transfer loop refusal test content";
+    let src_rel = RelPath::new("file.bin").unwrap();
+    std::fs::write(sender_dir.path().join("file.bin"), content).unwrap();
+
+    let transfer_id = sample_transfer(VALID_V7_A);
+    let item_id = ItemId::new("bin_item").unwrap();
+    let prepared = prepare_item(
+        &sender_vfs,
+        root_sender,
+        &src_rel,
+        sender_vfs.scratch_file().unwrap(),
+    )
+    .await
+    .unwrap();
+
+    let send_req = SendRequest {
+        root: root_sender,
+        rel_path: &src_rel,
+        transfer_id,
+        item_id,
+        max_frame_size: MAX_FRAME,
+        item: &prepared,
+    };
+
+    let ((mut data_tx_send, mut data_tx_recv), (mut data_peer_send, _data_peer_recv)) =
+        memory_stream_pair();
+    let ((mut ctrl_tx_send, mut ctrl_tx_recv), (_ctrl_peer_send, _ctrl_peer_recv)) =
+        memory_stream_pair();
+
+    let peer_task = async move {
+        // 17 unassigned data plane frames (0x24)
+        for _ in 0..17 {
+            let unassigned = encode_frame(0x24, b"future_data", MAX_FRAME).unwrap();
+            data_peer_send.write_all(&unassigned).await.unwrap();
+        }
+    };
+
+    let sender_task = async {
+        let mut streams = SessionStreams {
+            control_send: &mut ctrl_tx_send,
+            control_recv: &mut ctrl_tx_recv,
+            data_send: &mut data_tx_send,
+            data_recv: &mut data_tx_recv,
+        };
+        send_file(&sender_vfs, &send_req, &mut streams).await
+    };
+
+    let ((), send_res) = tokio::join!(peer_task, sender_task);
+    let err = send_res.expect_err("17 unassigned data frames must be refused");
+    match err {
+        TransferSessionError::ProtocolViolation(msg) => {
+            assert_eq!(msg, "more than 16 unassigned frames in a row");
+        }
+        other => panic!("expected ProtocolViolation, got {other:?}"),
+    }
+}
