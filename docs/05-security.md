@@ -533,6 +533,7 @@ tradr-keybind-v1     binding the agreement key to the identity key
 tradr-hello-v1       proving key possession during a handshake
 tradr-brokr-v1       answering a Brokr's registration challenge
 tradr-revoke-v1      declaring a device revoked
+tradr-deferred-v1    signing a Deferred Delivery's manifest (ADR-0025, DCR-173)
 ```
 
 The set is closed rather than a free string so that adding a context is a visible edit in one place, not something any call site can invent.

@@ -68,7 +68,8 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 | **Static Peer** | A reachable hostname or address the user pinned by hand. How overlay networks such as Tailscale are used without a Brokr. |
 | **Rendezvous** | The Brokr's role in exchanging address candidates between peers. No file bytes pass through. |
 | **Relay** | A path where the Brokr forwards ciphertext. The Brokr never sees plaintext. |
-| **Deferred Delivery** | A Transfer the sender hands to a Brokr for a Peer that is not online, collected when that Peer next is. One direction, one Transfer, no reconciliation and no shared state -- so it is **not sync**, and it is never called that. Tier 2 only, and undesigned as of 2026-09-13. |
+| **Known Devices** | The devices this device has met through a direct, verified handshake, each with its public keys, last name, Trust Tier and when it was last seen. Where an offline device's keys come from for a Deferred Delivery, never from a Brokr ([docs/13](docs/13-deferred-delivery.md)). |
+| **Deferred Delivery** | A Transfer the sender hands to a Brokr for a Peer that is not online, collected when that Peer next is. One direction, one Transfer, no reconciliation and no shared state -- so it is **not sync**, and it is never called that. Tier 2 only; designed in [docs/13](docs/13-deferred-delivery.md) (DCR-173). |
 
 ## Tiers
 

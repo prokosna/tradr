@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **The M9 design** (Deferred Delivery, from the person's answers of 2026-10-03), next: its docs commit. `WI-M8-065a` and `WI-M8-065b` landed 2026-10-04
+- **`WI-M9-001`** (Known Devices), next, then `WI-M9-002` with the Supervisor's tests. M9 is designed by DCR-173 ([docs/13](docs/13-deferred-delivery.md)). `WI-M8-065a` and `WI-M8-065b` landed 2026-10-04
 
 **For the next UI Work Item: the preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
@@ -85,7 +85,7 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 | M6 | Account linking — QR, Link Secret, Fingerprint | 2 weeks | **done 2026-09-05** |
 | M7 | BLE, the largest estimation risk — advertising and scanning on four platforms, EIDs, Noise over GATT | 4-5 weeks | **done on its code 2026-09-14, DCR-117.** Its completion criterion is a run on two radios and that run is carried into M8 |
 | **M8** | **Usable interface, and a CLI** — the two open interface defects, whatever running it on all four devices turns up, and a command-line front end. **The CLI is Change Drill D9 performed for real**, and it was measured rather than estimated: every function in `commands.rs` above the first `#[tauri::command]` is already Tauri-free, so it is a move and not a rewrite. **Receiving is the undecided part** — a foreground command and a daemon are different products. **Added 2026-09-13 by DCR-113: the roadmap scheduled capabilities and never scheduled this, and it is the condition on starting to use the software** | unestimated | **current** |
-| M9 | **Brokr** — presence, rendezvous, relay, FCM, revocation list, **and Deferred Delivery**, which DCR-113 records as wanted and undesigned | 3 weeks | todo |
+| M9 | **Brokr, cut to Deferred Delivery by DCR-173** ([docs/13](docs/13-deferred-delivery.md)): a Brokr inside the tailnet holds an HPKE-sealed delivery for an offline device for 30 days. Presence, rendezvous, relay, FCM and the revocation list move to a later milestone | 3 weeks | **designed 2026-10-04; built alongside M8's device runs** |
 | M10 | Finishing — internal security review, one Linux package, i18n, resumption tests. **Store submission, four package formats and purchased certificates are dropped**, closing decisions 7 and 8 and risks R5, R9 and R11 | ongoing | todo |
 
 ### Current milestone: M8, a usable interface and a CLI
@@ -100,6 +100,14 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
+| WI-M9-001 | **Known Devices**: a registry in `tradr-identity` beside the Link registry (`DeviceId` to `PublicIdentity`, last name, Trust Tier, last seen directly), written after every successful direct handshake in either direction | planned | |
+| WI-M9-002 | **HPKE base mode** for `DHKEM(P-256, HKDF-SHA256)`, `HKDF-SHA256`, `ChaCha20Poly1305` ([ADR-0025](docs/adr/0025-hpke-for-deferred-delivery.md)), the recipient's DH through `KeyStore::agree`. **Critical Module: the Supervisor's tests first, from RFC 9180 section A.5** | planned | yes |
+| WI-M9-003 | **The envelope**: outer header, sealed records with sequence and final flag, the manifest and its `DeferredDelivery` signature, and every acceptance check in docs/13. **Critical Module: the Supervisor's tests first** | planned | yes |
+| WI-M9-004 | **`apps/brokr`**: Fastify and SQLite, `/v1/info`, `/v1/challenge`, `/v1/register`, with its own tests and a CI step | planned | |
+| WI-M9-005 | **The Brokr's deliveries**: upload, inbox, download, acknowledge, outbox, the grouping rule, limits and the expiry sweep | planned | |
+| WI-M9-006 | **The device's Brokr client** in `tradr-app`: register, collect (start, foreground, every 5 minutes), send to an offline known device, outbox status | planned | |
+| WI-M9-007 | **The interface**: Brokr settings, offline known devices in the list, "will deliver when it's back", waiting / delivered / expired | planned | |
+| WI-M9-008 | **A container image** for the Brokr and its setup notes | planned | |
 | WI-M6-009 | **Scanning a QR with a camera.** `WI-M6-007b` shows a QR and accepts a pasted blob, which is the whole payload either way (docs/11: "one payload and one parser"), so a QR read by any camera application already links. **A scanner inside Tradr is a platform integration and not an interface change** -- Android has `@tauri-apps/plugin-barcode-scanner` and a camera permission to justify, and the desktop has no camera API at all -- so it is its own Work Item rather than a line in one about React | planned | |
 
 ## Deferred
