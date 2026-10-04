@@ -48,7 +48,7 @@ records, each sealed with the HPKE context, sequence numbers from 0
 - **The recipient accepts an envelope only when** it opens, the signature verifies under the manifest's `identity_pub`, that key's Device ID equals `sender_device_id`, the `KeyBinding` joins the identity key to an agreement key, the Attestation passes docs/05's seven steps for that `identity_pub`, and the Trust Tier is `same-account` or `linked`. **Staleness is judged at `created_at`, and `created_at` must be within the last 30 days and not more than 300 seconds ahead of the recipient's clock**: an Attestation that was fresh when its holder sent is honoured for as long as the Brokr may hold the delivery, which bounds how stale an accepted Attestation can be at 60 days. That is a weaker revocation story than a live connection's 30, and it is stated rather than hidden.
 - **Each item is verified against its Content Hash as it is written**, placed through the ordinary receive path (sanitised names, `.tradr-partial`, `rename_no_replace`), and reported in `files-received`.
 
-**This is a Critical Module.** Opening an envelope is where a forged delivery would be accepted, so the Supervisor writes its tests first: RFC 9180's published test vectors for the suite, a negative test per acceptance check, truncation, reordering and re-addressing.
+**The code lives in `tradr-identity`** (ADR-0025). **This is a Critical Module.** Opening an envelope is where a forged delivery would be accepted, so the Supervisor writes its tests first: RFC 9180's published test vectors for the suite, a negative test per acceptance check, truncation, reordering and re-addressing.
 
 ## The Brokr, as built in M9
 
