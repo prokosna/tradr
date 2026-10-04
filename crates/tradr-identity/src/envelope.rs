@@ -1,6 +1,7 @@
 //! Deferred Delivery envelope serialization, sealing, and opening (docs/13, ADR-0025, DCR-173).
 
 use std::fmt;
+use std::mem;
 
 use serde::{Deserialize, Serialize};
 use tradr_core::{
@@ -9,13 +10,17 @@ use tradr_core::{
     UnixTime,
 };
 
-use crate::hpke::{HpkeError, setup_base_receiver, setup_base_sender};
+use crate::hpke::{
+    HpkeError, ReceiverContext, SenderContext, setup_base_receiver, setup_base_sender,
+};
 use crate::key_binding::{parse_verifying_key, signature_verifies, verify_key_binding};
 
 /// The byte length of the unencrypted outer header.
 pub const OUTER_HEADER_LEN: usize = 106;
 
 const CHUNK_SIZE: usize = 1024 * 1024;
+const TAG_LEN: usize = 16;
+const MAX_MANIFEST_RECORD: usize = 16 * 1024 * 1024;
 const THIRTY_DAYS_SECS: i64 = 30 * 24 * 3600;
 const THREE_HUNDRED_SECS: i64 = 300;
 
@@ -225,6 +230,10 @@ pub enum EnvelopeError {
     Json(String),
     /// Manifest or header field was malformed or could not be decoded.
     ManifestMalformed(String),
+    /// Bytes arrived after the final record of the envelope.
+    TrailingBytes,
+    /// The reader or writer was used again after it reported an error.
+    AlreadyFailed,
 }
 
 impl fmt::Display for EnvelopeError {
@@ -260,6 +269,8 @@ impl fmt::Display for EnvelopeError {
             Self::KeyStore(e) => write!(f, "key store error: {e}"),
             Self::Json(msg) => write!(f, "manifest json error: {msg}"),
             Self::ManifestMalformed(msg) => write!(f, "manifest malformed: {msg}"),
+            Self::TrailingBytes => write!(f, "bytes after the final envelope record"),
+            Self::AlreadyFailed => write!(f, "envelope stream already failed"),
         }
     }
 }
@@ -449,231 +460,569 @@ pub fn parse_outer_header(bytes: &[u8]) -> Result<OuterHeader, EnvelopeError> {
     })
 }
 
-/// Seals items into an encrypted Deferred Delivery envelope for `recipient`.
-pub fn seal_envelope(
-    recipient: &PublicIdentity,
-    sender: &EnvelopeSender,
-    key_store: &dyn KeyStore,
-    rng: &dyn Rng,
-    transfer_id: TransferId,
-    created_at: UnixTime,
-    items: &[(EnvelopeItem, &[u8])],
-) -> Result<Vec<u8>, EnvelopeError> {
-    for (item, bytes) in items {
-        let expected_len = match usize::try_from(item.size()) {
-            Ok(len) => len,
-            Err(_) => return Err(EnvelopeError::ItemSizeMismatch),
-        };
-        if bytes.len() != expected_len {
-            return Err(EnvelopeError::ItemSizeMismatch);
-        }
-    }
-
-    let recipient_id = recipient.device_id();
-    let sender_id = sender.identity().device_id();
-    let info = make_hpke_info(&recipient_id, &sender_id);
-
-    let (enc, mut sender_ctx) =
-        setup_base_sender(recipient.agreement_pub(), rng, &info).map_err(EnvelopeError::Hpke)?;
-
-    let transfer_id_bytes = transfer_id_to_bytes(&transfer_id);
-    let items_meta: Vec<(&str, u64, &[u8])> = items
-        .iter()
-        .map(|(it, _)| {
-            (
-                it.rel_path().as_str(),
-                it.size(),
-                it.content_hash().as_bytes().as_slice(),
-            )
-        })
-        .collect();
-
-    let sig_message = build_signature_payload(
-        &enc,
-        &recipient_id,
-        &sender_id,
-        created_at.as_secs(),
-        &transfer_id_bytes,
-        &items_meta,
-    )?;
-
-    let manifest_sig = key_store
-        .sign(DomainTag::DeferredDelivery, &sig_message)
-        .map_err(EnvelopeError::KeyStore)?;
-
-    let manifest_items: Vec<ManifestItemWire> = items
-        .iter()
-        .map(|(it, _)| ManifestItemWire {
-            rel_path: it.rel_path().as_str().to_string(),
-            size: it.size(),
-            content_hash: encode_hex(it.content_hash().as_bytes()),
-        })
-        .collect();
-
-    let manifest_wire = ManifestWire {
-        transfer_id: transfer_id.to_string(),
-        identity_pub: encode_hex(sender.identity().identity_pub().as_bytes()),
-        agreement_pub: encode_hex(sender.identity().agreement_pub().as_bytes()),
-        key_binding: KeyBindingWire {
-            agreement_pub: encode_hex(sender.key_binding().agreement_pub().as_bytes()),
-            signature: encode_hex(sender.key_binding().signature().as_bytes()),
-            not_after: sender.key_binding().not_after().as_secs(),
-        },
-        attestation_token: sender.attestation_token().to_string(),
-        created_at: created_at.as_secs(),
-        items: manifest_items,
-        signature: encode_hex(manifest_sig.as_bytes()),
-    };
-
-    let manifest_json =
-        serde_json::to_vec(&manifest_wire).map_err(|e| EnvelopeError::Json(e.to_string()))?;
-
-    let aad_0 = make_aad(0, false);
-    let sealed_manifest = sender_ctx
-        .seal(&aad_0, &manifest_json)
-        .map_err(EnvelopeError::Hpke)?;
-
-    let mut sealed_records: Vec<Vec<u8>> = Vec::new();
-    sealed_records.push(sealed_manifest);
-
-    let total_item_bytes: usize = items.iter().map(|(_, b)| b.len()).sum();
-    if total_item_bytes == 0 {
-        let aad_1 = make_aad(1, true);
-        let sealed_data = sender_ctx.seal(&aad_1, &[]).map_err(EnvelopeError::Hpke)?;
-        sealed_records.push(sealed_data);
-    } else {
-        let mut combined = Vec::with_capacity(total_item_bytes);
-        for (_, b) in items {
-            combined.extend_from_slice(b);
-        }
-        let chunks: Vec<&[u8]> = combined.chunks(CHUNK_SIZE).collect();
-        let num_chunks = chunks.len();
-        for (i, chunk) in chunks.iter().enumerate() {
-            let seq = (i + 1) as u64;
-            let is_final = i == num_chunks - 1;
-            let aad = make_aad(seq, is_final);
-            let sealed_chunk = sender_ctx.seal(&aad, chunk).map_err(EnvelopeError::Hpke)?;
-            sealed_records.push(sealed_chunk);
-        }
-    }
-
-    let mut records_byte_len: usize = 0;
-    for rec in &sealed_records {
-        let rec_entry_len = match rec.len().checked_add(4) {
-            Some(l) => l,
-            None => return Err(EnvelopeError::ItemSizeMismatch),
-        };
-        records_byte_len = match records_byte_len.checked_add(rec_entry_len) {
-            Some(l) => l,
-            None => return Err(EnvelopeError::ItemSizeMismatch),
-        };
-    }
-
-    let total_len = match (OUTER_HEADER_LEN as u64).checked_add(records_byte_len as u64) {
-        Some(len) => len,
-        None => return Err(EnvelopeError::ItemSizeMismatch),
-    };
-
-    let mut envelope = Vec::with_capacity(OUTER_HEADER_LEN + records_byte_len);
-    envelope.push(1u8);
-    envelope.extend_from_slice(recipient_id.as_bytes());
-    envelope.extend_from_slice(sender_id.as_bytes());
-    envelope.extend_from_slice(&enc);
-    envelope.extend_from_slice(&total_len.to_be_bytes());
-
-    for rec in sealed_records {
-        let len_u32 = match u32::try_from(rec.len()) {
-            Ok(l) => l,
-            Err(_) => return Err(EnvelopeError::ItemSizeMismatch),
-        };
-        envelope.extend_from_slice(&len_u32.to_be_bytes());
-        envelope.extend_from_slice(&rec);
-    }
-
-    Ok(envelope)
+/// Streams a Deferred Delivery envelope out as the items' bytes arrive.
+pub struct EnvelopeWriter {
+    ctx: SenderContext,
+    buf: Vec<u8>,
+    declared: u64,
+    pushed: u64,
+    emitted: u64,
+    seq: u64,
+    sealed_final: bool,
+    total_len: u64,
+    failed: bool,
 }
 
-/// Opens, verifies, and decrypts a Deferred Delivery envelope.
-pub fn open_envelope(
-    bytes: &[u8],
-    recipient: &PublicIdentity,
-    agree: &dyn Fn(&PublicKeyPoint) -> Result<SharedSecret, KeyStoreError>,
+impl fmt::Debug for EnvelopeWriter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EnvelopeWriter")
+            .field("declared", &self.declared)
+            .field("pushed", &self.pushed)
+            .finish_non_exhaustive()
+    }
+}
+
+impl EnvelopeWriter {
+    /// Seals the manifest and returns the writer with the outer header and manifest record.
+    pub fn new(
+        recipient: &PublicIdentity,
+        sender: &EnvelopeSender,
+        key_store: &dyn KeyStore,
+        rng: &dyn Rng,
+        transfer_id: TransferId,
+        created_at: UnixTime,
+        items: Vec<EnvelopeItem>,
+    ) -> Result<(EnvelopeWriter, Vec<u8>), EnvelopeError> {
+        let mut declared: u64 = 0;
+        for item in &items {
+            declared = declared
+                .checked_add(item.size())
+                .ok_or(EnvelopeError::ItemSizeMismatch)?;
+        }
+
+        let recipient_id = recipient.device_id();
+        let sender_id = sender.identity().device_id();
+        let info = make_hpke_info(&recipient_id, &sender_id);
+        let (enc, mut ctx) = setup_base_sender(recipient.agreement_pub(), rng, &info)
+            .map_err(EnvelopeError::Hpke)?;
+
+        let transfer_id_bytes = transfer_id_to_bytes(&transfer_id);
+        let items_meta: Vec<(&str, u64, &[u8])> = items
+            .iter()
+            .map(|it| {
+                (
+                    it.rel_path().as_str(),
+                    it.size(),
+                    it.content_hash().as_bytes().as_slice(),
+                )
+            })
+            .collect();
+        let sig_message = build_signature_payload(
+            &enc,
+            &recipient_id,
+            &sender_id,
+            created_at.as_secs(),
+            &transfer_id_bytes,
+            &items_meta,
+        )?;
+        let manifest_sig = key_store
+            .sign(DomainTag::DeferredDelivery, &sig_message)
+            .map_err(EnvelopeError::KeyStore)?;
+
+        let manifest_wire = ManifestWire {
+            transfer_id: transfer_id.to_string(),
+            identity_pub: encode_hex(sender.identity().identity_pub().as_bytes()),
+            agreement_pub: encode_hex(sender.identity().agreement_pub().as_bytes()),
+            key_binding: KeyBindingWire {
+                agreement_pub: encode_hex(sender.key_binding().agreement_pub().as_bytes()),
+                signature: encode_hex(sender.key_binding().signature().as_bytes()),
+                not_after: sender.key_binding().not_after().as_secs(),
+            },
+            attestation_token: sender.attestation_token().to_string(),
+            created_at: created_at.as_secs(),
+            items: items
+                .iter()
+                .map(|it| ManifestItemWire {
+                    rel_path: it.rel_path().as_str().to_string(),
+                    size: it.size(),
+                    content_hash: encode_hex(it.content_hash().as_bytes()),
+                })
+                .collect(),
+            signature: encode_hex(manifest_sig.as_bytes()),
+        };
+        let manifest_json =
+            serde_json::to_vec(&manifest_wire).map_err(|e| EnvelopeError::Json(e.to_string()))?;
+        let sealed_manifest = ctx
+            .seal(&make_aad(0, false), &manifest_json)
+            .map_err(EnvelopeError::Hpke)?;
+        if sealed_manifest.len() > MAX_MANIFEST_RECORD {
+            return Err(EnvelopeError::ManifestMalformed(
+                "manifest record too large".into(),
+            ));
+        }
+
+        let overhead = (4 + TAG_LEN) as u64;
+        let data_len = if declared == 0 {
+            overhead
+        } else {
+            declared
+                .div_ceil(CHUNK_SIZE as u64)
+                .checked_mul(overhead)
+                .and_then(|o| o.checked_add(declared))
+                .ok_or(EnvelopeError::ItemSizeMismatch)?
+        };
+        let total_len = (OUTER_HEADER_LEN as u64)
+            .checked_add(4)
+            .and_then(|t| t.checked_add(sealed_manifest.len() as u64))
+            .and_then(|t| t.checked_add(data_len))
+            .ok_or(EnvelopeError::ItemSizeMismatch)?;
+
+        let mut head = Vec::with_capacity(OUTER_HEADER_LEN + 4 + sealed_manifest.len());
+        head.push(1u8);
+        head.extend_from_slice(recipient_id.as_bytes());
+        head.extend_from_slice(sender_id.as_bytes());
+        head.extend_from_slice(&enc);
+        head.extend_from_slice(&total_len.to_be_bytes());
+        append_record(&mut head, &sealed_manifest)?;
+
+        let writer = EnvelopeWriter {
+            ctx,
+            buf: Vec::new(),
+            declared,
+            pushed: 0,
+            emitted: 0,
+            seq: 1,
+            sealed_final: false,
+            total_len,
+            failed: false,
+        };
+        Ok((writer, head))
+    }
+
+    /// The exact byte length of the whole envelope, as written into the outer header.
+    pub fn total_len(&self) -> u64 {
+        self.total_len
+    }
+
+    /// Accepts item bytes back to back and returns the sealed records that became complete.
+    pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
+        if self.failed {
+            return Err(EnvelopeError::AlreadyFailed);
+        }
+        let result = self.push_inner(bytes);
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
+    }
+
+    fn push_inner(&mut self, bytes: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
+        let new_pushed = self
+            .pushed
+            .checked_add(bytes.len() as u64)
+            .filter(|p| *p <= self.declared)
+            .ok_or(EnvelopeError::ItemSizeMismatch)?;
+        self.pushed = new_pushed;
+
+        let mut out = Vec::new();
+        let mut rest = bytes;
+        if !self.buf.is_empty() {
+            let take = (CHUNK_SIZE - self.buf.len()).min(rest.len());
+            self.buf.extend_from_slice(&rest[..take]);
+            rest = &rest[take..];
+            if self.buf.len() == CHUNK_SIZE {
+                let chunk = mem::take(&mut self.buf);
+                self.seal_data(&chunk, &mut out)?;
+            }
+        }
+        while rest.len() >= CHUNK_SIZE {
+            let (chunk, tail) = rest.split_at(CHUNK_SIZE);
+            self.seal_data(chunk, &mut out)?;
+            rest = tail;
+        }
+        self.buf.extend_from_slice(rest);
+        Ok(out)
+    }
+
+    /// Returns the remaining records, the last one marked final; fails unless all bytes arrived.
+    pub fn finish(mut self) -> Result<Vec<u8>, EnvelopeError> {
+        if self.failed {
+            return Err(EnvelopeError::AlreadyFailed);
+        }
+        if self.pushed != self.declared {
+            return Err(EnvelopeError::ItemSizeMismatch);
+        }
+        let mut out = Vec::new();
+        if !self.sealed_final {
+            let chunk = mem::take(&mut self.buf);
+            self.seal_data(&chunk, &mut out)?;
+        }
+        Ok(out)
+    }
+
+    fn seal_data(&mut self, chunk: &[u8], out: &mut Vec<u8>) -> Result<(), EnvelopeError> {
+        let is_final = self.emitted + chunk.len() as u64 == self.declared;
+        let sealed = self
+            .ctx
+            .seal(&make_aad(self.seq, is_final), chunk)
+            .map_err(EnvelopeError::Hpke)?;
+        append_record(out, &sealed)?;
+        self.emitted += chunk.len() as u64;
+        self.seq += 1;
+        self.sealed_final = is_final;
+        Ok(())
+    }
+}
+
+fn append_record(out: &mut Vec<u8>, sealed: &[u8]) -> Result<(), EnvelopeError> {
+    let len = u32::try_from(sealed.len()).map_err(|_| EnvelopeError::ItemSizeMismatch)?;
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(sealed);
+    Ok(())
+}
+
+/// The verified manifest of a Deferred Delivery envelope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenedManifest {
+    transfer_id: TransferId,
+    sender: PublicIdentity,
+    created_at: UnixTime,
+    tier: TrustTier,
+    items: Vec<EnvelopeItem>,
+}
+
+impl OpenedManifest {
+    /// Identifier of the delivered transfer.
+    pub fn transfer_id(&self) -> TransferId {
+        self.transfer_id
+    }
+
+    /// Verified public identity of the sender.
+    pub fn sender(&self) -> &PublicIdentity {
+        &self.sender
+    }
+
+    /// Timestamp at which the envelope was created by the sender.
+    pub fn created_at(&self) -> UnixTime {
+        self.created_at
+    }
+
+    /// Trust tier assigned to the sender by attestation verification.
+    pub fn tier(&self) -> TrustTier {
+        self.tier
+    }
+
+    /// Items described in the manifest, in the order their bytes follow.
+    pub fn items(&self) -> &[EnvelopeItem] {
+        &self.items
+    }
+}
+
+/// Something the reader produced from the bytes fed so far.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReaderEvent {
+    /// The manifest passed acceptance checks 1 to 7; always the first event.
+    Manifest(OpenedManifest),
+    /// Plaintext bytes of the item at `index`, not yet verified against its hash.
+    ItemData {
+        /// Position of the item in the manifest.
+        index: usize,
+        /// The decrypted bytes.
+        bytes: Vec<u8>,
+    },
+    /// The item at `index` is complete and its BLAKE3 matches its content hash.
+    ItemVerified {
+        /// Position of the item in the manifest.
+        index: usize,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    Header,
+    Len { manifest: bool },
+    Body { manifest: bool, len: usize },
+    Done,
+}
+
+type AgreeFn<'a> = &'a dyn Fn(&PublicKeyPoint) -> Result<SharedSecret, KeyStoreError>;
+type AttestFn<'a> = &'a dyn Fn(&str, &PublicIdentity, UnixTime) -> Result<TrustTier, String>;
+
+/// Opens a Deferred Delivery envelope from bytes fed in arbitrary slices.
+pub struct EnvelopeReader<'a> {
+    recipient: &'a PublicIdentity,
+    agree: AgreeFn<'a>,
     now: UnixTime,
-    verify_attestation: &dyn Fn(&str, &PublicIdentity, UnixTime) -> Result<TrustTier, String>,
-) -> Result<OpenedEnvelope, EnvelopeError> {
-    let header = parse_outer_header(bytes)?;
-    if header.total_len != bytes.len() as u64 {
-        return Err(EnvelopeError::TotalLengthMismatch {
-            expected: header.total_len,
-            actual: bytes.len() as u64,
-        });
+    verify_attestation: AttestFn<'a>,
+    buf: Vec<u8>,
+    stage: Stage,
+    header: Option<OuterHeader>,
+    ctx: Option<ReceiverContext>,
+    remaining: u64,
+    seq: u64,
+    manifest: Option<OpenedManifest>,
+    current: usize,
+    current_left: u64,
+    hasher: blake3::Hasher,
+    failed: bool,
+}
+
+impl fmt::Debug for EnvelopeReader<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EnvelopeReader").finish_non_exhaustive()
     }
-    if header.recipient_device_id() != recipient.device_id() {
-        return Err(EnvelopeError::RecipientMismatch);
+}
+
+impl<'a> EnvelopeReader<'a> {
+    /// Starts reading an envelope addressed to `recipient`.
+    pub fn new(
+        recipient: &'a PublicIdentity,
+        agree: AgreeFn<'a>,
+        now: UnixTime,
+        verify_attestation: AttestFn<'a>,
+    ) -> EnvelopeReader<'a> {
+        EnvelopeReader {
+            recipient,
+            agree,
+            now,
+            verify_attestation,
+            buf: Vec::new(),
+            stage: Stage::Header,
+            header: None,
+            ctx: None,
+            remaining: 0,
+            seq: 1,
+            manifest: None,
+            current: 0,
+            current_left: 0,
+            hasher: blake3::Hasher::new(),
+            failed: false,
+        }
     }
 
-    let info = make_hpke_info(&recipient.device_id(), &header.sender_device_id());
-    let mut rx_ctx = setup_base_receiver(header.enc(), recipient.agreement_pub(), &info, agree)
-        .map_err(EnvelopeError::Hpke)?;
-
-    let mut cursor = OUTER_HEADER_LEN;
-
-    if cursor + 4 > bytes.len() {
-        return Err(EnvelopeError::Truncated);
-    }
-    let mut rec_0_len_bytes = [0u8; 4];
-    rec_0_len_bytes.copy_from_slice(&bytes[cursor..cursor + 4]);
-    let rec_0_len = u32::from_be_bytes(rec_0_len_bytes) as usize;
-    cursor += 4;
-    if cursor
-        .checked_add(rec_0_len)
-        .is_none_or(|end| end > bytes.len())
-    {
-        return Err(EnvelopeError::Truncated);
-    }
-    let rec_0_bytes = &bytes[cursor..cursor + rec_0_len];
-    cursor += rec_0_len;
-
-    let aad_0 = make_aad(0, false);
-    let manifest_json = rx_ctx
-        .open(&aad_0, rec_0_bytes)
-        .map_err(EnvelopeError::Hpke)?;
-
-    if cursor == bytes.len() {
-        return Err(EnvelopeError::NoDataRecords);
+    /// Accepts the next bytes of the envelope and returns the events they completed.
+    pub fn feed(&mut self, bytes: &[u8]) -> Result<Vec<ReaderEvent>, EnvelopeError> {
+        if self.failed {
+            return Err(EnvelopeError::AlreadyFailed);
+        }
+        let result = self.feed_inner(bytes);
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
     }
 
-    let mut data_plaintexts = Vec::new();
-    let mut seq = 1u64;
-    loop {
-        if cursor + 4 > bytes.len() {
+    /// Returns the manifest once the final record was read and every item verified.
+    pub fn finish(self) -> Result<OpenedManifest, EnvelopeError> {
+        if self.failed {
+            return Err(EnvelopeError::AlreadyFailed);
+        }
+        match (self.stage, self.manifest) {
+            (Stage::Done, Some(manifest)) => Ok(manifest),
+            _ => Err(EnvelopeError::Truncated),
+        }
+    }
+
+    fn feed_inner(&mut self, mut input: &[u8]) -> Result<Vec<ReaderEvent>, EnvelopeError> {
+        let mut events = Vec::new();
+        loop {
+            let need = match self.stage {
+                Stage::Done => {
+                    if input.is_empty() {
+                        return Ok(events);
+                    }
+                    return Err(EnvelopeError::TrailingBytes);
+                }
+                Stage::Header => OUTER_HEADER_LEN,
+                Stage::Len { .. } => 4,
+                Stage::Body { len, .. } => len,
+            };
+            let take = (need - self.buf.len()).min(input.len());
+            self.buf.extend_from_slice(&input[..take]);
+            input = &input[take..];
+            if self.buf.len() < need {
+                return Ok(events);
+            }
+            let unit = mem::take(&mut self.buf);
+            self.advance(&unit, &mut events)?;
+        }
+    }
+
+    fn advance(&mut self, unit: &[u8], events: &mut Vec<ReaderEvent>) -> Result<(), EnvelopeError> {
+        match self.stage {
+            Stage::Header => self.read_header(unit),
+            Stage::Len { manifest } => self.read_len(unit, manifest),
+            Stage::Body { manifest, len } => {
+                self.remaining -= len as u64;
+                if manifest {
+                    self.read_manifest(unit, events)
+                } else {
+                    self.read_data(unit, events)
+                }
+            }
+            Stage::Done => Err(EnvelopeError::TrailingBytes),
+        }
+    }
+
+    fn read_header(&mut self, unit: &[u8]) -> Result<(), EnvelopeError> {
+        let header = parse_outer_header(unit)?;
+        self.remaining = header
+            .total_len
+            .checked_sub(OUTER_HEADER_LEN as u64)
+            .ok_or(EnvelopeError::TotalLengthMismatch {
+                expected: header.total_len,
+                actual: OUTER_HEADER_LEN as u64,
+            })?;
+        if header.recipient_device_id() != self.recipient.device_id() {
+            return Err(EnvelopeError::RecipientMismatch);
+        }
+        let info = make_hpke_info(&self.recipient.device_id(), &header.sender_device_id());
+        self.ctx = Some(
+            setup_base_receiver(
+                header.enc(),
+                self.recipient.agreement_pub(),
+                &info,
+                self.agree,
+            )
+            .map_err(EnvelopeError::Hpke)?,
+        );
+        self.header = Some(header);
+        self.stage = Stage::Len { manifest: true };
+        Ok(())
+    }
+
+    fn read_len(&mut self, unit: &[u8], manifest: bool) -> Result<(), EnvelopeError> {
+        self.remaining = self
+            .remaining
+            .checked_sub(4)
+            .ok_or(EnvelopeError::Truncated)?;
+        let mut raw = [0u8; 4];
+        raw.copy_from_slice(unit);
+        let len = u32::from_be_bytes(raw) as usize;
+        if len as u64 > self.remaining {
             return Err(EnvelopeError::Truncated);
         }
-        let mut rec_len_bytes = [0u8; 4];
-        rec_len_bytes.copy_from_slice(&bytes[cursor..cursor + 4]);
-        let rec_len = u32::from_be_bytes(rec_len_bytes) as usize;
-        cursor += 4;
-        if cursor
-            .checked_add(rec_len)
-            .is_none_or(|end| end > bytes.len())
-        {
-            return Err(EnvelopeError::Truncated);
+        let in_range = if manifest {
+            len <= MAX_MANIFEST_RECORD
+        } else {
+            (TAG_LEN..=CHUNK_SIZE + TAG_LEN).contains(&len)
+        };
+        if !in_range {
+            return Err(EnvelopeError::ManifestMalformed(
+                "record length out of range".into(),
+            ));
         }
-        let rec_bytes = &bytes[cursor..cursor + rec_len];
-        cursor += rec_len;
+        self.stage = Stage::Body { manifest, len };
+        Ok(())
+    }
 
-        let is_final = cursor == bytes.len();
-        let aad = make_aad(seq, is_final);
-        let chunk_pt = rx_ctx.open(&aad, rec_bytes).map_err(EnvelopeError::Hpke)?;
-        data_plaintexts.extend_from_slice(&chunk_pt);
+    fn read_manifest(
+        &mut self,
+        record: &[u8],
+        events: &mut Vec<ReaderEvent>,
+    ) -> Result<(), EnvelopeError> {
+        let (Some(header), Some(ctx)) = (self.header.as_ref(), self.ctx.as_mut()) else {
+            return Err(EnvelopeError::Truncated);
+        };
+        let manifest_json = ctx
+            .open(&make_aad(0, false), record)
+            .map_err(EnvelopeError::Hpke)?;
+        let manifest = check_manifest(header, &manifest_json, self.now, self.verify_attestation)?;
+        if self.remaining == 0 {
+            return Err(EnvelopeError::NoDataRecords);
+        }
+        self.current_left = manifest.items.first().map_or(0, EnvelopeItem::size);
+        self.manifest = Some(manifest.clone());
+        events.push(ReaderEvent::Manifest(manifest));
+        self.stage = Stage::Len { manifest: false };
+        self.distribute(&[], events)
+    }
 
+    fn read_data(
+        &mut self,
+        record: &[u8],
+        events: &mut Vec<ReaderEvent>,
+    ) -> Result<(), EnvelopeError> {
+        let is_final = self.remaining == 0;
+        let Some(ctx) = self.ctx.as_mut() else {
+            return Err(EnvelopeError::Truncated);
+        };
+        let plaintext = ctx
+            .open(&make_aad(self.seq, is_final), record)
+            .map_err(EnvelopeError::Hpke)?;
+        self.seq += 1;
+        if !is_final && plaintext.len() != CHUNK_SIZE {
+            return Err(EnvelopeError::ItemSizeMismatch);
+        }
+        self.distribute(&plaintext, events)?;
         if is_final {
-            break;
+            let item_count = self.manifest.as_ref().map_or(0, |m| m.items.len());
+            if self.current != item_count {
+                return Err(EnvelopeError::ItemSizeMismatch);
+            }
+            self.stage = Stage::Done;
+        } else {
+            self.stage = Stage::Len { manifest: false };
         }
-        seq += 1;
+        Ok(())
     }
 
-    let manifest: ManifestWire = serde_json::from_slice(&manifest_json)
+    fn distribute(
+        &mut self,
+        mut plaintext: &[u8],
+        events: &mut Vec<ReaderEvent>,
+    ) -> Result<(), EnvelopeError> {
+        let Some(manifest) = self.manifest.as_ref() else {
+            return Err(EnvelopeError::Truncated);
+        };
+        loop {
+            if self.current >= manifest.items.len() {
+                return if plaintext.is_empty() {
+                    Ok(())
+                } else {
+                    Err(EnvelopeError::ItemSizeMismatch)
+                };
+            }
+            if self.current_left == 0 {
+                let digest: [u8; 32] = self.hasher.finalize().into();
+                if &digest != manifest.items[self.current].content_hash().as_bytes() {
+                    return Err(EnvelopeError::ContentHashMismatch);
+                }
+                events.push(ReaderEvent::ItemVerified {
+                    index: self.current,
+                });
+                self.hasher = blake3::Hasher::new();
+                self.current += 1;
+                self.current_left = manifest
+                    .items
+                    .get(self.current)
+                    .map_or(0, EnvelopeItem::size);
+                continue;
+            }
+            if plaintext.is_empty() {
+                return Ok(());
+            }
+            let take = usize::try_from(self.current_left)
+                .map_or(plaintext.len(), |left| left.min(plaintext.len()));
+            let (piece, rest) = plaintext.split_at(take);
+            self.hasher.update(piece);
+            events.push(ReaderEvent::ItemData {
+                index: self.current,
+                bytes: piece.to_vec(),
+            });
+            self.current_left -= take as u64;
+            plaintext = rest;
+        }
+    }
+}
+
+fn check_manifest(
+    header: &OuterHeader,
+    manifest_json: &[u8],
+    now: UnixTime,
+    verify_attestation: AttestFn<'_>,
+) -> Result<OpenedManifest, EnvelopeError> {
+    let manifest: ManifestWire = serde_json::from_slice(manifest_json)
         .map_err(|e| EnvelopeError::ManifestMalformed(e.to_string()))?;
 
     let identity_pub_bytes = decode_hex(&manifest.identity_pub)
@@ -697,11 +1046,9 @@ pub fn open_envelope(
     for item in &manifest.items {
         let hash = decode_hex(&item.content_hash)
             .ok_or_else(|| EnvelopeError::ManifestMalformed("content_hash hex".into()))?;
-        if hash.len() != 32 {
-            return Err(EnvelopeError::ManifestMalformed(
-                "content_hash length".into(),
-            ));
-        }
+        let hash: [u8; 32] = hash
+            .try_into()
+            .map_err(|_| EnvelopeError::ManifestMalformed("content_hash length".into()))?;
         items_meta.push((item.rel_path.as_str(), item.size, hash));
     }
     let items_meta_refs: Vec<(&str, u64, &[u8])> = items_meta
@@ -720,12 +1067,8 @@ pub fn open_envelope(
 
     let sig_bytes = decode_hex(&manifest.signature).ok_or(EnvelopeError::SignatureInvalid)?;
     let signature = Signature::from_bytes(sig_bytes);
-
-    let verifying_key = match parse_verifying_key(&identity_pub) {
-        Ok(k) => k,
-        Err(_) => return Err(EnvelopeError::SignatureInvalid),
-    };
-
+    let verifying_key =
+        parse_verifying_key(&identity_pub).map_err(|_| EnvelopeError::SignatureInvalid)?;
     if !signature_verifies(
         &verifying_key,
         DomainTag::DeferredDelivery,
@@ -746,10 +1089,11 @@ pub fn open_envelope(
         .map_err(|e| EnvelopeError::ManifestMalformed(e.to_string()))?;
     let kb_sig_bytes = decode_hex(&manifest.key_binding.signature)
         .ok_or_else(|| EnvelopeError::ManifestMalformed("key_binding signature hex".into()))?;
-    let kb_sig = Signature::from_bytes(kb_sig_bytes);
-    let kb_not_after = UnixTime::from_secs(manifest.key_binding.not_after);
-    let binding = KeyBinding::new(kb_agreement, kb_sig, kb_not_after);
-
+    let binding = KeyBinding::new(
+        kb_agreement,
+        Signature::from_bytes(kb_sig_bytes),
+        UnixTime::from_secs(manifest.key_binding.not_after),
+    );
     verify_key_binding(
         &identity_pub,
         &binding,
@@ -760,7 +1104,6 @@ pub fn open_envelope(
 
     let created_secs = manifest.created_at;
     let now_secs = now.as_secs();
-
     if created_secs < now_secs - THIRTY_DAYS_SECS || created_secs > now_secs + THREE_HUNDRED_SECS {
         return Err(EnvelopeError::CreatedAtOutOfRange {
             created_at: UnixTime::from_secs(created_secs),
@@ -780,57 +1123,100 @@ pub fn open_envelope(
         Err(e) => return Err(EnvelopeError::AttestationRefused(e)),
     };
 
-    let mut expected_total: u64 = 0;
-    for item in &manifest.items {
-        expected_total = match expected_total.checked_add(item.size) {
-            Some(t) => t,
-            None => return Err(EnvelopeError::ItemSizeMismatch),
-        };
-    }
-    if data_plaintexts.len() as u64 != expected_total {
-        return Err(EnvelopeError::ItemSizeMismatch);
-    }
-
-    let mut contents = Vec::with_capacity(manifest.items.len());
-    let mut envelope_items = Vec::with_capacity(manifest.items.len());
-    let mut offset = 0usize;
-
-    for (idx, item_wire) in manifest.items.iter().enumerate() {
-        let size = match usize::try_from(item_wire.size) {
-            Ok(s) => s,
-            Err(_) => return Err(EnvelopeError::ItemSizeMismatch),
-        };
-        if offset
-            .checked_add(size)
-            .is_none_or(|end| end > data_plaintexts.len())
-        {
-            return Err(EnvelopeError::ItemSizeMismatch);
-        }
-        let slice = &data_plaintexts[offset..offset + size];
-        offset += size;
-
-        let hash: [u8; 32] = blake3::hash(slice).into();
-        let expected_hash = &items_meta[idx].2;
-        if hash != expected_hash.as_slice() {
-            return Err(EnvelopeError::ContentHashMismatch);
-        }
-
-        let rel_path = RelPath::new(&item_wire.rel_path)
+    let mut items = Vec::with_capacity(manifest.items.len());
+    let mut declared: u64 = 0;
+    for (wire, (_, _, hash)) in manifest.items.iter().zip(&items_meta) {
+        declared = declared
+            .checked_add(wire.size)
+            .ok_or(EnvelopeError::ItemSizeMismatch)?;
+        let rel_path = RelPath::new(&wire.rel_path)
             .map_err(|e| EnvelopeError::ManifestMalformed(e.to_string()))?;
-        envelope_items.push(EnvelopeItem::new(
+        items.push(EnvelopeItem::new(
             rel_path,
-            item_wire.size,
-            ContentHash::from_bytes(hash),
+            wire.size,
+            ContentHash::from_bytes(*hash),
         ));
-        contents.push(slice.to_vec());
     }
 
-    Ok(OpenedEnvelope {
+    Ok(OpenedManifest {
         transfer_id,
         sender: sender_identity,
         created_at: UnixTime::from_secs(created_secs),
         tier,
-        items: envelope_items,
+        items,
+    })
+}
+
+/// Seals items into an encrypted Deferred Delivery envelope for `recipient`.
+pub fn seal_envelope(
+    recipient: &PublicIdentity,
+    sender: &EnvelopeSender,
+    key_store: &dyn KeyStore,
+    rng: &dyn Rng,
+    transfer_id: TransferId,
+    created_at: UnixTime,
+    items: &[(EnvelopeItem, &[u8])],
+) -> Result<Vec<u8>, EnvelopeError> {
+    for (item, bytes) in items {
+        if u64::try_from(bytes.len()).ok() != Some(item.size()) {
+            return Err(EnvelopeError::ItemSizeMismatch);
+        }
+    }
+    let metas: Vec<EnvelopeItem> = items.iter().map(|(it, _)| it.clone()).collect();
+    let (mut writer, mut out) = EnvelopeWriter::new(
+        recipient,
+        sender,
+        key_store,
+        rng,
+        transfer_id,
+        created_at,
+        metas,
+    )?;
+    out.reserve(usize::try_from(writer.total_len()).unwrap_or(0));
+    for (_, bytes) in items {
+        out.extend(writer.push(bytes)?);
+    }
+    out.extend(writer.finish()?);
+    Ok(out)
+}
+
+/// Opens, verifies, and decrypts a Deferred Delivery envelope.
+pub fn open_envelope(
+    bytes: &[u8],
+    recipient: &PublicIdentity,
+    agree: &dyn Fn(&PublicKeyPoint) -> Result<SharedSecret, KeyStoreError>,
+    now: UnixTime,
+    verify_attestation: &dyn Fn(&str, &PublicIdentity, UnixTime) -> Result<TrustTier, String>,
+) -> Result<OpenedEnvelope, EnvelopeError> {
+    let header = parse_outer_header(bytes)?;
+    if header.total_len != bytes.len() as u64 {
+        return Err(EnvelopeError::TotalLengthMismatch {
+            expected: header.total_len,
+            actual: bytes.len() as u64,
+        });
+    }
+
+    let mut reader = EnvelopeReader::new(recipient, agree, now, verify_attestation);
+    let mut contents: Vec<Vec<u8>> = Vec::new();
+    for event in reader.feed(bytes)? {
+        match event {
+            ReaderEvent::Manifest(m) => contents = vec![Vec::new(); m.items().len()],
+            ReaderEvent::ItemData { index, bytes } => {
+                contents
+                    .get_mut(index)
+                    .ok_or(EnvelopeError::ItemSizeMismatch)?
+                    .extend(bytes);
+            }
+            ReaderEvent::ItemVerified { .. } => {}
+        }
+    }
+    let manifest = reader.finish()?;
+    Ok(OpenedEnvelope {
+        transfer_id: manifest.transfer_id,
+        sender: manifest.sender,
+        created_at: manifest.created_at,
+        tier: manifest.tier,
+        items: manifest.items,
         contents,
     })
 }
