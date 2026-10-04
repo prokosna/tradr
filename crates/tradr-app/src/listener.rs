@@ -39,6 +39,8 @@ use crate::transfer::{
 };
 
 const BROWSE_CLOSE_WAIT_LIMIT: Duration = Duration::from_secs(2);
+// An unauthenticated peer may not hold a connection slot indefinitely (DCR-172).
+const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(20);
 
 /// Serves a Control stream that opened with a `LinkReply` (docs/04). A
 /// listener with none refuses such a stream, which is what a device with
@@ -446,58 +448,100 @@ where
     let peer = channel.peer();
     let mut phase = ChannelPhase::BeforeStream;
 
-    let res: Result<Vec<RelPath>, ListenerError> = async {
-        // Read fresh per connection rather than trusting a value captured at
-        // startup; a device with no completed sign-in has nothing to put on
-        // the wire and must say so rather than send an empty token.
-        let our_token = params.our_attestation_token.id_token().ok_or_else(|| {
-            ListenerError::Handshake(HandshakeError::Attestation(
-                "sign in on this device before accepting a transfer".to_string(),
-            ))
-        })?;
+    enum HandshakeOutcome {
+        Session(tradr_identity::hello::Session),
+        LinkReply(LinkReply),
+    }
 
-        let (mut control_send, mut control_recv) = channel
-            .accept_bi()
-            .await
-            .map_err(ListenerError::Transport)?;
+    let (mut control_send, mut control_recv, handshake_outcome) =
+        match tokio::time::timeout(HANDSHAKE_DEADLINE, async {
+            // Read fresh per connection rather than trusting a value captured at
+            // startup; a device with no completed sign-in has nothing to put on
+            // the wire and must say so rather than send an empty token.
+            let our_token = params.our_attestation_token.id_token().ok_or_else(|| {
+                ListenerError::Handshake(HandshakeError::Attestation(
+                    "sign in on this device before accepting a transfer".to_string(),
+                ))
+            })?;
 
-        phase = ChannelPhase::Handshake;
+            let (mut control_send, mut control_recv) = channel
+                .accept_bi()
+                .await
+                .map_err(ListenerError::Transport)?;
 
-        // docs/04: the receiver reads before it writes, and only on this one
-        // frame, to decide whether this stream is an ordinary session or the
-        // no-session link exchange. Nothing is skipped to reach that decision
-        // (DCR-073): an unassigned code here names no shape at all.
-        let first_frame = read_frame(control_recv.as_mut(), channel.max_frame_size()).await?;
+            phase = ChannelPhase::Handshake;
 
-        match classify(first_frame.type_code(), Plane::Control) {
-            Classification::Known(MessageType::Hello) => {
-                let peer_hello = decode_hello_frame(&first_frame)
-                    .map_err(HandshakeError::Proto)
+            // docs/04: the receiver reads before it writes, and only on this one
+            // frame, to decide whether this stream is an ordinary session or the
+            // no-session link exchange. Nothing is skipped to reach that decision
+            // (DCR-073): an unassigned code here names no shape at all.
+            let first_frame = read_frame(control_recv.as_mut(), channel.max_frame_size()).await?;
+
+            match classify(first_frame.type_code(), Plane::Control) {
+                Classification::Known(MessageType::Hello) => {
+                    let peer_hello = decode_hello_frame(&first_frame)
+                        .map_err(HandshakeError::Proto)
+                        .map_err(ListenerError::Handshake)?;
+
+                    let handshake_params = HandshakeParams {
+                        authenticated_peer: channel.peer(),
+                        our_channel_max_frame_size: channel.max_frame_size(),
+                        our_identity: params.our_identity,
+                        our_attestation_token: our_token,
+                        our_key_binding: params.our_key_binding,
+                        our_versions: params.our_versions,
+                        our_capabilities: params.our_capabilities.get(),
+                    };
+
+                    let session = perform_handshake_after_peer_hello(
+                        control_send.as_mut(),
+                        control_recv.as_mut(),
+                        peer_hello,
+                        handshake_params,
+                        key_store,
+                        rng,
+                        clock,
+                        verify_attestation,
+                    )
+                    .await
                     .map_err(ListenerError::Handshake)?;
 
-                let handshake_params = HandshakeParams {
-                    authenticated_peer: channel.peer(),
-                    our_channel_max_frame_size: channel.max_frame_size(),
-                    our_identity: params.our_identity,
-                    our_attestation_token: our_token,
-                    our_key_binding: params.our_key_binding,
-                    our_versions: params.our_versions,
-                    our_capabilities: params.our_capabilities.get(),
-                };
+                    Ok((
+                        control_send,
+                        control_recv,
+                        HandshakeOutcome::Session(session),
+                    ))
+                }
+                Classification::Known(MessageType::LinkReply) => {
+                    let reply =
+                        decode_link_reply_frame(&first_frame).map_err(ListenerError::LinkFrame)?;
+                    Ok((
+                        control_send,
+                        control_recv,
+                        HandshakeOutcome::LinkReply(reply),
+                    ))
+                }
+                other => Err(ListenerError::ProtocolViolation(format!(
+                    "unexpected first frame on control stream: {other}"
+                ))),
+            }
+        })
+        .await
+        {
+            Ok(Ok(outcome)) => outcome,
+            Ok(Err(error)) => return Err(ChannelFailure { peer, phase, error }),
+            Err(_) => {
+                return Err(ChannelFailure {
+                    peer,
+                    phase,
+                    error: ListenerError::Transport(TransportError::TimedOut),
+                });
+            }
+        };
 
-                let session = perform_handshake_after_peer_hello(
-                    control_send.as_mut(),
-                    control_recv.as_mut(),
-                    peer_hello,
-                    handshake_params,
-                    key_store,
-                    rng,
-                    clock,
-                    verify_attestation,
-                )
-                .await
-                .map_err(ListenerError::Handshake)?;
-
+    let res: Result<Vec<RelPath>, ListenerError> = async {
+        match handshake_outcome {
+            HandshakeOutcome::Session(session) => {
                 phase = ChannelPhase::Offer;
 
                 tokio::select! {
@@ -656,10 +700,9 @@ where
                     }
                 }
             }
-            Classification::Known(MessageType::LinkReply) => {
+            HandshakeOutcome::LinkReply(reply) => {
                 phase = ChannelPhase::LinkExchange;
 
-                let reply = decode_link_reply_frame(&first_frame).map_err(ListenerError::LinkFrame)?;
                 let service = link_service.ok_or_else(|| {
                     ListenerError::ProtocolViolation("no invite is open on this device".to_string())
                 })?;
@@ -677,9 +720,6 @@ where
                 serve_res.map_err(ListenerError::LinkExchange)?;
                 Ok(Vec::new())
             }
-            other => Err(ListenerError::ProtocolViolation(format!(
-                "unexpected first frame on control stream: {other}"
-            ))),
         }
     }
     .await;
