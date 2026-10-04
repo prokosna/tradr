@@ -4,12 +4,13 @@
 //! builds one of these and calls `classify` instead. No cryptography of
 //! its own: `tradr_identity::verify_attestation` already runs every step.
 
+use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use tradr_core::{BoxFuture, Clock, DeviceId, PublicKeyPoint, TrustTier};
+use tradr_core::{BoxFuture, Clock, DeviceId, Monotonic, PublicKeyPoint, TrustTier, UnixTime};
 use tradr_identity::{
     AccountId, AttestationPolicy, JwksCache, LinkPolicy, LinkVerification, ProviderProfile,
-    Verification, verify_attestation, verify_link_attestation,
+    SystemClock, Verification, verify_attestation, verify_link_attestation,
 };
 use tradr_oidc::fetch_jwks;
 
@@ -39,6 +40,44 @@ impl JwksFetch for HttpsJwksFetch {
 pub trait OwnAttestation: Send + Sync {
     /// This device's own `id_token`, or `None` before a sign-in completes.
     fn id_token(&self) -> Option<String>;
+}
+
+/// Why `PeerTrust::classify_cached` gave no tier.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassifyCachedError {
+    /// The token names a key the cache lacks; `PeerTrust::warm` this uri and ask again.
+    JwksNeeded {
+        /// The provider's `jwks_uri`.
+        jwks_uri: String,
+    },
+    /// One of docs/05's steps refused the token.
+    Refused(String),
+}
+
+impl fmt::Display for ClassifyCachedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::JwksNeeded { .. } => write!(f, "the provider's keys are not cached"),
+            Self::Refused(reason) => write!(f, "{reason}"),
+        }
+    }
+}
+
+impl std::error::Error for ClassifyCachedError {}
+
+// Judges staleness at a time the caller chose; only the refetch budget reads the monotonic half.
+struct PinnedClock {
+    wall: UnixTime,
+}
+
+impl Clock for PinnedClock {
+    fn now(&self) -> UnixTime {
+        self.wall
+    }
+
+    fn monotonic_now(&self) -> Monotonic {
+        SystemClock.monotonic_now()
+    }
 }
 
 /// Classifies a peer's Attestation into a `TrustTier`, holding the JWKS
@@ -163,6 +202,44 @@ impl PeerTrust {
         };
 
         Ok(tier)
+    }
+
+    /// Runs docs/05's seven steps against `token` from the cache alone, judging
+    /// staleness at `at` rather than now. A missing key is answered with
+    /// `JwksNeeded` instead of a fetch, so a caller without an async context
+    /// (an envelope reader's callback) can fetch between attempts.
+    pub fn classify_cached(
+        &self,
+        token: &str,
+        identity_pub: &PublicKeyPoint,
+        agreement_pub: &PublicKeyPoint,
+        own_account: &AccountId,
+        linked_accounts: &[AccountId],
+        at: UnixTime,
+    ) -> Result<TrustTier, ClassifyCachedError> {
+        let policy = AttestationPolicy {
+            profiles: std::slice::from_ref(&self.profile),
+            own_account,
+            linked_accounts,
+            staleness_limit_secs: STALENESS_LIMIT_SECS,
+            future_skew_limit_secs: FUTURE_SKEW_LIMIT_SECS,
+            ephemeral_receive: false,
+        };
+        let mut cache = self.lock_cache();
+        match verify_attestation(
+            &policy,
+            &mut cache,
+            token,
+            identity_pub,
+            agreement_pub,
+            &PinnedClock { wall: at },
+        ) {
+            Ok(Verification::Verified(tier)) => Ok(tier),
+            Ok(Verification::JwksNeeded { jwks_uri }) => {
+                Err(ClassifyCachedError::JwksNeeded { jwks_uri })
+            }
+            Err(e) => Err(ClassifyCachedError::Refused(e.to_string())),
+        }
     }
 
     /// Runs docs/05's steps 1 to 5 against `token`, joined to `authenticated`

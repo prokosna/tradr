@@ -5701,6 +5701,7 @@ dependencies = [
  "hostname",
  "mdns-sd",
  "open",
+ "p256",
  "rsa",
  "serde",
  "serde_json",
