@@ -2,6 +2,8 @@
 
 ## Where it stands
 
+> **What M9 builds is the Deferred Delivery part only, decided 2026-10-03 by DCR-173: see [docs/13](13-deferred-delivery.md).** The Brokr runs inside the tailnet, over HTTP with polling rather than the WebSocket below; rendezvous, relay, FCM, linking through a Brokr and the revocation list stay designed here and unbuilt.
+
 A Brokr is designed on the premise that **Tradr works without one**. CI holds that premise up by continuously verifying that every Tier 0 and Tier 1 integration test passes with no Brokr running.
 
 ### What it adds

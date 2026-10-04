@@ -130,6 +130,8 @@ M5 is cheap and resolves UC-6, so **it comes before M6 and M7**.
 
 ### M9 — Brokr (3 weeks)
 
+> **Cut 2026-10-03 by DCR-173 to Deferred Delivery alone**, at the person's request, with the Brokr inside the tailnet and deliveries held 30 days: [docs/13](13-deferred-delivery.md). The list below is the whole Brokr, and its other items move to a later milestone. **Done when**: a file sent to an offline device of the same account is collected and placed when that device next runs, with the Brokr compromised in no way that can read or forge it, and every Tier 0 and Tier 1 test still passes with the Brokr stopped.
+
 - Fastify and SQLite, WebSocket presence registry
 - Registration by join token and challenge signature
 - Rendezvous and NAT hole punching
