@@ -103,12 +103,13 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 			;;
 	esac
 
-	# Check 3b: reqwest confinement (DCR-024, Critical Module tradr-oidc)
-	if [ "$m" != "crates/tradr-oidc/Cargo.toml" ]; then
+	# Check 3b: reqwest confinement (DCR-024, Critical Module tradr-oidc;
+	# DCR-174 admits tradr-app for the Brokr client's HTTP adapter)
+	if [ "$m" != "crates/tradr-oidc/Cargo.toml" ] && [ "$m" != "crates/tradr-app/Cargo.toml" ]; then
 		awk '/^[ \t]*"?reqwest(-[A-Za-z0-9_]+)?"?[ \t]*=/ { print FNR }' "$m" \
 			| while IFS= read -r ln; do
 				[ -n "$ln" ] || continue
-				echo "$m:$ln: only tradr-oidc may name reqwest (DCR-024)" >> "$TMP_HITS"
+				echo "$m:$ln: only tradr-oidc and tradr-app may name reqwest (DCR-024, DCR-174)" >> "$TMP_HITS"
 			done
 	fi
 
@@ -165,6 +166,15 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 		done
 	fi
 done
+
+# Check 3b, source half: inside tradr-app only the Brokr HTTP adapter names reqwest (DCR-174)
+if [ -d crates/tradr-app/src ]; then
+	grep -rn --include='*.rs' 'reqwest' crates/tradr-app/src 2> /dev/null \
+		| while IFS=: read -r hit_path hit_line _; do
+			[ "$hit_path" != "crates/tradr-app/src/brokr/http.rs" ] || continue
+			echo "$hit_path:$hit_line: only crates/tradr-app/src/brokr/http.rs may name reqwest inside tradr-app (DCR-174)" >> "$TMP_HITS"
+		done
+fi
 
 unsuppressed=""
 if [ -s "$TMP_HITS" ]; then

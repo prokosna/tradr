@@ -745,8 +745,9 @@ enum Stage {
     Done,
 }
 
-type AgreeFn<'a> = &'a dyn Fn(&PublicKeyPoint) -> Result<SharedSecret, KeyStoreError>;
-type AttestFn<'a> = &'a dyn Fn(&str, &PublicIdentity, UnixTime) -> Result<TrustTier, String>;
+type AgreeFn<'a> = &'a (dyn Fn(&PublicKeyPoint) -> Result<SharedSecret, KeyStoreError> + Sync);
+type AttestFn<'a> =
+    &'a (dyn Fn(&str, &PublicIdentity, UnixTime) -> Result<TrustTier, String> + Sync);
 
 /// Opens a Deferred Delivery envelope from bytes fed in arbitrary slices.
 pub struct EnvelopeReader<'a> {
@@ -1184,9 +1185,11 @@ pub fn seal_envelope(
 pub fn open_envelope(
     bytes: &[u8],
     recipient: &PublicIdentity,
-    agree: &dyn Fn(&PublicKeyPoint) -> Result<SharedSecret, KeyStoreError>,
+    agree: &(dyn Fn(&PublicKeyPoint) -> Result<SharedSecret, KeyStoreError> + Sync),
     now: UnixTime,
-    verify_attestation: &dyn Fn(&str, &PublicIdentity, UnixTime) -> Result<TrustTier, String>,
+    verify_attestation: &(
+         dyn Fn(&str, &PublicIdentity, UnixTime) -> Result<TrustTier, String> + Sync
+     ),
 ) -> Result<OpenedEnvelope, EnvelopeError> {
     let header = parse_outer_header(bytes)?;
     if header.total_len != bytes.len() as u64 {
