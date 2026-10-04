@@ -158,7 +158,7 @@ const TLS_CERTIFICATE_VERIFY_PREFIX: [u8; TLS_CERTIFICATE_VERIFY_PREFIX_LEN] = {
 };
 
 impl DomainTag {
-    /// All six contexts, for tests and callers that must check a
+    /// All seven contexts, for tests and callers that must check a
     /// property over the whole closed set rather than over an
     /// enumeration they wrote out by hand.
     pub const ALL: &'static [DomainTag] = &[
@@ -166,6 +166,7 @@ impl DomainTag {
         Self::Hello,
         Self::BrokrChallenge,
         Self::Revoke,
+        Self::DeferredDelivery,
         Self::CertificateTbs,
         Self::TlsCertificateVerify,
     ];
@@ -466,6 +467,26 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn all_names_every_domain_tag_variant() {
+        for &tag in DomainTag::ALL {
+            match tag {
+                DomainTag::KeyBind => {}
+                DomainTag::Hello => {}
+                DomainTag::BrokrChallenge => {}
+                DomainTag::Revoke => {}
+                DomainTag::DeferredDelivery => {}
+                DomainTag::CertificateTbs => {}
+                DomainTag::TlsCertificateVerify => {}
+            }
+        }
+
+        let unique: std::collections::HashSet<_> = DomainTag::ALL.iter().copied().collect();
+        const ARMS: usize = 7;
+        assert_eq!(DomainTag::ALL.len(), ARMS);
+        assert_eq!(unique.len(), ARMS);
     }
 
     #[test]
