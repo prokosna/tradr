@@ -4330,3 +4330,513 @@ async fn send_loop_refuses_seventeen_unassigned_frames() {
         other => panic!("expected ProtocolViolation, got {other:?}"),
     }
 }
+
+#[tokio::test(start_paused = true)]
+async fn peer_that_opens_no_control_stream_times_out_before_stream() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (
+        (_sender_store, sender_id, _sender_binding),
+        (receiver_store, receiver_id, receiver_binding),
+    ) = create_test_identities();
+
+    let (_sender_chan, listener_chan) =
+        mock_channel_pair(sender_id.device_id(), receiver_id.device_id(), MAX_FRAME);
+
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let receiver_vfs = NativeVfs::new();
+    let root_receiver = RootId::new(20);
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
+    };
+
+    let listener_rng = SeededRng::new(111);
+
+    let start = tokio::time::Instant::now();
+    let res = handle_incoming_channel(
+        &listener_chan,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+    )
+    .await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed >= std::time::Duration::from_secs(20)
+            && elapsed < std::time::Duration::from_secs(21),
+        "expected elapsed time in [20s, 21s), got {elapsed:?}"
+    );
+
+    let failure = res.expect_err("peer opening no control stream must time out");
+    assert_eq!(failure.peer, sender_id.device_id());
+    assert_eq!(failure.phase, ChannelPhase::BeforeStream);
+    assert!(
+        matches!(
+            failure.error,
+            ListenerError::Transport(TransportError::TimedOut)
+        ),
+        "expected Transport(TimedOut), got {:?}",
+        failure.error
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn peer_that_sends_no_hello_times_out_during_handshake() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (
+        (_sender_store, sender_id, _sender_binding),
+        (receiver_store, receiver_id, receiver_binding),
+    ) = create_test_identities();
+
+    let (sender_chan, listener_chan) =
+        mock_channel_pair(sender_id.device_id(), receiver_id.device_id(), MAX_FRAME);
+
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let receiver_vfs = NativeVfs::new();
+    let root_receiver = RootId::new(20);
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
+    };
+
+    let listener_rng = SeededRng::new(111);
+
+    // Peer opens the control stream and sends nothing.
+    let (_sender_ctrl_send, _sender_ctrl_recv) = sender_chan.open_bi().await.unwrap();
+
+    let start = tokio::time::Instant::now();
+    let res = handle_incoming_channel(
+        &listener_chan,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+    )
+    .await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed >= std::time::Duration::from_secs(20)
+            && elapsed < std::time::Duration::from_secs(21),
+        "expected elapsed time in [20s, 21s), got {elapsed:?}"
+    );
+
+    let failure = res.expect_err("peer sending nothing must time out");
+    assert_eq!(failure.peer, sender_id.device_id());
+    assert_eq!(failure.phase, ChannelPhase::Handshake);
+    assert!(
+        matches!(
+            failure.error,
+            ListenerError::Transport(TransportError::TimedOut)
+        ),
+        "expected Transport(TimedOut), got {:?}",
+        failure.error
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn peer_idle_after_handshake_is_not_timed_out() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (
+        (sender_store, sender_id, sender_binding),
+        (receiver_store, receiver_id, receiver_binding),
+    ) = create_test_identities();
+
+    let (sender_chan, listener_chan) =
+        mock_channel_pair(sender_id.device_id(), receiver_id.device_id(), MAX_FRAME);
+
+    let sender_dir = tempfile::tempdir().expect("sender tempdir");
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let sender_vfs = NativeVfs::new();
+    let receiver_vfs = NativeVfs::new();
+    let root_sender = RootId::new(10);
+    let root_receiver = RootId::new(20);
+    sender_vfs
+        .register_root(root_sender, sender_dir.path().to_path_buf(), false)
+        .unwrap();
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let file_content = b"content after handshake pause";
+    std::fs::write(sender_dir.path().join("doc.txt"), file_content).unwrap();
+    let (_, file_hash) = outboard(file_content);
+    let transfer_id = sample_transfer(VALID_V7_A);
+    let item_id = ItemId::new("doc_item").unwrap();
+    let rel_path = RelPath::new("doc.txt").unwrap();
+    let offer_item = OfferItem::new(
+        item_id,
+        rel_path.clone(),
+        file_content.len() as u64,
+        file_hash,
+    )
+    .unwrap();
+    let offer = TransferOffer::new(
+        transfer_id,
+        vec![offer_item],
+        file_content.len() as u64,
+        None,
+        None,
+    )
+    .unwrap();
+
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
+    };
+
+    let listener_rng = SeededRng::new(111);
+    let sender_rng = SeededRng::new(222);
+
+    let (mut sender_ctrl_send, mut sender_ctrl_recv) = sender_chan.open_bi().await.unwrap();
+
+    let sender_params = HandshakeParams {
+        authenticated_peer: receiver_id.device_id(),
+        our_channel_max_frame_size: MAX_FRAME,
+        our_identity: &sender_id,
+        our_attestation_token: "mock-token-sender".to_string(),
+        our_key_binding: sender_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Capabilities::empty(),
+    };
+
+    let listener_fut = handle_incoming_channel(
+        &listener_chan,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+    );
+    tokio::pin!(listener_fut);
+
+    let sender_handshake_fut = perform_handshake(
+        sender_ctrl_send.as_mut(),
+        sender_ctrl_recv.as_mut(),
+        sender_params,
+        &sender_store,
+        &sender_rng,
+        &clock,
+        |_| async { Ok(TrustTier::SameAccount) },
+    );
+
+    let (sender_session, ()) = tokio::select! {
+        res = sender_handshake_fut => (res.unwrap(), ()),
+        res = &mut listener_fut => panic!("listener completed early: {res:?}"),
+    };
+
+    // The peer has completed the handshake and now sends no offer for 60 seconds of paused time.
+    let timeout_res =
+        tokio::time::timeout(std::time::Duration::from_secs(60), &mut listener_fut).await;
+    assert!(
+        timeout_res.is_err(),
+        "handler must still be running after 60 seconds without offer"
+    );
+
+    let sender_transfer_task = async {
+        let offer_bytes =
+            encode_transfer_offer_frame(&offer, sender_session.peer_max_frame_size()).unwrap();
+        sender_ctrl_send.write_all(&offer_bytes).await.unwrap();
+
+        let accept_frame = read_frame_helper(sender_ctrl_recv.as_mut(), MAX_FRAME)
+            .await
+            .unwrap();
+        let accept = decode_transfer_accept_frame(&accept_frame).unwrap();
+        accept.for_offer(&offer).unwrap();
+
+        let (mut data_send, mut data_recv) = sender_chan.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs,
+            root_sender,
+            &rel_path,
+            sender_vfs.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
+        let send_req = SendRequest {
+            root: root_sender,
+            rel_path: &rel_path,
+            transfer_id,
+            item_id,
+            max_frame_size: sender_session
+                .peer_max_frame_size()
+                .min(sender_chan.max_frame_size()),
+            item: &prepared,
+        };
+        let mut streams = SessionStreams {
+            control_send: sender_ctrl_send.as_mut(),
+            control_recv: sender_ctrl_recv.as_mut(),
+            data_send: data_send.as_mut(),
+            data_recv: data_recv.as_mut(),
+        };
+        let send_res = send_file(&sender_vfs, &send_req, &mut streams)
+            .await
+            .unwrap();
+        assert!(send_res);
+
+        sender_ctrl_send.finish().await.unwrap();
+        drop(sender_ctrl_send);
+        drop(sender_ctrl_recv);
+        drop(data_send);
+        drop(data_recv);
+    };
+
+    let ((), placed) = tokio::join!(sender_transfer_task, async { listener_fut.await.unwrap() });
+
+    assert_eq!(placed.len(), 1);
+    assert_eq!(placed[0].as_str(), "doc.txt");
+    let received = std::fs::read(receiver_dir.path().join("doc.txt")).unwrap();
+    assert_eq!(received, file_content);
+}
+
+#[tokio::test(start_paused = true)]
+async fn eight_stalled_peers_do_not_block_ninth_transfer_after_deadline() {
+    let clock = FakeClock {
+        now: UnixTime::from_secs(NOW),
+    };
+    let (_sender_default, (receiver_store, receiver_id, receiver_binding)) =
+        create_test_identities();
+
+    let mut senders = Vec::new();
+    for i in 0..9 {
+        let rng = SeededRng::new(5000 + i as u64);
+        let store = SoftwareKeyStore::generate(&rng).expect("generate store");
+        let id = store.public_identity().expect("public identity");
+        let sig = store
+            .sign(DomainTag::KeyBind, id.agreement_pub().as_bytes())
+            .expect("sign keybind");
+        let bind = KeyBinding::new(id.agreement_pub().clone(), sig, UnixTime::from_secs(LATER));
+        senders.push((store, id, bind));
+    }
+
+    let (incoming_tx, incoming_rx) = tokio::sync::mpsc::channel(16);
+    let mut incoming = MockIncoming {
+        channels: incoming_rx,
+    };
+
+    let mut sender_chans = Vec::new();
+    for (_, id, _) in &senders {
+        let (sender_chan, listener_chan) =
+            mock_channel_pair(id.device_id(), receiver_id.device_id(), MAX_FRAME);
+        sender_chans.push(sender_chan);
+        incoming_tx
+            .send(Box::new(listener_chan) as Box<dyn SecureChannel>)
+            .await
+            .unwrap();
+    }
+
+    let receiver_dir = tempfile::tempdir().expect("receiver tempdir");
+    let receiver_vfs = NativeVfs::new();
+    let root_receiver = RootId::new(60);
+    receiver_vfs
+        .register_root(root_receiver, receiver_dir.path().to_path_buf(), false)
+        .unwrap();
+
+    let listener_params = ListenerParams {
+        root: root_receiver,
+        our_identity: &receiver_id,
+        our_attestation_token: Arc::new(FixedAttestation("mock-token-receiver".to_string())),
+        our_key_binding: receiver_binding,
+        our_versions: VersionRange::new(1, 1).unwrap(),
+        our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
+        browse_access: Arc::new(BrowseAccess::new()),
+    };
+
+    let listener_rng = SeededRng::new(8888);
+
+    // Eight peers open control stream and send no Hello.
+    let mut stalled_streams = Vec::new();
+    for chan in &sender_chans[..8] {
+        let (ctrl_send, ctrl_recv) = chan.open_bi().await.unwrap();
+        stalled_streams.push((ctrl_send, ctrl_recv));
+    }
+
+    // Ninth peer config for a real transfer.
+    let (sender_store_9, sender_id_9, sender_binding_9) = senders.pop().unwrap();
+    let sender_chan_9 = sender_chans.pop().unwrap();
+    let sender_dir_9 = tempfile::tempdir().expect("sender tempdir");
+    let sender_vfs_9 = NativeVfs::new();
+    let root_sender_9 = RootId::new(70);
+    sender_vfs_9
+        .register_root(root_sender_9, sender_dir_9.path().to_path_buf(), false)
+        .unwrap();
+
+    let file_content = b"ninth transfer succeeds";
+    std::fs::write(sender_dir_9.path().join("ninth.bin"), file_content).unwrap();
+    let (_, file_hash) = outboard(file_content);
+    let transfer_id_9 = sample_transfer(VALID_V7_B);
+    let item_id_9 = ItemId::new("ninth_item").unwrap();
+    let rel_9 = RelPath::new("ninth.bin").unwrap();
+    let offer_item_9 = OfferItem::new(
+        item_id_9,
+        rel_9.clone(),
+        file_content.len() as u64,
+        file_hash,
+    )
+    .unwrap();
+    let offer_9 = TransferOffer::new(
+        transfer_id_9,
+        vec![offer_item_9],
+        file_content.len() as u64,
+        None,
+        None,
+    )
+    .unwrap();
+    let sender_rng_9 = SeededRng::new(9999);
+
+    let (arrived_tx, arrived_rx) = tokio::sync::oneshot::channel::<Vec<RelPath>>();
+    let arrived_tx = Arc::new(Mutex::new(Some(arrived_tx)));
+    let on_arrival = move |_from, paths: &[RelPath]| {
+        if let Some(tx) = arrived_tx.lock().unwrap().take() {
+            tx.send(paths.to_vec()).ok();
+        }
+    };
+
+    let listener_task = listen_for_transfers(
+        &mut incoming,
+        &receiver_vfs,
+        listener_params,
+        &receiver_store,
+        &listener_rng,
+        &clock,
+        &BaoVerifier,
+        |_| async { Ok(TrustTier::SameAccount) },
+        None,
+        None,
+        Some(&on_arrival),
+    );
+
+    let receiver_peer = receiver_id.device_id();
+    let sender_9_task = async move {
+        let (mut sender_ctrl_send, mut sender_ctrl_recv) =
+            sender_chan_9.open_bi().await.expect("open ctrl bi");
+        let sender_params = HandshakeParams {
+            authenticated_peer: receiver_peer,
+            our_channel_max_frame_size: MAX_FRAME,
+            our_identity: &sender_id_9,
+            our_attestation_token: "mock-token-sender".to_string(),
+            our_key_binding: sender_binding_9,
+            our_versions: VersionRange::new(1, 1).unwrap(),
+            our_capabilities: Capabilities::empty(),
+        };
+        let sender_session = perform_handshake(
+            sender_ctrl_send.as_mut(),
+            sender_ctrl_recv.as_mut(),
+            sender_params,
+            &sender_store_9,
+            &sender_rng_9,
+            &clock,
+            |_| async { Ok(TrustTier::SameAccount) },
+        )
+        .await
+        .expect("sender 9 handshake");
+
+        let offer_bytes =
+            encode_transfer_offer_frame(&offer_9, sender_session.peer_max_frame_size()).unwrap();
+        sender_ctrl_send.write_all(&offer_bytes).await.unwrap();
+
+        let accept_frame = read_frame_helper(sender_ctrl_recv.as_mut(), MAX_FRAME)
+            .await
+            .unwrap();
+        let accept = decode_transfer_accept_frame(&accept_frame).unwrap();
+        accept.for_offer(&offer_9).unwrap();
+
+        let (mut data_send, mut data_recv) = sender_chan_9.open_bi().await.unwrap();
+        let prepared = prepare_item(
+            &sender_vfs_9,
+            root_sender_9,
+            &rel_9,
+            sender_vfs_9.scratch_file().unwrap(),
+        )
+        .await
+        .unwrap();
+        let send_req = SendRequest {
+            root: root_sender_9,
+            rel_path: &rel_9,
+            transfer_id: transfer_id_9,
+            item_id: item_id_9,
+            max_frame_size: sender_session
+                .peer_max_frame_size()
+                .min(sender_chan_9.max_frame_size()),
+            item: &prepared,
+        };
+        let mut streams = SessionStreams {
+            control_send: sender_ctrl_send.as_mut(),
+            control_recv: sender_ctrl_recv.as_mut(),
+            data_send: data_send.as_mut(),
+            data_recv: data_recv.as_mut(),
+        };
+        let send_res = send_file(&sender_vfs_9, &send_req, &mut streams)
+            .await
+            .unwrap();
+        assert!(send_res);
+
+        sender_ctrl_send.finish().await.unwrap();
+        drop(sender_ctrl_send);
+        drop(sender_ctrl_recv);
+        drop(data_send);
+        drop(data_recv);
+    };
+
+    let (placed, _listener_res, ()) = tokio::join!(
+        async {
+            let placed = arrived_rx.await.expect("arrived rx");
+            drop(incoming_tx);
+            placed
+        },
+        async {
+            listener_task
+                .await
+                .expect("listen_for_transfers must succeed")
+        },
+        sender_9_task,
+    );
+
+    assert_eq!(placed, vec![RelPath::new("ninth.bin").unwrap()]);
+    let received = std::fs::read(receiver_dir.path().join("ninth.bin")).unwrap();
+    assert_eq!(received, file_content);
+    drop(stalled_streams);
+}
