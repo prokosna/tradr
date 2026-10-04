@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M8-065b`** (DCR-172, 20 seconds to a finished handshake), next. `WI-M8-065a` landed 2026-10-04. **The M9 design (DCR-173: docs/13, ADR-0025) is drafted and held in the session scratchpad; it is committed after `WI-M8-065b`.**
+- **`WI-M8-065b`** (DCR-172, 20 seconds to a finished handshake), next. `WI-M8-065a` landed 2026-10-04. **The M9 design (docs/13, ADR-0025) is drafted and held in the session scratchpad; it is committed after `WI-M8-065b`.**
 
 **For the next UI Work Item: the preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
