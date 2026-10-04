@@ -130,6 +130,8 @@ pub enum DomainTag {
     BrokrChallenge,
     /// Declares a device revoked.
     Revoke,
+    /// Authenticates a parked transfer's manifest: DeferredDelivery.
+    DeferredDelivery,
     /// Signs the self-signed TLS certificate's `TBSCertificate`: X.509
     /// fixes that structure, so no tag can be prepended to it.
     CertificateTbs,
@@ -175,6 +177,7 @@ impl DomainTag {
             Self::Hello => Separation::Prepended(b"tradr-hello-v1"),
             Self::BrokrChallenge => Separation::Prepended(b"tradr-brokr-v1"),
             Self::Revoke => Separation::Prepended(b"tradr-revoke-v1"),
+            Self::DeferredDelivery => Separation::Prepended(b"tradr-deferred-v1"),
             Self::CertificateTbs => Separation::Required(&[0x30]),
             Self::TlsCertificateVerify => Separation::Required(&TLS_CERTIFICATE_VERIFY_PREFIX),
         }
@@ -432,6 +435,10 @@ mod tests {
             DomainTag::Revoke.separation(),
             Separation::Prepended(b"tradr-revoke-v1")
         );
+        assert_eq!(
+            DomainTag::DeferredDelivery.separation(),
+            Separation::Prepended(b"tradr-deferred-v1")
+        );
     }
 
     #[test]
@@ -441,6 +448,7 @@ mod tests {
             DomainTag::Hello,
             DomainTag::BrokrChallenge,
             DomainTag::Revoke,
+            DomainTag::DeferredDelivery,
         ];
 
         for a in tags {
