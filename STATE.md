@@ -6,7 +6,7 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.** `branch`, `work_items_landed`, and `last_commit` are no longer declared here — see [docs/10](docs/10-implementation-process.md#the-yaml-header--what-is-in-it-and-what-was-removed-dcr-060) for the one-command equivalents.
 
 ```yaml
-last_updated: 2026-10-04
+last_updated: 2026-10-05
 phase: implementing
 current_milestone: M8
 implementation_started: true
@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M9-005`** (the Brokr's deliveries), next. `WI-M9-001` to `WI-M9-004` landed 2026-10-04. M9 is designed by DCR-173 ([docs/13](docs/13-deferred-delivery.md)).
+- **`WI-M9-006`** (the device's Brokr client), next. `WI-M9-001` to `WI-M9-005` landed 2026-10-05. M9 is designed by DCR-173 ([docs/13](docs/13-deferred-delivery.md)).
 
 **For the next UI Work Item: the preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
@@ -100,7 +100,6 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M9-005 | **The Brokr's deliveries**: upload, inbox, download, acknowledge, outbox, the grouping rule, limits and the expiry sweep | planned | |
 | WI-M9-006 | **The device's Brokr client** in `tradr-app`: register, collect (start, foreground, every 5 minutes), send to an offline known device, outbox status | planned | |
 | WI-M9-007 | **The interface**: Brokr settings, offline known devices in the list, "will deliver when it's back", waiting / delivered / expired | planned | |
 | WI-M9-008 | **A container image** for the Brokr and its setup notes | planned | |

@@ -5,7 +5,12 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { blake3 } from "@noble/hashes/blake3.js";
 import { describe, expect, it } from "vitest";
-import { buildServer, resolveSession } from "../src/index.js";
+import {
+	buildServer,
+	loadConfigFromEnv,
+	resolveSession,
+	sweepDeliveries,
+} from "../src/index.js";
 
 function generateTestDevice(): {
 	publicKeyHex: string;
@@ -39,6 +44,55 @@ function signChallenge(privateKey: crypto.KeyObject, nonceHex: string): string {
 			dsaEncoding: "ieee-p1363",
 		})
 		.toString("hex");
+}
+
+async function registerTestDevice(
+	server: ReturnType<typeof buildServer>,
+	device: ReturnType<typeof generateTestDevice>,
+	params: {
+		accountTag?: string;
+		linkTags?: string[];
+		joinToken?: string;
+	} = {},
+): Promise<string> {
+	const chalRes = await server.inject({
+		method: "POST",
+		url: "/v1/challenge",
+	});
+	const { nonce } = chalRes.json() as { nonce: string };
+	const signature = signChallenge(device.privateKey, nonce);
+
+	const regRes = await server.inject({
+		method: "POST",
+		url: "/v1/register",
+		payload: {
+			device_id: device.deviceIdHex,
+			identity_pub: device.publicKeyHex,
+			join_token: params.joinToken ?? "test-token",
+			account_tag: params.accountTag ?? "00".repeat(32),
+			link_tags: params.linkTags ?? [],
+			nonce,
+			signature,
+		},
+	});
+	return (regRes.json() as { session: string }).session;
+}
+
+function buildEnvelope(
+	senderDeviceIdHex: string,
+	recipientDeviceIdHex: string,
+	payloadBytes: Buffer,
+	version = 1,
+	overrideTotalLen?: bigint,
+): Buffer {
+	const header = Buffer.alloc(106, 0);
+	header.writeUInt8(version, 0);
+	Buffer.from(recipientDeviceIdHex, "hex").copy(header, 1, 0, 16);
+	Buffer.from(senderDeviceIdHex, "hex").copy(header, 17, 0, 16);
+	Buffer.alloc(65, 0x5a).copy(header, 33, 0, 65);
+	const totalLen = overrideTotalLen ?? BigInt(106 + payloadBytes.length);
+	header.writeBigUInt64BE(totalLen, 98);
+	return Buffer.concat([header, payloadBytes]);
 }
 
 describe("Brokr HTTP Server", () => {
@@ -490,5 +544,736 @@ describe("Brokr HTTP Server", () => {
 
 		await server.close();
 		db.close();
+	});
+
+	it("reports delivery TTL and byte limits on GET /v1/info", async () => {
+		const server = buildServer({
+			joinToken: "test-token",
+			deliveryTtlDays: 14,
+			deliveryMaxBytes: 50 * 1024 * 1024,
+			storageMaxBytes: 500 * 1024 * 1024,
+		});
+		const res = await server.inject({
+			method: "GET",
+			url: "/v1/info",
+		});
+		expect(res.statusCode).toBe(200);
+		const body = res.json() as {
+			version: number;
+			account_salt: string;
+			delivery_ttl_days: number;
+			delivery_max_bytes: number;
+			storage_max_bytes: number;
+		};
+		expect(body.version).toBe(1);
+		expect(body.delivery_ttl_days).toBe(14);
+		expect(body.delivery_max_bytes).toBe(50 * 1024 * 1024);
+		expect(body.storage_max_bytes).toBe(500 * 1024 * 1024);
+		await server.close();
+	});
+
+	it("validates environment variables in loadConfigFromEnv", () => {
+		const origEnv = { ...process.env };
+		try {
+			delete process.env.BROKR_DELIVERY_MAX_BYTES;
+			delete process.env.BROKR_STORAGE_MAX_BYTES;
+			process.env.BROKR_JOIN_TOKEN = "token";
+
+			expect(() => loadConfigFromEnv()).toThrow(
+				"BROKR_DELIVERY_MAX_BYTES is required",
+			);
+
+			process.env.BROKR_DELIVERY_MAX_BYTES = "10485760";
+			expect(() => loadConfigFromEnv()).toThrow(
+				"BROKR_STORAGE_MAX_BYTES is required",
+			);
+
+			process.env.BROKR_STORAGE_MAX_BYTES = "104857600";
+			const cfg = loadConfigFromEnv();
+			expect(cfg.deliveryMaxBytes).toBe(10485760);
+			expect(cfg.storageMaxBytes).toBe(104857600);
+			expect(cfg.deliveryTtlDays).toBe(30);
+			expect(cfg.maxPendingPerSender).toBe(100);
+		} finally {
+			process.env = origEnv;
+		}
+	});
+
+	it("refuses unauthenticated requests with 401 across all delivery endpoints", async () => {
+		const server = buildServer({ joinToken: "test-token" });
+
+		const putRes = await server.inject({
+			method: "PUT",
+			url: "/v1/deliveries",
+			headers: { "content-type": "application/octet-stream" },
+			payload: Buffer.alloc(106, 0),
+		});
+		expect(putRes.statusCode).toBe(401);
+
+		const inboxRes = await server.inject({
+			method: "GET",
+			url: "/v1/deliveries/inbox",
+		});
+		expect(inboxRes.statusCode).toBe(401);
+
+		const getRes = await server.inject({
+			method: "GET",
+			url: "/v1/deliveries/some-delivery-id",
+		});
+		expect(getRes.statusCode).toBe(401);
+
+		const delRes = await server.inject({
+			method: "DELETE",
+			url: "/v1/deliveries/some-delivery-id",
+		});
+		expect(delRes.statusCode).toBe(401);
+
+		const outboxRes = await server.inject({
+			method: "GET",
+			url: "/v1/deliveries/outbox",
+		});
+		expect(outboxRes.statusCode).toBe(401);
+
+		await server.close();
+	});
+
+	it("allows same-account upload, byte-for-byte collection, acknowledgement, and outbox delivery tracking", async () => {
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "brokr-deliv-"));
+		const db = new DatabaseSync(":memory:");
+		let time = 1_700_000_000_000;
+		const server = buildServer({
+			db,
+			dataDir: tmpDir,
+			joinToken: "test-token",
+			clock: () => time,
+		});
+
+		try {
+			const sender = generateTestDevice();
+			const recipient = generateTestDevice();
+			const sharedAccount = "aa".repeat(32);
+
+			const senderSession = await registerTestDevice(server, sender, {
+				accountTag: sharedAccount,
+			});
+			const recipientSession = await registerTestDevice(server, recipient, {
+				accountTag: sharedAccount,
+			});
+
+			const payload = Buffer.from(
+				"arbitrary encrypted payload for deferred delivery",
+			);
+			const envelope = buildEnvelope(
+				sender.deviceIdHex,
+				recipient.deviceIdHex,
+				payload,
+			);
+
+			const uploadRes = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${senderSession}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: envelope,
+			});
+			expect(uploadRes.statusCode).toBe(200);
+			const { id: deliveryId } = uploadRes.json() as { id: string };
+			expect(deliveryId).toHaveLength(32);
+
+			const savedFilePath = path.join(tmpDir, "deliveries", deliveryId);
+			expect(fs.existsSync(savedFilePath)).toBe(true);
+
+			const inboxRes = await server.inject({
+				method: "GET",
+				url: "/v1/deliveries/inbox",
+				headers: { authorization: `Bearer ${recipientSession}` },
+			});
+			expect(inboxRes.statusCode).toBe(200);
+			const inboxList = inboxRes.json() as Array<{
+				id: string;
+				sender_device_id: string;
+				size: number;
+				uploaded_at: number;
+			}>;
+			expect(inboxList).toHaveLength(1);
+			const firstInbox = inboxList[0];
+			if (!firstInbox) {
+				throw new Error("Missing inbox item");
+			}
+			expect(firstInbox).toEqual({
+				id: deliveryId,
+				sender_device_id: sender.deviceIdHex,
+				size: envelope.length,
+				uploaded_at: time,
+			});
+
+			const downloadRes = await server.inject({
+				method: "GET",
+				url: `/v1/deliveries/${deliveryId}`,
+				headers: { authorization: `Bearer ${recipientSession}` },
+			});
+			expect(downloadRes.statusCode).toBe(200);
+			expect(downloadRes.headers["content-type"]).toBe(
+				"application/octet-stream",
+			);
+			expect(downloadRes.rawPayload.equals(envelope)).toBe(true);
+
+			time += 5_000;
+			const ackRes = await server.inject({
+				method: "DELETE",
+				url: `/v1/deliveries/${deliveryId}`,
+				headers: { authorization: `Bearer ${recipientSession}` },
+			});
+			expect(ackRes.statusCode).toBe(200);
+			expect(fs.existsSync(savedFilePath)).toBe(false);
+
+			const outboxRes = await server.inject({
+				method: "GET",
+				url: "/v1/deliveries/outbox",
+				headers: { authorization: `Bearer ${senderSession}` },
+			});
+			expect(outboxRes.statusCode).toBe(200);
+			const outboxList = outboxRes.json() as Array<{
+				id: string;
+				recipient_device_id: string;
+				size: number;
+				uploaded_at: number;
+				state: string;
+				collected_at: number;
+			}>;
+			expect(outboxList).toHaveLength(1);
+			const firstOutbox = outboxList[0];
+			if (!firstOutbox) {
+				throw new Error("Missing outbox item");
+			}
+			expect(firstOutbox).toEqual({
+				id: deliveryId,
+				recipient_device_id: recipient.deviceIdHex,
+				size: envelope.length,
+				uploaded_at: 1_700_000_000_000,
+				state: "delivered",
+				collected_at: time,
+			});
+
+			const secondDownload = await server.inject({
+				method: "GET",
+				url: `/v1/deliveries/${deliveryId}`,
+				headers: { authorization: `Bearer ${recipientSession}` },
+			});
+			expect(secondDownload.statusCode).toBe(404);
+
+			const secondInbox = await server.inject({
+				method: "GET",
+				url: "/v1/deliveries/inbox",
+				headers: { authorization: `Bearer ${recipientSession}` },
+			});
+			expect(secondInbox.statusCode).toBe(200);
+			expect(secondInbox.json()).toEqual([]);
+		} finally {
+			await server.close();
+			db.close();
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	it("allows linked pair sharing a link_tag and refuses unrelated pair with 403", async () => {
+		const server = buildServer({ joinToken: "test-token" });
+		try {
+			const sender = generateTestDevice();
+			const linkedRecipient = generateTestDevice();
+			const unrelatedRecipient = generateTestDevice();
+
+			const linkTag = "cc".repeat(32);
+			const senderSession = await registerTestDevice(server, sender, {
+				accountTag: "11".repeat(32),
+				linkTags: [linkTag],
+			});
+			await registerTestDevice(server, linkedRecipient, {
+				accountTag: "22".repeat(32),
+				linkTags: [linkTag],
+			});
+			await registerTestDevice(server, unrelatedRecipient, {
+				accountTag: "33".repeat(32),
+				linkTags: ["44".repeat(32)],
+			});
+
+			const payload = Buffer.from("linked transfer payload");
+			const linkedEnvelope = buildEnvelope(
+				sender.deviceIdHex,
+				linkedRecipient.deviceIdHex,
+				payload,
+			);
+			const linkedRes = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${senderSession}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: linkedEnvelope,
+			});
+			expect(linkedRes.statusCode).toBe(200);
+
+			const unrelatedEnvelope = buildEnvelope(
+				sender.deviceIdHex,
+				unrelatedRecipient.deviceIdHex,
+				payload,
+			);
+			const unrelatedRes = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${senderSession}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: unrelatedEnvelope,
+			});
+			expect(unrelatedRes.statusCode).toBe(403);
+
+			const unregisteredDeviceId = "99".repeat(16);
+			const unregEnvelope = buildEnvelope(
+				sender.deviceIdHex,
+				unregisteredDeviceId,
+				payload,
+			);
+			const unregRes = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${senderSession}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: unregEnvelope,
+			});
+			expect(unregRes.statusCode).toBe(403);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("refuses upload with 400 when sender_device_id is forged or version is invalid", async () => {
+		const server = buildServer({ joinToken: "test-token" });
+		try {
+			const sender = generateTestDevice();
+			const recipient = generateTestDevice();
+			const otherDevice = generateTestDevice();
+
+			const senderSession = await registerTestDevice(server, sender, {
+				accountTag: "aa".repeat(32),
+			});
+			await registerTestDevice(server, recipient, {
+				accountTag: "aa".repeat(32),
+			});
+
+			const payload = Buffer.from("payload");
+			const forgedEnvelope = buildEnvelope(
+				otherDevice.deviceIdHex,
+				recipient.deviceIdHex,
+				payload,
+			);
+			const forgedRes = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${senderSession}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: forgedEnvelope,
+			});
+			expect(forgedRes.statusCode).toBe(400);
+
+			const badVersionEnvelope = buildEnvelope(
+				sender.deviceIdHex,
+				recipient.deviceIdHex,
+				payload,
+				2,
+			);
+			const badVersionRes = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${senderSession}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: badVersionEnvelope,
+			});
+			expect(badVersionRes.statusCode).toBe(400);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("enforces delivery size, storage limits, and body length matches with no file left behind", async () => {
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "brokr-limits-"));
+		const server = buildServer({
+			dataDir: tmpDir,
+			joinToken: "test-token",
+			deliveryMaxBytes: 200,
+			storageMaxBytes: 300,
+		});
+
+		try {
+			const sender = generateTestDevice();
+			const recipient = generateTestDevice();
+			const session = await registerTestDevice(server, sender, {
+				accountTag: "aa".repeat(32),
+			});
+			const recipientSession = await registerTestDevice(server, recipient, {
+				accountTag: "aa".repeat(32),
+			});
+
+			const overDeliveryEnvelope = buildEnvelope(
+				sender.deviceIdHex,
+				recipient.deviceIdHex,
+				Buffer.alloc(100),
+				1,
+				201n,
+			);
+			const overDeliveryRes = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${session}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: overDeliveryEnvelope,
+			});
+			expect(overDeliveryRes.statusCode).toBe(400);
+
+			const validPayload = Buffer.alloc(50);
+			const validEnvelope1 = buildEnvelope(
+				sender.deviceIdHex,
+				recipient.deviceIdHex,
+				validPayload,
+			);
+			const upload1 = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${session}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: validEnvelope1,
+			});
+			expect(upload1.statusCode).toBe(200);
+			const { id: upload1Id } = upload1.json() as { id: string };
+
+			const validEnvelope2 = buildEnvelope(
+				sender.deviceIdHex,
+				recipient.deviceIdHex,
+				validPayload,
+			);
+			const upload2 = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${session}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: validEnvelope2,
+			});
+			expect(upload2.statusCode).toBe(413);
+
+			await server.inject({
+				method: "DELETE",
+				url: `/v1/deliveries/${upload1Id}`,
+				headers: { authorization: `Bearer ${recipientSession}` },
+			});
+
+			const deliveriesDir = path.join(tmpDir, "deliveries");
+			const filesBefore = fs.readdirSync(deliveriesDir);
+
+			const underLengthPayload = Buffer.alloc(20);
+			const underEnvelope = buildEnvelope(
+				sender.deviceIdHex,
+				recipient.deviceIdHex,
+				underLengthPayload,
+				1,
+				150n,
+			);
+			const underRes = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${session}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: underEnvelope,
+			});
+			expect(underRes.statusCode).toBe(400);
+			expect(fs.readdirSync(deliveriesDir)).toEqual(filesBefore);
+
+			const overLengthEnvelope = buildEnvelope(
+				sender.deviceIdHex,
+				recipient.deviceIdHex,
+				Buffer.alloc(50),
+				1,
+				120n,
+			);
+			const overRes = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${session}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: overLengthEnvelope,
+			});
+			expect(overRes.statusCode).toBe(400);
+			expect(fs.readdirSync(deliveriesDir)).toEqual(filesBefore);
+		} finally {
+			await server.close();
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
+	});
+
+	it("enforces the per-sender waiting deliveries cap with 429", async () => {
+		const server = buildServer({
+			joinToken: "test-token",
+			maxPendingPerSender: 2,
+		});
+
+		try {
+			const sender = generateTestDevice();
+			const recipient = generateTestDevice();
+			const senderSession = await registerTestDevice(server, sender, {
+				accountTag: "aa".repeat(32),
+			});
+			const recipientSession = await registerTestDevice(server, recipient, {
+				accountTag: "aa".repeat(32),
+			});
+
+			const envelope = buildEnvelope(
+				sender.deviceIdHex,
+				recipient.deviceIdHex,
+				Buffer.from("chunk"),
+			);
+
+			const up1 = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${senderSession}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: envelope,
+			});
+			expect(up1.statusCode).toBe(200);
+			const { id: id1 } = up1.json() as { id: string };
+
+			const up2 = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${senderSession}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: envelope,
+			});
+			expect(up2.statusCode).toBe(200);
+
+			const up3 = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${senderSession}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: envelope,
+			});
+			expect(up3.statusCode).toBe(429);
+
+			await server.inject({
+				method: "DELETE",
+				url: `/v1/deliveries/${id1}`,
+				headers: { authorization: `Bearer ${recipientSession}` },
+			});
+
+			const up3Retry = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${senderSession}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: envelope,
+			});
+			expect(up3Retry.statusCode).toBe(200);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("refuses GET and DELETE with 404 from non-recipient devices", async () => {
+		const server = buildServer({ joinToken: "test-token" });
+		try {
+			const sender = generateTestDevice();
+			const recipient = generateTestDevice();
+			const bystander = generateTestDevice();
+
+			const senderSession = await registerTestDevice(server, sender, {
+				accountTag: "aa".repeat(32),
+			});
+			await registerTestDevice(server, recipient, {
+				accountTag: "aa".repeat(32),
+			});
+			const bystanderSession = await registerTestDevice(server, bystander, {
+				accountTag: "aa".repeat(32),
+			});
+
+			const envelope = buildEnvelope(
+				sender.deviceIdHex,
+				recipient.deviceIdHex,
+				Buffer.from("private"),
+			);
+			const upRes = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${senderSession}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: envelope,
+			});
+			const { id: deliveryId } = upRes.json() as { id: string };
+
+			const bystanderGet = await server.inject({
+				method: "GET",
+				url: `/v1/deliveries/${deliveryId}`,
+				headers: { authorization: `Bearer ${bystanderSession}` },
+			});
+			expect(bystanderGet.statusCode).toBe(404);
+
+			const bystanderDel = await server.inject({
+				method: "DELETE",
+				url: `/v1/deliveries/${deliveryId}`,
+				headers: { authorization: `Bearer ${bystanderSession}` },
+			});
+			expect(bystanderDel.statusCode).toBe(404);
+
+			const senderGet = await server.inject({
+				method: "GET",
+				url: `/v1/deliveries/${deliveryId}`,
+				headers: { authorization: `Bearer ${senderSession}` },
+			});
+			expect(senderGet.statusCode).toBe(404);
+
+			const senderDel = await server.inject({
+				method: "DELETE",
+				url: `/v1/deliveries/${deliveryId}`,
+				headers: { authorization: `Bearer ${senderSession}` },
+			});
+			expect(senderDel.statusCode).toBe(404);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it("sweeps expired deliveries, deletes files, reflects in outbox, and purges rows after 30 days", async () => {
+		const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "brokr-expiry-"));
+		const db = new DatabaseSync(":memory:");
+		let time = 1_700_000_000_000;
+		const server = buildServer({
+			db,
+			dataDir: tmpDir,
+			joinToken: "test-token",
+			deliveryTtlDays: 30,
+			clock: () => time,
+		});
+
+		try {
+			const sender = generateTestDevice();
+			const recipient = generateTestDevice();
+			const senderSession = await registerTestDevice(server, sender, {
+				accountTag: "aa".repeat(32),
+			});
+			await registerTestDevice(server, recipient, {
+				accountTag: "aa".repeat(32),
+			});
+
+			const envelope = buildEnvelope(
+				sender.deviceIdHex,
+				recipient.deviceIdHex,
+				Buffer.from("expires soon"),
+			);
+			const upRes = await server.inject({
+				method: "PUT",
+				url: "/v1/deliveries",
+				headers: {
+					authorization: `Bearer ${senderSession}`,
+					"content-type": "application/octet-stream",
+				},
+				payload: envelope,
+			});
+			const { id: deliveryId } = upRes.json() as { id: string };
+			const filePath = path.join(tmpDir, "deliveries", deliveryId);
+			expect(fs.existsSync(filePath)).toBe(true);
+
+			time += 31 * 24 * 60 * 60 * 1000;
+			sweepDeliveries(db, tmpDir, time);
+
+			expect(fs.existsSync(filePath)).toBe(false);
+
+			const activeSenderSession = await registerTestDevice(server, sender, {
+				accountTag: "aa".repeat(32),
+			});
+			const activeRecipientSession = await registerTestDevice(
+				server,
+				recipient,
+				{
+					accountTag: "aa".repeat(32),
+				},
+			);
+
+			const outboxRes = await server.inject({
+				method: "GET",
+				url: "/v1/deliveries/outbox",
+				headers: { authorization: `Bearer ${activeSenderSession}` },
+			});
+			const outbox = outboxRes.json() as Array<{
+				state: string;
+				collected_at: number | null;
+			}>;
+			expect(outbox).toHaveLength(1);
+			const firstOutbox = outbox[0];
+			if (!firstOutbox) {
+				throw new Error("Missing outbox item");
+			}
+			expect(firstOutbox.state).toBe("expired");
+			expect(firstOutbox.collected_at).toBeNull();
+
+			const inboxRes = await server.inject({
+				method: "GET",
+				url: "/v1/deliveries/inbox",
+				headers: { authorization: `Bearer ${activeRecipientSession}` },
+			});
+			expect(inboxRes.json()).toEqual([]);
+
+			const getRes = await server.inject({
+				method: "GET",
+				url: `/v1/deliveries/${deliveryId}`,
+				headers: { authorization: `Bearer ${activeRecipientSession}` },
+			});
+			expect(getRes.statusCode).toBe(404);
+
+			time += 30 * 24 * 60 * 60 * 1000 + 1000;
+			sweepDeliveries(db, tmpDir, time);
+
+			const purgedSenderSession = await registerTestDevice(server, sender, {
+				accountTag: "aa".repeat(32),
+			});
+			const purgedOutbox = await server.inject({
+				method: "GET",
+				url: "/v1/deliveries/outbox",
+				headers: { authorization: `Bearer ${purgedSenderSession}` },
+			});
+			expect(purgedOutbox.json()).toEqual([]);
+		} finally {
+			await server.close();
+			db.close();
+			fs.rmSync(tmpDir, { recursive: true, force: true });
+		}
 	});
 });
