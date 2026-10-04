@@ -1,7 +1,7 @@
 //! Supervisor-authored tests for domain separation, written first.
 //! `DomainTag` decides what every identity-key signature is over, and
 //! docs/05's defence against cross-protocol signature reuse rests on the
-//! six contexts being disjoint. That was an argument in prose; these tests
+//! seven contexts being disjoint. That was an argument in prose; these tests
 //! are what make it a property. Pure, so no `KeyStore` is involved.
 
 use tradr_core::{DomainTag, Separation};
@@ -9,14 +9,15 @@ use tradr_core::{DomainTag, Separation};
 // --- The set itself -----------------------------------------------------
 
 #[test]
-fn the_closed_set_is_the_six_contexts_docs_05_lists() {
-    assert_eq!(DomainTag::ALL.len(), 6);
+fn the_closed_set_is_the_seven_contexts_docs_05_lists() {
+    assert_eq!(DomainTag::ALL.len(), 7);
 
     for tag in [
         DomainTag::KeyBind,
         DomainTag::Hello,
         DomainTag::BrokrChallenge,
         DomainTag::Revoke,
+        DomainTag::DeferredDelivery,
         DomainTag::CertificateTbs,
         DomainTag::TlsCertificateVerify,
     ] {
@@ -31,7 +32,7 @@ fn the_closed_set_is_the_six_contexts_docs_05_lists() {
 // --- Separation shapes --------------------------------------------------
 
 #[test]
-fn the_four_tagged_contexts_prepend_their_docs_05_byte_strings() {
+fn the_five_tagged_contexts_prepend_their_docs_05_byte_strings() {
     assert_eq!(
         DomainTag::KeyBind.separation(),
         Separation::Prepended(b"tradr-keybind-v1")
@@ -47,6 +48,10 @@ fn the_four_tagged_contexts_prepend_their_docs_05_byte_strings() {
     assert_eq!(
         DomainTag::Revoke.separation(),
         Separation::Prepended(b"tradr-revoke-v1")
+    );
+    assert_eq!(
+        DomainTag::DeferredDelivery.separation(),
+        Separation::Prepended(b"tradr-deferred-v1")
     );
 }
 

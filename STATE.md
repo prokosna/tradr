@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M9-004`** (`apps/brokr`: Fastify and SQLite, registration), next. `WI-M9-001` to `WI-M9-003` landed 2026-10-04. M9 is designed by DCR-173 ([docs/13](docs/13-deferred-delivery.md)).
+- **`WI-M9-004`** (`apps/brokr`: Fastify, `node:sqlite`, registration), dispatched 2026-10-04 to `agy` on Gemini 3.8 Flash from branch `wi-m9-004-brokr`. `WI-M9-001` to `WI-M9-003b` landed 2026-10-04. M9 is designed by DCR-173 ([docs/13](docs/13-deferred-delivery.md)).
 
 **For the next UI Work Item: the preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
