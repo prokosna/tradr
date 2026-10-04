@@ -235,6 +235,9 @@ async fn read_frame(
     Ok(frame)
 }
 
+// Bounding consecutive unassigned frames defends against stream holding without breaking forward compatibility (DCR-172).
+pub(crate) const MAX_CONSECUTIVE_IGNORABLE_FRAMES: u32 = 16;
+
 const MAX_PLACEMENT_ATTEMPTS: usize = 32;
 
 // Places verified partial file into destination, retrying on collision races up to 32 times.
@@ -387,6 +390,7 @@ where
     let mut read_handle = vfs.open_read(request.root, request.rel_path).await?;
     let mut chunk_buf = vec![0u8; REFERENCE_CHUNK_SIZE_BYTES as usize];
 
+    let mut consecutive_ignorable = 0u32;
     loop {
         let frame = match read_frame(streams.data_recv, request.max_frame_size).await {
             Ok(f) => f,
@@ -395,6 +399,7 @@ where
         };
         match classify(frame.type_code(), Plane::Data) {
             Classification::Known(MessageType::ChunkRequest) => {
+                consecutive_ignorable = 0;
                 let req =
                     decode_chunk_request_frame(&frame).map_err(TransferSessionError::Proto)?;
                 let from = req.from_chunk().value();
@@ -410,6 +415,7 @@ where
                 .await?;
             }
             Classification::Known(MessageType::ChunkRerequest) => {
+                consecutive_ignorable = 0;
                 let req =
                     decode_chunk_rerequest_frame(&frame).map_err(TransferSessionError::Proto)?;
                 send_chunk_pieces(
@@ -422,8 +428,17 @@ where
                 )
                 .await?;
             }
-            Classification::Known(MessageType::FlowControl) => {}
-            Classification::Ignorable => {}
+            Classification::Known(MessageType::FlowControl) => {
+                consecutive_ignorable = 0;
+            }
+            Classification::Ignorable => {
+                consecutive_ignorable += 1;
+                if consecutive_ignorable > MAX_CONSECUTIVE_IGNORABLE_FRAMES {
+                    return Err(TransferSessionError::ProtocolViolation(
+                        "more than 16 unassigned frames in a row".to_string(),
+                    ));
+                }
+            }
             Classification::Refused(e) => {
                 return Err(TransferSessionError::ProtocolViolation(e.to_string()));
             }
@@ -517,6 +532,7 @@ async fn receive_file_inner(
         }
     }
 
+    let mut consecutive_ignorable = 0u32;
     while !resumption.is_item_complete() {
         let (from_chunk, count) = match resumption.next_chunk_request(64) {
             Some(req) => req,
@@ -537,6 +553,7 @@ async fn receive_file_inner(
             let frame = read_frame(streams.data_recv, session.max_frame_size).await?;
             match classify(frame.type_code(), Plane::Data) {
                 Classification::Known(MessageType::ChunkData) => {
+                    consecutive_ignorable = 0;
                     let header = decode_chunk_data_header_frame(&frame)
                         .map_err(TransferSessionError::Proto)?;
 
@@ -628,6 +645,12 @@ async fn receive_file_inner(
                     }
                 }
                 Classification::Ignorable => {
+                    consecutive_ignorable += 1;
+                    if consecutive_ignorable > MAX_CONSECUTIVE_IGNORABLE_FRAMES {
+                        return Err(TransferSessionError::ProtocolViolation(
+                            "more than 16 unassigned frames in a row".to_string(),
+                        ));
+                    }
                     continue;
                 }
                 Classification::Known(other) => {
