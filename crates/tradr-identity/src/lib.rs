@@ -4,6 +4,7 @@
 mod attestation;
 pub mod broadcast_exchange;
 mod broadcast_key;
+pub mod envelope;
 mod google;
 pub mod hello;
 pub mod hpke;
