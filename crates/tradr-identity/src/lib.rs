@@ -6,6 +6,7 @@ pub mod broadcast_exchange;
 mod broadcast_key;
 mod google;
 pub mod hello;
+pub mod hpke;
 mod id_token;
 mod invite;
 mod jwks;
