@@ -180,6 +180,7 @@ async fn two_peers_complete_handshake_over_connected_streams() {
         our_key_binding: binding_for(&dev_a, LATER),
         our_versions: VersionRange::new(1, 2).expect("valid range"),
         our_capabilities: Capabilities::empty(),
+        known_devices: None,
     };
 
     let params_b = HandshakeParams {
@@ -190,6 +191,7 @@ async fn two_peers_complete_handshake_over_connected_streams() {
         our_key_binding: binding_for(&dev_b, LATER),
         our_versions: VersionRange::new(1, 3).expect("valid range"),
         our_capabilities: Capabilities::empty(),
+        known_devices: None,
     };
 
     let handshake_a = perform_handshake(
@@ -250,6 +252,7 @@ async fn version_mismatch_fails_handshake() {
         our_key_binding: binding_for(&dev_a, LATER),
         our_versions: VersionRange::new(1, 2).expect("valid range"),
         our_capabilities: Capabilities::empty(),
+        known_devices: None,
     };
 
     let params_b = HandshakeParams {
@@ -260,6 +263,7 @@ async fn version_mismatch_fails_handshake() {
         our_key_binding: binding_for(&dev_b, LATER),
         our_versions: VersionRange::new(3, 4).expect("valid range"),
         our_capabilities: Capabilities::empty(),
+        known_devices: None,
     };
 
     let handshake_a = perform_handshake(
@@ -323,6 +327,7 @@ async fn key_join_mismatch_fails_handshake() {
         our_key_binding: binding_for(&dev_a, LATER),
         our_versions: VersionRange::new(1, 1).expect("valid range"),
         our_capabilities: Capabilities::empty(),
+        known_devices: None,
     };
 
     let params_b = HandshakeParams {
@@ -333,6 +338,7 @@ async fn key_join_mismatch_fails_handshake() {
         our_key_binding: binding_for(&dev_b, LATER),
         our_versions: VersionRange::new(1, 1).expect("valid range"),
         our_capabilities: Capabilities::empty(),
+        known_devices: None,
     };
 
     let handshake_a = perform_handshake(
@@ -397,6 +403,7 @@ async fn wrong_message_type_fails_handshake() {
         our_key_binding: binding_for(&dev_a, LATER),
         our_versions: VersionRange::new(1, 1).expect("valid range"),
         our_capabilities: Capabilities::empty(),
+        known_devices: None,
     };
 
     let err = perform_handshake(
@@ -442,6 +449,7 @@ async fn unexpected_eof_fails_handshake() {
         our_key_binding: binding_for(&dev_a, LATER),
         our_versions: VersionRange::new(1, 1).expect("valid range"),
         our_capabilities: Capabilities::empty(),
+        known_devices: None,
     };
 
     let err = perform_handshake(
@@ -483,6 +491,7 @@ async fn attestation_verification_failure_fails_handshake() {
         our_key_binding: binding_for(&dev_a, LATER),
         our_versions: VersionRange::new(1, 2).expect("valid range"),
         our_capabilities: Capabilities::empty(),
+        known_devices: None,
     };
 
     let params_b = HandshakeParams {
@@ -493,6 +502,7 @@ async fn attestation_verification_failure_fails_handshake() {
         our_key_binding: binding_for(&dev_b, LATER),
         our_versions: VersionRange::new(1, 2).expect("valid range"),
         our_capabilities: Capabilities::empty(),
+        known_devices: None,
     };
 
     let handshake_a = perform_handshake(

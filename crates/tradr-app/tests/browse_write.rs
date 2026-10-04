@@ -99,6 +99,7 @@ async fn setup_harness() -> TestContext {
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
             browse_access: access,
+            known_devices: None,
         };
 
         let _res = handle_incoming_channel(
@@ -140,6 +141,7 @@ async fn setup_harness() -> TestContext {
         our_key_binding,
         our_versions: VersionRange::new(1, 1).expect("version range"),
         our_capabilities: Capabilities::DIRECT_QUIC,
+        known_devices: None,
     };
 
     let session = perform_handshake(

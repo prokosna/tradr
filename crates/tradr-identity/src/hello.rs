@@ -107,6 +107,12 @@ impl AwaitingPeerHello {
             });
         }
 
+        let peer_identity = PublicIdentity::new(
+            peer.identity_pub().clone(),
+            peer.agreement_pub().clone(),
+            claimed,
+        );
+
         let request = AttestationRequest {
             token: peer.attestation_token().to_string(),
             identity_pub: peer.identity_pub().clone(),
@@ -114,8 +120,7 @@ impl AwaitingPeerHello {
         };
 
         let state = AwaitingVerification {
-            peer_device_id: claimed,
-            peer_identity_pub: peer.identity_pub().clone(),
+            peer_identity,
             peer_nonce: peer.nonce(),
             our_nonce: self.our_nonce,
             negotiated_version,
@@ -168,8 +173,7 @@ impl fmt::Debug for AttestationRequest {
 /// verdict a caller reaches by running `verify_attestation`.
 #[derive(Debug)]
 pub struct AwaitingVerification {
-    peer_device_id: DeviceId,
-    peer_identity_pub: PublicKeyPoint,
+    peer_identity: PublicIdentity,
     peer_nonce: HelloNonce,
     our_nonce: HelloNonce,
     negotiated_version: u32,
@@ -195,8 +199,7 @@ impl AwaitingVerification {
         );
 
         let state = AwaitingPeerAck {
-            peer_device_id: self.peer_device_id,
-            peer_identity_pub: self.peer_identity_pub,
+            peer_identity: self.peer_identity,
             our_nonce: self.our_nonce,
             negotiated_version: self.negotiated_version,
             tier,
@@ -211,8 +214,7 @@ impl AwaitingVerification {
 /// controls (DCR-051's first rule).
 #[derive(Debug)]
 pub struct AwaitingPeerAck {
-    peer_device_id: DeviceId,
-    peer_identity_pub: PublicKeyPoint,
+    peer_identity: PublicIdentity,
     our_nonce: HelloNonce,
     negotiated_version: u32,
     tier: TrustTier,
@@ -223,7 +225,7 @@ impl AwaitingPeerAck {
     /// session. Check 5 (the nonce signature) first, since it is where the
     /// numbered list puts it; then the two DCR-052 claims.
     pub fn on_peer_hello_ack(self, ack: PeerHelloAck) -> Result<Session, HelloRefused> {
-        let peer_identity_key = parse_verifying_key(&self.peer_identity_pub)
+        let peer_identity_key = parse_verifying_key(self.peer_identity.identity_pub())
             .map_err(|_| HelloRefused::MalformedIdentityKey)?;
         if !signature_verifies(
             &peer_identity_key,
@@ -249,7 +251,8 @@ impl AwaitingPeerAck {
         }
 
         Ok(Session {
-            peer: self.peer_device_id,
+            peer: self.peer_identity.device_id(),
+            peer_identity: self.peer_identity,
             tier: self.tier,
             negotiated_version: self.negotiated_version,
             peer_max_frame_size: ack.max_frame_size(),
@@ -258,9 +261,10 @@ impl AwaitingPeerAck {
 }
 
 /// A completed Hello exchange.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
     peer: DeviceId,
+    peer_identity: PublicIdentity,
     tier: TrustTier,
     negotiated_version: u32,
     peer_max_frame_size: u32,
@@ -270,6 +274,11 @@ impl Session {
     /// The peer's `DeviceId`, the value the key join proved.
     pub fn peer(&self) -> DeviceId {
         self.peer
+    }
+
+    /// The peer's verified public identity.
+    pub fn peer_identity(&self) -> &PublicIdentity {
+        &self.peer_identity
     }
 
     /// The tier this side computed, never the peer's own claim about

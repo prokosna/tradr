@@ -4,6 +4,7 @@
 
 use std::future::Future;
 
+use crate::known_store::KnownDeviceRecorder;
 use tradr_core::{
     Capabilities, Clock, DeviceId, KeyBinding, KeyStore, KeyStoreError, PeerHello, PublicIdentity,
     RecvStream, Rng, RngError, SendStream, TransportError, TrustTier, VersionRange,
@@ -113,6 +114,8 @@ pub struct HandshakeParams<'a> {
     pub our_versions: VersionRange,
     /// Supported transport and plane capabilities.
     pub our_capabilities: Capabilities,
+    /// Optional recorder for storing devices met through a verified handshake.
+    pub known_devices: Option<&'a dyn KnownDeviceRecorder>,
 }
 
 /// Drives the 4-step Hello handshake across a pair of send and receive streams.
@@ -129,6 +132,7 @@ where
     F: FnOnce(AttestationRequest) -> Fut,
     Fut: Future<Output = Result<TrustTier, String>>,
 {
+    let known_devices = params.known_devices;
     let (awaiting_peer_hello, our_hello) = open(
         rng,
         params.our_versions,
@@ -150,7 +154,7 @@ where
     let frame = read_frame(recv_stream, &mut decoder).await?;
     let peer_hello = decode_hello_frame(&frame).map_err(HandshakeError::Proto)?;
 
-    continue_after_peer_hello(
+    let session = continue_after_peer_hello(
         send_stream,
         recv_stream,
         &mut decoder,
@@ -162,7 +166,13 @@ where
         clock,
         verify_attestation,
     )
-    .await
+    .await?;
+
+    if let Some(recorder) = known_devices {
+        recorder.record(session.peer_identity(), session.tier(), clock.now());
+    }
+
+    Ok(session)
 }
 
 /// Drives the Hello handshake for a caller that has already read and
@@ -185,6 +195,7 @@ where
     F: FnOnce(AttestationRequest) -> Fut,
     Fut: Future<Output = Result<TrustTier, String>>,
 {
+    let known_devices = params.known_devices;
     let (awaiting_peer_hello, our_hello) = open(
         rng,
         params.our_versions,
@@ -207,7 +218,7 @@ where
     // than carrying over one that might hold bytes read for `Hello`.
     let mut decoder = FrameDecoder::new(params.our_channel_max_frame_size);
 
-    continue_after_peer_hello(
+    let session = continue_after_peer_hello(
         send_stream,
         recv_stream,
         &mut decoder,
@@ -219,7 +230,13 @@ where
         clock,
         verify_attestation,
     )
-    .await
+    .await?;
+
+    if let Some(recorder) = known_devices {
+        recorder.record(session.peer_identity(), session.tier(), clock.now());
+    }
+
+    Ok(session)
 }
 
 // Everything from `on_peer_hello` onward, shared so it runs once rather

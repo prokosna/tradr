@@ -97,6 +97,7 @@ async fn send_files_end_to_end_over_quic_loopback() {
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
             browse_access: Arc::new(BrowseAccess::new()),
+            known_devices: None,
         };
 
         let res = handle_incoming_channel(
@@ -135,6 +136,7 @@ async fn send_files_end_to_end_over_quic_loopback() {
         sender_store.as_ref(),
         String::new(),
         Capabilities::DIRECT_QUIC,
+        None,
         |_| async { Ok(TrustTier::SameAccount) },
     )
     .await;
@@ -224,6 +226,7 @@ async fn send_files_respects_receiver_item_filtering() {
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
             browse_access: Arc::new(BrowseAccess::new()),
+            known_devices: None,
         };
 
         let filter = |item: &tradr_core::OfferItem| item.rel_path().as_str() != "rejected.txt";
@@ -265,6 +268,7 @@ async fn send_files_respects_receiver_item_filtering() {
             sender_store.as_ref(),
             String::new(),
             Capabilities::DIRECT_QUIC,
+            None,
             |_| async { Ok(TrustTier::SameAccount) },
         ),
         rx_handle,
@@ -301,6 +305,7 @@ async fn send_files_rejects_empty_file_list() {
         sender_store.as_ref(),
         String::new(),
         Capabilities::DIRECT_QUIC,
+        None,
         |_| async { Ok(TrustTier::SameAccount) },
     )
     .await;
