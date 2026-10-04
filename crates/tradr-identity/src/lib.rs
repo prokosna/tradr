@@ -11,6 +11,7 @@ mod invite;
 mod jwks;
 mod jwks_cache;
 pub mod key_binding;
+mod known_devices;
 mod link;
 mod os_rng;
 mod software_key_store;
@@ -30,6 +31,7 @@ pub use id_token::{Jwk, SignatureAlgorithm, TokenError, peek_issuer, verify_id_t
 pub use invite::{INVITE_TTL_SECS, create_invite};
 pub use jwks::{JwksError, parse_jwks};
 pub use jwks_cache::JwksCache;
+pub use known_devices::{KnownDevice, KnownDevices, KnownDevicesError, RecordOutcome};
 pub use link::{
     Link, LinkRegistry, LinkRegistryError, derive_link_id, derive_link_secret, device_fingerprint,
     link_secret_slot,
