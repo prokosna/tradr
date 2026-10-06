@@ -8,7 +8,7 @@
 		"format": "biome format --write .",
 		"format:check": "biome format .",
 		"typecheck": "pnpm codegen && tsc --build tsconfig.json",
-		"test": "pnpm --filter @tradr/tradr test"
+		"test": "pnpm -r --if-present test"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.10",
