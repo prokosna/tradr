@@ -33,6 +33,10 @@ const COMMANDS: &[&str] = &[
     "list_links",
     "remove_link",
     "set_link_full_access",
+    "set_brokr",
+    "brokr_status",
+    "collect_brokr_now",
+    "clear_brokr",
 ];
 
 fn main() {

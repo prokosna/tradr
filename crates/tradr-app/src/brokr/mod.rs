@@ -3,6 +3,7 @@
 
 mod api;
 mod collect;
+mod collector;
 mod http;
 mod register;
 mod settings;
@@ -12,6 +13,10 @@ pub use api::{
     RegisterRequest, Session,
 };
 pub use collect::{CollectContext, CollectReport, collect_once};
+pub use collector::{
+    ArrivalHook, Collector, CollectorParts, CollectorStatus, LinkView, LinksFn, OwnAccountFn,
+    ensure_session, run_pass,
+};
 pub use http::HttpBrokrApi;
 pub use register::register;
 pub use settings::{

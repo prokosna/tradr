@@ -88,6 +88,32 @@ Denies the attestation_bundle command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-brokr-status`
+
+</td>
+<td>
+
+Enables the brokr_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-brokr-status`
+
+</td>
+<td>
+
+Denies the brokr_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-check-permissions`
 
 </td>
@@ -107,6 +133,58 @@ Enables the check_permissions command without any pre-configured scope.
 <td>
 
 Denies the check_permissions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-clear-brokr`
+
+</td>
+<td>
+
+Enables the clear_brokr command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-clear-brokr`
+
+</td>
+<td>
+
+Denies the clear_brokr command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-collect-brokr-now`
+
+</td>
+<td>
+
+Enables the collect_brokr_now command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-collect-brokr-now`
+
+</td>
+<td>
+
+Denies the collect_brokr_now command without any pre-configured scope.
 
 </td>
 </tr>
@@ -679,6 +757,32 @@ Enables the send_files command without any pre-configured scope.
 <td>
 
 Denies the send_files command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-set-brokr`
+
+</td>
+<td>
+
+Enables the set_brokr command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-set-brokr`
+
+</td>
+<td>
+
+Denies the set_brokr command without any pre-configured scope.
 
 </td>
 </tr>

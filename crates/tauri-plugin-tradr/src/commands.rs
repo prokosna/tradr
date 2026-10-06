@@ -23,6 +23,7 @@ use tradr_app::browse::{
     execute_upload_items,
 };
 use tradr_app::capabilities::LocalCapabilities;
+use tradr_app::known_store::{KnownDeviceRecorder, KnownDevicesStore};
 use tradr_app::peers::{
     PeerInfo, StaticPeerInfo, connect_and_pin, drain_peer_sources, peer_info, resolve_peer,
 };
@@ -37,6 +38,7 @@ pub async fn get_peers(
     mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
+    known_devices: State<'_, Arc<KnownDevicesStore>>,
 ) -> Result<Vec<PeerInfo>, String> {
     let self_id = identity_state.public_identity()?.device_id();
     let mut mdns = mdns_source.lock().await;
@@ -44,6 +46,18 @@ pub async fn get_peers(
     let mut list = peer_list.lock().await;
 
     drain_peer_sources(&mut mdns, &mut static_source, &mut list, self_id).await?;
+
+    for peer in list.peers() {
+        if let Some(device_id) = peer.device_id()
+            && let Some(display_name) = peer
+                .observations()
+                .iter()
+                .find_map(|o| o.display_name().cloned())
+            && let Err(e) = known_devices.set_display_name(&device_id, Some(display_name))
+        {
+            eprintln!("failed to update display name for known device {device_id}: {e}");
+        }
+    }
 
     Ok(list.peers().iter().map(peer_info).collect())
 }
@@ -125,6 +139,7 @@ pub async fn send_files<R: tauri::Runtime>(
     transports: State<'_, Arc<TransportSet>>,
     vfs: State<'_, Arc<NativeVfs>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
+    known_devices: State<'_, Arc<KnownDevicesStore>>,
 ) -> Result<Vec<String>, String> {
     #[cfg(not(target_os = "android"))]
     if let Some(ref ids) = adopted_ids
@@ -198,7 +213,7 @@ pub async fn send_files<R: tauri::Runtime>(
             key_store.as_ref(),
             attestation_token,
             capabilities.get(),
-            None,
+            Some(known_devices.inner().as_ref() as &dyn KnownDeviceRecorder),
             verify_attestation,
             move |progress| {
                 use tauri::Emitter;
@@ -241,6 +256,7 @@ struct BrowseContext<'a> {
     peer_list: &'a tokio::sync::Mutex<PeerList>,
     transports: &'a TransportSet,
     capabilities: &'a LocalCapabilities,
+    known_devices: &'a (dyn KnownDeviceRecorder + 'a),
 }
 
 async fn prepare_browse<'a>(
@@ -280,7 +296,7 @@ async fn prepare_browse<'a>(
         key_store: ctx.key_store,
         attestation_token,
         capabilities: ctx.capabilities.get(),
-        known_devices: None,
+        known_devices: Some(ctx.known_devices),
     };
     let verify_attestation = peer_verifier(
         ctx.peer_trust_state.peer_trust()?,
@@ -311,6 +327,7 @@ pub async fn list_peer_directory(
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
     transports: State<'_, Arc<TransportSet>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
+    known_devices: State<'_, Arc<KnownDevicesStore>>,
 ) -> Result<DirListingDto, String> {
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
@@ -326,6 +343,7 @@ pub async fn list_peer_directory(
         peer_list: &peer_list,
         transports: &transports,
         capabilities: &capabilities,
+        known_devices: known_devices.inner().as_ref(),
     };
     let (channel, auth, verify_attestation) = prepare_browse(
         &ctx,
@@ -379,6 +397,7 @@ pub async fn download_file<R: tauri::Runtime>(
     transports: State<'_, Arc<TransportSet>>,
     vfs: State<'_, Arc<NativeVfs>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
+    known_devices: State<'_, Arc<KnownDevicesStore>>,
 ) -> Result<String, String> {
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
@@ -394,6 +413,7 @@ pub async fn download_file<R: tauri::Runtime>(
         peer_list: &peer_list,
         transports: &transports,
         capabilities: &capabilities,
+        known_devices: known_devices.inner().as_ref(),
     };
     let (channel, auth, verify_attestation) = prepare_browse(
         &ctx,
@@ -455,6 +475,7 @@ pub async fn upload_to_peer<R: tauri::Runtime>(
     transports: State<'_, Arc<TransportSet>>,
     vfs: State<'_, Arc<NativeVfs>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
+    known_devices: State<'_, Arc<KnownDevicesStore>>,
 ) -> Result<Vec<String>, String> {
     #[cfg(not(target_os = "android"))]
     if let Some(ref ids) = adopted_ids
@@ -498,6 +519,7 @@ pub async fn upload_to_peer<R: tauri::Runtime>(
         peer_list: &peer_list,
         transports: &transports,
         capabilities: &capabilities,
+        known_devices: known_devices.inner().as_ref(),
     };
 
     let upload_result = async {
@@ -567,6 +589,7 @@ pub async fn make_peer_directory(
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
     transports: State<'_, Arc<TransportSet>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
+    known_devices: State<'_, Arc<KnownDevicesStore>>,
 ) -> Result<(), String> {
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
@@ -582,6 +605,7 @@ pub async fn make_peer_directory(
         peer_list: &peer_list,
         transports: &transports,
         capabilities: &capabilities,
+        known_devices: known_devices.inner().as_ref(),
     };
     let (channel, auth, verify_attestation) = prepare_browse(
         &ctx,
@@ -625,6 +649,7 @@ pub async fn delete_peer_entry(
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
     transports: State<'_, Arc<TransportSet>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
+    known_devices: State<'_, Arc<KnownDevicesStore>>,
 ) -> Result<(), String> {
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
@@ -640,6 +665,7 @@ pub async fn delete_peer_entry(
         peer_list: &peer_list,
         transports: &transports,
         capabilities: &capabilities,
+        known_devices: known_devices.inner().as_ref(),
     };
     let (channel, auth, verify_attestation) = prepare_browse(
         &ctx,
@@ -684,6 +710,7 @@ pub async fn rename_peer_entry(
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
     transports: State<'_, Arc<TransportSet>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
+    known_devices: State<'_, Arc<KnownDevicesStore>>,
 ) -> Result<(), String> {
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
@@ -699,6 +726,7 @@ pub async fn rename_peer_entry(
         peer_list: &peer_list,
         transports: &transports,
         capabilities: &capabilities,
+        known_devices: known_devices.inner().as_ref(),
     };
     let (channel, auth, verify_attestation) = prepare_browse(
         &ctx,
