@@ -100,7 +100,8 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M9-006c | **Sending through the Brokr**: an offline known device's envelope sealed from the files and streamed up; the outbox polled for waiting / delivered / expired | planned | |
+| WI-M9-006c1 | **Sending through the Brokr, in `tradr-app`**: `BrokrApi` gains `upload` and `outbox` (HTTP adapter included); `send_deferred` hashes each file, seals with `EnvelopeWriter` and streams the upload; a local record of what was sent (delivery id, recipient, names) merged with the outbox into waiting / delivered / expired | planned | |
+| WI-M9-006c2 | **The plugin's commands for it**: `list_known_devices`, `send_deferred`, `list_deliveries` | planned | |
 | WI-M9-007 | **The interface**: Brokr settings, offline known devices in the list, "will deliver when it's back", waiting / delivered / expired | planned | |
 | WI-M9-008 | **A container image** for the Brokr and its setup notes | planned | |
 | WI-M6-009 | **Scanning a QR with a camera.** `WI-M6-007b` shows a QR and accepts a pasted blob, which is the whole payload either way (docs/11: "one payload and one parser"), so a QR read by any camera application already links. **A scanner inside Tradr is a platform integration and not an interface change** -- Android has `@tauri-apps/plugin-barcode-scanner` and a camera permission to justify, and the desktop has no camera API at all -- so it is its own Work Item rather than a line in one about React | planned | |
