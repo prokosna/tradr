@@ -66,6 +66,8 @@ pub struct BrowseAuth<'a> {
     pub attestation_token: String,
     /// Advertised local capabilities.
     pub capabilities: Capabilities,
+    /// Optional recorder for storing devices met through a verified handshake.
+    pub known_devices: Option<&'a dyn crate::known_store::KnownDeviceRecorder>,
 }
 
 struct BrowseSession {
@@ -109,6 +111,7 @@ where
         our_key_binding,
         our_versions: VersionRange::new(1, 1).map_err(|e| e.to_string())?,
         our_capabilities: auth.capabilities,
+        known_devices: auth.known_devices,
     };
 
     let session = perform_handshake(
@@ -295,6 +298,7 @@ where
         key_store,
         attestation_token,
         capabilities,
+        known_devices: None,
     };
     let mut session = open_browse_session(channel, &auth, verify_attestation).await?;
 
@@ -651,6 +655,7 @@ where
         key_store,
         attestation_token,
         capabilities,
+        known_devices: None,
     };
     let mut session = open_browse_session(channel, &auth, verify_attestation).await?;
 

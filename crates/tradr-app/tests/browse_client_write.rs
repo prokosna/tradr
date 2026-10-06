@@ -72,6 +72,7 @@ impl TestHarness {
             key_store: self.client_store.as_ref(),
             attestation_token: String::new(),
             capabilities: Capabilities::DIRECT_QUIC,
+            known_devices: None,
         }
     }
 }
@@ -142,6 +143,7 @@ async fn setup_harness(allow_client: bool) -> TestHarness {
                     our_versions: VersionRange::new(1, 1).expect("version range"),
                     our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
                     browse_access: rx_access,
+                    known_devices: None,
                 };
 
                 let res = handle_incoming_channel(

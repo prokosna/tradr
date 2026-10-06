@@ -406,3 +406,82 @@ fn failed_persist_due_to_dir_target_cleans_up_temp_file() {
         b"canary content"
     );
 }
+
+#[test]
+fn set_display_name_updates_and_persists_existing_entry() {
+    let test_dir = TestDir::new();
+    let file_path = test_dir.path().join("known-devices.json");
+    let mut registry = KnownDevices::load(&file_path).expect("load empty");
+
+    let dev = sample_device(0x10, TrustTier::SameAccount, 100);
+    let dev_id = dev.device_id();
+    registry.record(dev).expect("record device");
+
+    let new_name = DisplayName::new("renamed-laptop").expect("valid display name");
+    let changed = registry
+        .set_display_name(&dev_id, Some(new_name.clone()))
+        .expect("set display name succeeds");
+    assert!(changed);
+    assert_eq!(
+        registry.get(&dev_id).expect("get").display_name(),
+        Some(&new_name)
+    );
+
+    let reloaded = KnownDevices::load(&file_path).expect("reload");
+    assert_eq!(
+        reloaded.get(&dev_id).expect("get reloaded").display_name(),
+        Some(&new_name)
+    );
+
+    let cleared = registry
+        .set_display_name(&dev_id, None)
+        .expect("clear display name succeeds");
+    assert!(cleared);
+    assert_eq!(registry.get(&dev_id).expect("get").display_name(), None);
+
+    let reloaded_cleared = KnownDevices::load(&file_path).expect("reload after clear");
+    assert_eq!(
+        reloaded_cleared
+            .get(&dev_id)
+            .expect("get reloaded cleared")
+            .display_name(),
+        None
+    );
+}
+
+#[test]
+fn set_display_name_noop_when_name_unchanged() {
+    let test_dir = TestDir::new();
+    let file_path = test_dir.path().join("known-devices.json");
+    let mut registry = KnownDevices::load(&file_path).expect("load empty");
+
+    let dev = sample_device(0x10, TrustTier::SameAccount, 100);
+    let dev_id = dev.device_id();
+    let original_name = dev.display_name().cloned();
+    registry.record(dev).expect("record device");
+
+    let disk_bytes_before = std::fs::read(&file_path).expect("read file");
+    let changed = registry
+        .set_display_name(&dev_id, original_name)
+        .expect("set same display name succeeds");
+    assert!(!changed);
+
+    let disk_bytes_after = std::fs::read(&file_path).expect("read file");
+    assert_eq!(disk_bytes_before, disk_bytes_after);
+}
+
+#[test]
+fn set_display_name_unknown_device_returns_ok_false_and_writes_nothing() {
+    let test_dir = TestDir::new();
+    let file_path = test_dir.path().join("known-devices.json");
+    let mut registry = KnownDevices::load(&file_path).expect("load empty");
+
+    let unknown_id = DeviceId::from_identity_digest(&[0x99; 32]);
+    let name = Some(DisplayName::new("unknown-device").expect("valid display name"));
+
+    let changed = registry
+        .set_display_name(&unknown_id, name)
+        .expect("set display name for unknown device succeeds");
+    assert!(!changed);
+    assert!(!file_path.exists());
+}

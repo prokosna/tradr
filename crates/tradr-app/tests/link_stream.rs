@@ -1118,6 +1118,7 @@ async fn a_hello_first_frame_still_completes_the_ordinary_handshake() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).expect("valid range"),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let session = perform_handshake(
             s_send.as_mut(),
@@ -1151,6 +1152,7 @@ async fn a_hello_first_frame_still_completes_the_ordinary_handshake() {
         our_versions: VersionRange::new(1, 1).expect("valid range"),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let hello_seen = Arc::new(Mutex::new(false));
@@ -1216,6 +1218,7 @@ async fn a_linkreply_first_frame_with_a_service_reaches_it() {
         our_versions: VersionRange::new(1, 1).expect("valid range"),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
     let listener_rng = SeededRng::new(2);
 
@@ -1277,6 +1280,7 @@ async fn a_linkreply_first_frame_with_no_service_is_refused() {
         our_versions: VersionRange::new(1, 1).expect("valid range"),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
     let listener_rng = SeededRng::new(2);
 
@@ -1328,6 +1332,7 @@ async fn an_unassigned_control_code_as_the_first_frame_is_refused() {
         our_versions: VersionRange::new(1, 1).expect("valid range"),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
     let listener_rng = SeededRng::new(2);
 

@@ -89,6 +89,8 @@ pub struct ListenerParams<'a> {
     pub our_capabilities: Arc<LocalCapabilities>,
     /// Remembers per authenticated device whether it is permitted to browse this device's folder.
     pub browse_access: Arc<BrowseAccess>,
+    /// Optional recorder for storing devices met through a verified handshake.
+    pub known_devices: Option<&'a dyn crate::known_store::KnownDeviceRecorder>,
 }
 
 /// Errors occurring during incoming transfer acceptance and session execution.
@@ -491,6 +493,7 @@ where
                         our_key_binding: params.our_key_binding,
                         our_versions: params.our_versions,
                         our_capabilities: params.our_capabilities.get(),
+                        known_devices: params.known_devices,
                     };
 
                     let session = perform_handshake_after_peer_hello(
@@ -927,6 +930,7 @@ where
         our_versions: versions,
         our_capabilities: capabilities,
         browse_access,
+        known_devices: None,
     };
 
     listen_for_transfers(

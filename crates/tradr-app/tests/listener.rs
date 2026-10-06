@@ -416,6 +416,7 @@ async fn single_file_transfer_via_listener_end_to_end() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(999);
@@ -432,6 +433,7 @@ async fn single_file_transfer_via_listener_end_to_end() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -582,6 +584,7 @@ async fn multiple_files_transfer_via_listener() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(111);
@@ -598,6 +601,7 @@ async fn multiple_files_transfer_via_listener() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -790,6 +794,7 @@ async fn resumed_transfer_via_listener_skips_existing_chunks() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(333);
@@ -806,6 +811,7 @@ async fn resumed_transfer_via_listener_skips_existing_chunks() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -969,6 +975,7 @@ async fn selective_item_acceptance_declines_filtered_items() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(555);
@@ -985,6 +992,7 @@ async fn selective_item_acceptance_declines_filtered_items() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -1098,6 +1106,7 @@ async fn listener_refuses_when_peer_attestation_fails() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(777);
@@ -1114,6 +1123,7 @@ async fn listener_refuses_when_peer_attestation_fails() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let _ = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -1190,6 +1200,7 @@ async fn unknown_control_plane_messages_ignored_before_offer() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(1212);
@@ -1206,6 +1217,7 @@ async fn unknown_control_plane_messages_ignored_before_offer() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -1350,6 +1362,7 @@ async fn accept_and_handle_transfer_from_mock_incoming() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(5678);
@@ -1366,6 +1379,7 @@ async fn accept_and_handle_transfer_from_mock_incoming() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -1479,6 +1493,7 @@ async fn listen_for_transfers_terminates_on_closed_incoming() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(9999);
@@ -1529,6 +1544,7 @@ async fn listen_for_transfers_reads_capabilities_fresh_per_connection() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::clone(&capabilities),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(9999);
@@ -1671,6 +1687,7 @@ async fn listen_for_transfers_reports_each_placed_path() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(5678);
@@ -1687,6 +1704,7 @@ async fn listen_for_transfers_reports_each_placed_path() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -1839,6 +1857,7 @@ async fn listen_for_transfers_reports_sender_device_id_and_placed_paths() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(5678);
@@ -1855,6 +1874,7 @@ async fn listen_for_transfers_reports_sender_device_id_and_placed_paths() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -2016,6 +2036,7 @@ async fn run_listener_reports_each_placed_path() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -2181,6 +2202,7 @@ async fn listen_for_transfers_does_not_report_an_offer_with_every_item_declined(
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(555);
@@ -2202,6 +2224,7 @@ async fn listen_for_transfers_does_not_report_an_offer_with_every_item_declined(
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -2335,6 +2358,7 @@ async fn failure_before_any_stream_names_the_peer() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(123);
@@ -2388,6 +2412,7 @@ async fn failure_after_the_handshake_is_in_the_offer_phase() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -2415,6 +2440,7 @@ async fn failure_after_the_handshake_is_in_the_offer_phase() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_task = handle_incoming_channel(
@@ -2470,6 +2496,7 @@ async fn a_peer_closing_after_the_handshake_fails_in_the_offer_phase() {
                 our_key_binding: sender_binding.clone(),
                 our_versions: VersionRange::new(1, 1).unwrap(),
                 our_capabilities: Capabilities::empty(),
+                known_devices: None,
             };
             perform_handshake(
                 sender_ctrl_send.as_mut(),
@@ -2498,6 +2525,7 @@ async fn a_peer_closing_after_the_handshake_fails_in_the_offer_phase() {
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
             browse_access: Arc::new(BrowseAccess::new()),
+            known_devices: None,
         };
 
         let listener_task = handle_incoming_channel(
@@ -2592,6 +2620,7 @@ async fn failure_between_items_names_the_item() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(111);
@@ -2608,6 +2637,7 @@ async fn failure_between_items_names_the_item() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -2883,6 +2913,7 @@ async fn browse_stream_with_unclosed_control_stream_times_out_and_succeeds() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -2915,6 +2946,7 @@ async fn browse_stream_with_unclosed_control_stream_times_out_and_succeeds() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_task = handle_incoming_channel(
@@ -3007,6 +3039,7 @@ async fn stalled_channel_does_not_hold_second_transfer() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(1001);
@@ -3027,6 +3060,7 @@ async fn stalled_channel_does_not_hold_second_transfer() {
             our_key_binding: sender_binding_1,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -3060,6 +3094,7 @@ async fn stalled_channel_does_not_hold_second_transfer() {
             our_key_binding: sender_binding_2,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -3224,6 +3259,7 @@ async fn concurrent_channel_bound_holds_at_eight() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(7777);
@@ -3262,6 +3298,7 @@ async fn concurrent_channel_bound_holds_at_eight() {
             our_key_binding: bind_0,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         perform_handshake(
             ctrl_send.as_mut(),
@@ -3299,6 +3336,7 @@ async fn concurrent_channel_bound_holds_at_eight() {
                 our_key_binding: bind_i,
                 our_versions: VersionRange::new(1, 1).unwrap(),
                 our_capabilities: Capabilities::empty(),
+                known_devices: None,
             };
             perform_handshake(
                 ctrl_send.as_mut(),
@@ -3335,6 +3373,7 @@ async fn concurrent_channel_bound_holds_at_eight() {
             our_key_binding: bind_8,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         perform_handshake(
             ctrl_send.as_mut(),
@@ -3446,6 +3485,7 @@ async fn closing_incoming_queue_waits_for_in_flight_transfer() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(5001);
@@ -3465,6 +3505,7 @@ async fn closing_incoming_queue_waits_for_in_flight_transfer() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -3603,6 +3644,7 @@ async fn run_test_transfer(
         our_key_binding: cfg.sender_binding.clone(),
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Capabilities::empty(),
+        known_devices: None,
     };
     let sender_session = perform_handshake(
         sender_ctrl_send.as_mut(),
@@ -3791,6 +3833,7 @@ async fn pending_accept_is_not_dropped_when_in_flight_transfer_completes() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(9001);
@@ -3962,6 +4005,7 @@ async fn sixteen_unassigned_control_frames_before_offer_are_accepted() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(1212);
@@ -3978,6 +4022,7 @@ async fn sixteen_unassigned_control_frames_before_offer_are_accepted() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -4099,6 +4144,7 @@ async fn seventeen_unassigned_control_frames_before_offer_are_refused() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(1212);
@@ -4115,6 +4161,7 @@ async fn seventeen_unassigned_control_frames_before_offer_are_refused() {
             our_key_binding: sender_binding,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         perform_handshake(
             sender_ctrl_send.as_mut(),
@@ -4359,6 +4406,7 @@ async fn peer_that_opens_no_control_stream_times_out_before_stream() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(111);
@@ -4425,6 +4473,7 @@ async fn peer_that_sends_no_hello_times_out_during_handshake() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(111);
@@ -4522,6 +4571,7 @@ async fn peer_idle_after_handshake_is_not_timed_out() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(111);
@@ -4537,6 +4587,7 @@ async fn peer_idle_after_handshake_is_not_timed_out() {
         our_key_binding: sender_binding,
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Capabilities::empty(),
+        known_devices: None,
     };
 
     let listener_fut = handle_incoming_channel(
@@ -4683,6 +4734,7 @@ async fn eight_stalled_peers_do_not_block_ninth_transfer_after_deadline() {
         our_versions: VersionRange::new(1, 1).unwrap(),
         our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::empty())),
         browse_access: Arc::new(BrowseAccess::new()),
+        known_devices: None,
     };
 
     let listener_rng = SeededRng::new(8888);
@@ -4761,6 +4813,7 @@ async fn eight_stalled_peers_do_not_block_ninth_transfer_after_deadline() {
             our_key_binding: sender_binding_9,
             our_versions: VersionRange::new(1, 1).unwrap(),
             our_capabilities: Capabilities::empty(),
+            known_devices: None,
         };
         let sender_session = perform_handshake(
             sender_ctrl_send.as_mut(),

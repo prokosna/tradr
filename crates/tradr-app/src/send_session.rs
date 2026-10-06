@@ -231,6 +231,7 @@ pub async fn run_send(
         identity.key_store().as_ref(),
         attestation_token,
         Capabilities::DIRECT_QUIC,
+        None,
         verifier,
         move |payload| on_progress(&payload),
     )

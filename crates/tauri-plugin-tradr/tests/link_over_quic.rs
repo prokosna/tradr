@@ -341,6 +341,7 @@ async fn run_test() {
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
             browse_access: Arc::new(BrowseAccess::new()),
+            known_devices: None,
         };
 
         let inviter_vfs = NativeVfs::new();

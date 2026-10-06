@@ -322,6 +322,7 @@ async fn listener_gate_refuses_peer_without_access() {
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
             browse_access: access_clone,
+            known_devices: None,
         };
 
         let res = handle_incoming_channel(
@@ -364,6 +365,7 @@ async fn listener_gate_refuses_peer_without_access() {
         our_key_binding,
         our_versions: VersionRange::new(1, 1).expect("version range"),
         our_capabilities: Capabilities::DIRECT_QUIC,
+        known_devices: None,
     };
 
     let session = tradr_app::handshake::perform_handshake(
@@ -501,6 +503,7 @@ async fn listener_gate_serves_listing_to_peer_with_access() {
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
             browse_access: access_clone,
+            known_devices: None,
         };
 
         let res = handle_incoming_channel(

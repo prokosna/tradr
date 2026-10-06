@@ -198,6 +198,7 @@ pub async fn send_files<R: tauri::Runtime>(
             key_store.as_ref(),
             attestation_token,
             capabilities.get(),
+            None,
             verify_attestation,
             move |progress| {
                 use tauri::Emitter;
@@ -279,6 +280,7 @@ async fn prepare_browse<'a>(
         key_store: ctx.key_store,
         attestation_token,
         capabilities: ctx.capabilities.get(),
+        known_devices: None,
     };
     let verify_attestation = peer_verifier(
         ctx.peer_trust_state.peer_trust()?,

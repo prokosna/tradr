@@ -361,6 +361,28 @@ impl KnownDevices {
         Ok(outcome)
     }
 
+    /// Updates and persists the display name of an existing device entry.
+    pub fn set_display_name(
+        &mut self,
+        device_id: &DeviceId,
+        display_name: Option<DisplayName>,
+    ) -> Result<bool, KnownDevicesError> {
+        let Some(idx) = self.devices.iter().position(|d| &d.device_id == device_id) else {
+            return Ok(false);
+        };
+
+        if self.devices[idx].display_name == display_name {
+            return Ok(false);
+        }
+
+        let mut prospective = self.devices.clone();
+        prospective[idx].display_name = display_name;
+
+        self.persist(&prospective)?;
+        self.devices = prospective;
+        Ok(true)
+    }
+
     // Writes `devices` to `self.path` via a temporary file renamed over the
     // destination, removing the temporary file if write or rename fails.
     fn persist(&self, devices: &[KnownDevice]) -> Result<(), KnownDevicesError> {

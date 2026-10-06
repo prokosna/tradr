@@ -16,6 +16,7 @@ use tradr_proto::framing::{Frame, FrameDecoder, encode_frame};
 use tradr_vfs::NativeVfs;
 
 use crate::handshake::{HandshakeParams, perform_handshake};
+use crate::known_store::KnownDeviceRecorder;
 use crate::transfer::{SendRequest, SessionStreams, prepare_item, send_file_with_progress};
 
 /// Progress payload emitted during file transfer.
@@ -196,6 +197,7 @@ pub async fn execute_send_files_with_progress<F, Fut, G>(
     key_store: &(dyn KeyStore + Sync),
     attestation_token: String,
     capabilities: Capabilities,
+    known_devices: Option<&dyn KnownDeviceRecorder>,
     verify_attestation: F,
     mut on_progress: G,
 ) -> Result<Vec<String>, String>
@@ -228,6 +230,7 @@ where
         our_key_binding,
         our_versions: VersionRange::new(1, 1).map_err(|e| e.to_string())?,
         our_capabilities: capabilities,
+        known_devices,
     };
 
     let session = perform_handshake(
@@ -404,6 +407,7 @@ pub async fn execute_send_files<F, Fut>(
     key_store: &(dyn KeyStore + Sync),
     attestation_token: String,
     capabilities: Capabilities,
+    known_devices: Option<&dyn KnownDeviceRecorder>,
     verify_attestation: F,
 ) -> Result<Vec<String>, String>
 where
@@ -419,6 +423,7 @@ where
         key_store,
         attestation_token,
         capabilities,
+        known_devices,
         verify_attestation,
         |_| {},
     )

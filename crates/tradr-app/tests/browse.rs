@@ -95,6 +95,7 @@ async fn list_peer_directory_succeeds_over_quic_loopback() {
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
             browse_access: access,
+            known_devices: None,
         };
 
         let res = handle_incoming_channel(
@@ -217,6 +218,7 @@ async fn list_peer_nested_directory_succeeds() {
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
             browse_access: access,
+            known_devices: None,
         };
 
         let res = handle_incoming_channel(
@@ -330,6 +332,7 @@ async fn download_file_succeeds_over_quic_loopback() {
             our_versions: VersionRange::new(1, 1).expect("version range"),
             our_capabilities: Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC)),
             browse_access: access,
+            known_devices: None,
         };
 
         let res = handle_incoming_channel(

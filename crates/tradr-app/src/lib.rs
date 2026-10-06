@@ -12,6 +12,7 @@ pub mod capabilities;
 pub mod handshake;
 pub mod identity;
 pub mod kept_sign_in;
+pub mod known_store;
 pub mod link_exchange;
 pub mod link_invite;
 pub mod listener;
