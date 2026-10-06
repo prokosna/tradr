@@ -241,7 +241,7 @@ pub(crate) const MAX_CONSECUTIVE_IGNORABLE_FRAMES: u32 = 16;
 const MAX_PLACEMENT_ATTEMPTS: usize = 32;
 
 // Places verified partial file into destination, retrying on collision races up to 32 times.
-async fn place_verified_file(
+pub(crate) async fn place_verified_file(
     vfs: &impl Vfs,
     root: RootId,
     partial_rel: &RelPath,
