@@ -13,6 +13,8 @@ export type PeerSendStatus =
 
 export interface DeviceTileProps {
 	peer: PeerInfo;
+	isOffline?: boolean | undefined;
+	brokrConfigured?: boolean | undefined;
 	hasWaitingFiles: boolean;
 	sendState?: PeerSendStatus | undefined;
 	onTap: (peer: PeerInfo) => void;
@@ -32,6 +34,8 @@ function formatDeviceSource(sources: string[]): string {
 
 export function DeviceTile({
 	peer,
+	isOffline,
+	brokrConfigured,
 	hasWaitingFiles,
 	sendState,
 	onTap,
@@ -43,12 +47,17 @@ export function DeviceTile({
 
 	const isBusy =
 		sendState?.status === "sending" || sendState?.status === "waiting";
+	const isTappable = isOffline
+		? Boolean(brokrConfigured && hasWaitingFiles)
+		: true;
 
 	const handleClick = () => {
+		if (!isTappable) return;
 		onTap(peer);
 	};
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+		if (!isTappable) return;
 		if (e.key === "Enter" || e.key === " ") {
 			e.preventDefault();
 			onTap(peer);
@@ -66,12 +75,25 @@ export function DeviceTile({
 				)
 			: 0;
 
+	const tileClasses = [
+		"device-tile",
+		isOffline ? "device-tile--offline dimmed" : "",
+		!isTappable ? "device-tile--not-tappable" : "",
+		isBusy ? "device-tile--busy" : "",
+		hasWaitingFiles && (!isOffline || brokrConfigured)
+			? "device-tile--target"
+			: "",
+	]
+		.filter(Boolean)
+		.join(" ");
+
 	return (
 		// biome-ignore lint/a11y/useSemanticElements: Tile contains an inner action button preventing nested button tags
 		<div
-			className={`device-tile ${isBusy ? "device-tile--busy" : ""} ${hasWaitingFiles ? "device-tile--target" : ""}`.trim()}
+			className={tileClasses}
 			role="button"
-			tabIndex={0}
+			aria-disabled={!isTappable}
+			tabIndex={isTappable ? 0 : -1}
 			data-device-key={peer.key}
 			onClick={handleClick}
 			onKeyDown={handleKeyDown}
@@ -84,25 +106,42 @@ export function DeviceTile({
 				{sendState?.status === "sending" ? (
 					<div className="stack">
 						<span className="small muted">
-							Sending {sendState.fileName} · {percent}%
+							Sending {sendState.fileName}
+							{sendState.progress && sendState.progress.total_bytes > 0
+								? ` · ${percent}%`
+								: ""}
 						</span>
-						<div className="progress">
-							<progress
-								className="progress-bar"
-								value={sendState.progress?.bytes_transferred ?? 0}
-								max={sendState.progress?.total_bytes || 1}
-							/>
-						</div>
+						{sendState.progress && sendState.progress.total_bytes > 0 && (
+							<div className="progress">
+								<progress
+									className="progress-bar"
+									value={sendState.progress?.bytes_transferred ?? 0}
+									max={sendState.progress?.total_bytes || 1}
+								/>
+							</div>
+						)}
 					</div>
 				) : sendState?.status === "waiting" ? (
 					<span className="small muted">Waiting…</span>
 				) : sendState?.status === "sent" ? (
-					<span className="small success-text">Sent ✓</span>
+					<span className="small success-text">
+						{isOffline ? "Will deliver when it's back ✓" : "Sent ✓"}
+					</span>
 				) : sendState?.status === "failed" ? (
 					<div className="stack">
-						<span className="small error-text">Couldn't send to {name}.</span>
+						<span className="small error-text">
+							{isOffline
+								? "Couldn't hand this over."
+								: `Couldn't send to ${name}.`}
+						</span>
 						<span className="small muted">{sendState.error}</span>
 					</div>
+				) : isOffline ? (
+					<span className="small muted device-tile-source">
+						{brokrConfigured
+							? "offline"
+							: "offline · set up delivery in Settings to send later"}
+					</span>
 				) : (
 					sourceText.length > 0 && (
 						<span className="small muted device-tile-source">{sourceText}</span>
@@ -110,20 +149,24 @@ export function DeviceTile({
 				)}
 			</div>
 
-			{hasWaitingFiles && (
-				<span className="device-tile-affordance">Send →</span>
+			{hasWaitingFiles && (!isOffline || brokrConfigured) && (
+				<span className="device-tile-affordance">
+					{isOffline ? "Send later →" : "Send →"}
+				</span>
 			)}
 
-			<button
-				type="button"
-				className="btn btn--ghost"
-				onClick={(e) => {
-					e.stopPropagation();
-					onOpenFolder(peer.key);
-				}}
-			>
-				Open folder
-			</button>
+			{!isOffline && (
+				<button
+					type="button"
+					className="btn btn--ghost"
+					onClick={(e) => {
+						e.stopPropagation();
+						onOpenFolder(peer.key);
+					}}
+				>
+					Open folder
+				</button>
+			)}
 		</div>
 	);
 }

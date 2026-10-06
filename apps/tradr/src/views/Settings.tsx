@@ -1,15 +1,23 @@
 import type { SignInUiState } from "../App.js";
 import { Linking } from "../Linking.js";
+import type { BrokrStatusDto } from "../types.js";
 import { Advanced } from "./Advanced.js";
+import { BrokrSettings } from "./BrokrSettings.js";
 import { StaticPeers } from "./StaticPeers.js";
 
 export interface SettingsProps {
 	signIn: SignInUiState;
 	onSignIn: () => void;
 	onBack: () => void;
+	onBrokrStatusChange?: ((status: BrokrStatusDto) => void) | undefined;
 }
 
-export function Settings({ signIn, onSignIn, onBack }: SettingsProps) {
+export function Settings({
+	signIn,
+	onSignIn,
+	onBack,
+	onBrokrStatusChange,
+}: SettingsProps) {
 	return (
 		<div className="card stack">
 			<div className="page-header">
@@ -63,6 +71,11 @@ export function Settings({ signIn, onSignIn, onBack }: SettingsProps) {
 			<section className="settings-section">
 				<h2>Add a device by address</h2>
 				<StaticPeers />
+			</section>
+
+			<section className="settings-section">
+				<h2>Deliver when a device is offline</h2>
+				<BrokrSettings onStatusChange={onBrokrStatusChange} />
 			</section>
 
 			<section className="settings-section">

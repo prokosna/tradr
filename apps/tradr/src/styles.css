@@ -162,6 +162,10 @@ summary {
 	.home-received {
 		order: 2;
 	}
+
+	.home-deliveries {
+		order: 3;
+	}
 }
 
 .app {
@@ -797,4 +801,19 @@ button:disabled,
 	border: 1px solid var(--border);
 	border-radius: var(--radius-sm);
 	background: var(--surface);
+}
+
+.device-tile--offline {
+	opacity: 0.7;
+}
+
+.device-tile--not-tappable {
+	cursor: default;
+}
+
+.brokr-settings-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: var(--space-3);
 }

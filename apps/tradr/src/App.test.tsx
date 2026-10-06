@@ -10,7 +10,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App.js";
-import { fixtureCommands } from "./preview/fixtures.js";
+import { fixtureCommands, fixtureKnownDevices } from "./preview/fixtures.js";
 import type { ShareIntent, SharedFilePayload } from "./types.js";
 
 describe("App component", () => {
@@ -556,5 +556,268 @@ describe("App component", () => {
 			(c) => c.cmd === "plugin:tradr|send_files",
 		);
 		expect(sendCallsAfterSecond).toHaveLength(2);
+	});
+
+	it("lists a known device absent from peers as offline without Open folder button", async () => {
+		customHandlers["plugin:tradr|list_known_devices"] = () => [
+			...fixtureKnownDevices,
+			{
+				device_id: "dev-offline-tablet",
+				display_name: "Offline Tablet",
+				tier: "same-account",
+				last_seen: 1727000000,
+			},
+		];
+
+		const { container } = render(<App />);
+		await screen.findByText("Offline Tablet");
+
+		expect(
+			screen.getByText("offline · set up delivery in Settings to send later"),
+		).toBeDefined();
+
+		const tabletTile = container.querySelector(
+			'[data-device-key="dev-offline-tablet"]',
+		);
+		expect(tabletTile).not.toBeNull();
+		expect(tabletTile?.textContent).toContain("Offline Tablet");
+		expect(tabletTile?.querySelector("button")).toBeNull();
+	});
+
+	it("renders a known device that is also a peer only once as reachable", async () => {
+		customHandlers["plugin:tradr|list_known_devices"] = () => [
+			{
+				device_id: "dev-pixel-8",
+				display_name: "Pixel 8",
+				tier: "same-account",
+				last_seen: 1727654400,
+			},
+		];
+
+		const { container } = render(<App />);
+		await screen.findByText("Pixel 8");
+
+		const pixelTiles = container.querySelectorAll(
+			'[data-device-key="dev-pixel-8"]',
+		);
+		expect(pixelTiles).toHaveLength(1);
+		expect(pixelTiles[0]?.textContent).toContain("Open folder");
+	});
+
+	it("invokes send_deferred with deviceId and staged paths exactly once and re-lists deliveries when offline tile is tapped with configured Brokr", async () => {
+		customHandlers["plugin:tradr|brokr_status"] = () => ({
+			configured: true,
+			url: "http://brokr.local:8080",
+			last_pass: 1727654400,
+			delivered: 0,
+			last_error: null,
+		});
+		customHandlers["plugin:tradr|list_known_devices"] = () => [
+			...fixtureKnownDevices,
+			{
+				device_id: "dev-offline-tablet",
+				display_name: "Offline Tablet",
+				tier: "same-account",
+				last_seen: 1727000000,
+			},
+		];
+
+		render(<App />);
+		await screen.findByText("Offline Tablet");
+
+		await act(async () => {
+			await emit("share-intent", {
+				action: "send",
+				mimeType: null,
+				extraText: null,
+				targetDevice: null,
+				transferId: null,
+				files: [
+					{
+						name: "offline-notes.txt",
+						size: 512,
+						cachePath: "/tmp/offline-notes.txt",
+						adoptedId: null,
+					},
+				],
+			});
+		});
+
+		await screen.findByText("Send later →");
+
+		const initialListDeliveriesCalls = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|list_deliveries",
+		).length;
+
+		fireEvent.click(screen.getByText("Offline Tablet"));
+
+		await waitFor(() => {
+			const deferredCalls = recordedCalls.filter(
+				(c) => c.cmd === "plugin:tradr|send_deferred",
+			);
+			expect(deferredCalls).toHaveLength(1);
+			expect(deferredCalls[0]?.payload).toMatchObject({
+				deviceId: "dev-offline-tablet",
+				files: ["/tmp/offline-notes.txt"],
+				adoptedIds: [],
+			});
+		});
+
+		await screen.findByText("Will deliver when it's back ✓");
+
+		await waitFor(() => {
+			const afterListDeliveriesCalls = recordedCalls.filter(
+				(c) => c.cmd === "plugin:tradr|list_deliveries",
+			).length;
+			expect(afterListDeliveriesCalls).toBeGreaterThan(
+				initialListDeliveriesCalls,
+			);
+		});
+	});
+
+	it("invokes neither send_files nor send_deferred when offline tile is tapped without configured Brokr", async () => {
+		customHandlers["plugin:tradr|brokr_status"] = () => ({
+			configured: false,
+			url: null,
+			last_pass: null,
+			delivered: 0,
+			last_error: null,
+		});
+		customHandlers["plugin:tradr|list_known_devices"] = () => [
+			...fixtureKnownDevices,
+			{
+				device_id: "dev-offline-tablet",
+				display_name: "Offline Tablet",
+				tier: "same-account",
+				last_seen: 1727000000,
+			},
+		];
+
+		render(<App />);
+		await screen.findByText("Offline Tablet");
+
+		await act(async () => {
+			await emit("share-intent", {
+				action: "send",
+				mimeType: null,
+				extraText: null,
+				targetDevice: null,
+				transferId: null,
+				files: [
+					{
+						name: "doc.txt",
+						size: 100,
+						cachePath: "/tmp/doc.txt",
+						adoptedId: null,
+					},
+				],
+			});
+		});
+
+		fireEvent.click(screen.getByText("Offline Tablet"));
+
+		const sendCalls = recordedCalls.filter(
+			(c) =>
+				c.cmd === "plugin:tradr|send_files" ||
+				c.cmd === "plugin:tradr|send_deferred",
+		);
+		expect(sendCalls).toHaveLength(0);
+	});
+
+	it("renders waiting, delivered, and expired rows when deliveries are present and remains absent when empty", async () => {
+		customHandlers["plugin:tradr|list_deliveries"] = () => [];
+
+		const { unmount } = render(<App />);
+		await screen.findByText("Pixel 8");
+
+		expect(
+			screen.queryByRole("heading", { name: "Waiting to deliver" }),
+		).toBeNull();
+
+		unmount();
+
+		customHandlers["plugin:tradr|list_deliveries"] = () => [
+			{
+				id: "deliv-1",
+				recipient_device_id: "dev-tablet",
+				recipient_name: "Personal Tablet",
+				names: ["report.pdf", "appendix.pdf"],
+				sent_at: 1727650000,
+				state: "waiting",
+				collected_at: null,
+			},
+			{
+				id: "deliv-2",
+				recipient_device_id: "dev-laptop",
+				recipient_name: "Home Laptop",
+				names: ["photos.zip"],
+				sent_at: 1727640000,
+				state: "delivered",
+				collected_at: 1727643600000,
+			},
+			{
+				id: "deliv-3",
+				recipient_device_id: "dev-old",
+				recipient_name: null,
+				names: ["old-doc.txt"],
+				sent_at: 1727000000,
+				state: "expired",
+				collected_at: null,
+			},
+		];
+
+		render(<App />);
+
+		await screen.findByRole("heading", { name: "Waiting to deliver" });
+		expect(screen.getByText("report.pdf +1 more")).toBeDefined();
+		expect(screen.getByText(/to Personal Tablet · Waiting/)).toBeDefined();
+		expect(screen.getByText("photos.zip")).toBeDefined();
+		expect(screen.getByText(/to Home Laptop · Delivered/)).toBeDefined();
+		expect(screen.getByText("old-doc.txt")).toBeDefined();
+		expect(screen.getByText(/to a device · Expired/)).toBeDefined();
+	});
+
+	it("invokes collect_brokr_now on visibilitychange to visible only when Brokr is configured", async () => {
+		customHandlers["plugin:tradr|brokr_status"] = () => ({
+			configured: false,
+			url: null,
+			last_pass: null,
+			delivered: 0,
+			last_error: null,
+		});
+
+		render(<App />);
+		await screen.findByText("Pixel 8");
+
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		});
+		fireEvent(document, new Event("visibilitychange"));
+
+		const collectCallsUnconfigured = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|collect_brokr_now",
+		);
+		expect(collectCallsUnconfigured).toHaveLength(0);
+
+		customHandlers["plugin:tradr|brokr_status"] = () => ({
+			configured: true,
+			url: "http://brokr.local:8080",
+			last_pass: 1727654400,
+			delivered: 1,
+			last_error: null,
+		});
+
+		render(<App />);
+		await screen.findByText("Pixel 8");
+
+		fireEvent(document, new Event("visibilitychange"));
+
+		await waitFor(() => {
+			const collectCallsConfigured = recordedCalls.filter(
+				(c) => c.cmd === "plugin:tradr|collect_brokr_now",
+			);
+			expect(collectCallsConfigured).toHaveLength(1);
+		});
 	});
 });
