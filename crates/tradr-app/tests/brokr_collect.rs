@@ -17,7 +17,7 @@ use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature as EcdsaSignature, VerifyingKey};
 use tradr_app::brokr::{
     BrokrApi, BrokrError, BrokrFuture, BrokrInfo, ByteStream, Challenge, CollectContext,
-    InboxEntry, RegisterRequest, Session, collect_once, register,
+    DeliveryId, InboxEntry, OutboxEntry, RegisterRequest, Session, collect_once, register,
 };
 use tradr_app::peer_trust::PeerTrust;
 use tradr_core::{
@@ -134,6 +134,19 @@ impl BrokrApi for FakeBrokr {
                 .push(id.to_string());
             Ok(())
         })
+    }
+
+    fn upload<'a>(
+        &'a self,
+        _session: &'a Session,
+        _total_len: u64,
+        _body: ByteStream<'static>,
+    ) -> BrokrFuture<'a, DeliveryId> {
+        Box::pin(async { Err(BrokrError::Rejected("not supported in fake".to_string())) })
+    }
+
+    fn outbox<'a>(&'a self, _session: &'a Session) -> BrokrFuture<'a, Vec<OutboxEntry>> {
+        Box::pin(async { Ok(Vec::new()) })
     }
 }
 
