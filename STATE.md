@@ -100,7 +100,8 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M9-006b2 | **The client made real**: the reqwest `BrokrApi`, the Brokr's address in a file and its join token and session in the `SecretStore`, the plugin wiring Known Devices and the collector (start, foreground, every 5 minutes) | planned | |
+| WI-M9-006b2a | **The reqwest `BrokrApi`** as one new file in `tradr-app`'s `brokr` module (DCR-174) with `ci/layer-deps.sh` widened by that one file; Brokr settings (address in a file; join token and session in the `SecretStore`); the envelope reader's callbacks made `Send` so collecting can run on the runtime | planned | |
+| WI-M9-006b2b | **The plugin wired**: Known Devices recorded on every handshake and named from the peer list; the collector at start, on demand and every 5 minutes, arrivals as `files-received`; commands to set, read and clear the Brokr | planned | |
 | WI-M9-006c | **Sending through the Brokr**: an offline known device's envelope sealed from the files and streamed up; the outbox polled for waiting / delivered / expired | planned | |
 | WI-M9-007 | **The interface**: Brokr settings, offline known devices in the list, "will deliver when it's back", waiting / delivered / expired | planned | |
 | WI-M9-008 | **A container image** for the Brokr and its setup notes | planned | |
