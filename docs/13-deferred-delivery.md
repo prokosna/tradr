@@ -70,6 +70,26 @@ records, each sealed with the HPKE context, sequence numbers from 0
 - **Expiry is swept** at start and hourly: the body is deleted and the outbox says expired. The database records that a delivery existed for as long as its row is kept (30 days after it ends), and docs/07's logging rules hold: no Device IDs in logs by default.
 - **Losing the database loses only what was waiting**, as docs/07 says of relay sessions; devices register again with the join token.
 
+## Running the Brokr
+
+**One container, one volume, four settings.** The image is built from `apps/brokr/Dockerfile` at the repository root as its build context; it runs as a user that is not root, listens on 8780, and keeps everything it owns -- the database and the deliveries waiting -- under `/data`.
+
+```sh
+docker build -f apps/brokr/Dockerfile -t tradr-brokr .
+docker run -d --name tradr-brokr --restart unless-stopped \
+  -p 8780:8780 -v tradr-brokr-data:/data \
+  -e BROKR_JOIN_TOKEN="$(openssl rand -hex 24)" \
+  -e BROKR_DELIVERY_MAX_BYTES=10737418240 \
+  -e BROKR_STORAGE_MAX_BYTES=107374182400 \
+  tradr-brokr
+```
+
+- **`BROKR_JOIN_TOKEN`** is what a device presents once, to register; choose it and keep it (`BROKR_JOIN_TOKEN_FILE` reads it from a file instead). **`BROKR_DELIVERY_MAX_BYTES`** and **`BROKR_STORAGE_MAX_BYTES`** have no default on purpose: how much one delivery and all of them together may occupy is the operator's disk to budget. The example allows 10 GiB per delivery and 100 GiB in all. `BROKR_DELIVERY_TTL_DAYS` defaults to 30.
+- **Reach it over the tailnet, not the internet**: publish the port only on the machine's tailnet address (`-p 100.x.y.z:8780:8780`) or leave it on the LAN, and give devices `http://<that machine's tailnet name>:8780`. Nothing it carries is readable to it, but nothing about it is hardened for the open internet either.
+- **On each device**: Settings, "Deliver when a device is offline", the address and the join token, Connect. A device has to have met another directly once before it can send to it while it is offline.
+- **Health**: `GET /v1/health` answers `{"ok":true}`; the image's health check calls it.
+- **Losing the volume loses what was waiting and nothing else**: devices register again by themselves with the same join token.
+
 ## The device side
 
 - **Configuration**: Settings gains **"Brokr"**: its address and the join token, or a `tradr://brokr?url=...&token=...` link, and the connection's state. Sharing it to the account's other devices over their Noise channels (docs/07 step 4) is not in M9.
