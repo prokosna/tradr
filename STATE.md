@@ -6,7 +6,7 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.** `branch`, `work_items_landed`, and `last_commit` are no longer declared here — see [docs/10](docs/10-implementation-process.md#the-yaml-header--what-is-in-it-and-what-was-removed-dcr-060) for the one-command equivalents.
 
 ```yaml
-last_updated: 2026-10-05
+last_updated: 2026-10-06
 phase: implementing
 current_milestone: M8
 implementation_started: true
@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M9-006b2b`** (the plugin wiring Known Devices and the collector), next. `WI-M9-001` to `WI-M9-006b2a` are committed; PRs follow in branch order (`wi-m9-004-brokr` is PR #306). agy reached its quota on 2026-10-05; the `implementer` subagent on Sonnet implements until it resets, per the person's standing instruction. M9 is designed by DCR-173 and DCR-174 ([docs/13](docs/13-deferred-delivery.md)).
+- **DF-126's repair** (`ci/state-sync.sh` judging `last_updated` against a pull request's synthetic merge commit), next, from `main`, because it blocks every stacked PR opened on a later day (PR #307 is failing on it). Then the PRs in branch order: `wi-m9-005-deliveries` (#307), `wi-m9-006a-known-recording`, `wi-m9-003c-envelope-stream`, `wi-m9-006b1-brokr-client`, `dcr-174-brokr-http`, `wi-m9-006b2a-brokr-http`, `wi-m9-006b2b-plugin-collector`. Then `WI-M9-006c`. `WI-M9-001` to `WI-M9-006b2b` are committed. **The session scratchpad is under `/tmp` and does not survive a reboot: Work Orders are re-derived from this file and docs/13.** M9 is designed by DCR-173 and DCR-174 ([docs/13](docs/13-deferred-delivery.md)).
 
 **For the next UI Work Item: the preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
@@ -100,7 +100,6 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M9-006b2b | **The plugin wired**: Known Devices recorded on every handshake and named from the peer list; the collector at start, on demand and every 5 minutes, arrivals as `files-received`; commands to set, read and clear the Brokr | planned | |
 | WI-M9-006c | **Sending through the Brokr**: an offline known device's envelope sealed from the files and streamed up; the outbox polled for waiting / delivered / expired | planned | |
 | WI-M9-007 | **The interface**: Brokr settings, offline known devices in the list, "will deliver when it's back", waiting / delivered / expired | planned | |
 | WI-M9-008 | **A container image** for the Brokr and its setup notes | planned | |
@@ -115,6 +114,7 @@ Things consciously postponed. **These live here, not in TODO comments in the cod
 | # | Content | When | Source |
 |---|---|---|---|
 | DF-123 | **A download into this device's own folder writes straight to its final name.** `execute_download_file` picks a free name with `resolve_collision` and then `open_write`s it, which creates or opens without truncating; since DCR-171 an arrival cannot replace it, but two downloads of the same name started together would write into one file. The browse panel runs one operation at a time, so nothing reaches it today. The exit is the shape every other placement now has: write under `.tradr-partial` and `rename_no_replace` into place | When downloads can run concurrently, or with whatever next touches `execute_download_file` | DCR-171, 2026-10-03 |
+| DF-126 | **`ci/state-sync.sh` compares `last_updated` with the newest commit, and on a pull request the newest commit is GitHub's synthetic merge commit, dated when CI runs.** So a branch committed on one day and opened as a PR on a later one fails `checks` with nothing wrong in it; PR #307 did on 2026-10-06, and every branch stacked behind it would. The pre-commit hook cannot see it. The exit is to judge against the newest non-merge commit | Now: it blocks the M9 stack | PR #307, 2026-10-06 |
 | DF-125 | **A delivery whose acknowledgement fails after its files were placed is placed again on the next pass, as `name (2)`.** Found 2026-10-05 reviewing `WI-M9-006b1`: `collect_once` places, then acknowledges, then reports; a failed acknowledgement returns an error and leaves the delivery on the Brokr. Placing before acknowledging is the right order -- the reverse loses a file on a crash -- so the exit is remembering which delivery ids were placed until they are acknowledged | When a duplicate is seen, or before M9 closes | Review of `WI-M9-006b1`, 2026-10-05 |
 | DF-122 | **A received file cannot be opened or shown in its folder from the app.** docs/12's Received card lists arrivals by name only. Opening needs an opener plugin on the desktop and a decision about Android's Downloads provider | After `WI-M8-062e`, when the person asks for it | DCR-169, 2026-09-30 |
 | DF-110 | **No longer needed for M8 since ADR-0024 (2026-09-28)**: Android serves its downloads directory through `NativeVfs`, and SAF Share Roots are deferred with the rest of docs/06's model. **`SafBridge` has no production implementation, so `SafVfs` is reachable from tests alone and no Android Share Root can exist.** Found 2026-09-24 ruling DF-106: `crates/tradr-vfs/src/saf.rs` declares the bridge and only `crates/tradr-vfs/tests/saf_boundary_enforcement.rs` implements it, and no Kotlin `DocumentFile` walk exists. The directory cache docs/06 and docs/08 describe is downstream of it. **M2 is recorded as done with SAF in its content**, so what that row measured needs reading before anything is cut | With DF-109, before M9 | DCR-158, 2026-09-24 |

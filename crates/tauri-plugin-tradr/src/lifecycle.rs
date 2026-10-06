@@ -8,8 +8,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use tradr_core::{
-    BoxFuture, Capabilities, DeviceId, DisplayName, Incoming, KeyBinding, KeyStore, PeerList,
-    PublicIdentity, RelPath, RootId, Transport, TrustTier,
+    BoxFuture, Capabilities, Clock, DeviceId, DisplayName, Incoming, KeyBinding, KeyStore,
+    PeerList, PublicIdentity, RelPath, RootId, Transport, TrustTier, VersionRange,
 };
 use tradr_discovery::{DeclaredCapabilities, MdnsSource, StaticPeerRegistry};
 use tradr_identity::hello::AttestationRequest;
@@ -20,21 +20,25 @@ use tradr_vfs::NativeVfs;
 
 use crate::ble_advertising::{BleAdvertising, local_platform_code};
 use crate::ble_source::BleDiscovery;
+use crate::brokr_commands::{BrokrDeps, BrokrState};
 use crate::identity::IdentityState;
 use crate::link_registry::LinkRegistryState;
 use crate::peer_trust::PeerTrustState;
 use tradr_app::broadcast_secrets::DeviceBroadcastSecrets;
+use tradr_app::brokr::LinkView;
 use tradr_app::browse_access::BrowseAccess;
 use tradr_app::capabilities::LocalCapabilities;
+use tradr_app::known_store::{KnownDeviceRecorder, KnownDevicesStore};
 use tradr_app::link_invite::{
     LinkInviteState, LinkProposalDto, LinkService, LinkServiceParts, ProposalSink,
 };
 use tradr_app::listener::{
-    LinkStreamService, ListenerError, ListenerServices, build_key_binding, run_listener,
+    LinkStreamService, ListenerError, ListenerParams, build_key_binding, listen_for_transfers,
 };
 use tradr_app::network::{
     bind_quic_transport, device_txt_record, mdns_daemon, register_advertisement,
 };
+use tradr_app::partial_sweep::sweep_stale_partials;
 use tradr_app::peer_trust::OwnAttestation;
 use tradr_app::sign_in::{SignInState, listener_peer_verifier};
 
@@ -94,6 +98,7 @@ pub struct TransferListener {
     >,
     link_service: Option<Arc<dyn LinkStreamService>>,
     on_arrival: ArrivalHook,
+    known_devices: Arc<KnownDevicesStore>,
 }
 
 impl TransferListener {
@@ -114,27 +119,53 @@ impl TransferListener {
     }
 
     /// Runs the accept-handshake-serve loop over `incoming` until it ends.
-    pub async fn run(&self, incoming: Box<dyn Incoming>) -> Result<(), ListenerError> {
+    pub async fn run(&self, mut incoming: Box<dyn Incoming>) -> Result<(), ListenerError> {
         let verifier = Arc::clone(&self.verify_attestation);
-        let (rng, clock, verifier_srv) = (OsRng, SystemClock, BaoVerifier);
-        let services = ListenerServices {
-            rng: &rng,
-            clock: &clock,
-            verifier: &verifier_srv,
+        let key_binding = self
+            .key_binding()
+            .map_err(ListenerError::ProtocolViolation)?;
+
+        match self.vfs.list_partial_root(self.root).await {
+            Ok(entries) => {
+                if let Err(e) =
+                    sweep_stale_partials(self.vfs.as_ref(), self.root, SystemClock.now(), &entries)
+                        .await
+                {
+                    eprintln!("listener: sweeping stale partial files failed: {e}");
+                }
+            }
+            Err(e) => {
+                eprintln!("listener: sweeping stale partial files failed: {e}");
+            }
+        }
+
+        let versions = VersionRange::new(1, 1)
+            .map_err(|_| ListenerError::ProtocolViolation("invalid version range".to_string()))?;
+
+        let known_rec: &dyn KnownDeviceRecorder = self.known_devices.as_ref();
+        let params = ListenerParams {
+            root: self.root,
+            our_identity: &self.public_identity,
+            our_attestation_token: self.our_attestation.clone(),
+            our_key_binding: key_binding,
+            our_versions: versions,
+            our_capabilities: self.capabilities.clone(),
+            browse_access: self.browse_access.clone(),
+            known_devices: Some(known_rec),
         };
-        run_listener(
-            incoming,
-            Arc::clone(&self.vfs),
-            Arc::clone(&self.key_store),
-            self.public_identity.clone(),
-            Arc::clone(&self.our_attestation),
-            self.root,
-            Arc::clone(&self.capabilities),
-            Arc::clone(&self.browse_access),
-            services,
+
+        listen_for_transfers(
+            incoming.as_mut(),
+            self.vfs.as_ref(),
+            params,
+            self.key_store.as_ref(),
+            &OsRng,
+            &SystemClock,
+            &BaoVerifier,
             move |req| verifier(req),
-            self.link_service.clone(),
-            Some(self.on_arrival.clone()),
+            None,
+            self.link_service.as_deref(),
+            Some(self.on_arrival.as_ref()),
         )
         .await
     }
@@ -276,6 +307,17 @@ pub fn init_lifecycle<R: Runtime>(
         }
     });
 
+    let known_devices_path = app_data_dir.join("known_devices.json");
+    let known_devices = match KnownDevicesStore::open(&known_devices_path) {
+        Ok(k) => Arc::new(k),
+        Err(e) => {
+            return Err(format!(
+                "could not open known devices store at {}: {e}",
+                known_devices_path.display()
+            ));
+        }
+    };
+
     let listener = Arc::new(TransferListener {
         vfs: vfs.clone(),
         key_store: key_store.clone(),
@@ -286,7 +328,8 @@ pub fn init_lifecycle<R: Runtime>(
         browse_access,
         verify_attestation,
         link_service: Some(link_service),
-        on_arrival,
+        on_arrival: on_arrival.clone(),
+        known_devices: known_devices.clone(),
     });
 
     let listener_for_quic = listener.clone();
@@ -338,6 +381,50 @@ pub fn init_lifecycle<R: Runtime>(
 
     let transport_set = Arc::new(TransportSet::new(transports));
 
+    let secret_store = match identity_state.secret_store() {
+        Ok(s) => s,
+        Err(e) => return Err(format!("secret store not available: {e}")),
+    };
+
+    let peer_trust = peer_trust_state.peer_trust();
+    let peer_trust_fn = Arc::new(move || peer_trust.clone());
+    let sign_in_state_for_brokr = sign_in_state.clone();
+    let own_account_fn = Arc::new(move || sign_in_state_for_brokr.own_account());
+    let link_registry_for_brokr = link_registry_state.registry();
+    let secrets_for_links = secret_store.clone();
+    let links_fn = Arc::new(move || {
+        let registry = link_registry_for_brokr.clone()?;
+        let guard = registry.lock().unwrap_or_else(|p| p.into_inner());
+        let mut accounts = Vec::new();
+        let mut link_secrets = Vec::new();
+        for link in guard.links() {
+            accounts.push(link.peer_account().clone());
+            if let Some(sec) = guard
+                .link_secret(&link.link_id(), secrets_for_links.as_ref())
+                .map_err(|e| e.to_string())?
+            {
+                link_secrets.push(sec);
+            }
+        }
+        Ok(LinkView {
+            accounts,
+            secrets: link_secrets,
+        })
+    });
+
+    let brokr_state = Arc::new(BrokrState::new(BrokrDeps {
+        app_data_dir,
+        secrets: secret_store,
+        key_store: key_store.clone(),
+        identity: public_identity.clone(),
+        vfs: vfs.clone(),
+        clock: Arc::new(SystemClock),
+        peer_trust_fn,
+        own_account_fn,
+        links_fn,
+        on_arrival,
+    }));
+
     app.manage(capabilities);
     app.manage(vfs);
     app.manage(transport_set);
@@ -345,6 +432,8 @@ pub fn init_lifecycle<R: Runtime>(
     app.manage(tokio::sync::Mutex::new(static_peer_source));
     app.manage(tokio::sync::Mutex::new(static_peer_registry));
     app.manage(peer_list);
+    app.manage(known_devices);
+    app.manage(brokr_state);
 
     Ok(Some(LifecycleHandles {
         listener,

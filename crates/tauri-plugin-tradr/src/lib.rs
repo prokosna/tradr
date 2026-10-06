@@ -21,6 +21,7 @@ pub mod ble_advertising;
 pub mod ble_android;
 pub mod ble_gatt_android;
 pub mod ble_source;
+pub mod brokr_commands;
 pub mod commands;
 pub mod desktop;
 mod identity;
@@ -80,6 +81,10 @@ pub fn init<R: Runtime>(
             link_commands::list_links,
             link_commands::remove_link,
             link_commands::set_link_full_access,
+            brokr_commands::set_brokr,
+            brokr_commands::brokr_status,
+            brokr_commands::collect_brokr_now,
+            brokr_commands::clear_brokr,
         ])
         .setup(move |app, _api| {
             #[cfg(target_os = "android")]

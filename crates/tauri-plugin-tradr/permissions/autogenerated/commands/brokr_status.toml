@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-brokr-status"
+description = "Enables the brokr_status command without any pre-configured scope."
+commands.allow = ["brokr_status"]
+
+[[permission]]
+identifier = "deny-brokr-status"
+description = "Denies the brokr_status command without any pre-configured scope."
+commands.deny = ["brokr_status"]
