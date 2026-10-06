@@ -451,6 +451,30 @@
           "markdownDescription": "Denies the get_visible_shares command without any pre-configured scope."
         },
         {
+          "description": "Enables the list_deliveries command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-deliveries",
+          "markdownDescription": "Enables the list_deliveries command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_deliveries command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-deliveries",
+          "markdownDescription": "Denies the list_deliveries command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_known_devices command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-known-devices",
+          "markdownDescription": "Enables the list_known_devices command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_known_devices command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-known-devices",
+          "markdownDescription": "Denies the list_known_devices command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_links command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-links",
@@ -629,6 +653,18 @@
           "type": "string",
           "const": "deny-request-permissions",
           "markdownDescription": "Denies the request_permissions command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the send_deferred command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-send-deferred",
+          "markdownDescription": "Enables the send_deferred command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the send_deferred command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-send-deferred",
+          "markdownDescription": "Denies the send_deferred command without any pre-configured scope."
         },
         {
           "description": "Enables the send_files command without any pre-configured scope.",
