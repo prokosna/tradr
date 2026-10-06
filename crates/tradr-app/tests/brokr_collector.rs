@@ -13,8 +13,9 @@ use common::{
 use futures_util::stream;
 use tradr_app::brokr::{
     BrokrApi, BrokrError, BrokrFuture, BrokrInfo, ByteStream, Challenge, CollectContext, Collector,
-    CollectorParts, DeliveryId, InboxEntry, JoinToken, LinkView, OutboxEntry, RegisterRequest,
-    Session, ensure_session, load_session, run_pass, save_join_token, save_session,
+    CollectorParts, CollectorStatus, DeliveryId, InboxEntry, JoinToken, LinkView, OutboxEntry,
+    RegisterRequest, Session, ensure_session, load_session, run_pass, save_join_token,
+    save_session,
 };
 use tradr_app::peer_trust::PeerTrust;
 use tradr_core::{
@@ -479,43 +480,57 @@ async fn collector_runs_at_start_and_after_wake_with_paused_time() {
     };
 
     let collector = Collector::new(parts);
+    let mut rx = collector.subscribe();
     let run_handle = tokio::spawn(collector.clone().run());
 
     async fn wait_for<F>(
-        collector: &Collector<NativeVfs>,
+        rx: &mut tokio::sync::watch::Receiver<CollectorStatus>,
+        description: &str,
         condition: F,
-    ) -> tradr_app::brokr::CollectorStatus
+    ) -> CollectorStatus
     where
-        F: Fn(&tradr_app::brokr::CollectorStatus) -> bool,
+        F: Fn(&CollectorStatus) -> bool,
     {
-        for _ in 0..10_000 {
-            let status = collector.status();
-            if condition(&status) {
-                return status;
+        let wait = async {
+            loop {
+                if condition(&rx.borrow_and_update()) {
+                    return rx.borrow().clone();
+                }
+                rx.changed().await.expect("collector status channel closed");
             }
-            tokio::task::yield_now().await;
-        }
-        collector.status()
+        };
+        tokio::time::timeout(Duration::from_secs(60), wait)
+            .await
+            .unwrap_or_else(|_| panic!("timed out after 60s waiting for: {description}"))
     }
 
-    let status = wait_for(&collector, |s| s.last_pass.is_some()).await;
+    let status = wait_for(&mut rx, "initial pass", |s| {
+        s.pass_count >= 1 && s.last_pass.is_some()
+    })
+    .await;
     assert_eq!(status.delivered, 1);
     assert_eq!(status.last_error, None);
 
     let payload2 = sealed(1, &recipient_id, &[("file2.txt", b"second payload")]);
     api.holding("aa02", NOW, payload2);
-    let prev_pass = status.last_pass;
+    let prev_count = status.pass_count;
     collector.wake();
 
-    let status = wait_for(&collector, |s| s.last_pass != prev_pass).await;
+    let status = wait_for(&mut rx, "second pass after wake", |s| {
+        s.pass_count > prev_count
+    })
+    .await;
     assert_eq!(status.delivered, 1);
     assert_eq!(status.last_error, None);
 
     api.fail_network(true);
-    let prev_pass = status.last_pass;
+    let prev_count = status.pass_count;
     collector.wake();
 
-    let status = wait_for(&collector, |s| s.last_pass != prev_pass).await;
+    let status = wait_for(&mut rx, "third pass after network fail", |s| {
+        s.pass_count > prev_count
+    })
+    .await;
     assert_eq!(status.delivered, 0);
     assert!(status.last_error.is_some());
     assert!(status.last_error.unwrap().contains("brokr unreachable"));
