@@ -21,7 +21,7 @@ The recipient's long-lived agreement key is a P-256 key behind `KeyStore::agree`
 
 - A Brokr sees routing and sizes only; it cannot read, alter, re-address or forge a delivery
 - Opening an envelope is a Critical Module: the Supervisor writes its tests first, including RFC 9180's vectors for the suite
-- `tradr-core` gains the envelope's vocabulary and the HPKE steps that need only HKDF and an AEAD behind ports; the primitives themselves live in Layer 3, as every other primitive does
+- **HPKE and the envelope live in `tradr-identity`**, the Layer 3 crate that already holds the Device Key code and P-256, with HKDF and ChaCha20-Poly1305 from the RustCrypto crates the lockfile already carries. `tradr-core` gains only the `DeferredDelivery` domain tag. The recipient's DH arrives as a function, so `KeyStore::agree` is what production passes and a test passes RFC 9180's recipient key
 - The domain tag list in docs/05 gains `DeferredDelivery`
 
 ## Alternatives rejected
