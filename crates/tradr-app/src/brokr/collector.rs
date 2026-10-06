@@ -1,7 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 use tradr_core::{
     Clock, DeviceId, KeyStore, LinkSecret, PublicIdentity, RelPath, RootId, SecretStore, UnixTime,
     Vfs,
@@ -134,6 +134,8 @@ pub struct CollectorParts<V> {
 /// What the last collecting pass did. Never carries a token.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CollectorStatus {
+    /// How many passes have completed.
+    pub pass_count: u64,
     /// When the last pass ended, or `None` before the first.
     pub last_pass: Option<UnixTime>,
     /// Deliveries the last pass placed.
@@ -145,7 +147,7 @@ pub struct CollectorStatus {
 struct Shared {
     wake: Notify,
     stop: Notify,
-    status: Mutex<CollectorStatus>,
+    status_tx: watch::Sender<CollectorStatus>,
 }
 
 /// Collects Deferred Deliveries at start, on `wake()` and every five minutes.
@@ -171,7 +173,7 @@ impl<V: Vfs + 'static> Collector<V> {
             shared: Arc::new(Shared {
                 wake: Notify::new(),
                 stop: Notify::new(),
-                status: Mutex::new(CollectorStatus::default()),
+                status_tx: watch::Sender::new(CollectorStatus::default()),
             }),
         }
     }
@@ -188,11 +190,12 @@ impl<V: Vfs + 'static> Collector<V> {
 
     /// What the last pass did.
     pub fn status(&self) -> CollectorStatus {
-        self.shared
-            .status
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
+        self.shared.status_tx.borrow().clone()
+    }
+
+    /// Subscribes to status updates emitted after each pass.
+    pub fn subscribe(&self) -> watch::Receiver<CollectorStatus> {
+        self.shared.status_tx.subscribe()
     }
 
     /// Runs passes until `stop()`.
@@ -242,14 +245,11 @@ impl<V: Vfs + 'static> Collector<V> {
             Ok(report) => (report.delivered, None),
             Err(e) => (0, Some(e.to_string())),
         };
-        *self
-            .shared
-            .status
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = CollectorStatus {
-            last_pass: Some(self.parts.clock.now()),
-            delivered,
-            last_error,
-        };
+        self.shared.status_tx.send_modify(|s| {
+            s.pass_count += 1;
+            s.last_pass = Some(self.parts.clock.now());
+            s.delivered = delivered;
+            s.last_error = last_error;
+        });
     }
 }
