@@ -348,6 +348,58 @@ Denies the get_visible_shares command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-list-deliveries`
+
+</td>
+<td>
+
+Enables the list_deliveries command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-list-deliveries`
+
+</td>
+<td>
+
+Denies the list_deliveries command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-list-known-devices`
+
+</td>
+<td>
+
+Enables the list_known_devices command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-list-known-devices`
+
+</td>
+<td>
+
+Denies the list_known_devices command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-list-links`
 
 </td>
@@ -731,6 +783,32 @@ Enables the request_permissions command without any pre-configured scope.
 <td>
 
 Denies the request_permissions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-send-deferred`
+
+</td>
+<td>
+
+Enables the send_deferred command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-send-deferred`
+
+</td>
+<td>
+
+Denies the send_deferred command without any pre-configured scope.
 
 </td>
 </tr>

@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M9-006c2`** (the plugin's commands for sending through the Brokr), next. `WI-M9-006c1` landed 2026-10-06.
+- **`WI-M9-007`** (the interface: Brokr settings, offline known devices, delivery status), next. `WI-M9-006c1` and `WI-M9-006c2` landed 2026-10-06.
 - **The stack's PRs, one at a time, all on the day they are opened (DF-126: a PR opened on a later day than its `last_updated` fails `checks`; the workaround is a date-bump commit, or a merge of `main`, on that branch; the repair is a Work Item at the top of the stack, since a branch from `main` would conflict with every stacked `STATE.md`)**: `wi-m9-005-deliveries` (#307), `wi-m9-006a-known-recording`, `wi-m9-003c-envelope-stream`, `wi-m9-006b1-brokr-client`, `dcr-174-brokr-http`, `wi-m9-006b2a-brokr-http`, `wi-m9-006b2b-plugin-collector`. Then `WI-M9-006c`. `WI-M9-001` to `WI-M9-006b2b` are committed. **The session scratchpad is under `/tmp` and does not survive a reboot: Work Orders are re-derived from this file and docs/13.** M9 is designed by DCR-173 and DCR-174 ([docs/13](docs/13-deferred-delivery.md)).
 
 **For the next UI Work Item: the preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
@@ -101,7 +101,6 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M9-006c2 | **The plugin's commands for it**: `list_known_devices`, `send_deferred`, `list_deliveries` | planned | |
 | WI-M9-007 | **The interface**: Brokr settings, offline known devices in the list, "will deliver when it's back", waiting / delivered / expired | planned | |
 | WI-M9-008 | **A container image** for the Brokr and its setup notes | planned | |
 | WI-M6-009 | **Scanning a QR with a camera.** `WI-M6-007b` shows a QR and accepts a pasted blob, which is the whole payload either way (docs/11: "one payload and one parser"), so a QR read by any camera application already links. **A scanner inside Tradr is a platform integration and not an interface change** -- Android has `@tauri-apps/plugin-barcode-scanner` and a camera permission to justify, and the desktop has no camera API at all -- so it is its own Work Item rather than a line in one about React | planned | |

@@ -4,6 +4,7 @@
 mod api;
 mod collect;
 mod collector;
+mod devices;
 mod http;
 mod outbox;
 mod register;
@@ -19,6 +20,7 @@ pub use collector::{
     ArrivalHook, Collector, CollectorParts, CollectorStatus, LinkView, LinksFn, OwnAccountFn,
     ensure_session, run_pass,
 };
+pub use devices::{DeliveryDto, KnownDeviceDto, delivery_dto, delivery_dtos, known_device_dtos};
 pub use http::HttpBrokrApi;
 pub use outbox::{DeliveryStatus, OutboxError, SentDeliveries, SentRecord};
 pub use register::register;

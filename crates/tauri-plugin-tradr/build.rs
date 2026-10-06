@@ -37,6 +37,9 @@ const COMMANDS: &[&str] = &[
     "brokr_status",
     "collect_brokr_now",
     "clear_brokr",
+    "list_known_devices",
+    "send_deferred",
+    "list_deliveries",
 ];
 
 fn main() {
