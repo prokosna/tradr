@@ -2,7 +2,7 @@
 //! ADR-0025, DCR-173). Critical Module: opening an envelope is where a forged
 //! or altered delivery would be accepted.
 
-use std::cell::RefCell;
+use std::sync::Mutex;
 
 use tradr_core::{
     ContentHash, DomainTag, KeyBinding, KeyStore, KeyStoreError, PublicIdentity, PublicKeyPoint,
@@ -323,9 +323,9 @@ fn the_attestation_check_decides_and_is_asked_about_creation_time() {
     let (alice, bob) = (device(), device());
     let bytes = sealed(&alice, &bob, NOW - 5 * DAY, &[("a.txt", b"hello")]);
 
-    let seen: RefCell<Option<(String, PublicIdentity, UnixTime)>> = RefCell::new(None);
+    let seen: Mutex<Option<(String, PublicIdentity, UnixTime)>> = Mutex::new(None);
     let recording = |token: &str, id: &PublicIdentity, at: UnixTime| -> Result<TrustTier, String> {
-        *seen.borrow_mut() = Some((token.to_string(), id.clone(), at));
+        *seen.lock().expect("lock") = Some((token.to_string(), id.clone(), at));
         Ok(TrustTier::Linked)
     };
     let opened = open_envelope(
@@ -337,7 +337,7 @@ fn the_attestation_check_decides_and_is_asked_about_creation_time() {
     )
     .expect("linked is accepted");
     assert_eq!(opened.tier(), TrustTier::Linked);
-    let (token, id, at) = seen.borrow().clone().expect("asked");
+    let (token, id, at) = seen.lock().expect("lock").clone().expect("asked");
     assert_eq!(token, "attestation-token-of-sender");
     assert_eq!(id, alice.identity);
     assert_eq!(at, UnixTime::from_secs(NOW - 5 * DAY));

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::sync::Mutex;
 
 use futures_util::StreamExt;
 use tradr_core::{
@@ -24,7 +24,7 @@ pub struct CollectContext<'a, V: Vfs> {
     /// The recipient's own identity, which envelopes are sealed to.
     pub recipient: &'a PublicIdentity,
     /// `KeyStore::agree` for the recipient's agreement key.
-    pub agree: &'a dyn Fn(&PublicKeyPoint) -> Result<SharedSecret, KeyStoreError>,
+    pub agree: &'a (dyn Fn(&PublicKeyPoint) -> Result<SharedSecret, KeyStoreError> + Sync),
     /// The device's clock.
     pub clock: &'a (dyn Clock + Sync),
     /// Classifies each sender's Attestation and holds the JWKS cache.
@@ -153,7 +153,7 @@ async fn attempt<V: Vfs>(
     // A partial left by an interrupted pass would be written over, not truncated.
     remove_partial(ctx, dir).await?;
 
-    let jwks_needed: RefCell<Option<String>> = RefCell::new(None);
+    let jwks_needed: Mutex<Option<String>> = Mutex::new(None);
     let verify = |token: &str, sender: &PublicIdentity, created_at: UnixTime| {
         ctx.trust
             .classify_cached(
@@ -166,7 +166,7 @@ async fn attempt<V: Vfs>(
             )
             .map_err(|e| {
                 if let ClassifyCachedError::JwksNeeded { jwks_uri } = &e {
-                    *jwks_needed.borrow_mut() = Some(jwks_uri.clone());
+                    *jwks_needed.lock().unwrap_or_else(|p| p.into_inner()) = Some(jwks_uri.clone());
                 }
                 e.to_string()
             })
@@ -186,7 +186,8 @@ async fn attempt<V: Vfs>(
         let events = match reader.feed(&bytes) {
             Ok(events) => events,
             Err(e) => {
-                return Ok(match jwks_needed.take() {
+                let needed = jwks_needed.lock().unwrap_or_else(|p| p.into_inner()).take();
+                return Ok(match needed {
                     Some(uri) => Step::JwksNeeded(uri),
                     None => Step::Refused(e.to_string()),
                 });

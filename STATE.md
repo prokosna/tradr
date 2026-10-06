@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M9-006b2`** (the reqwest `BrokrApi`, credentials, and the plugin wiring Known Devices and the collector), next. `WI-M9-001` to `WI-M9-006b1` landed. **agy reached its quota on 2026-10-05 during `WI-M9-006a`; until it resets, the `implementer` subagent on Sonnet implements, per the person's standing instruction.** M9 is designed by DCR-173 ([docs/13](docs/13-deferred-delivery.md)).
+- **`WI-M9-006b2b`** (the plugin wiring Known Devices and the collector), next. `WI-M9-001` to `WI-M9-006b2a` are committed; PRs follow in branch order (`wi-m9-004-brokr` is PR #306). agy reached its quota on 2026-10-05; the `implementer` subagent on Sonnet implements until it resets, per the person's standing instruction. M9 is designed by DCR-173 and DCR-174 ([docs/13](docs/13-deferred-delivery.md)).
 
 **For the next UI Work Item: the preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
@@ -100,7 +100,6 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M9-006b2a | **The reqwest `BrokrApi`** as one new file in `tradr-app`'s `brokr` module (DCR-174) with `ci/layer-deps.sh` widened by that one file; Brokr settings (address in a file; join token and session in the `SecretStore`); the envelope reader's callbacks made `Send` so collecting can run on the runtime | planned | |
 | WI-M9-006b2b | **The plugin wired**: Known Devices recorded on every handshake and named from the peer list; the collector at start, on demand and every 5 minutes, arrivals as `files-received`; commands to set, read and clear the Brokr | planned | |
 | WI-M9-006c | **Sending through the Brokr**: an offline known device's envelope sealed from the files and streamed up; the outbox polled for waiting / delivered / expired | planned | |
 | WI-M9-007 | **The interface**: Brokr settings, offline known devices in the list, "will deliver when it's back", waiting / delivered / expired | planned | |
