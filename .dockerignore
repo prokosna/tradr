@@ -1,0 +1,38 @@
+# Exclude version control metadata and developer tooling
+.git
+.gitignore
+.githooks
+.cargo
+.gemini
+brain
+
+# Exclude build output and compiler cache directories
+target
+**/target
+dist
+**/dist
+node_modules
+**/node_modules
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Exclude application runtime databases and Tauri build trees
+apps/tradr/src-tauri/gen
+apps/tradr/src-tauri/target
+apps/brokr/data
+apps/brokr/dist
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Exclude environment secrets and local configuration files
+.env
+.env.*
+*.pem
+*.key
+*token*
+
+# Exclude tests and development logs
+coverage
+*.log
