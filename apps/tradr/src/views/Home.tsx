@@ -1,4 +1,5 @@
 import type { SignInUiState } from "../App.js";
+import { DeliveriesCard } from "../components/DeliveriesCard.js";
 import { DeviceTile, type PeerSendStatus } from "../components/DeviceTile.js";
 import { ReceivedCard, type ReceivedItem } from "../components/ReceivedCard.js";
 import {
@@ -7,12 +8,20 @@ import {
 	type StagedFile,
 } from "../components/SendCard.js";
 import { SignInCard } from "../components/SignInCard.js";
-import type { PeerInfo, TransferProgressPayload } from "../types.js";
+import type {
+	DeliveryDto,
+	KnownDeviceDto,
+	PeerInfo,
+	TransferProgressPayload,
+} from "../types.js";
 
 export interface HomeProps {
 	signIn: SignInUiState;
 	onSignIn: () => void;
 	peers: PeerInfo[];
+	offlineDevices: KnownDeviceDto[];
+	brokrConfigured: boolean;
+	deliveries: DeliveryDto[];
 	hasLoadedPeersOnce: boolean;
 	waitingFiles: StagedFile[];
 	isSending: boolean;
@@ -31,6 +40,9 @@ export function Home({
 	signIn,
 	onSignIn,
 	peers,
+	offlineDevices,
+	brokrConfigured,
+	deliveries,
 	hasLoadedPeersOnce,
 	waitingFiles,
 	isSending,
@@ -46,6 +58,7 @@ export function Home({
 }: HomeProps) {
 	const showSignIn = signIn.status !== "signed_in";
 	const devicesTitle = waitingFiles.length > 0 ? "Send to" : "Devices";
+	const hasNoDevices = peers.length === 0 && offlineDevices.length === 0;
 
 	return (
 		<div className="app-main--split">
@@ -60,7 +73,7 @@ export function Home({
 					<p className="muted">
 						Your devices appear here once you're signed in.
 					</p>
-				) : peers.length === 0 ? (
+				) : hasNoDevices ? (
 					!hasLoadedPeersOnce ? (
 						<p className="muted">Looking for your devices…</p>
 					) : (
@@ -94,6 +107,28 @@ export function Home({
 								onOpenFolder={onOpenFolder}
 							/>
 						))}
+						{offlineDevices.map((device) => {
+							const offlinePeer: PeerInfo = {
+								device_id: device.device_id,
+								key: device.device_id,
+								display_name: device.display_name,
+								addresses: [],
+								capabilities: 0,
+								sources: [],
+							};
+							return (
+								<DeviceTile
+									key={device.device_id}
+									peer={offlinePeer}
+									isOffline={true}
+									brokrConfigured={brokrConfigured}
+									hasWaitingFiles={waitingFiles.length > 0}
+									sendState={peerSendStates[device.device_id]}
+									onTap={onTileTap}
+									onOpenFolder={onOpenFolder}
+								/>
+							);
+						})}
 					</div>
 				)}
 			</section>
@@ -110,6 +145,8 @@ export function Home({
 				/>
 
 				<ReceivedCard items={receivedFiles} peers={peers} />
+
+				<DeliveriesCard deliveries={deliveries} />
 			</div>
 		</div>
 	);

@@ -9,7 +9,10 @@ import { Header } from "./components/Header.js";
 import type { ReceivedItem } from "./components/ReceivedCard.js";
 import type { ActiveSendInfo, StagedFile } from "./components/SendCard.js";
 import type {
+	BrokrStatusDto,
+	DeliveryDto,
 	FilesReceivedPayload,
+	KnownDeviceDto,
 	PeerInfo,
 	ShareIntent,
 	SharedFilePayload,
@@ -65,6 +68,11 @@ export function parseRoute(hash: string): Route {
 	return { view: "home" };
 }
 
+interface SendJob extends ActiveSendInfo {
+	isDeferred?: boolean;
+	deviceId?: string;
+}
+
 export function App() {
 	const [route, setRoute] = useState<Route>(() =>
 		typeof window !== "undefined"
@@ -88,12 +96,37 @@ export function App() {
 	const [isDragging, setIsDragging] = useState(false);
 	const [receivedFiles, setReceivedFiles] = useState<ReceivedItem[]>([]);
 
-	const sendQueueRef = useRef<ActiveSendInfo[]>([]);
+	const [knownDevices, setKnownDevices] = useState<KnownDeviceDto[]>([]);
+	const [, setKnownDevicesError] = useState<string | null>(null);
+	const [brokrStatus, setBrokrStatus] = useState<BrokrStatusDto | null>(null);
+	const [, setBrokrStatusError] = useState<string | null>(null);
+	const [deliveries, setDeliveries] = useState<DeliveryDto[]>([]);
+	const [, setDeliveriesError] = useState<string | null>(null);
+
+	const peerIds = new Set(
+		peers.map((p) => p.device_id).filter((id) => id && id.length > 0),
+	);
+	for (const p of peers) {
+		if (p.key) peerIds.add(p.key);
+	}
+	const offlineDevices = knownDevices.filter(
+		(kd) => !peerIds.has(kd.device_id),
+	);
+
+	const sendQueueRef = useRef<SendJob[]>([]);
 	const isSendingRef = useRef(false);
 	const activeSendRef = useRef<ActiveSendInfo | null>(null);
 	activeSendRef.current = activeSend;
 	const peersRef = useRef<PeerInfo[]>(peers);
 	peersRef.current = peers;
+	const knownDevicesRef = useRef<KnownDeviceDto[]>(knownDevices);
+	knownDevicesRef.current = knownDevices;
+	const offlineDevicesRef = useRef<KnownDeviceDto[]>(offlineDevices);
+	offlineDevicesRef.current = offlineDevices;
+	const brokrStatusRef = useRef<BrokrStatusDto | null>(brokrStatus);
+	brokrStatusRef.current = brokrStatus;
+
+	const refreshDeliveriesRef = useRef<() => void>(() => {});
 
 	const pumpRef = useRef<() => void>(() => {});
 
@@ -133,43 +166,82 @@ export function App() {
 			.filter((f) => f.adoptedId !== null)
 			.map((f) => f.adoptedId as string);
 
-		invoke<string[]>("plugin:tradr|send_files", {
-			peerId: nextJob.peerKey,
-			files: paths,
-			adoptedIds: adoptedIds,
-		})
-			.then(() => {
-				// Clears waiting files and displays sent check for 4 seconds on success.
-				setWaitingFiles([]);
-				setSendError(null);
-				setPeerSendStates((prev) => ({
-					...prev,
-					[nextJob.peerKey]: { status: "sent" },
-				}));
-				setTimeout(() => {
-					setPeerSendStates((prev) => {
-						if (prev[nextJob.peerKey]?.status === "sent") {
-							const copy = { ...prev };
-							delete copy[nextJob.peerKey];
-							return copy;
-						}
-						return prev;
-					});
-				}, 4000);
+		if (nextJob.isDeferred) {
+			invoke<DeliveryDto>("plugin:tradr|send_deferred", {
+				deviceId: nextJob.deviceId ?? nextJob.peerKey,
+				files: paths,
+				adoptedIds: adoptedIds,
 			})
-			.catch((e) => {
-				// Preserves waiting files for retry and reports error on failure.
-				const msg = String(e);
-				setSendError(msg);
-				setPeerSendStates((prev) => ({
-					...prev,
-					[nextJob.peerKey]: { status: "failed", error: msg },
-				}));
+				.then(() => {
+					setWaitingFiles([]);
+					setSendError(null);
+					setPeerSendStates((prev) => ({
+						...prev,
+						[nextJob.peerKey]: { status: "sent" },
+					}));
+					refreshDeliveriesRef.current();
+					setTimeout(() => {
+						setPeerSendStates((prev) => {
+							if (prev[nextJob.peerKey]?.status === "sent") {
+								const copy = { ...prev };
+								delete copy[nextJob.peerKey];
+								return copy;
+							}
+							return prev;
+						});
+					}, 4000);
+				})
+				.catch((e) => {
+					const msg = String(e);
+					setSendError(msg);
+					setPeerSendStates((prev) => ({
+						...prev,
+						[nextJob.peerKey]: { status: "failed", error: msg },
+					}));
+				})
+				.finally(() => {
+					isSendingRef.current = false;
+					pumpRef.current();
+				});
+		} else {
+			invoke<string[]>("plugin:tradr|send_files", {
+				peerId: nextJob.peerKey,
+				files: paths,
+				adoptedIds: adoptedIds,
 			})
-			.finally(() => {
-				isSendingRef.current = false;
-				pumpRef.current();
-			});
+				.then(() => {
+					// Clears waiting files and displays sent check for 4 seconds on success.
+					setWaitingFiles([]);
+					setSendError(null);
+					setPeerSendStates((prev) => ({
+						...prev,
+						[nextJob.peerKey]: { status: "sent" },
+					}));
+					setTimeout(() => {
+						setPeerSendStates((prev) => {
+							if (prev[nextJob.peerKey]?.status === "sent") {
+								const copy = { ...prev };
+								delete copy[nextJob.peerKey];
+								return copy;
+							}
+							return prev;
+						});
+					}, 4000);
+				})
+				.catch((e) => {
+					// Preserves waiting files for retry and reports error on failure.
+					const msg = String(e);
+					setSendError(msg);
+					setPeerSendStates((prev) => ({
+						...prev,
+						[nextJob.peerKey]: { status: "failed", error: msg },
+					}));
+				})
+				.finally(() => {
+					isSendingRef.current = false;
+					pumpRef.current();
+				});
+		}
 	}, []);
 
 	pumpRef.current = pump;
@@ -182,6 +254,48 @@ export function App() {
 		return () => window.removeEventListener("hashchange", handleHashChange);
 	}, []);
 
+	const refreshDeliveries = useCallback(() => {
+		invoke<DeliveryDto[]>("plugin:tradr|list_deliveries")
+			.then((list) => {
+				setDeliveries(list);
+			})
+			.catch((e) => {
+				setDeliveriesError(String(e));
+			});
+	}, []);
+	refreshDeliveriesRef.current = refreshDeliveries;
+
+	useEffect(() => {
+		refreshDeliveries();
+		const interval = setInterval(refreshDeliveries, 60000);
+		return () => clearInterval(interval);
+	}, [refreshDeliveries]);
+
+	const refreshBrokrStatus = useCallback(() => {
+		invoke<BrokrStatusDto>("plugin:tradr|brokr_status")
+			.then((status) => {
+				setBrokrStatus(status);
+			})
+			.catch((e) => {
+				setBrokrStatusError(String(e));
+			});
+	}, []);
+
+	const refreshKnownDevices = useCallback(() => {
+		invoke<KnownDeviceDto[]>("plugin:tradr|list_known_devices")
+			.then((devices) => {
+				setKnownDevices(devices);
+			})
+			.catch((e) => {
+				setKnownDevicesError(String(e));
+			});
+	}, []);
+
+	useEffect(() => {
+		refreshBrokrStatus();
+		refreshKnownDevices();
+	}, [refreshBrokrStatus, refreshKnownDevices]);
+
 	const refreshPeers = useCallback(() => {
 		invoke<PeerInfo[]>("plugin:tradr|get_peers")
 			.then((list) => {
@@ -193,7 +307,8 @@ export function App() {
 				setPeerListError(String(e));
 				setHasLoadedPeersOnce(true);
 			});
-	}, []);
+		refreshKnownDevices();
+	}, [refreshKnownDevices]);
 
 	useEffect(() => {
 		refreshPeers();
@@ -201,16 +316,59 @@ export function App() {
 		return () => clearInterval(interval);
 	}, [refreshPeers]);
 
+	useEffect(() => {
+		const handleVisibilityChange = () => {
+			if (
+				document.visibilityState === "visible" &&
+				brokrStatusRef.current?.configured
+			) {
+				invoke<void>("plugin:tradr|collect_brokr_now").catch((e) => {
+					setBrokrStatusError(String(e));
+				});
+			}
+		};
+		document.addEventListener("visibilitychange", handleVisibilityChange);
+		return () => {
+			document.removeEventListener("visibilitychange", handleVisibilityChange);
+		};
+	}, []);
+
 	const enqueueSend = useCallback(
-		(peerKey: string, filesToSend: StagedFile[]) => {
+		(
+			peerKey: string,
+			filesToSend: StagedFile[],
+			isDeferred?: boolean,
+			deviceId?: string,
+		) => {
 			if (filesToSend.length === 0) return;
 
+			let targetName = "Unnamed device";
 			const peer = peersRef.current.find((p) => p.key === peerKey);
-			const targetName = peer?.display_name || "Unnamed device";
-			const job: ActiveSendInfo = {
+			if (peer) {
+				targetName = peer.display_name || "Unnamed device";
+			} else {
+				const known = knownDevicesRef.current.find(
+					(d) => d.device_id === peerKey,
+				);
+				if (known) {
+					targetName = known.display_name || "Unnamed device";
+				}
+			}
+
+			const isDeferredSend =
+				isDeferred ??
+				offlineDevicesRef.current.some((d) => d.device_id === peerKey);
+
+			if (isDeferredSend && !brokrStatusRef.current?.configured) {
+				return;
+			}
+
+			const job: SendJob = {
 				peerKey,
 				targetName,
 				files: [...filesToSend],
+				isDeferred: isDeferredSend,
+				deviceId: deviceId ?? peerKey,
 			};
 
 			sendQueueRef.current.push(job);
@@ -449,6 +607,15 @@ export function App() {
 	};
 
 	const handleTileTap = (peer: PeerInfo) => {
+		const isOffline = offlineDevicesRef.current.some(
+			(d) => d.device_id === peer.key,
+		);
+		if (isOffline) {
+			if (waitingFiles.length > 0 && brokrStatusRef.current?.configured) {
+				enqueueSend(peer.key, waitingFiles, true, peer.device_id);
+			}
+			return;
+		}
 		if (waitingFiles.length > 0) {
 			enqueueSend(peer.key, waitingFiles);
 		} else {
@@ -502,7 +669,9 @@ export function App() {
 						onSignIn={startSignIn}
 						onBack={() => {
 							window.location.hash = "#/";
+							refreshBrokrStatus();
 						}}
+						onBrokrStatusChange={setBrokrStatus}
 					/>
 				) : route.view === "folder" ? (
 					<Folder
@@ -517,6 +686,9 @@ export function App() {
 						signIn={signIn}
 						onSignIn={startSignIn}
 						peers={peers}
+						offlineDevices={offlineDevices}
+						brokrConfigured={Boolean(brokrStatus?.configured)}
+						deliveries={deliveries}
 						hasLoadedPeersOnce={hasLoadedPeersOnce}
 						waitingFiles={waitingFiles}
 						isSending={activeSend !== null}

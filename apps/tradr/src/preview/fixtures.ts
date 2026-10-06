@@ -1,9 +1,12 @@
 import { emit } from "@tauri-apps/api/event";
 import type {
 	AttestationBundle,
+	BrokrStatusDto,
+	DeliveryDto,
 	DeviceIdentitySnapshot,
 	DirListingDto,
 	FilesReceivedPayload,
+	KnownDeviceDto,
 	LinkDto,
 	LinkInviteDto,
 	LinkInvitePreviewDto,
@@ -22,12 +25,12 @@ export const fixtureReceivedFilesPayload: FilesReceivedPayload = {
 	files: ["report-2026.pdf", "family-photo.jpg"],
 };
 
-export type Scenario = "signed-in" | "signed-out" | "empty" | "share";
+export type Scenario = "signed-in" | "signed-out" | "empty" | "share" | "brokr";
 
 export function getScenario(): Scenario {
 	if (typeof window !== "undefined") {
 		const s = new URLSearchParams(window.location.search).get("scenario");
-		if (s === "signed-out" || s === "empty" || s === "share") {
+		if (s === "signed-out" || s === "empty" || s === "share" || s === "brokr") {
 			return s;
 		}
 	}
@@ -212,6 +215,74 @@ export const fixtureLinkReply: LinkReplyDto = {
 export const fixtureRenameRefusal =
 	"peer refused 'a.txt': that name is already taken";
 
+export const fixtureKnownDevices: KnownDeviceDto[] = [
+	{
+		device_id: "dev-pixel-8",
+		display_name: "Pixel 8",
+		tier: "same-account",
+		last_seen: 1727654400,
+	},
+	{
+		device_id: "dev-thinkpad",
+		display_name: "ThinkPad",
+		tier: "same-account",
+		last_seen: 1727654400,
+	},
+	{
+		device_id: "dev-mac-mini",
+		display_name: "Mac mini",
+		tier: "same-account",
+		last_seen: 1727654400,
+	},
+];
+
+export const fixtureBrokrKnownDevices: KnownDeviceDto[] = [
+	...fixtureKnownDevices,
+	{
+		device_id: "dev-old-laptop",
+		display_name: "Old Laptop",
+		tier: "same-account",
+		last_seen: 1727000000,
+	},
+];
+
+export const fixtureConfiguredBrokrStatus: BrokrStatusDto = {
+	configured: true,
+	url: "http://brokr.local:8080",
+	last_pass: 1727654400,
+	delivered: 1,
+	last_error: null,
+};
+
+export const fixtureUnconfiguredBrokrStatus: BrokrStatusDto = {
+	configured: false,
+	url: null,
+	last_pass: null,
+	delivered: 0,
+	last_error: null,
+};
+
+export const fixtureBrokrDeliveries: DeliveryDto[] = [
+	{
+		id: "deliv-waiting",
+		recipient_device_id: "dev-old-laptop",
+		recipient_name: "Old Laptop",
+		names: ["notes.txt", "budget.csv"],
+		sent_at: 1727650000,
+		state: "waiting",
+		collected_at: null,
+	},
+	{
+		id: "deliv-delivered",
+		recipient_device_id: "dev-thinkpad",
+		recipient_name: "ThinkPad",
+		names: ["archive.zip"],
+		sent_at: 1727640000,
+		state: "delivered",
+		collected_at: 1727643600000,
+	},
+];
+
 export interface ScenarioData {
 	identity: DeviceIdentitySnapshot;
 	signIn: SignInOutcome | null;
@@ -220,6 +291,9 @@ export interface ScenarioData {
 	links: LinkDto[];
 	shares: ShareInfo[];
 	directory: DirListingDto;
+	brokrStatus: BrokrStatusDto;
+	knownDevices: KnownDeviceDto[];
+	deliveries: DeliveryDto[];
 }
 
 export function getScenarioData(scenario: Scenario): ScenarioData {
@@ -233,6 +307,9 @@ export function getScenarioData(scenario: Scenario): ScenarioData {
 				links: [],
 				shares: [],
 				directory: { entries: [], nextCursor: "", totalEstimate: 0 },
+				brokrStatus: fixtureUnconfiguredBrokrStatus,
+				knownDevices: fixtureKnownDevices,
+				deliveries: [],
 			};
 		case "empty":
 			return {
@@ -243,6 +320,22 @@ export function getScenarioData(scenario: Scenario): ScenarioData {
 				links: [],
 				shares: [],
 				directory: { entries: [], nextCursor: "", totalEstimate: 0 },
+				brokrStatus: fixtureUnconfiguredBrokrStatus,
+				knownDevices: fixtureKnownDevices,
+				deliveries: [],
+			};
+		case "brokr":
+			return {
+				identity: fixtureIdentity,
+				signIn: fixtureSignIn,
+				peers: fixturePeers,
+				staticPeers: fixtureStaticPeers,
+				links: fixtureLinks,
+				shares: fixtureShares,
+				directory: fixtureDirectory,
+				brokrStatus: fixtureConfiguredBrokrStatus,
+				knownDevices: fixtureBrokrKnownDevices,
+				deliveries: fixtureBrokrDeliveries,
 			};
 		case "share":
 		case "signed-in":
@@ -254,6 +347,9 @@ export function getScenarioData(scenario: Scenario): ScenarioData {
 				links: fixtureLinks,
 				shares: fixtureShares,
 				directory: fixtureDirectory,
+				brokrStatus: fixtureUnconfiguredBrokrStatus,
+				knownDevices: fixtureKnownDevices,
+				deliveries: [],
 			};
 	}
 }
@@ -327,4 +423,31 @@ export const fixtureCommands: Record<
 	"plugin:tradr|decline_link": () => null,
 	"plugin:tradr|remove_link": () => null,
 	"plugin:tradr|set_link_full_access": () => null,
+	"plugin:tradr|brokr_status": () => fixtureData.brokrStatus,
+	"plugin:tradr|set_brokr": (payload) => {
+		const args = payload as { url?: string; joinToken?: string } | undefined;
+		return {
+			configured: true,
+			url: args?.url ?? "http://brokr.local:8080",
+			last_pass: null,
+			delivered: 0,
+			last_error: null,
+		};
+	},
+	"plugin:tradr|clear_brokr": () => null,
+	"plugin:tradr|collect_brokr_now": () => null,
+	"plugin:tradr|list_known_devices": () => fixtureData.knownDevices,
+	"plugin:tradr|send_deferred": (payload) => {
+		const args = payload as { deviceId?: string; files?: string[] } | undefined;
+		return {
+			id: "deliv-new",
+			recipient_device_id: args?.deviceId ?? "dev-unknown",
+			recipient_name: "Recipient",
+			names: args?.files ?? ["file.txt"],
+			sent_at: Math.floor(Date.now() / 1000),
+			state: "waiting",
+			collected_at: null,
+		};
+	},
+	"plugin:tradr|list_deliveries": () => fixtureData.deliveries,
 };

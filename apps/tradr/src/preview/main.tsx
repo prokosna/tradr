@@ -72,7 +72,7 @@ if (!container) {
 // Mirrors a production build so each event is subscribed once.
 createRoot(container).render(<App />);
 
-if (activeScenario === "signed-in") {
+if (activeScenario === "signed-in" || activeScenario === "brokr") {
 	await filesReceivedSubscribed;
 	await emit("files-received", fixtureReceivedFilesPayload);
 	await new Promise((resolve) => setTimeout(resolve, 300));

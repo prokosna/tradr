@@ -147,3 +147,34 @@ export interface FilesReceivedPayload {
 	device_id: string;
 	files: string[];
 }
+
+// Mirrors the Rust struct crates/tauri-plugin-tradr/src/brokr_commands.rs
+// returns from `brokr_status` and `set_brokr`.
+export interface BrokrStatusDto {
+	configured: boolean;
+	url: string | null;
+	last_pass: number | null;
+	delivered: number;
+	last_error: string | null;
+}
+
+// Mirrors the Rust struct crates/tradr-app/src/brokr/devices.rs
+// returns from `list_known_devices`.
+export interface KnownDeviceDto {
+	device_id: string;
+	display_name: string | null;
+	tier: "same-account" | "linked";
+	last_seen: number;
+}
+
+// Mirrors the Rust struct crates/tradr-app/src/brokr/devices.rs
+// returns from `list_deliveries` and `send_deferred`.
+export interface DeliveryDto {
+	id: string;
+	recipient_device_id: string;
+	recipient_name: string | null;
+	names: string[];
+	sent_at: number;
+	state: "waiting" | "delivered" | "expired";
+	collected_at: number | null;
+}
