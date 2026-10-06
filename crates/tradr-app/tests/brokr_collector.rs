@@ -13,8 +13,8 @@ use common::{
 use futures_util::stream;
 use tradr_app::brokr::{
     BrokrApi, BrokrError, BrokrFuture, BrokrInfo, ByteStream, Challenge, CollectContext, Collector,
-    CollectorParts, InboxEntry, JoinToken, LinkView, RegisterRequest, Session, ensure_session,
-    load_session, run_pass, save_join_token, save_session,
+    CollectorParts, DeliveryId, InboxEntry, JoinToken, LinkView, OutboxEntry, RegisterRequest,
+    Session, ensure_session, load_session, run_pass, save_join_token, save_session,
 };
 use tradr_app::peer_trust::PeerTrust;
 use tradr_core::{
@@ -228,6 +228,19 @@ impl BrokrApi for FakeBrokr {
                 .retain(|entry| entry.id != id);
             Ok(())
         })
+    }
+
+    fn upload<'a>(
+        &'a self,
+        _session: &'a Session,
+        _total_len: u64,
+        _body: ByteStream<'static>,
+    ) -> BrokrFuture<'a, DeliveryId> {
+        Box::pin(async { Err(BrokrError::Rejected("not supported in fake".to_string())) })
+    }
+
+    fn outbox<'a>(&'a self, _session: &'a Session) -> BrokrFuture<'a, Vec<OutboxEntry>> {
+        Box::pin(async { Ok(Vec::new()) })
     }
 }
 

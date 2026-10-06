@@ -2,6 +2,7 @@ use std::fmt;
 use std::pin::Pin;
 
 use futures_util::Stream;
+use serde::{Deserialize, Serialize};
 use tradr_core::{BoxFuture, KeyStoreError};
 
 /// What a Brokr call resolves to.
@@ -9,6 +10,12 @@ pub type BrokrFuture<'a, T> = BoxFuture<'a, Result<T, BrokrError>>;
 
 /// A delivery's bytes as the Brokr streams them.
 pub type ByteStream<'a> = Pin<Box<dyn Stream<Item = Result<Vec<u8>, BrokrError>> + Send + 'a>>;
+
+/// A delivery's bytes being uploaded to the Brokr.
+pub type UploadStream = ByteStream<'static>;
+
+/// The identifier assigned to an uploaded delivery by the Brokr.
+pub type DeliveryId = String;
 
 /// Why a Brokr call, or a step around one, failed. No variant carries a
 /// session token or a join token.
@@ -26,6 +33,12 @@ pub enum BrokrError {
     Key(KeyStoreError),
     /// This device's own storage failed, so the delivery stays on the Brokr.
     Local(String),
+    /// The recipient is not eligible to receive deliveries from this sender (HTTP 403).
+    NotEligible,
+    /// The Brokr's storage limit has been exceeded (HTTP 413).
+    StorageFull,
+    /// The sender has too many deliveries waiting on the Brokr (HTTP 429).
+    TooManyWaiting,
 }
 
 impl fmt::Display for BrokrError {
@@ -37,6 +50,9 @@ impl fmt::Display for BrokrError {
             Self::Malformed(m) => write!(f, "brokr answered something unexpected: {m}"),
             Self::Key(e) => write!(f, "key store error: {e}"),
             Self::Local(m) => write!(f, "local storage error: {m}"),
+            Self::NotEligible => write!(f, "recipient is not eligible for delivery"),
+            Self::StorageFull => write!(f, "brokr storage is full"),
+            Self::TooManyWaiting => write!(f, "too many deliveries waiting on brokr"),
         }
     }
 }
@@ -135,6 +151,38 @@ pub struct InboxEntry {
     pub uploaded_at: i64,
 }
 
+/// The status of a delivery recorded on the Brokr.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OutboxState {
+    /// The delivery is waiting to be collected.
+    Waiting,
+    /// The delivery was collected by the recipient.
+    Delivered,
+    /// The delivery expired without being collected.
+    Expired,
+}
+
+/// Alias matching either terminology.
+pub type DeliveryState = OutboxState;
+
+/// One element of `GET /v1/deliveries/outbox`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutboxEntry {
+    /// The delivery's id.
+    pub id: String,
+    /// The recipient's Device ID as the Brokr recorded it, lowercase hex.
+    pub recipient_device_id: String,
+    /// The delivery's size in bytes.
+    pub size: u64,
+    /// When it was uploaded, in the Brokr's milliseconds.
+    pub uploaded_at: i64,
+    /// Current delivery state on the Brokr.
+    pub state: OutboxState,
+    /// When it was collected, in the Brokr's milliseconds, if delivered.
+    pub collected_at: Option<i64>,
+}
+
 /// A Brokr as the device sees it. An implementation owns the transport, the
 /// address and the encoding; nothing of them appears here.
 pub trait BrokrApi: Send + Sync {
@@ -147,6 +195,14 @@ pub trait BrokrApi: Send + Sync {
     /// `POST /v1/register`, answering the session token.
     fn register(&self, request: RegisterRequest) -> BrokrFuture<'_, Session>;
 
+    /// `PUT /v1/deliveries`, streaming the envelope body.
+    fn upload<'a>(
+        &'a self,
+        session: &'a Session,
+        total_len: u64,
+        body: ByteStream<'static>,
+    ) -> BrokrFuture<'a, DeliveryId>;
+
     /// `GET /v1/deliveries/inbox`.
     fn inbox<'a>(&'a self, session: &'a Session) -> BrokrFuture<'a, Vec<InboxEntry>>;
 
@@ -156,4 +212,7 @@ pub trait BrokrApi: Send + Sync {
 
     /// `DELETE /v1/deliveries/:id`.
     fn acknowledge<'a>(&'a self, session: &'a Session, id: &'a str) -> BrokrFuture<'a, ()>;
+
+    /// `GET /v1/deliveries/outbox`.
+    fn outbox<'a>(&'a self, session: &'a Session) -> BrokrFuture<'a, Vec<OutboxEntry>>;
 }

@@ -13,9 +13,10 @@ use futures_util::StreamExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tradr_app::brokr::{
-    BrokrApi, BrokrError, BrokrSettings, CollectContext, HttpBrokrApi, JoinToken, RegisterRequest,
-    Session, clear_join_token, clear_session, clear_settings, collect_once, load_join_token,
-    load_session, load_settings, save_join_token, save_session, save_settings,
+    BrokrApi, BrokrError, BrokrSettings, ByteStream, CollectContext, HttpBrokrApi, JoinToken,
+    OutboxState, RegisterRequest, Session, clear_join_token, clear_session, clear_settings,
+    collect_once, load_join_token, load_session, load_settings, save_join_token, save_session,
+    save_settings,
 };
 use tradr_app::peer_trust::PeerTrust;
 use tradr_core::{DeviceId, KeyStore, RelPath, RootId};
@@ -27,6 +28,8 @@ use tradr_vfs::NativeVfs;
 struct Seen {
     request_line: String,
     authorization: Option<String>,
+    content_type: Option<String>,
+    content_length: Option<usize>,
     body: Vec<u8>,
 }
 
@@ -104,6 +107,8 @@ async fn read_request(stream: &mut TcpStream) -> Option<Seen> {
     let mut lines = head.split("\r\n");
     let request_line = lines.next()?.to_string();
     let mut authorization = None;
+    let mut content_type = None;
+    let mut content_length = None;
     let mut length = 0usize;
     for line in lines {
         let Some((name, value)) = line.split_once(':') else {
@@ -111,7 +116,11 @@ async fn read_request(stream: &mut TcpStream) -> Option<Seen> {
         };
         match name.trim().to_ascii_lowercase().as_str() {
             "authorization" => authorization = Some(value.trim().to_string()),
-            "content-length" => length = value.trim().parse().unwrap_or(0),
+            "content-type" => content_type = Some(value.trim().to_string()),
+            "content-length" => {
+                length = value.trim().parse().unwrap_or(0);
+                content_length = Some(length);
+            }
             _ => {}
         }
     }
@@ -125,6 +134,8 @@ async fn read_request(stream: &mut TcpStream) -> Option<Seen> {
     Some(Seen {
         request_line,
         authorization,
+        content_type,
+        content_length,
         body: buf[head_end..head_end + length].to_vec(),
     })
 }
@@ -489,4 +500,138 @@ fn no_token_reaches_the_settings_file_or_a_debug_line() {
     assert_eq!(names.len(), 1, "a temporary file was left: {names:?}");
     let shown = format!("{join:?} {session:?}");
     assert!(!shown.contains("join-secret") && !shown.contains("session-secret"));
+}
+
+#[tokio::test]
+async fn upload_sends_bearer_token_content_type_declared_length_and_body_bytes() {
+    let responder = Responder::start(|seen, _| {
+        if seen.request_line.starts_with("PUT /v1/deliveries ") {
+            Reply::ok(br#"{"id":"delivery-123"}"#)
+        } else {
+            Reply::status(404)
+        }
+    })
+    .await;
+    let api = HttpBrokrApi::new(&responder.url()).expect("adapter");
+    let session = session();
+    let payload = b"hello deferred delivery envelope bytes".to_vec();
+    let payload_len = payload.len() as u64;
+    let body_stream: ByteStream<'static> =
+        Box::pin(futures_util::stream::once(
+            async move { Ok(payload.clone()) },
+        ));
+
+    let id = api
+        .upload(&session, payload_len, body_stream)
+        .await
+        .expect("uploaded");
+    assert_eq!(id, "delivery-123");
+
+    let requests = responder.requests();
+    assert_eq!(requests.len(), 1);
+    let req = &requests[0];
+    assert!(req.request_line.starts_with("PUT /v1/deliveries "));
+    assert_eq!(req.authorization.as_deref(), Some("Bearer session-secret"));
+    assert_eq!(
+        req.content_type.as_deref(),
+        Some("application/octet-stream")
+    );
+    assert_eq!(req.content_length, Some(payload_len as usize));
+    assert_eq!(req.body, b"hello deferred delivery envelope bytes");
+}
+
+#[tokio::test]
+async fn upload_status_codes_403_413_429_map_to_distinct_errors() {
+    let responder = Responder::start(|seen, _| {
+        if seen.request_line.starts_with("PUT /v1/deliveries ") {
+            if seen.body == b"403" {
+                Reply::status(403)
+            } else if seen.body == b"413" {
+                Reply::status(413)
+            } else if seen.body == b"429" {
+                Reply::status(429)
+            } else {
+                Reply::status(500)
+            }
+        } else {
+            Reply::status(404)
+        }
+    })
+    .await;
+    let api = HttpBrokrApi::new(&responder.url()).expect("adapter");
+    let session = session();
+
+    let stream_403: ByteStream<'static> =
+        Box::pin(futures_util::stream::once(async { Ok(b"403".to_vec()) }));
+    let err_403 = api
+        .upload(&session, 3, stream_403)
+        .await
+        .expect_err("should fail with 403");
+    assert!(matches!(err_403, BrokrError::NotEligible));
+
+    let stream_413: ByteStream<'static> =
+        Box::pin(futures_util::stream::once(async { Ok(b"413".to_vec()) }));
+    let err_413 = api
+        .upload(&session, 3, stream_413)
+        .await
+        .expect_err("should fail with 413");
+    assert!(matches!(err_413, BrokrError::StorageFull));
+
+    let stream_429: ByteStream<'static> =
+        Box::pin(futures_util::stream::once(async { Ok(b"429".to_vec()) }));
+    let err_429 = api
+        .upload(&session, 3, stream_429)
+        .await
+        .expect_err("should fail with 429");
+    assert!(matches!(err_429, BrokrError::TooManyWaiting));
+}
+
+#[tokio::test]
+async fn outbox_parses_the_three_states() {
+    let responder = Responder::start(|seen, _| {
+        if seen.request_line.starts_with("GET /v1/deliveries/outbox ") {
+            Reply::ok(
+                br#"[
+                    {"id":"d1","recipient_device_id":"recip1","size":100,"uploaded_at":1000,"state":"waiting","collected_at":null},
+                    {"id":"d2","recipient_device_id":"recip2","size":200,"uploaded_at":2000,"state":"delivered","collected_at":2500},
+                    {"id":"d3","recipient_device_id":"recip3","size":300,"uploaded_at":3000,"state":"expired","collected_at":null}
+                ]"#,
+            )
+        } else {
+            Reply::status(404)
+        }
+    })
+    .await;
+    let api = HttpBrokrApi::new(&responder.url()).expect("adapter");
+    let entries = api.outbox(&session()).await.expect("outbox entries");
+
+    assert_eq!(entries.len(), 3);
+
+    assert_eq!(entries[0].id, "d1");
+    assert_eq!(entries[0].recipient_device_id, "recip1");
+    assert_eq!(entries[0].size, 100);
+    assert_eq!(entries[0].uploaded_at, 1000);
+    assert_eq!(entries[0].state, OutboxState::Waiting);
+    assert_eq!(entries[0].collected_at, None);
+
+    assert_eq!(entries[1].id, "d2");
+    assert_eq!(entries[1].recipient_device_id, "recip2");
+    assert_eq!(entries[1].size, 200);
+    assert_eq!(entries[1].uploaded_at, 2000);
+    assert_eq!(entries[1].state, OutboxState::Delivered);
+    assert_eq!(entries[1].collected_at, Some(2500));
+
+    assert_eq!(entries[2].id, "d3");
+    assert_eq!(entries[2].recipient_device_id, "recip3");
+    assert_eq!(entries[2].size, 300);
+    assert_eq!(entries[2].uploaded_at, 3000);
+    assert_eq!(entries[2].state, OutboxState::Expired);
+    assert_eq!(entries[2].collected_at, None);
+
+    let requests = responder.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].authorization.as_deref(),
+        Some("Bearer session-secret")
+    );
 }

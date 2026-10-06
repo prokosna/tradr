@@ -5,8 +5,8 @@ use reqwest::{Client, Method, RequestBuilder, Response, StatusCode, Url, redirec
 use serde::{Deserialize, Serialize};
 
 use super::api::{
-    BrokrApi, BrokrError, BrokrFuture, BrokrInfo, ByteStream, Challenge, InboxEntry,
-    RegisterRequest, Session,
+    BrokrApi, BrokrError, BrokrFuture, BrokrInfo, ByteStream, Challenge, DeliveryId, InboxEntry,
+    OutboxEntry, OutboxState, RegisterRequest, Session,
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -58,6 +58,21 @@ struct InboxBody {
     uploaded_at: i64,
 }
 
+#[derive(Deserialize)]
+struct UploadBody {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct OutboxEntryBody {
+    id: String,
+    recipient_device_id: String,
+    size: u64,
+    uploaded_at: i64,
+    state: OutboxState,
+    collected_at: Option<i64>,
+}
+
 fn network(e: reqwest::Error) -> BrokrError {
     BrokrError::Network(e.without_url().to_string())
 }
@@ -72,6 +87,12 @@ fn check(response: Response) -> Result<Response, BrokrError> {
         Ok(response)
     } else if status == StatusCode::UNAUTHORIZED {
         Err(BrokrError::Unauthorized)
+    } else if status == StatusCode::FORBIDDEN {
+        Err(BrokrError::NotEligible)
+    } else if status == StatusCode::PAYLOAD_TOO_LARGE {
+        Err(BrokrError::StorageFull)
+    } else if status == StatusCode::TOO_MANY_REQUESTS {
+        Err(BrokrError::TooManyWaiting)
     } else {
         Err(BrokrError::Rejected(format!("status {}", status.as_u16())))
     }
@@ -179,6 +200,25 @@ impl BrokrApi for HttpBrokrApi {
         })
     }
 
+    fn upload<'a>(
+        &'a self,
+        session: &'a Session,
+        total_len: u64,
+        body: ByteStream<'static>,
+    ) -> BrokrFuture<'a, DeliveryId> {
+        Box::pin(async move {
+            let request = self
+                .request(Method::PUT, &["v1", "deliveries"])?
+                .bearer_auth(session.as_str())
+                .header("content-type", "application/octet-stream")
+                .header("content-length", total_len)
+                .body(reqwest::Body::wrap_stream(body));
+            let response = self.send(request).await?;
+            let body: UploadBody = response.json().await.map_err(malformed)?;
+            Ok(body.id)
+        })
+    }
+
     fn download<'a>(
         &'a self,
         session: &'a Session,
@@ -205,6 +245,27 @@ impl BrokrApi for HttpBrokrApi {
                 .bearer_auth(session.as_str());
             self.send(request).await?;
             Ok(())
+        })
+    }
+
+    fn outbox<'a>(&'a self, session: &'a Session) -> BrokrFuture<'a, Vec<OutboxEntry>> {
+        Box::pin(async move {
+            let request = self
+                .request(Method::GET, &["v1", "deliveries", "outbox"])?
+                .bearer_auth(session.as_str());
+            let body: Vec<OutboxEntryBody> =
+                self.send(request).await?.json().await.map_err(malformed)?;
+            Ok(body
+                .into_iter()
+                .map(|e| OutboxEntry {
+                    id: e.id,
+                    recipient_device_id: e.recipient_device_id,
+                    size: e.size,
+                    uploaded_at: e.uploaded_at,
+                    state: e.state,
+                    collected_at: e.collected_at,
+                })
+                .collect())
         })
     }
 }
