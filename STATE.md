@@ -47,7 +47,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 ## In flight
 
-- **`WI-M9-006b`** (the device's Brokr client, collecting), next. `WI-M9-001` to `WI-M9-006a` landed. **agy reached its quota on 2026-10-05 during `WI-M9-006a`; until it resets, the `implementer` subagent on Sonnet implements, per the person's standing instruction.** M9 is designed by DCR-173 ([docs/13](docs/13-deferred-delivery.md)).
+- **`WI-M9-006b1`** (the Brokr client behind a `BrokrApi` port: registration and collecting), next; `WI-M9-006b` is cut into 006b1 and 006b2 (the reqwest implementation, credentials and plugin wiring). `WI-M9-001` to `WI-M9-006a` and `WI-M9-003c` landed. **agy reached its quota on 2026-10-05 during `WI-M9-006a`; until it resets, the `implementer` subagent on Sonnet implements, per the person's standing instruction.** M9 is designed by DCR-173 ([docs/13](docs/13-deferred-delivery.md)).
 
 **For the next UI Work Item: the preview runs with `pnpm --filter @tradr/tradr dev` and is at `http://localhost:1420/preview.html?scenario=signed-in|signed-out|empty|share`, with `#/settings` or `#/folder/<key>` for the other views**; run headless Firefox with `--no-remote --profile <dir>` so it cannot hand off to a running browser; headless Firefox is a snap, so it can write a screenshot only under `~/snap/firefox/common/` and must load the page over http, not `file://`
 
@@ -100,7 +100,8 @@ From [docs/09-roadmap-and-risks.md](docs/09-roadmap-and-risks.md).
 
 | ID | Content | Status | Critical |
 |---|---|---|---|
-| WI-M9-006b | **The device's Brokr client, collecting**: configuration, registration, and collecting deliveries (start, foreground, every 5 minutes): download, open, place, acknowledge; the plugin wires Known Devices and the client | planned | |
+| WI-M9-006b1 | **The Brokr client behind a port**: `BrokrApi`, registration (`account_tag`, `link_tags`, the challenge signature) and collecting (stream, open, place, acknowledge), tested against a fake; a cache-only `PeerTrust::classify_cached` | planned | |
+| WI-M9-006b2 | **The client made real**: the reqwest `BrokrApi`, the Brokr's address in a file and its join token and session in the `SecretStore`, the plugin wiring Known Devices and the collector (start, foreground, every 5 minutes) | planned | |
 | WI-M9-006c | **Sending through the Brokr**: an offline known device's envelope sealed from the files and streamed up; the outbox polled for waiting / delivered / expired | planned | |
 | WI-M9-007 | **The interface**: Brokr settings, offline known devices in the list, "will deliver when it's back", waiting / delivered / expired | planned | |
 | WI-M9-008 | **A container image** for the Brokr and its setup notes | planned | |
