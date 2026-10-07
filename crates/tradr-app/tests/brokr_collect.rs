@@ -17,7 +17,8 @@ use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature as EcdsaSignature, VerifyingKey};
 use tradr_app::brokr::{
     BrokrApi, BrokrError, BrokrFuture, BrokrInfo, ByteStream, Challenge, CollectContext,
-    DeliveryId, InboxEntry, OutboxEntry, RegisterRequest, Session, collect_once, register,
+    DeliveryId, InboxEntry, OutboxEntry, PlacedDeliveries, PlacedError, RegisterRequest, Session,
+    collect_once, register,
 };
 use tradr_app::peer_trust::PeerTrust;
 use tradr_core::{
@@ -38,6 +39,8 @@ struct FakeBrokr {
     bodies: HashMap<String, Vec<u8>>,
     break_after: Option<usize>,
     acknowledged: Mutex<Vec<String>>,
+    fail_ack_network: Mutex<usize>,
+    downloads: Mutex<usize>,
 }
 
 impl FakeBrokr {
@@ -48,6 +51,8 @@ impl FakeBrokr {
             bodies: HashMap::new(),
             break_after: None,
             acknowledged: Mutex::new(Vec::new()),
+            fail_ack_network: Mutex::new(0),
+            downloads: Mutex::new(0),
         }
     }
 
@@ -60,6 +65,17 @@ impl FakeBrokr {
         });
         self.bodies.insert(id.to_string(), body);
         self
+    }
+
+    fn fail_acknowledge_times(&self, times: usize) {
+        *self
+            .fail_ack_network
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = times;
+    }
+
+    fn download_count(&self) -> usize {
+        *self.downloads.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     fn acknowledged(&self) -> Vec<String> {
@@ -110,6 +126,7 @@ impl BrokrApi for FakeBrokr {
         _session: &'a Session,
         id: &'a str,
     ) -> BrokrFuture<'a, ByteStream<'a>> {
+        *self.downloads.lock().unwrap_or_else(|p| p.into_inner()) += 1;
         Box::pin(async move {
             let body = self
                 .bodies
@@ -127,6 +144,16 @@ impl BrokrApi for FakeBrokr {
     }
 
     fn acknowledge<'a>(&'a self, _session: &'a Session, id: &'a str) -> BrokrFuture<'a, ()> {
+        let mut fail = self
+            .fail_ack_network
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if *fail > 0 {
+            *fail -= 1;
+            return Box::pin(async {
+                Err(BrokrError::Network("acknowledgement failed".to_string()))
+            });
+        }
         Box::pin(async move {
             self.acknowledged
                 .lock()
@@ -227,6 +254,8 @@ fn trust(installed: bool) -> (PeerTrust, Arc<CountingFetch>) {
 
 struct Fixture {
     dir: tempfile::TempDir,
+    _placed_dir: tempfile::TempDir,
+    placed: PlacedDeliveries,
     vfs: NativeVfs,
     recipient_store: SoftwareKeyStore,
     recipient: PublicIdentity,
@@ -236,11 +265,15 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = tempfile::tempdir().expect("tempdir");
+        let placed_dir = tempfile::tempdir().expect("placed tempdir");
+        let placed = PlacedDeliveries::new(placed_dir.path());
         let vfs = NativeVfs::new();
         vfs.register_root(RootId::new(1), dir.path().to_path_buf(), false)
             .expect("register root");
         Self {
             dir,
+            _placed_dir: placed_dir,
+            placed,
             vfs,
             recipient_store: device_store(2),
             recipient: identity(2),
@@ -288,6 +321,7 @@ impl Fixture {
             own_account: &own,
             linked_accounts: linked,
             on_arrival: &on_arrival,
+            placed: &self.placed,
         };
         collect_once(api, &Session::new("session-token".to_string()), &ctx).await
     }
@@ -521,4 +555,142 @@ async fn a_sender_of_a_linked_account_is_delivered() {
         b"a linked account's file"
     );
     assert_eq!(api.acknowledged(), vec!["ff02".to_string()]);
+}
+
+#[tokio::test]
+async fn failed_acknowledgement_leaves_delivery_remembered_and_placed_once() {
+    let fixture = Fixture::new();
+    let payload = sealed(1, &fixture.recipient, &[("hello.bin", b"hello content")]);
+    let api = FakeBrokr::new().holding("ee01", NOW, payload);
+    api.fail_acknowledge_times(1);
+    let (trust, _) = trust(true);
+
+    let err = fixture.collect(&api, &trust).await.expect_err("fail");
+    assert!(matches!(err, BrokrError::Network(_)));
+    assert_eq!(read(fixture.dir.path(), "hello.bin"), b"hello content");
+    assert_eq!(fixture.arrivals().len(), 1);
+    assert!(fixture.placed.contains("ee01").expect("contains"));
+    assert!(api.acknowledged().is_empty());
+    assert!(
+        !fixture
+            .dir
+            .path()
+            .join(".tradr-partial/deferred-ee01")
+            .exists()
+    );
+}
+
+#[tokio::test]
+async fn pass_after_failed_acknowledgement_completes_without_redownload_or_duplicate() {
+    let fixture = Fixture::new();
+    let payload = sealed(1, &fixture.recipient, &[("hello.bin", b"hello content")]);
+    let api = FakeBrokr::new().holding("ee01", NOW, payload);
+    api.fail_acknowledge_times(1);
+    let (trust, _) = trust(true);
+
+    let err = fixture
+        .collect(&api, &trust)
+        .await
+        .expect_err("first pass fails");
+    assert!(matches!(err, BrokrError::Network(_)));
+
+    let report = fixture.collect(&api, &trust).await.expect("pass");
+    assert_eq!(api.download_count(), 1);
+    assert!(!fixture.dir.path().join("hello (2).bin").exists());
+    assert_eq!(api.acknowledged(), vec!["ee01".to_string()]);
+    assert_eq!(fixture.arrivals().len(), 1);
+    assert!(!fixture.placed.contains("ee01").expect("contains"));
+    assert_eq!(report.delivered, 1);
+}
+
+#[tokio::test]
+async fn a_remembered_id_has_its_staging_directory_removed() {
+    let fixture = Fixture::new();
+    let staging = fixture.dir.path().join(".tradr-partial/deferred-ee05");
+    std::fs::create_dir_all(&staging).expect("create staging dir");
+    std::fs::write(staging.join("leftover.bin"), b"leftover content").expect("write leftover");
+    fixture.placed.remember("ee05").expect("remember");
+
+    let api = FakeBrokr::new().holding("ee05", NOW, b"arbitrary body".to_vec());
+    let (trust, _) = trust(true);
+
+    let report = fixture.collect(&api, &trust).await;
+    assert!(report.is_ok());
+    assert_eq!(api.download_count(), 0);
+    assert!(!staging.exists());
+    assert_eq!(api.acknowledged(), vec!["ee05".to_string()]);
+    assert!(!fixture.placed.contains("ee05").expect("contains"));
+}
+
+#[tokio::test]
+async fn remembered_id_not_listed_in_inbox_is_forgotten_by_pass() {
+    let fixture = Fixture::new();
+    fixture.placed.remember("ee99").expect("remember");
+    assert!(fixture.placed.contains("ee99").expect("contains"));
+
+    let api = FakeBrokr::new();
+    let (trust, _) = trust(true);
+
+    let report = fixture.collect(&api, &trust).await.expect("pass");
+    assert_eq!(report.delivered, 0);
+    assert!(!fixture.placed.contains("ee99").expect("forgotten"));
+}
+
+#[tokio::test]
+async fn delivery_collected_with_nothing_failing_leaves_contains_false() {
+    let fixture = Fixture::new();
+    let payload = sealed(1, &fixture.recipient, &[("clean.bin", b"clean payload")]);
+    let api = FakeBrokr::new().holding("ee02", NOW, payload);
+    let (trust, _) = trust(true);
+
+    let report = fixture.collect(&api, &trust).await.expect("pass");
+    assert_eq!(report.delivered, 1);
+    assert!(!fixture.placed.contains("ee02").expect("contains"));
+    assert_eq!(api.acknowledged(), vec!["ee02".to_string()]);
+}
+
+#[tokio::test]
+async fn refused_delivery_is_never_remembered() {
+    let fixture = Fixture::new();
+    let corrupted_body = b"corrupted envelope bytes".to_vec();
+    let api = FakeBrokr::new().holding("ee03", NOW, corrupted_body);
+    let (trust, _) = trust(true);
+
+    let report = fixture.collect(&api, &trust).await.expect("pass");
+    assert_eq!(report.delivered, 0);
+    assert_eq!(report.refused.len(), 1);
+    assert_eq!(report.refused[0].0, "ee03");
+    assert!(!fixture.placed.contains("ee03").expect("contains"));
+    assert_eq!(api.acknowledged(), vec!["ee03".to_string()]);
+}
+
+#[test]
+fn placed_deliveries_storage_and_lifecycle() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let placed1 = PlacedDeliveries::new(dir.path());
+    let placed2 = PlacedDeliveries::new(dir.path());
+
+    assert!(!placed1.contains("item-1").expect("missing reads as empty"));
+
+    placed1.remember("item-1").expect("remember once");
+    placed1.remember("item-1").expect("remember twice");
+    assert!(placed1.contains("item-1").expect("contains"));
+    let contents = std::fs::read_to_string(dir.path().join("collected.json")).expect("read file");
+    let ids: Vec<String> = serde_json::from_str(&contents).expect("parse json");
+    assert_eq!(ids, vec!["item-1"]);
+
+    assert!(placed2.contains("item-1").expect("second instance sees it"));
+
+    placed1.forget("item-1").expect("forget");
+    assert!(!placed1.contains("item-1").expect("forgotten"));
+    let entries: Vec<String> = std::fs::read_dir(dir.path())
+        .expect("read dir")
+        .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(entries, vec!["collected.json"]);
+
+    std::fs::write(dir.path().join("collected.json"), br#"{"not":"an array"}"#)
+        .expect("write bad json");
+    let err = placed1.contains("item-1").expect_err("malformed");
+    assert!(matches!(err, PlacedError::Malformed(_)));
 }

@@ -14,9 +14,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tradr_app::brokr::{
     BrokrApi, BrokrError, BrokrSettings, ByteStream, CollectContext, HttpBrokrApi, JoinToken,
-    OutboxState, RegisterRequest, Session, clear_join_token, clear_session, clear_settings,
-    collect_once, load_join_token, load_session, load_settings, save_join_token, save_session,
-    save_settings,
+    OutboxState, PlacedDeliveries, RegisterRequest, Session, clear_join_token, clear_session,
+    clear_settings, collect_once, load_join_token, load_session, load_settings, save_join_token,
+    save_session, save_settings,
 };
 use tradr_app::peer_trust::PeerTrust;
 use tradr_core::{DeviceId, KeyStore, RelPath, RootId};
@@ -402,6 +402,8 @@ fn assert_send<T: Send>(_: T) {}
 #[test]
 fn collecting_is_a_send_future() {
     let dir = tempfile::tempdir().expect("tempdir");
+    let placed_dir = tempfile::tempdir().expect("tempdir");
+    let placed = PlacedDeliveries::new(placed_dir.path());
     let vfs = NativeVfs::new();
     vfs.register_root(RootId::new(1), dir.path().to_path_buf(), false)
         .expect("register root");
@@ -426,6 +428,7 @@ fn collecting_is_a_send_future() {
         own_account: &own,
         linked_accounts: &[],
         on_arrival: &on_arrival,
+        placed: &placed,
     };
     let api = HttpBrokrApi::new("http://127.0.0.1:1").expect("adapter");
     let session = session();

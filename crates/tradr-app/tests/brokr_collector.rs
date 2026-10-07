@@ -14,8 +14,8 @@ use futures_util::stream;
 use tradr_app::brokr::{
     BrokrApi, BrokrError, BrokrFuture, BrokrInfo, ByteStream, Challenge, CollectContext, Collector,
     CollectorParts, CollectorStatus, DeliveryId, InboxEntry, JoinToken, LinkView, OutboxEntry,
-    RegisterRequest, Session, ensure_session, load_session, run_pass, save_join_token,
-    save_session,
+    PlacedDeliveries, RegisterRequest, Session, ensure_session, load_session, run_pass,
+    save_join_token, save_session,
 };
 use tradr_app::peer_trust::PeerTrust;
 use tradr_core::{
@@ -350,6 +350,8 @@ async fn run_pass_reregisters_once_after_unauthorized_and_succeeds() {
     api.holding("aa01", NOW, payload);
 
     let dir = tempfile::tempdir().expect("tempdir");
+    let placed_dir = tempfile::tempdir().expect("tempdir");
+    let placed = PlacedDeliveries::new(placed_dir.path());
     let vfs = NativeVfs::new();
     vfs.register_root(RootId::new(1), dir.path().to_path_buf(), false)
         .expect("register root");
@@ -377,6 +379,7 @@ async fn run_pass_reregisters_once_after_unauthorized_and_succeeds() {
         own_account: &own,
         linked_accounts: &[],
         on_arrival: &on_arrival,
+        placed: &placed,
     };
 
     let report = run_pass(&api, &secrets, &recipient_store, &[], &ctx)
@@ -404,6 +407,8 @@ async fn second_unauthorized_after_reregistering_is_error_not_loop() {
     let recipient_id = identity(2);
 
     let dir = tempfile::tempdir().expect("tempdir");
+    let placed_dir = tempfile::tempdir().expect("tempdir");
+    let placed = PlacedDeliveries::new(placed_dir.path());
     let vfs = NativeVfs::new();
     vfs.register_root(RootId::new(1), dir.path().to_path_buf(), false)
         .expect("register root");
@@ -424,6 +429,7 @@ async fn second_unauthorized_after_reregistering_is_error_not_loop() {
         own_account: &own,
         linked_accounts: &[],
         on_arrival: &on_arrival,
+        placed: &placed,
     };
 
     let result = run_pass(&api, &secrets, &recipient_store, &[], &ctx).await;
@@ -465,6 +471,9 @@ async fn collector_runs_at_start_and_after_wake_with_paused_time() {
             .push((from, paths.to_vec()));
     });
 
+    let placed_dir = tempfile::tempdir().expect("tempdir");
+    let placed = Arc::new(PlacedDeliveries::new(placed_dir.path()));
+
     let parts = CollectorParts {
         api: api.clone(),
         secrets: secrets.clone(),
@@ -477,6 +486,7 @@ async fn collector_runs_at_start_and_after_wake_with_paused_time() {
         own_account: own_account_fn,
         links: links_fn,
         on_arrival,
+        placed,
     };
 
     let collector = Collector::new(parts);

@@ -2,11 +2,13 @@
 //! behind a port, so no HTTP type reaches this crate (docs/13, Change Drill D6).
 
 mod api;
+mod atomic;
 mod collect;
 mod collector;
 mod devices;
 mod http;
 mod outbox;
+mod placed;
 mod register;
 mod send;
 mod settings;
@@ -23,6 +25,7 @@ pub use collector::{
 pub use devices::{DeliveryDto, KnownDeviceDto, delivery_dto, delivery_dtos, known_device_dtos};
 pub use http::HttpBrokrApi;
 pub use outbox::{DeliveryStatus, OutboxError, SentDeliveries, SentRecord};
+pub use placed::{PlacedDeliveries, PlacedError};
 pub use register::register;
 pub use send::{SendContext, SendDeferredContext, SentDelivery, send_deferred};
 pub use settings::{
