@@ -12,6 +12,7 @@ use crate::peer_trust::PeerTrust;
 
 use super::api::{BrokrApi, BrokrError, Session};
 use super::collect::{CollectContext, CollectReport, collect_once};
+use super::placed::PlacedDeliveries;
 use super::register::register;
 use super::settings::{clear_session, load_join_token, load_session, save_session};
 
@@ -129,6 +130,8 @@ pub struct CollectorParts<V> {
     pub links: LinksFn,
     /// Called with the sender and the placed paths once a delivery is complete.
     pub on_arrival: ArrivalHook,
+    /// Tracks placed delivery identifiers to prevent duplicated downloads.
+    pub placed: Arc<PlacedDeliveries>,
 }
 
 /// What the last collecting pass did. Never carries a token.
@@ -229,6 +232,7 @@ impl<V: Vfs + 'static> Collector<V> {
             own_account: &own_account,
             linked_accounts: &links.accounts,
             on_arrival: parts.on_arrival.as_ref(),
+            placed: parts.placed.as_ref(),
         };
         run_pass(
             parts.api.as_ref(),

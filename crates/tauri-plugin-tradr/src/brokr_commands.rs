@@ -7,8 +7,8 @@ use tauri::State;
 use tradr_app::brokr::{
     ArrivalHook, BrokrApi, BrokrError, BrokrSettings, Collector, CollectorParts, DeliveryDto,
     DeliveryStatus, HttpBrokrApi, JoinToken, KnownDeviceDto, LinksFn, OutboxEntry, OutboxState,
-    OwnAccountFn, SendDeferredContext, SentDeliveries, clear_join_token, clear_session,
-    clear_settings, delivery_dtos, ensure_session, known_device_dtos, load_settings,
+    OwnAccountFn, PlacedDeliveries, SendDeferredContext, SentDeliveries, clear_join_token,
+    clear_session, clear_settings, delivery_dtos, ensure_session, known_device_dtos, load_settings,
     save_join_token, save_settings,
 };
 use tradr_app::known_store::KnownDevicesStore;
@@ -97,6 +97,7 @@ impl BrokrState {
                                 own_account: Arc::clone(&deps.own_account_fn),
                                 links: Arc::clone(&deps.links_fn),
                                 on_arrival: Arc::clone(&deps.on_arrival),
+                                placed: Arc::new(PlacedDeliveries::new(&deps.app_data_dir)),
                             };
                             let collector = Collector::new(parts);
                             let runner = collector.clone();
@@ -159,6 +160,7 @@ impl BrokrState {
             own_account: Arc::clone(&self.deps.own_account_fn),
             links: Arc::clone(&self.deps.links_fn),
             on_arrival: Arc::clone(&self.deps.on_arrival),
+            placed: Arc::new(PlacedDeliveries::new(&self.deps.app_data_dir)),
         };
         let collector = Collector::new(parts);
         let runner = collector.clone();

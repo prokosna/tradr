@@ -12,6 +12,7 @@ use crate::peer_trust::{ClassifyCachedError, PeerTrust};
 use crate::transfer::{TransferSessionError, place_verified_file};
 
 use super::api::{BrokrApi, BrokrError, InboxEntry, Session};
+use super::placed::PlacedDeliveries;
 
 const MAX_DELIVERY_ID_LEN: usize = 64;
 
@@ -35,6 +36,8 @@ pub struct CollectContext<'a, V: Vfs> {
     pub linked_accounts: &'a [AccountId],
     /// Called with the sender and the placed paths once a delivery is complete.
     pub on_arrival: &'a (dyn Fn(DeviceId, &[RelPath]) + Send + Sync),
+    /// Tracks placed delivery identifiers to prevent duplicated downloads.
+    pub placed: &'a PlacedDeliveries,
 }
 
 /// What one collecting pass did.
@@ -82,6 +85,9 @@ pub async fn collect_once<V: Vfs>(
     let mut entries = api.inbox(session).await?;
     entries.sort_by_key(|e| e.uploaded_at);
 
+    let listed: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+    ctx.placed.retain_listed(&listed).map_err(local)?;
+
     let mut report = CollectReport::default();
     for entry in &entries {
         match collect_delivery(api, session, ctx, entry).await? {
@@ -106,6 +112,13 @@ async fn collect_delivery<V: Vfs>(
         return Ok(Some("the delivery id is not hex".to_string()));
     }
     let dir = RelPath::new(&format!(".tradr-partial/deferred-{id}")).map_err(local)?;
+
+    if ctx.placed.contains(id).map_err(local)? {
+        remove_partial(ctx, &dir).await?;
+        api.acknowledge(session, id).await?;
+        ctx.placed.forget(id).map_err(local)?;
+        return Ok(None);
+    }
 
     let mut step = attempt(api, session, ctx, id, &dir).await;
     if let Ok(Step::JwksNeeded(uri)) = &step {
@@ -132,9 +145,11 @@ async fn collect_delivery<V: Vfs>(
             Ok(Some(reason))
         }
         Ok(Step::Opened { sender, placed }) => {
-            api.acknowledge(session, id).await?;
-            remove_partial(ctx, &dir).await?;
+            ctx.placed.remember(id).map_err(local)?;
             (ctx.on_arrival)(sender, &placed);
+            remove_partial(ctx, &dir).await?;
+            api.acknowledge(session, id).await?;
+            ctx.placed.forget(id).map_err(local)?;
             Ok(None)
         }
         Ok(Step::JwksNeeded(_)) => Err(BrokrError::Malformed(
