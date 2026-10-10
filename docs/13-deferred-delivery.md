@@ -74,15 +74,15 @@ records, each sealed with the HPKE context, sequence numbers from 0
 
 **One container, one volume, four settings.** The image is built from `apps/brokr/Dockerfile` at the repository root as its build context; it runs as a user that is not root, listens on 8780, and keeps everything it owns -- the database and the deliveries waiting -- under `/data`.
 
+**`docker-compose.yaml` at the repository root is how it is started, decided 2026-10-10 by DCR-177** at the request of the person running it, who found the limits and the token tedious to type on every start. It builds the image, names the volume, restarts unless stopped, publishes 8780, and **carries the two limits written out** -- 10 GiB per delivery and 100 GiB in all -- to be edited there.
+
 ```sh
-docker build -f apps/brokr/Dockerfile -t tradr-brokr .
-docker run -d --name tradr-brokr --restart unless-stopped \
-  -p 8780:8780 -v tradr-brokr-data:/data \
-  -e BROKR_JOIN_TOKEN="$(openssl rand -hex 24)" \
-  -e BROKR_DELIVERY_MAX_BYTES=10737418240 \
-  -e BROKR_STORAGE_MAX_BYTES=107374182400 \
-  tradr-brokr
+echo 'BROKR_JOIN_TOKEN=<a phrase of your choosing>' > .env
+docker compose up -d --build
 ```
+
+- **The join token is the one setting the file does not carry**: it is read from `.env` beside it, which git ignores, and compose refuses to start without it. A token committed to a repository is a token everyone with the repository holds
+- **The token has no required length or alphabet.** It is typed once into each device, so choose something typeable; what it guards is the right to register and occupy storage up to the limits, and no device accepts a delivery on the strength of it. Registration attempts are not rate-limited, which is acceptable for a port published to a LAN or a tailnet and is one more reason not to publish it to the internet
 
 - **`BROKR_JOIN_TOKEN`** is what a device presents once, to register; choose it and keep it (`BROKR_JOIN_TOKEN_FILE` reads it from a file instead). **`BROKR_DELIVERY_MAX_BYTES`** and **`BROKR_STORAGE_MAX_BYTES`** have no default on purpose: how much one delivery and all of them together may occupy is the operator's disk to budget. The example allows 10 GiB per delivery and 100 GiB in all. `BROKR_DELIVERY_TTL_DAYS` defaults to 30.
 - **Reach it over the tailnet, not the internet**: publish the port only on the machine's tailnet address (`-p 100.x.y.z:8780:8780`) or leave it on the LAN, and give devices `http://<that machine's tailnet name>:8780`. Nothing it carries is readable to it, but nothing about it is hardened for the open internet either.
