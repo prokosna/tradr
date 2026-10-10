@@ -2226,6 +2226,77 @@ These stood in `STATE.md`'s In flight block until `WI-M1-000h`. Every one descri
 
 ## Device runs: the exact procedure
 
+### Runs H to N, written 2026-10-10 because the list before it did not say which device does what
+
+> **The user asked for these on 2026-10-10 and said the earlier wording was ambiguous**: "tap a device to send" named neither the device held nor the device tapped. So every step below names the device acted on, the control pressed by its label on the screen, and what should be seen. **Three devices, three letters**: **M** is the MacBook running the GUI, **L** is the Linux machine running the GUI, **P** is the phone. All three are signed in to the same Google account. Each run owes back what was seen, verbatim where it is text.
+
+**Preparation, once.** L: `git pull` on `main`, `cargo tauri build --no-bundle` in `apps/tradr`, `cargo build --release -p tradr-cli` at the root, then start the GUI with `set -a; . ./.tradr-deployment.env; set +a; ./target/release/tradr`. M: `git pull`, `.tradr-deployment.env` holding `desktop:`, `android:` and `web:`, `cargo tauri build --no-bundle` in `apps/tradr` and start that binary the same way; then `JAVA_HOME=<a JDK 21> cargo tauri android build --debug -t aarch64` and `adb install -g -r <the apk the build printed>`. P: connected to M by USB with `adb logcat -s RustStdoutStderr` running in a terminal on M; open Tradr and sign in. **Before Run H, all three headers read "Signed in" and each device's list shows the other two as "on this network".** Have three test files on M: `small.pdf` (any PDF), `big.mp4` (2 GB or more), and their hashes from `shasum -a 256`.
+
+**Windows in place of L, asked by the user on 2026-10-10 because the desktop PC was booted to Windows.** It is one of the four devices and has never had a device run, so it is worth more than a substitute. Call it **W** and read every L below as W, with these differences, **none of them walked here**: load `.tradr-deployment.env` into the PowerShell environment line by line before `cargo tauri build --no-bundle`, and start `target\release\tradr.exe`; allow the app on private networks when the firewall asks, or no other device sees it; received files are in the user's Downloads and a hash is `Get-FileHash <file> -Algorithm SHA256`; with no Docker on W, Run K's Brokr runs on M, so W and P connect to it, W is the sender, and M is the device left unconnected for step 8; Run M needs Linux and waits for it. **Also write down**: any build or start error verbatim, whether the firewall asked, and whether a file with a Japanese name arrives under its own name.
+
+#### Run H -- send and receive, both ways of sending (docs/12)
+
+1. **On M**, press **Select files**, choose `small.pdf`. The device list is now headed "Send to". Press **Send →** on **L's** tile. Expect "Sent ✓" on that tile on M.
+2. **On L**, look at **Received**: one row, `small.pdf`, from M's name, with a time. `sha256sum ~/Downloads/small.pdf` on L equals M's hash.
+3. **On M**, drag `small.pdf` from Finder and drop it **on P's tile** (not on the window). Expect "Sent ✓" on P's tile.
+4. **On P**, look at Received: one row, from M. The file is in the phone's Downloads.
+5. **On P**, press **Select files**, choose any photo, press **Send →** on **M's** tile. **On M**, Received shows it, from P's name.
+6. **On L**, drag any file from the file manager and drop it **on M's tile**. **On M**, Received shows it, from L's name.
+7. **On P**, look at the top and bottom edges of the home screen, Settings and a folder view: nothing is drawn under the status bar or the navigation bar (DF-8).
+8. **Write down**: each step that did not do what is written, the words on the screen at that moment, and every word on any screen whose meaning was not obvious.
+
+#### Run I -- large files from the phone (DCR-164, ADR-0023)
+
+1. **On P**, in the gallery or file manager (not in Tradr), select a video of 2 GB or more, press Share, choose Tradr. Tradr opens with the file waiting. Press **Send →** on **M's** tile.
+2. While it sends, **on M** run `adb shell dumpsys meminfo com.tradr.app | grep TOTAL` three times, about a minute apart. The numbers should not climb with the transfer.
+3. Still while it sends, **on M** run `adb shell run-as com.tradr.app ls -R cache/shared_incoming`. It should be empty or absent.
+4. When it ends, **on M** `shasum -a 256 ~/Downloads/<the video>`; on P the same file's hash from any hashing app, or copy it to M over USB and hash it there. They are equal.
+5. Repeat steps 1 and 4 with **L's** tile as the target (`sha256sum` on L).
+6. **On P**, open a file that lives only in a cloud provider (Google Drive, not downloaded), Share to Tradr, **Send →** on M's tile. Then on M, `adb shell run-as com.tradr.app ls -R cache/shared_incoming` shows one copy.
+7. **On P**, swipe Tradr away, press **Stop** on the "Ready to receive" notification, open Tradr again. Repeat the `ls`: the copy is gone.
+8. **Write down**: the three memory numbers, each `ls` output, each pair of hashes, and how long each send took.
+
+#### Run J -- one folder per device (ADR-0024, DCR-168)
+
+1. **On M**, with no file waiting (press **Clear** if any is), press **Open folder** on **L's** tile. The view is headed by L's name and lists L's `~/Downloads`.
+2. **On M, in L's folder**: press **New folder**, name it `tradr-test`, go into it. Press **Upload**, choose `small.pdf`. Press **Rename** on it, name it `renamed.pdf`. Press **Download** on it; it lands in M's `~/Downloads`. Press **Upload** again with `small.pdf`, then **Rename** that one to `renamed.pdf`: the message above the list says the name is already taken, and does not say "no access". Press **Delete** on both files (it asks once more), go up, **Delete** `tradr-test`.
+3. **On M, in L's folder**, press **Upload** and choose `big.mp4`. When it ends, `sha256sum ~/Downloads/big.mp4` on L equals M's hash. Delete it from M.
+4. **On M**, press **Back**, then **Open folder** on **P's** tile, and repeat step 2 there.
+5. **Write down**: each control that did nothing or showed an error, with the error's words, and the refusal message of step 2 verbatim.
+6. **Only if a second Google account is at hand** (a device signed in to it is called X): on M, Settings, Linked accounts, **Invite another account**; join from X with the code; check the words match. **On X**, press **Open folder** on M's tile: it is refused. **On M**, tick **"Let this account's devices open and change my folder"** for that Link. **On X**, Open folder on M's tile again: it lists M's Downloads. Write down the refusal's words.
+
+#### Run K -- Deferred Delivery (docs/13, DCR-175)
+
+1. **On L**, start the Brokr: `docker build -f apps/brokr/Dockerfile -t tradr-brokr .` then `TOKEN=$(openssl rand -hex 24); echo $TOKEN; docker run -d --name tradr-brokr --restart unless-stopped -p 8780:8780 -v tradr-brokr-data:/data -e BROKR_JOIN_TOKEN=$TOKEN -e BROKR_DELIVERY_MAX_BYTES=10737418240 -e BROKR_STORAGE_MAX_BYTES=107374182400 tradr-brokr`. `curl http://localhost:8780/v1/health` answers `{"ok":true}`. Note L's LAN address (`hostname -I`).
+2. **On M**, Settings, **Deliver when a device is offline**: address `http://<L's address>:8780`, the token, **Connect**. **On P**, the same.
+3. Run H has already made M and P meet. **On P**, swipe Tradr away and press **Stop** on the "Ready to receive" notification, so P is off.
+4. **On M**, wait until P's tile reads "offline". Press **Select files**, choose `small.pdf`, press **Send later →** on **P's** tile. Expect "Will deliver when it's back ✓", and a card **Waiting to deliver** with one row reading "Waiting".
+5. **On P**, open Tradr. Within a minute (or Settings, Deliver when a device is offline, **Check now**) Received shows `small.pdf` from M.
+6. **On M**, Settings, **Check now**, back to home: the row reads "Delivered" with a date.
+7. **On P**, press **Check now** twice more. The phone's Downloads holds one `small.pdf` from this run and no `small (2).pdf`.
+8. **On L**, which was never connected to the Brokr in step 2: press **Stop** on P again and wait. P's tile on L reads "offline · set up delivery in Settings to send later" and has no Send button with a file waiting.
+9. **Write down**: the tile's and the card's words at steps 4 to 6, the file names in P's Downloads after step 7, and any error under "Deliver when a device is offline" verbatim.
+
+#### Run L -- the resident service on Android (ADR-0022's measurements)
+
+1. **Stop.** On P, press **Stop** on the "Ready to receive" notification. On M, P's tile leaves "on this network" within a minute, and `adb shell pidof com.tradr.app` on M prints nothing. Open Tradr on P again: P is back on M.
+2. **Doze.** On P, unplugged, Tradr opened once and then the screen turned off. Leave it untouched for one hour. Then **on M**, Select files, `small.pdf`, **Send →** on P's tile. Write down whether it arrived without touching P. If it did not: on P, Android Settings, Apps, Tradr, Battery, Unrestricted, and repeat the hour.
+3. **Battery.** Night one: P at a noted percentage, unplugged, Tradr resident (notification showing), screen off; note the percentage and the hours in the morning. Night two: the same with **Stop** pressed first. Write down the four numbers.
+
+#### Run M -- the headless sign-in wording (DF-112), and the hashes still owed
+
+1. **On L**, quit the GUI. **On M**, `ssh <user>@<L>` without `-X`; in that shell: `cd` to the repository, `set -a; . ./.tradr-deployment.env; set +a`, `unset DISPLAY WAYLAND_DISPLAY`, `mv ~/.local/share/com.tradr.app/attestation ~/.local/share/com.tradr.app/attestation.bak`.
+2. In that shell, with M's GUI running: `./target/release/tradr-cli send <M's name as L's list showed it> small.pdf`. It prints an address and an instruction. Follow only what it says: open the address in M's browser, sign in, copy the whole address of the page that does not load, paste it into the shell.
+3. **Write down**: everything printed, verbatim, and one sentence on whether the text alone was enough to finish.
+4. In the same shell: `./target/release/tradr-cli receive ~/tradr-inbox`. **On M**, send `small.pdf` to L three times with **Send →**, the first as soon as L's tile appears. Write down every line the receiver printed, especially any `transfer from <device id> failed during <phase>: <error>` (DF-104), and `sha256sum ~/tradr-inbox/*` against M's hash.
+5. The PDF that arrived on L on 2026-09-23: `sha256sum` of it on L against `shasum -a 256` of its source on M.
+
+#### Run N is Run C
+
+BLE with every Wi-Fi off, further down. **Parked: the user confirmed on 2026-10-10 that decision 14 stays carried.**
+
+**Not walked here, so each is a guess until the run says otherwise**: that the GUI binary sits in the release target directory on M under the name it has on L; that `run-as com.tradr.app` works on the debug APK (it should, the build is debuggable); that P's tile reaches "offline" on M within about a minute of Stop.
+
 ### The three runs owed as of 2026-09-25, written for the user the day they offered hardware
 
 > **Run A is done** (2026-09-23: a file from the MacBook GUI reached `tradr-cli receive`, and the kept sign-in and send-by-name were confirmed). What is owed now is D, E and F below; Run C stays parked under decision 14. Each run owes back **verbatim output**, not a summary.
