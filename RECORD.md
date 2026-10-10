@@ -2232,6 +2232,8 @@ These stood in `STATE.md`'s In flight block until `WI-M1-000h`. Every one descri
 
 **Preparation, once.** L: `git pull` on `main`, `cargo tauri build --no-bundle` in `apps/tradr`, `cargo build --release -p tradr-cli` at the root, then start the GUI with `set -a; . ./.tradr-deployment.env; set +a; ./target/release/tradr`. M: `git pull`, `.tradr-deployment.env` holding `desktop:`, `android:` and `web:`, `cargo tauri build --no-bundle` in `apps/tradr` and start that binary the same way; then `JAVA_HOME=<a JDK 21> cargo tauri android build --debug -t aarch64` and `adb install -g -r <the apk the build printed>`. P: connected to M by USB with `adb logcat -s RustStdoutStderr` running in a terminal on M; open Tradr and sign in. **Before Run H, all three headers read "Signed in" and each device's list shows the other two as "on this network".** Have three test files on M: `small.pdf` (any PDF), `big.mp4` (2 GB or more), and their hashes from `shasum -a 256`.
 
+**Windows in place of L, asked by the user on 2026-10-10 because the desktop PC was booted to Windows.** It is one of the four devices and has never had a device run, so it is worth more than a substitute. Call it **W** and read every L below as W, with these differences, **none of them walked here**: load `.tradr-deployment.env` into the PowerShell environment line by line before `cargo tauri build --no-bundle`, and start `target\release\tradr.exe`; allow the app on private networks when the firewall asks, or no other device sees it; received files are in the user's Downloads and a hash is `Get-FileHash <file> -Algorithm SHA256`; with no Docker on W, Run K's Brokr runs on M, so W and P connect to it, W is the sender, and M is the device left unconnected for step 8; Run M needs Linux and waits for it. **Also write down**: any build or start error verbatim, whether the firewall asked, and whether a file with a Japanese name arrives under its own name.
+
 #### Run H -- send and receive, both ways of sending (docs/12)
 
 1. **On M**, press **Select files**, choose `small.pdf`. The device list is now headed "Send to". Press **Send →** on **L's** tile. Expect "Sent ✓" on that tile on M.
@@ -2293,7 +2295,7 @@ These stood in `STATE.md`'s In flight block until `WI-M1-000h`. Every one descri
 
 BLE with every Wi-Fi off, further down. **Parked: the user confirmed on 2026-10-10 that decision 14 stays carried.**
 
-**Not walked here, so each is a guess until the run says otherwise**: that the GUI binary is `target/release/tradr` on M as it is on L; that `run-as com.tradr.app` works on the debug APK (it should, the build is debuggable); that P's tile reaches "offline" on M within about a minute of Stop.
+**Not walked here, so each is a guess until the run says otherwise**: that the GUI binary sits in the release target directory on M under the name it has on L; that `run-as com.tradr.app` works on the debug APK (it should, the build is debuggable); that P's tile reaches "offline" on M within about a minute of Stop.
 
 ### The three runs owed as of 2026-09-25, written for the user the day they offered hardware
 
