@@ -4,6 +4,7 @@
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -23,6 +24,17 @@ const TRANSPORT_ID: TransportId = TransportId::new("direct-quic");
 // identity lives in the SubjectPublicKeyInfo (DCR-038), so the verifier
 // this crate installs ignores it and nothing may depend on its value.
 const SERVER_NAME: &str = "tradr.invalid";
+
+const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
+const MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+// Keeps both ends alive during slow outboard hashing before offer or accept (docs/03, DCR-176).
+fn transport_config() -> Result<Arc<quinn::TransportConfig>, quinn::VarIntBoundsExceeded> {
+    let mut config = quinn::TransportConfig::default();
+    config.keep_alive_interval(Some(KEEP_ALIVE_INTERVAL));
+    config.max_idle_timeout(Some(quinn::IdleTimeout::try_from(MAX_IDLE_TIMEOUT)?));
+    Ok(Arc::new(config))
+}
 
 /// An error building a `QuicTransport`. Never names a `quinn` type: Change
 /// Drill D3 confines a `quinn` swap to this directory alone, and a type
@@ -85,7 +97,11 @@ impl QuicTransport {
                 "invalid TLS config",
             ))
         })?;
-        let server_config = quinn::ServerConfig::with_crypto(Arc::new(quic_crypto));
+        let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(quic_crypto));
+        let transport_config = transport_config().map_err(|e| {
+            QuicTransportError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+        })?;
+        server_config.transport_config(transport_config);
         let endpoint = match bind {
             // Dual-stack is a property of the wildcard bind, and Windows refuses the option on a specific address.
             SocketAddr::V6(addr) if addr.ip().is_unspecified() => {
@@ -146,7 +162,9 @@ impl Transport for QuicTransport {
                 .map_err(|_| TransportError::Unreachable)?;
             let quic_client_crypto = QuicClientConfig::try_from(rustls_client)
                 .map_err(|_| TransportError::Unreachable)?;
-            let client_config = quinn::ClientConfig::new(Arc::new(quic_client_crypto));
+            let mut client_config = quinn::ClientConfig::new(Arc::new(quic_client_crypto));
+            let transport_config = transport_config().map_err(|_| TransportError::Unreachable)?;
+            client_config.transport_config(transport_config);
 
             let connecting = self
                 .endpoint
@@ -400,5 +418,50 @@ mod tests {
         })
         .await
         .expect("handshake completed within timeout");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn keep_alive_preserves_idle_connection_past_timeout() {
+        let server_store = device(0x22);
+        let server_bind: SocketAddr = "127.0.0.1:0".parse().expect("valid address literal");
+        let server_transport = QuicTransport::new(server_store, server_bind).expect("server binds");
+        let server_port = server_transport.local_addr().expect("local addr").port();
+        let mut incoming = server_transport.listen().await.expect("listen succeeds");
+
+        let client_store = device(0x11);
+        let client_bind: SocketAddr = "127.0.0.1:0".parse().expect("valid address literal");
+        let client_transport = QuicTransport::new(client_store, client_bind).expect("client binds");
+
+        let candidate = Candidate::new(TRANSPORT_ID, &format!("127.0.0.1:{server_port}"))
+            .expect("valid candidate");
+        let dial = client_transport.connect(&candidate, &PeerExpectation::Unpinned);
+        let accept = incoming.accept();
+
+        let (dial_res, accept_res) = tokio::join!(dial, accept);
+        let client_channel = dial_res.expect("client connects");
+        let server_channel = accept_res.expect("server accepts");
+
+        tokio::time::sleep(Duration::from_secs(90)).await;
+
+        let (mut client_send, _client_recv) =
+            client_channel.open_bi().await.expect("client opens stream");
+        let (write_res, accept_res) = tokio::join!(
+            client_send.write_all(b"keepalive"),
+            server_channel.accept_bi(),
+        );
+        write_res.expect("write succeeds");
+        let (_server_send, mut server_recv) = accept_res.expect("accept stream succeeds");
+
+        let mut received = [0u8; 9];
+        let mut read = 0;
+        while read < received.len() {
+            let n = server_recv
+                .read(&mut received[read..])
+                .await
+                .expect("read succeeds");
+            assert_ne!(n, 0, "stream closed before all bytes were read");
+            read += n;
+        }
+        assert_eq!(&received, b"keepalive");
     }
 }
