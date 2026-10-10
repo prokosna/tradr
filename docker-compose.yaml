@@ -1,0 +1,21 @@
+services:
+  brokr:
+    container_name: tradr-brokr
+    image: tradr-brokr
+    build:
+      context: .
+      dockerfile: apps/brokr/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8780:8780"
+    volumes:
+      - tradr-brokr-data:/data
+    environment:
+      BROKR_JOIN_TOKEN: ${BROKR_JOIN_TOKEN:?set BROKR_JOIN_TOKEN in .env}
+      # 10 GiB per delivery and 100 GiB in all, for the operator to edit.
+      BROKR_DELIVERY_MAX_BYTES: "10737418240"
+      BROKR_STORAGE_MAX_BYTES: "107374182400"
+
+volumes:
+  tradr-brokr-data:
+    name: tradr-brokr-data
