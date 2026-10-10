@@ -450,6 +450,16 @@ Chosen over TCP with TLS — see [ADR-0004](adr/0004-quic-as-the-bulk-transport.
 
 Implemented with `quinn`.
 
+### A QUIC connection is kept alive every 10 seconds, decided 2026-10-10 by DCR-176
+
+**A connection with nothing to say for 30 seconds is closed by QUIC's idle timeout, and a sender preparing a large file says nothing for longer than that.** Between the handshake and the `TransferOffer` the sender reads every item once to build its Content Hash and outboard ([docs/04](04-protocol.md)); measured on 2026-10-10, a 1.5 GB file from a MacBook and from a phone failed with `failed to send offer: the operation exceeded its deadline` on the sender and the same error `during offer` on the receiver, while a faster machine sent the same file. The same silence exists while a receiver inspects a large partial file before its `TransferAccept`.
+
+- **Both ends of every `direct-quic` connection send a keep-alive every 10 seconds, and the idle timeout is stated as 30 seconds rather than left to the crate's default.** Ten is under a third of thirty, so two keep-alives in a row can be lost before a live connection is closed
+- **It is a transport setting and lives in the QUIC transport alone**: no message, no trait and no caller changes, and Change Drill D3 still counts one directory
+- **A peer that stops answering is still closed after 30 seconds**: a keep-alive is acknowledged, so it keeps a connection only between two endpoints that are both there
+- **It gives a peer nothing it did not have.** A connection could always be held open by sending on it. What bounds an unauthenticated peer is the 20 seconds to a finished handshake ([docs/04](04-protocol.md), DCR-172), which this does not touch; a peer past it is one this device has verified
+- **Preparing before dialling was the alternative and was not taken**: it removes the sender's silence and leaves the receiver's, and it reorders the send path where this changes one configuration
+
 ### Why Wi-Fi Direct is Android-only
 
 Desktop Wi-Fi Direct APIs do not line up — Linux goes through `wpa_supplicant` P2P, Windows through WinRT, and macOS exposes nothing public — and most implementations tear down the existing Wi-Fi connection. What it breaks outweighs what it delivers. Restricted to Android pairs; anything involving a desktop relies on a shared LAN or a Brokr.
