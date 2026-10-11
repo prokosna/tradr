@@ -547,6 +547,18 @@
           "markdownDescription": "Denies the open_link_invite command without any pre-configured scope."
         },
         {
+          "description": "Enables the open_received command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-received",
+          "markdownDescription": "Enables the open_received command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_received command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-received",
+          "markdownDescription": "Denies the open_received command without any pre-configured scope."
+        },
+        {
           "description": "Enables the pending_link_proposal command without any pre-configured scope.",
           "type": "string",
           "const": "allow-pending-link-proposal",
@@ -619,6 +631,18 @@
           "markdownDescription": "Denies the receive_folder command without any pre-configured scope."
         },
         {
+          "description": "Enables the received_actions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-received-actions",
+          "markdownDescription": "Enables the received_actions command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the received_actions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-received-actions",
+          "markdownDescription": "Denies the received_actions command without any pre-configured scope."
+        },
+        {
           "description": "Enables the received_history command without any pre-configured scope.",
           "type": "string",
           "const": "allow-received-history",
@@ -689,6 +713,18 @@
           "type": "string",
           "const": "deny-request-permissions",
           "markdownDescription": "Denies the request_permissions command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reveal_received command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reveal-received",
+          "markdownDescription": "Enables the reveal_received command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reveal_received command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reveal-received",
+          "markdownDescription": "Denies the reveal_received command without any pre-configured scope."
         },
         {
           "description": "Enables the send_deferred command without any pre-configured scope.",
