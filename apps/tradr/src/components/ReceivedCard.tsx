@@ -37,6 +37,16 @@ function formatMeta(row: ReceivedRow, peers: PeerInfo[]): string {
 	return `${prefix}${deviceName} · ${whenStr}`;
 }
 
+const ACTION_DEFS = [
+	{ key: "open", label: "Open", cmd: "plugin:tradr|open_received" },
+	{
+		key: "reveal",
+		label: "Show in folder",
+		cmd: "plugin:tradr|reveal_received",
+	},
+	{ key: "share", label: "Share", cmd: "plugin:tradr|share_received" },
+] as const;
+
 /** Renders arrived files history and folder destination. */
 export function ReceivedCard({
 	items,
@@ -51,6 +61,31 @@ export function ReceivedCard({
 	const [confirmingClear, setConfirmingClear] = useState(false);
 	const [clearError, setClearError] = useState<string | null>(null);
 	const [isClearing, setIsClearing] = useState(false);
+	const [actions, setActions] = useState<string[]>([]);
+	const [actionsError, setActionsError] = useState<string | null>(null);
+	const [pendingRowIds, setPendingRowIds] = useState<Record<number, boolean>>(
+		{},
+	);
+	const [rowErrors, setRowErrors] = useState<Record<number, string>>({});
+
+	useEffect(() => {
+		invoke<string[]>("plugin:tradr|received_actions").then(
+			(offered) => {
+				setActions(Array.isArray(offered) ? offered : []);
+				setActionsError(null);
+			},
+			(err) => {
+				setActions([]);
+				const message =
+					typeof err === "string"
+						? err
+						: err instanceof Error
+							? err.message
+							: String(err);
+				setActionsError(message);
+			},
+		);
+	}, []);
 
 	useEffect(() => {
 		invoke<string | null | undefined>("plugin:tradr|receive_folder").then(
@@ -84,8 +119,38 @@ export function ReceivedCard({
 		}
 	};
 
+	const handleRowAction = async (rowId: number, cmd: string) => {
+		setRowErrors((prev) => {
+			if (!prev[rowId]) {
+				return prev;
+			}
+			const next = { ...prev };
+			delete next[rowId];
+			return next;
+		});
+		setPendingRowIds((prev) => ({ ...prev, [rowId]: true }));
+		try {
+			await invoke(cmd, { id: rowId });
+		} catch (err) {
+			const message =
+				typeof err === "string"
+					? err
+					: err instanceof Error
+						? err.message
+						: String(err);
+			setRowErrors((prev) => ({ ...prev, [rowId]: message }));
+		} finally {
+			setPendingRowIds((prev) => {
+				const next = { ...prev };
+				delete next[rowId];
+				return next;
+			});
+		}
+	};
+
 	const canClear = items.length > 0 || error !== null;
 	const visibleItems = showAll ? items : items.slice(0, 50);
+	const offeredActions = ACTION_DEFS.filter((def) => actions.includes(def.key));
 
 	return (
 		<section className="card stack home-received">
@@ -148,9 +213,15 @@ export function ReceivedCard({
 				<p className="muted">Files sent to this device appear here.</p>
 			) : (
 				<>
+					{actionsError ? (
+						<p className="error-text">
+							Couldn't find what this device can do with a file: {actionsError}
+						</p>
+					) : null}
 					<ul className="list">
 						{visibleItems.map((item) => {
 							const name = item.path.split(/[/\\]/).pop() || item.path;
+							const isPending = Boolean(pendingRowIds[item.id]);
 							return (
 								<li key={item.id} className="file-row">
 									<div className="file-row-content">
@@ -161,7 +232,26 @@ export function ReceivedCard({
 												{formatMeta(item, peers)}
 											</span>
 										</div>
+										{offeredActions.length > 0 ? (
+											<div className="file-actions">
+												{offeredActions.map((action) => (
+													<button
+														key={action.key}
+														type="button"
+														className="btn btn--ghost"
+														onClick={() => handleRowAction(item.id, action.cmd)}
+														disabled={isPending}
+														aria-label={`${action.label} ${name}`}
+													>
+														{action.label}
+													</button>
+												))}
+											</div>
+										) : null}
 									</div>
+									{rowErrors[item.id] ? (
+										<p className="error-text">{rowErrors[item.id]}</p>
+									) : null}
 								</li>
 							);
 						})}

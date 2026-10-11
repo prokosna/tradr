@@ -770,6 +770,11 @@ button:disabled,
 	.file-row-content {
 		flex-wrap: wrap;
 	}
+
+	.home-received .file-actions {
+		width: 100%;
+		justify-content: flex-end;
+	}
 }
 
 .qr {
@@ -838,4 +843,8 @@ button:disabled,
 	margin: 0;
 	font-size: 0.875rem;
 	overflow-wrap: anywhere;
+}
+
+.home-received .file-actions {
+	flex-wrap: wrap;
 }

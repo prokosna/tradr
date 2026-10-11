@@ -511,4 +511,8 @@ export const fixtureCommands: Record<
 		fixtureReceivedCleared = true;
 		return null;
 	},
+	"plugin:tradr|received_actions": () => ["open", "reveal"],
+	"plugin:tradr|open_received": () => null,
+	"plugin:tradr|reveal_received": () => null,
+	"plugin:tradr|share_received": () => null,
 };
