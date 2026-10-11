@@ -39,7 +39,11 @@ Everything else -- signing in, linking another account, adding a device by addre
 ### Receiving
 
 - Receiving needs no action: while the app is open (and on Android while it is resident, ADR-0022) own-account devices are accepted automatically (DCR-129). The Received card says so when it is empty: "Files sent to this device appear here."
-- Each arrival adds a row to **Received** on the home screen: the file name, which device it came from, and when. The list covers what arrived since the app started; keeping history across restarts is open decision 11.
+- Each arrival adds a row to **Received** on the home screen: the file name, which device it came from, and when. A row from today shows the time; an older one shows the date.
+- **The list is kept across restarts, with no expiry, until the person clears it (ruled by the user on 2026-10-10, DCR-184).** The card shows the newest 50 rows and, when there are more, **Show all** below them.
+- **Clear** sits in the card's header while the list is not empty and asks once more inline, as Delete does in a folder: "Clear this list? The files stay where they are." It empties the list and touches no file.
+- **A file this device fetched from another device's folder is listed too**, reading "downloaded from <device>" where a sent one reads "from <device>" (asked by the user on 2026-10-10, DF-130). An upload to another device is not: nothing arrived here.
+- A row is a record of an arrival, not a view of the folder. Renaming or deleting the file afterwards leaves its row as it was.
 - On Android the existing notification stays the signal while the app is in the background.
 - **The Received card names the folder files are saved in**, under its title, on every platform (DCR-182). On Android that is the shared Download folder (DCR-183), or the app's own directory on a device where [the shared folder cannot be written](08-platform-integration.md#where-received-files-land). The plugin answers it with one command, `receive_folder`, returning the path.
 
@@ -94,6 +98,8 @@ One page, in this order:
 ## What the front end needs from the plugin that it does not have
 
 - **An arrival event.** The listener's `on_arrival` hook exists (DCR-129) and the plugin passes `None`, so a desktop never learns a file arrived. The plugin emits **`files-received`** with the sender's Device ID and the placed paths; the front end names the sender from the device list and falls back to "another device".
+- **The received list, kept by the native side (DCR-184).** `tradr-app` holds it as `received.json` in the application data directory, written atomically like every other record there. A row holds a number that orders it, the path the file was placed at relative to the receive folder, the sender's Device ID, the name Known Devices held for that device at that moment (absent when it held none), the arrival time in Unix seconds from the `Clock`, and whether it was sent or downloaded. The plugin records a row per placed file in the `on_arrival` hook and after a successful `download_file`, then emits `files-received`; the front end treats the event as a signal and reads the list with **`received_history`**, newest first. **`clear_received_history`** empties it.
+- **Recording never fails a transfer.** The file is already placed when its row is written, so a list that cannot be written is printed and the arrival stands. A list that cannot be read is said on the card ("Couldn't read the list of received files") with the reason, and Clear replaces it, which is the person's way out.
 - **Nothing else.** Every other flow above uses a command that exists today.
 
 ## How it is checked
@@ -109,11 +115,11 @@ One page, in this order:
 - **Vitest, in `apps/tradr`, with jsdom and React Testing Library**, as development dependencies only, pinned exactly like every other dependency here. Vitest is chosen because the app already builds with Vite, so the test run shares its configuration rather than adding a second toolchain.
 - **Tests drive the real components through the same IPC mock the preview uses** (`@tauri-apps/api/mocks`), asserting on what a person sees and on which commands were invoked with which arguments. A test never reaches into component state.
 - **`pnpm test` at the repository root runs them, and `ci/frontend-gate.sh` runs `pnpm test` as its fourth step**, so they gate every commit through the pre-commit hook and every pull request through the `checks` job, as lint, typecheck and format already do.
-- **What must be covered first**: DCR-078's two rules; sends running one at a time and a second tap waiting; a tap sending when files wait and opening the folder when none do; `files-received` adding one row per file, named after the sender, at most 50; the subscription helper removing a subscription whose cleanup ran before `listen` resolved; and a refused folder operation showing its reason.
+- **What must be covered first**: DCR-078's two rules; sends running one at a time and a second tap waiting; a tap sending when files wait and opening the folder when none do; `files-received` adding one row per file, named after the sender, at most 50 until Show all is pressed; the subscription helper removing a subscription whose cleanup ran before `listen` resolved; and a refused folder operation showing its reason.
 
 ## Out of scope here
 
 - Accepting or declining a transfer from a linked account before it lands (open decision 9).
-- A received-files history across restarts (open decision 11).
+- A file another device writes into this device's folder through the Browse plane adds no Received row: the Browse handler has no arrival hook (DF-134).
 - "Open" / "Show in folder" for a received file: it needs an opener plugin and a decision about Android's Downloads provider, so it is DF-122.
 - Nearby-ephemeral ("everyone") mode, which docs/05 keeps off and unbuilt.
