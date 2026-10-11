@@ -339,11 +339,12 @@ rows of four.
 ```
 
 - Settings shows your own fingerprint
-- Each peer's fingerprint can be shown and marked verified
-- Once verified, a changed fingerprint **refuses the connection with a warning**
-- Verification is never mandatory. The default is trust on first use
+- The inviter's fingerprint is shown when a Link is made, and [the person compares it before consenting](11-account-linking.md#where-the-repliers-consent-goes-and-why-it-is-before-the-dial)
+- Comparing is never mandatory. The default is trust on first use
 
-This catches the case where Google forged an Attestation for an unknown device, for peers that were verified. The UI presses for verification during account linking.
+This catches the case where Google forged an Attestation for an unknown device, at the moment a Link is made.
+
+**No record is kept that the words were compared, ruled by the user on 2026-10-10 as DCR-181.** The earlier design had each peer "marked verified" by a separate act and refused a verified peer whose fingerprint later changed. That act was never offered, the flag it would have set was `false` on every Link ever written, and nothing read it. The comparison is the consent given when the Link is made, and it is not asked for a second time. **What a later change of key is refused on is the key itself and not a flag**: a changed Device Key under a known Device ID is a separate ruling of the same day, not yet designed here.
 
 ### Why 132 bits, when the words were always twelve
 

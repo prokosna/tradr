@@ -229,7 +229,7 @@ For linking at a distance.
 5. Alice approves. The Brokr delivers each side the other's DeviceInfo and Attestation
 6. Both sides verify the Attestation themselves  <- the Brokr never verifies
 7. half_secrets are exchanged through the Brokr and the Link Secret derived
-8. Both sides display Fingerprints and press for verification, strongly but not mandatorily
+8. Both sides display Fingerprints for comparison, strongly but not mandatorily; no record of it is kept (DCR-181)
 ```
 
 The Brokr only mediates and takes no part in verification. A compromised Brokr introducing a fake peer fails on both sides, since its Attestation lacks Google's signature.
@@ -249,7 +249,6 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
       "peer_sub": "9273...",          // subject, unique only within that issuer
       "peer_label": "Bob",            // display only, dropped when absent
       "created_at": 1756684800,       // seconds since the Unix epoch
-      "fingerprint_verified": true,
       "full_access": false            // ADR-0024; absent reads as false
     }
   ]
@@ -266,7 +265,9 @@ A Brokr can obstruct a link and can learn who linked with whom. Nothing more.
 
 **`policy` and `known_devices` are left out on the same grounds**: nothing reads either one, and a per-Link transfer policy is a decision open decision 9 has not settled. Both return when something consults them.
 
-**What is here is what the milestone's own criterion needs**: the account, so `AttestationPolicy::linked_accounts` stops being `&[]`; the `link_id`, so removal names one Link; and `fingerprint_verified`, which the exchange writes and docs/05's changed-fingerprint refusal will read.
+**What is here is what the milestone's own criterion needs**: the account, so `AttestationPolicy::linked_accounts` stops being `&[]`, and the `link_id`, so removal names one Link.
+
+**`fingerprint_verified` was here until DCR-181 removed it on 2026-10-11.** Nothing ever wrote it `true` and nothing read it ([docs/05](05-security.md#fingerprint--the-option-not-to-trust-google)). A file written before the removal still carries the key; it is ignored on read and is gone the next time the registry writes the file. A build older than the removal refuses a file written without the key as malformed, so a downgrade across it needs the Links made again.
 
 **`full_access` was added on 2026-09-28 by ADR-0024 (DCR-167).** When `true`, the devices of that account may read and write this device's folder over the Browse plane exactly as this account's own devices may. It is `false` for every new Link, is set only by the person on this device, and grants nothing in the other direction. A file written before the field existed has no such key, and it reads as `false`, so upgrading grants no one anything.
 
