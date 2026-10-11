@@ -158,6 +158,16 @@ Android 14+ also allows custom actions through `ChooserAction`, but Sharing Shor
 - After a reinstall the files of the previous install are no longer this app's, and Android hides another owner's non-media files in `Download` from it. They stay on the device and in the file manager; Tradr no longer lists or serves them.
 - Choosing another folder with `ACTION_OPEN_DOCUMENT_TREE` is not built (DF-110).
 
+### Opening and sharing a received file
+
+**Open and Share on a Received row are two intents carrying one `content://` URI, built by a `FileProvider` the plugin declares (DCR-186).** Rust resolves the row to a location ([ADR-0026](adr/0026-one-operation-hands-the-os-a-received-files-location.md)) and passes it to Kotlin, which never receives a path from the front end.
+
+- The provider's authority is the application id followed by `.tradr.files`. It is not exported and grants per URI. Its paths resource names two places and no others: the shared `Download` folder on external storage, and the app's own external files directory, which is where files land on a device that failed [the probe](#where-received-files-land).
+- **Open** is `ACTION_VIEW` and **Share** is `ACTION_SEND` through the system chooser, each with `FLAG_GRANT_READ_URI_PERMISSION` and the MIME type the file's extension maps to, or `*/*` when it maps to none.
+- A file outside the two places makes `FileProvider` refuse, and that refusal is shown as the failure it is. No application able to open the type is reported as "No app on this device can open this file."
+- **A `FileProvider` reads the file as this app**, which works because the app created it. It does not go through `MediaStore`, so it is the same code for both places.
+- **Unmeasured**: nothing in this repository runs Kotlin. CI compiles it; whether the intents resolve on a device is the device run's to say.
+
 ### Share Roots and SAF
 
 - The user picks a directory through `ACTION_OPEN_DOCUMENT_TREE`, followed by `takePersistableUriPermission`
