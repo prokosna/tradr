@@ -17,7 +17,9 @@ use tradr_vfs::NativeVfs;
 
 use crate::handshake::{HandshakeParams, perform_handshake};
 use crate::known_store::KnownDeviceRecorder;
-use crate::transfer::{SendRequest, SessionStreams, prepare_item, send_file_with_progress};
+use crate::transfer::{
+    SendRequest, SessionStreams, prepare_item_with_progress, send_file_with_progress,
+};
 
 /// Progress payload emitted during file transfer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,7 +34,7 @@ pub struct TransferProgressPayload {
     pub bytes_transferred: u64,
     /// Total bytes of this item.
     pub total_bytes: u64,
-    /// Current transfer status: "starting", "transferring", "completed", "failed".
+    /// Current transfer status: "preparing", "starting", "transferring", "completed", "failed".
     pub status: String,
 }
 
@@ -254,15 +256,33 @@ where
         let actual_root = item.root;
         let rel_path = item.rel_path.clone();
 
+        let stat = vfs
+            .stat(actual_root, &rel_path)
+            .await
+            .map_err(|e| format!("failed to prepare '{rel_path}': {e}"))?;
         let spool = vfs
             .scratch_file()
             .map_err(|e| format!("failed to allocate scratch file for '{rel_path}': {e}"))?;
-        let prepared = prepare_item(vfs, actual_root, &rel_path, spool)
+        let item_id = ItemId::new(&format!("item_{}", idx + 1))
+            .map_err(|e| format!("invalid item id: {e}"))?;
+
+        let t_id_str = transfer_id.to_string();
+        let item_id_str = item_id.to_string();
+        let rel_path_str = rel_path.to_string();
+        let mut on_read = |bytes_read_so_far: u64| {
+            on_progress(TransferProgressPayload {
+                transfer_id: t_id_str.clone(),
+                item_id: item_id_str.clone(),
+                rel_path: rel_path_str.clone(),
+                bytes_transferred: bytes_read_so_far,
+                total_bytes: stat.size_bytes,
+                status: "preparing".to_string(),
+            });
+        };
+        let prepared = prepare_item_with_progress(vfs, actual_root, &rel_path, spool, &mut on_read)
             .await
             .map_err(|e| format!("failed to prepare '{rel_path}': {e}"))?;
 
-        let item_id = ItemId::new(&format!("item_{}", idx + 1))
-            .map_err(|e| format!("invalid item id: {e}"))?;
         actual_roots.insert(item_id, actual_root);
         let offer_item = OfferItem::new(item_id, rel_path, prepared.size(), *prepared.hash())
             .map_err(|e| format!("invalid offer item: {e}"))?;
