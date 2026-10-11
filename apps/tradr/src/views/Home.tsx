@@ -1,7 +1,7 @@
 import type { SignInUiState } from "../App.js";
 import { DeliveriesCard } from "../components/DeliveriesCard.js";
 import { DeviceTile, type PeerSendStatus } from "../components/DeviceTile.js";
-import { ReceivedCard, type ReceivedItem } from "../components/ReceivedCard.js";
+import { ReceivedCard } from "../components/ReceivedCard.js";
 import {
 	type ActiveSendInfo,
 	SendCard,
@@ -12,6 +12,7 @@ import type {
 	DeliveryDto,
 	KnownDeviceDto,
 	PeerInfo,
+	ReceivedRow,
 	TransferProgressPayload,
 } from "../types.js";
 
@@ -29,7 +30,9 @@ export interface HomeProps {
 	progress: TransferProgressPayload | null;
 	sendError: string | null;
 	peerSendStates: Record<string, PeerSendStatus>;
-	receivedFiles: ReceivedItem[];
+	receivedRows: ReceivedRow[];
+	receivedError: string | null;
+	onReloadReceived: () => void;
 	onSelectFiles: () => void;
 	onClearWaitingFiles: () => void;
 	onTileTap: (peer: PeerInfo) => void;
@@ -50,7 +53,9 @@ export function Home({
 	progress,
 	sendError,
 	peerSendStates,
-	receivedFiles,
+	receivedRows,
+	receivedError,
+	onReloadReceived,
 	onSelectFiles,
 	onClearWaitingFiles,
 	onTileTap,
@@ -144,7 +149,12 @@ export function Home({
 					onClear={onClearWaitingFiles}
 				/>
 
-				<ReceivedCard items={receivedFiles} peers={peers} />
+				<ReceivedCard
+					items={receivedRows}
+					error={receivedError}
+					peers={peers}
+					onReload={onReloadReceived}
+				/>
 
 				<DeliveriesCard deliveries={deliveries} />
 			</div>

@@ -10,7 +10,11 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App.js";
-import { fixtureCommands, fixtureKnownDevices } from "./preview/fixtures.js";
+import {
+	fixtureCommands,
+	fixtureKnownDevices,
+	resetFixtureReceived,
+} from "./preview/fixtures.js";
 import type { ShareIntent, SharedFilePayload } from "./types.js";
 
 describe("App component", () => {
@@ -24,6 +28,7 @@ describe("App component", () => {
 		recordedCalls.length = 0;
 		customHandlers = {};
 		window.location.hash = "";
+		resetFixtureReceived();
 		mockIPC(
 			async (cmd: string, payload?: unknown) => {
 				recordedCalls.push({ cmd, payload });
@@ -205,53 +210,338 @@ describe("App component", () => {
 		expect(screen.getByRole("heading", { name: "Send to" })).toBeDefined();
 	});
 
-	it("records incoming transfers newest first with sender label and enforces 50 item cap", async () => {
-		const { container } = render(<App />);
-		await screen.findByText("Pixel 8");
-
-		await act(async () => {
-			await emit("files-received", {
+	it("lists rows answered at mount in the order answered with sender name from device_name", async () => {
+		const nowSecs = Math.floor(Date.now() / 1000);
+		customHandlers["plugin:tradr|received_history"] = () => [
+			{
+				id: 1,
+				path: "first.pdf",
 				device_id: "dev-pixel-8",
-				files: ["first.pdf", "second.png"],
-			});
-		});
+				device_name: "Pixel 8",
+				received_at: nowSecs,
+				how: "sent",
+			},
+			{
+				id: 2,
+				path: "second.png",
+				device_id: "dev-thinkpad",
+				device_name: "ThinkPad Device",
+				received_at: nowSecs,
+				how: "sent",
+			},
+		];
 
+		const { container } = render(<App />);
 		await screen.findByText("first.pdf");
 		expect(screen.getByText("second.png")).toBeDefined();
 
-		const initialRows = container.querySelectorAll(".home-received .file-row");
-		expect(initialRows).toHaveLength(2);
-		expect(initialRows[0]?.textContent).toContain("from Pixel 8");
-		expect(initialRows[1]?.textContent).toContain("from Pixel 8");
+		expect(
+			recordedCalls.some((c) => c.cmd === "plugin:tradr|received_history"),
+		).toBe(true);
 
-		await act(async () => {
-			await emit("files-received", {
-				device_id: "unknown-device-id",
-				files: ["newest.txt"],
-			});
-		});
+		const rows = container.querySelectorAll(".home-received .file-row");
+		expect(rows).toHaveLength(2);
+		expect(rows[0]?.textContent).toContain("first.pdf");
+		expect(rows[0]?.textContent).toContain("from Pixel 8");
+		expect(rows[1]?.textContent).toContain("second.png");
+		expect(rows[1]?.textContent).toContain("from ThinkPad Device");
+	});
 
-		await screen.findByText("newest.txt");
-		const updatedRows = container.querySelectorAll(".home-received .file-row");
-		expect(updatedRows).toHaveLength(3);
-		expect(updatedRows[0]?.textContent).toContain("newest.txt");
-		expect(updatedRows[0]?.textContent).toContain("from another device");
+	it("shows device list name when device_name is null or from another device for unknown device_id", async () => {
+		const nowSecs = Math.floor(Date.now() / 1000);
+		customHandlers["plugin:tradr|received_history"] = () => [
+			{
+				id: 1,
+				path: "known-peer.txt",
+				device_id: "dev-thinkpad",
+				device_name: null,
+				received_at: nowSecs,
+				how: "sent",
+			},
+			{
+				id: 2,
+				path: "unknown-peer.txt",
+				device_id: "dev-unknown-404",
+				device_name: null,
+				received_at: nowSecs,
+				how: "sent",
+			},
+		];
 
-		const sixtyFiles = Array.from(
-			{ length: 60 },
-			(_, i) => `overflow-${i}.dat`,
-		);
-		await act(async () => {
-			await emit("files-received", {
+		const { container } = render(<App />);
+		await screen.findByText("known-peer.txt");
+		expect(screen.getByText("unknown-peer.txt")).toBeDefined();
+
+		expect(
+			recordedCalls.some((c) => c.cmd === "plugin:tradr|received_history"),
+		).toBe(true);
+
+		const rows = container.querySelectorAll(".home-received .file-row");
+		expect(rows).toHaveLength(2);
+		expect(rows[0]?.textContent).toContain("from ThinkPad");
+		expect(rows[1]?.textContent).toContain("from another device");
+	});
+
+	it("reads downloaded from for downloaded row", async () => {
+		const nowSecs = Math.floor(Date.now() / 1000);
+		customHandlers["plugin:tradr|received_history"] = () => [
+			{
+				id: 1,
+				path: "fetched-archive.zip",
 				device_id: "dev-pixel-8",
-				files: sixtyFiles,
+				device_name: "Pixel 8",
+				received_at: nowSecs,
+				how: "downloaded",
+			},
+		];
+
+		const { container } = render(<App />);
+		await screen.findByText("fetched-archive.zip");
+
+		expect(
+			recordedCalls.some((c) => c.cmd === "plugin:tradr|received_history"),
+		).toBe(true);
+
+		const row = container.querySelector(".home-received .file-row");
+		expect(row?.textContent).toContain("downloaded from Pixel 8");
+	});
+
+	it("shows time for row received now and date for row received three days ago", async () => {
+		const nowSecs = Math.floor(Date.now() / 1000);
+		const threeDaysAgoSecs = nowSecs - 3 * 86400;
+
+		const expectedTime = new Date(nowSecs * 1000).toLocaleTimeString([], {
+			hour: "numeric",
+			minute: "2-digit",
+		});
+		const expectedDate = new Date(threeDaysAgoSecs * 1000).toLocaleDateString();
+
+		customHandlers["plugin:tradr|received_history"] = () => [
+			{
+				id: 1,
+				path: "today-file.pdf",
+				device_id: "dev-pixel-8",
+				device_name: "Pixel 8",
+				received_at: nowSecs,
+				how: "sent",
+			},
+			{
+				id: 2,
+				path: "past-file.pdf",
+				device_id: "dev-pixel-8",
+				device_name: "Pixel 8",
+				received_at: threeDaysAgoSecs,
+				how: "sent",
+			},
+		];
+
+		const { container } = render(<App />);
+		await screen.findByText("today-file.pdf");
+
+		expect(
+			recordedCalls.some((c) => c.cmd === "plugin:tradr|received_history"),
+		).toBe(true);
+
+		const rows = container.querySelectorAll(".home-received .file-row");
+		expect(rows).toHaveLength(2);
+		expect(rows[0]?.textContent).toContain(expectedTime);
+		expect(rows[1]?.textContent).toContain(expectedDate);
+	});
+
+	it("causes a second received_history invocation on files-received event and renders newly answered row", async () => {
+		const nowSecs = Math.floor(Date.now() / 1000);
+		let callCount = 0;
+		customHandlers["plugin:tradr|received_history"] = () => {
+			callCount++;
+			if (callCount === 1) {
+				return [
+					{
+						id: 1,
+						path: "initial.txt",
+						device_id: "dev-pixel-8",
+						device_name: "Pixel 8",
+						received_at: nowSecs,
+						how: "sent",
+					},
+				];
+			}
+			return [
+				{
+					id: 2,
+					path: "new-arrival.txt",
+					device_id: "dev-pixel-8",
+					device_name: "Pixel 8",
+					received_at: nowSecs,
+					how: "sent",
+				},
+				{
+					id: 1,
+					path: "initial.txt",
+					device_id: "dev-pixel-8",
+					device_name: "Pixel 8",
+					received_at: nowSecs,
+					how: "sent",
+				},
+			];
+		};
+
+		render(<App />);
+		await screen.findByText("initial.txt");
+
+		const initialCalls = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|received_history",
+		).length;
+		expect(initialCalls).toBe(1);
+
+		await act(async () => {
+			await emit("files-received", {
+				device_id: "ignored-id",
+				files: ["ignored-path.txt"],
 			});
 		});
 
-		await waitFor(() => {
-			const cappedRows = container.querySelectorAll(".home-received .file-row");
-			expect(cappedRows).toHaveLength(50);
-		});
+		await screen.findByText("new-arrival.txt");
+		const secondCalls = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|received_history",
+		).length;
+		expect(secondCalls).toBe(2);
+	});
+
+	it("shows fifty of sixty rows and Show all (60), then shows sixty rows on click", async () => {
+		const nowSecs = Math.floor(Date.now() / 1000);
+		const sixtyRows = Array.from({ length: 60 }, (_, i) => ({
+			id: i + 1,
+			path: `overflow-${i}.dat`,
+			device_id: "dev-pixel-8",
+			device_name: "Pixel 8",
+			received_at: nowSecs - i,
+			how: "sent" as const,
+		}));
+
+		customHandlers["plugin:tradr|received_history"] = () => sixtyRows;
+
+		const { container } = render(<App />);
+		await screen.findByText("overflow-0.dat");
+
+		expect(
+			recordedCalls.some((c) => c.cmd === "plugin:tradr|received_history"),
+		).toBe(true);
+
+		const initialRows = container.querySelectorAll(".home-received .file-row");
+		expect(initialRows).toHaveLength(50);
+
+		const showAllBtn = screen.getByRole("button", { name: "Show all (60)" });
+		expect(showAllBtn).toBeDefined();
+
+		fireEvent.click(showAllBtn);
+
+		const expandedRows = container.querySelectorAll(".home-received .file-row");
+		expect(expandedRows).toHaveLength(60);
+		expect(screen.queryByRole("button", { name: /Show all/ })).toBeNull();
+	});
+
+	it("asks before clearing, does nothing on Cancel, and clears on confirm", async () => {
+		let rows = [
+			{
+				id: 1,
+				path: "doc.pdf",
+				device_id: "dev-pixel-8",
+				device_name: "Pixel 8",
+				received_at: Math.floor(Date.now() / 1000),
+				how: "sent" as const,
+			},
+		];
+		customHandlers["plugin:tradr|received_history"] = () => rows;
+		customHandlers["plugin:tradr|clear_received_history"] = () => {
+			rows = [];
+			return null;
+		};
+
+		const { container } = render(<App />);
+		await screen.findByText("doc.pdf");
+
+		const clearGhostBtn = screen.getByRole("button", { name: "Clear" });
+		fireEvent.click(clearGhostBtn);
+
+		expect(
+			screen.getByText("Clear this list? The files stay where they are."),
+		).toBeDefined();
+		const cancelBtn = screen.getByRole("button", { name: "Cancel" });
+		fireEvent.click(cancelBtn);
+
+		expect(
+			recordedCalls.filter(
+				(c) => c.cmd === "plugin:tradr|clear_received_history",
+			),
+		).toHaveLength(0);
+		expect(screen.getByRole("button", { name: "Clear" })).toBeDefined();
+		expect(
+			screen.queryByText("Clear this list? The files stay where they are."),
+		).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+		const confirmClearBtn = screen.getByRole("button", { name: "Clear" });
+		fireEvent.click(confirmClearBtn);
+
+		await screen.findByText("Files sent to this device appear here.");
+		expect(
+			recordedCalls.filter(
+				(c) => c.cmd === "plugin:tradr|clear_received_history",
+			),
+		).toHaveLength(1);
+		const remainingRows = container.querySelectorAll(
+			".home-received .file-row",
+		);
+		expect(remainingRows).toHaveLength(0);
+		expect(screen.queryByRole("button", { name: "Clear" })).toBeNull();
+	});
+
+	it("shows load error sentence on rejected received_history and still offers Clear", async () => {
+		customHandlers["plugin:tradr|received_history"] = () =>
+			Promise.reject("disk error");
+
+		render(<App />);
+
+		const errorMsg = await screen.findByText(
+			"Couldn't read the list of received files: disk error",
+		);
+		expect(errorMsg.className).toContain("error-text");
+		expect(screen.getByRole("button", { name: "Clear" })).toBeDefined();
+		expect(
+			recordedCalls.some((c) => c.cmd === "plugin:tradr|received_history"),
+		).toBe(true);
+	});
+
+	it("shows error sentence on rejected clear_received_history", async () => {
+		const nowSecs = Math.floor(Date.now() / 1000);
+		customHandlers["plugin:tradr|received_history"] = () => [
+			{
+				id: 1,
+				path: "locked.pdf",
+				device_id: "dev-pixel-8",
+				device_name: "Pixel 8",
+				received_at: nowSecs,
+				how: "sent",
+			},
+		];
+		customHandlers["plugin:tradr|clear_received_history"] = () =>
+			Promise.reject("io error");
+
+		render(<App />);
+		await screen.findByText("locked.pdf");
+
+		fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+		fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+		const errorMsg = await screen.findByText(
+			"Couldn't clear the list: io error",
+		);
+		expect(errorMsg.className).toContain("error-text");
+		expect(
+			recordedCalls.filter(
+				(c) => c.cmd === "plugin:tradr|clear_received_history",
+			),
+		).toHaveLength(1);
 	});
 
 	it("dispatches each queued send exactly once sequentially across different peers", async () => {
