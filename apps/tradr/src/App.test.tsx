@@ -611,6 +611,172 @@ describe("App component", () => {
 		).toHaveLength(1);
 	});
 
+	it("shows Open and Show in folder with ['open', 'reveal'], Open and Share with ['open', 'share'], and no buttons with []", async () => {
+		customHandlers["plugin:tradr|received_actions"] = () => ["open", "reveal"];
+		const { container, unmount } = render(<App />);
+		await screen.findByText("report-2026.pdf");
+
+		const rowsA = container.querySelectorAll(".home-received .file-row");
+		expect(rowsA).toHaveLength(2);
+		for (const row of rowsA) {
+			const buttons = Array.from(row.querySelectorAll("button")).map(
+				(b) => b.textContent,
+			);
+			expect(buttons).toEqual(["Open", "Show in folder"]);
+		}
+		unmount();
+
+		customHandlers["plugin:tradr|received_actions"] = () => ["open", "share"];
+		const { container: containerB, unmount: unmountB } = render(<App />);
+		await screen.findByText("report-2026.pdf");
+
+		const rowsB = containerB.querySelectorAll(".home-received .file-row");
+		expect(rowsB).toHaveLength(2);
+		for (const row of rowsB) {
+			const buttons = Array.from(row.querySelectorAll("button")).map(
+				(b) => b.textContent,
+			);
+			expect(buttons).toEqual(["Open", "Share"]);
+		}
+		unmountB();
+
+		customHandlers["plugin:tradr|received_actions"] = () => [];
+		const { container: containerC } = render(<App />);
+		await screen.findByText("report-2026.pdf");
+
+		const rowsC = containerC.querySelectorAll(".home-received .file-row");
+		expect(rowsC).toHaveLength(2);
+		for (const row of rowsC) {
+			expect(row.querySelectorAll("button")).toHaveLength(0);
+		}
+	});
+
+	it("pressing Open on the second of two rows invokes open_received once with that row's id, and nothing for the other row", async () => {
+		render(<App />);
+		await screen.findByText("report-2026.pdf");
+
+		const openSecondBtn = screen.getByRole("button", {
+			name: "Open family-photo.jpg",
+		});
+		fireEvent.click(openSecondBtn);
+
+		await waitFor(() => {
+			const openCalls = recordedCalls.filter(
+				(c) => c.cmd === "plugin:tradr|open_received",
+			);
+			expect(openCalls).toEqual([
+				{
+					cmd: "plugin:tradr|open_received",
+					payload: { id: 2 },
+				},
+			]);
+		});
+	});
+
+	it("pressing Show in folder invokes reveal_received, and Share invokes share_received, each with the row's id", async () => {
+		customHandlers["plugin:tradr|received_actions"] = () => ["reveal", "share"];
+		render(<App />);
+		await screen.findByText("report-2026.pdf");
+
+		const revealBtn = screen.getByRole("button", {
+			name: "Show in folder report-2026.pdf",
+		});
+		fireEvent.click(revealBtn);
+
+		await waitFor(() => {
+			expect(recordedCalls).toContainEqual({
+				cmd: "plugin:tradr|reveal_received",
+				payload: { id: 1 },
+			});
+		});
+
+		const shareBtn = screen.getByRole("button", {
+			name: "Share report-2026.pdf",
+		});
+		fireEvent.click(shareBtn);
+
+		await waitFor(() => {
+			expect(recordedCalls).toContainEqual({
+				cmd: "plugin:tradr|share_received",
+				payload: { id: 1 },
+			});
+		});
+	});
+
+	it("a rejected open_received shows its text under that row and not under the other row, and pressing Open again clears it while pending", async () => {
+		customHandlers["plugin:tradr|open_received"] = () =>
+			Promise.reject("This file is no longer where it was saved.");
+
+		const { container } = render(<App />);
+		await screen.findByText("report-2026.pdf");
+
+		const openBtnRow1 = screen.getByRole("button", {
+			name: "Open report-2026.pdf",
+		});
+		fireEvent.click(openBtnRow1);
+
+		const errorText = await screen.findByText(
+			"This file is no longer where it was saved.",
+		);
+		expect(errorText.className).toContain("error-text");
+
+		const rows = container.querySelectorAll(".home-received .file-row");
+		expect(rows).toHaveLength(2);
+		expect(rows[0]?.textContent).toContain(
+			"This file is no longer where it was saved.",
+		);
+		expect(rows[1]?.textContent).not.toContain(
+			"This file is no longer where it was saved.",
+		);
+
+		let resolveSecondOpen!: () => void;
+		const secondOpenPromise = new Promise<void>((resolve) => {
+			resolveSecondOpen = resolve;
+		});
+		customHandlers["plugin:tradr|open_received"] = () => secondOpenPromise;
+
+		fireEvent.click(openBtnRow1);
+
+		expect(
+			screen.queryByText("This file is no longer where it was saved."),
+		).toBeNull();
+		expect((openBtnRow1 as HTMLButtonElement).disabled).toBe(true);
+
+		const revealBtnRow1 = screen.getByRole("button", {
+			name: "Show in folder report-2026.pdf",
+		});
+		expect((revealBtnRow1 as HTMLButtonElement).disabled).toBe(true);
+
+		const openBtnRow2 = screen.getByRole("button", {
+			name: "Open family-photo.jpg",
+		});
+		expect((openBtnRow2 as HTMLButtonElement).disabled).toBe(false);
+
+		await act(async () => {
+			resolveSecondOpen();
+		});
+
+		expect((openBtnRow1 as HTMLButtonElement).disabled).toBe(false);
+	});
+
+	it("renders the rows with no buttons when received_actions rejects", async () => {
+		customHandlers["plugin:tradr|received_actions"] = () =>
+			Promise.reject("actions unavailable");
+
+		const { container } = render(<App />);
+		await screen.findByText("report-2026.pdf");
+
+		const errorLine = await screen.findByText(
+			"Couldn't find what this device can do with a file: actions unavailable",
+		);
+		expect(errorLine.className).toContain("error-text");
+
+		const rows = container.querySelectorAll(".home-received .file-row");
+		expect(rows).toHaveLength(2);
+		expect(rows[0]?.querySelectorAll("button")).toHaveLength(0);
+		expect(rows[1]?.querySelectorAll("button")).toHaveLength(0);
+	});
+
 	it("dispatches each queued send exactly once sequentially across different peers", async () => {
 		let resolveFirstSend!: (paths: string[]) => void;
 		const firstSendPromise = new Promise<string[]>((resolve) => {
