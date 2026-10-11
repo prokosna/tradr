@@ -1,10 +1,10 @@
-//! Shared download folder resolution and verification for Android (docs/08, DCR-182).
+//! Shared download folder resolution and verification for Android (docs/08, DCR-182, DCR-183).
 
 use std::path::{Path, PathBuf};
 
 use tauri::State;
 
-/// Derives the shared download directory from the app-specific path on primary storage (docs/08, DCR-182).
+/// Derives the shared download directory from the app-specific path on primary storage (docs/08, DCR-182, DCR-183).
 pub fn shared_download_dir(app_specific: &Path) -> Option<PathBuf> {
     let components: Vec<_> = app_specific.components().collect();
     for (i, window) in components.windows(2).enumerate() {
@@ -20,7 +20,6 @@ pub fn shared_download_dir(app_specific: &Path) -> Option<PathBuf> {
                 return None;
             }
             root.push("Download");
-            root.push("Tradr");
             return Some(root);
         }
     }

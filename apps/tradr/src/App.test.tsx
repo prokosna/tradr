@@ -831,12 +831,12 @@ describe("App component", () => {
 
 	it("renders custom receive folder when resolved", async () => {
 		customHandlers["plugin:tradr|receive_folder"] = () =>
-			"/storage/emulated/0/Download/Tradr";
+			"/storage/emulated/0/Download";
 
 		render(<App />);
 
 		expect(
-			await screen.findByText("Saved in /storage/emulated/0/Download/Tradr"),
+			await screen.findByText("Saved in /storage/emulated/0/Download"),
 		).toBeDefined();
 	});
 

@@ -1,4 +1,4 @@
-//! Integration tests for receive folder resolution and probing (WI-M8-069a).
+//! Integration tests for receive folder resolution and probing (WI-M8-069a, WI-M8-070).
 
 use std::path::PathBuf;
 
@@ -20,9 +20,7 @@ fn shared_download_dir_primary_user() {
     ]
     .iter()
     .collect();
-    let expected: PathBuf = ["storage", "emulated", "0", "Download", "Tradr"]
-        .iter()
-        .collect();
+    let expected: PathBuf = ["storage", "emulated", "0", "Download"].iter().collect();
     assert_eq!(shared_download_dir(&app_specific), Some(expected));
 }
 
@@ -40,9 +38,7 @@ fn shared_download_dir_secondary_user() {
     ]
     .iter()
     .collect();
-    let expected: PathBuf = ["storage", "emulated", "10", "Download", "Tradr"]
-        .iter()
-        .collect();
+    let expected: PathBuf = ["storage", "emulated", "10", "Download"].iter().collect();
     assert_eq!(shared_download_dir(&app_specific), Some(expected));
 }
 
@@ -121,11 +117,41 @@ fn choose_receive_dir_selects_shared_download_dir() {
         .join("pkg")
         .join("files")
         .join("Download");
-    let expected = tmp.path().join("Download").join("Tradr");
+    let expected = tmp.path().join("Download");
 
     let chosen = choose_receive_dir(app_specific);
     assert_eq!(chosen, expected);
     assert!(chosen.is_dir());
+}
+
+#[test]
+fn choose_receive_dir_leaves_existing_files_in_the_shared_folder_untouched() {
+    let tmp = tempfile::tempdir().expect("create tempdir");
+    let download = tmp.path().join("Download");
+    std::fs::create_dir_all(&download).expect("create download dir");
+    let keep_file = download.join("keep.txt");
+    let content = b"keep these bytes intact";
+    std::fs::write(&keep_file, content).expect("write keep file");
+
+    let app_specific = tmp
+        .path()
+        .join("Android")
+        .join("data")
+        .join("pkg")
+        .join("files")
+        .join("Download");
+
+    let chosen = choose_receive_dir(app_specific);
+    let expected = tmp.path().join("Download");
+    assert_eq!(chosen, expected);
+    assert_eq!(std::fs::read(&keep_file).expect("read keep file"), content);
+
+    let entries: Vec<_> = std::fs::read_dir(&chosen)
+        .expect("read dir")
+        .map(|entry| entry.expect("read dir entry").file_name())
+        .collect();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0], "keep.txt");
 }
 
 #[test]

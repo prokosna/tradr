@@ -138,18 +138,22 @@ Android 14+ also allows custom actions through `ChooserAction`, but Sharing Shor
 
 ### Where received files land
 
-**Received files land in `Tradr` inside the shared `Download` folder, ruled by the user on 2026-10-11 as DCR-182.** That is the folder a file manager shows as Download, on the device's primary shared storage. It is also the one folder this device serves ([ADR-0024](adr/0024-one-folder-per-device-full-access.md)), so what another device sees when it opens this one is what the person sees under Download/Tradr.
+**Received files land in the shared `Download` folder itself, ruled by the user on 2026-10-11 as DCR-182 and DCR-183.** That is the folder a file manager shows as Download, on the device's primary shared storage. It is also the one folder this device serves ([ADR-0024](adr/0024-one-folder-per-device-full-access.md)), which is what every desktop already does with its own Downloads.
+
+**DCR-182 put them in a `Tradr` folder inside it, which was this document's earlier choice and not the person's words; asked, they said the folder itself (DCR-183).** No subfolder is created. Files an earlier build placed in Download/Tradr stay there, and show as a folder named Tradr inside the folder this device serves.
 
 **What was built before this ruling was the app-specific directory**, the one `getExternalFilesDir(DIRECTORY_DOWNLOADS)` answers and Tauri's `download_dir()` returns on Android. It sits under `Android/data`, which file managers hide from Android 11 on, which the media scanner does not index, and which is deleted with the app. A person who looked in Download found nothing, and asked.
 
 **It is written by path and not through `MediaStore`'s insert API.** From Android 11 an app may create, rename and delete its own files under the shared `Download` by ordinary path with no permission, and the storage layer registers them with `MediaStore` as they are written. That keeps the folder an ordinary directory under `NativeVfs`, which is what ADR-0024 rests on: partial files, the no-replace rename and the Browse plane all work on it unchanged. `MANAGE_EXTERNAL_STORAGE` is still not requested, and no storage permission is added.
 
-**The shared path is derived, not asked for.** The app-specific directory is `<storage root>/Android/data/<package>/files/Download`; the shared one is `<storage root>/Download/Tradr`, taken from the same storage root.
+**The shared path is derived, not asked for.** The app-specific directory is `<storage root>/Android/data/<package>/files/Download`; the shared one is `<storage root>/Download`, taken from the same storage root.
 
-**The folder is probed at every start, and a device where the probe fails keeps the app-specific directory.** The probe does what a transfer does: create the directory, create a file under a `.tradr-partial` name, write to it, rename it, delete it. Android 10 and earlier refuse it without a permission this design does not request, and a vendor's storage layer is not something this repository can measure, so the answer is taken from the device and not assumed. Either way [the Received card names the folder](12-user-interface.md#receiving), so where files went is never a guess.
+**The folder is probed at every start, and a device where the probe fails keeps the app-specific directory.** The probe does what a transfer does: create a file under a `.tradr-partial` name, write to it, rename it, delete it. It makes the directory only if the device has none. Android 10 and earlier refuse it without a permission this design does not request, and a vendor's storage layer is not something this repository can measure, so the answer is taken from the device and not assumed. Either way [the Received card names the folder](12-user-interface.md#receiving), so where files went is never a guess.
 
 **What this does not do, stated so nobody expects it:**
 
+- **Another device opening this one sees what Android shows this app by path, not everything in Download.** With no storage permission that is the files Tradr itself placed, and folders; another app's downloads are not listed, cannot be fetched, and cannot be renamed or deleted from afar. Unmeasured on a device, and a vendor's storage layer may differ.
+- **A name another app already holds in Download is invisible to the collision check**, so placing a file under it is refused by Android instead of being given a ` (1)` suffix. Unmeasured; if a device run shows it, the fix is to treat that refusal as a taken name.
 - Files received before the change stay in the app-specific directory. They are not moved, and they are no longer in the folder this device serves.
 - After a reinstall the files of the previous install are no longer this app's, and Android hides another owner's non-media files in `Download` from it. They stay on the device and in the file manager; Tradr no longer lists or serves them.
 - Choosing another folder with `ACTION_OPEN_DOCUMENT_TREE` is not built (DF-110).
