@@ -3,7 +3,8 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Emitter, State};
+use tradr_app::received_history::{ReceivedHistory, ReceivedHow};
 
 use tradr_core::{BoxFuture, PeerList, PublicIdentity, RelPath, SecureChannel, TrustTier};
 use tradr_discovery::{MdnsSource, StaticPeerId, StaticPeerRegistry, StaticPeerSource};
@@ -382,7 +383,7 @@ pub async fn list_peer_directory(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn download_file<R: tauri::Runtime>(
-    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+    app: tauri::AppHandle<R>,
     peer_id: String,
     share_id: String,
     path: String,
@@ -398,6 +399,7 @@ pub async fn download_file<R: tauri::Runtime>(
     vfs: State<'_, Arc<NativeVfs>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
     known_devices: State<'_, Arc<KnownDevicesStore>>,
+    received_history: State<'_, Arc<ReceivedHistory>>,
 ) -> Result<String, String> {
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
@@ -450,6 +452,27 @@ pub async fn download_file<R: tauri::Runtime>(
         verify_attestation,
     )
     .await?;
+
+    let peer_dev_id = channel.peer();
+    let snapshot = known_devices.snapshot();
+    let name = crate::received::known_name(&snapshot, &peer_dev_id);
+    if let Err(e) = crate::received::record_received(
+        &received_history,
+        name,
+        &SystemClock,
+        peer_dev_id,
+        std::slice::from_ref(&placed_at),
+        ReceivedHow::Downloaded,
+    ) {
+        eprintln!("failed to record downloaded file: {e}");
+    }
+    let payload = crate::lifecycle::FilesReceivedPayload {
+        device_id: peer_dev_id.to_string(),
+        files: vec![placed_at.as_str().to_string()],
+    };
+    if let Err(e) = app.emit("files-received", payload) {
+        eprintln!("failed to emit files-received event: {e}");
+    }
 
     Ok(placed_at.as_str().to_string())
 }
