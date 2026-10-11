@@ -370,6 +370,7 @@ export const fixtureCommands: Record<
 	(payload?: unknown) => unknown | Promise<unknown>
 > = {
 	"plugin:tradr|device_identity": () => fixtureData.identity,
+	"plugin:tradr|receive_folder": () => "/home/haruka/Downloads",
 	"plugin:tradr|sign_in_status": () => fixtureData.signIn,
 	"plugin:tradr|sign_in": () => fixtureSignIn,
 	"plugin:tradr|get_peers": () => fixtureData.peers,
