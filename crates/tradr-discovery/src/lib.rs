@@ -21,7 +21,7 @@ pub use ble::{
     BroadcastSecrets, DeclaredCapabilities, ScanReport, ScanReportError,
 };
 #[cfg(target_os = "linux")]
-pub use ble_linux::{BluerAdvertiser, BluerScanner, ble_error, tradr_scan_report};
+pub use ble_linux::{BluerAdvertiser, BluerScanner, adapter_powered, ble_error, tradr_scan_report};
 pub use eid::{
     BROADCAST_SECRET_LEN, BroadcastSecret, EID_LEN, EID_WINDOW_SECS, Eid, EidError, EidWindow,
 };

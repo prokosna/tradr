@@ -39,6 +39,15 @@ pub fn tradr_scan_report(
     ScanReport::new(handle, payload).ok()
 }
 
+/// Rejects an unpowered adapter as unavailable rather than powering it on (docs/03, DCR-180).
+pub fn adapter_powered(powered: bool) -> Result<(), BleError> {
+    if powered {
+        Ok(())
+    } else {
+        Err(BleError::AdapterUnavailable)
+    }
+}
+
 /// Advertises Tradr's service data over BlueZ (docs/03, ADR-0019).
 pub struct BluerAdvertiser {
     adapter: bluer::Adapter,
@@ -55,12 +64,7 @@ impl BluerAdvertiser {
             .default_adapter()
             .await
             .map_err(|e| ble_error(&e.kind))?;
-        if !adapter.is_powered().await.map_err(|e| ble_error(&e.kind))? {
-            adapter
-                .set_powered(true)
-                .await
-                .map_err(|e| ble_error(&e.kind))?;
-        }
+        adapter_powered(adapter.is_powered().await.map_err(|e| ble_error(&e.kind))?)?;
         Ok(Self {
             adapter,
             handle: None,
@@ -123,12 +127,7 @@ impl BluerScanner {
             .default_adapter()
             .await
             .map_err(|e| ble_error(&e.kind))?;
-        if !adapter.is_powered().await.map_err(|e| ble_error(&e.kind))? {
-            adapter
-                .set_powered(true)
-                .await
-                .map_err(|e| ble_error(&e.kind))?;
-        }
+        adapter_powered(adapter.is_powered().await.map_err(|e| ble_error(&e.kind))?)?;
         let filter = bluer::DiscoveryFilter {
             transport: bluer::DiscoveryTransport::Le,
             // Duplicate delivery prevents BleSource from prematurely aging out stationary peers.

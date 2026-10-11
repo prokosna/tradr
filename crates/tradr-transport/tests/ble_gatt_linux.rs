@@ -3,7 +3,7 @@
 use std::io::ErrorKind;
 
 use tradr_core::TransportError;
-use tradr_transport::ble::gatt_error;
+use tradr_transport::ble::{central_powered, gatt_error};
 
 #[test]
 fn gatt_error_maps_every_table_row_and_unlisted_fallback() {
@@ -76,4 +76,10 @@ fn gatt_error_maps_every_table_row_and_unlisted_fallback() {
         gatt_error(&bluer::ErrorKind::Failed),
         TransportError::Io(ErrorKind::Other)
     );
+}
+
+#[test]
+fn an_unpowered_adapter_is_unreachable_and_is_not_powered_on() {
+    assert_eq!(central_powered(true), Ok(()));
+    assert_eq!(central_powered(false), Err(TransportError::Unreachable));
 }
