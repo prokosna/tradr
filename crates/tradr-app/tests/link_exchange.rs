@@ -539,7 +539,7 @@ async fn the_stored_link_carries_the_verified_account_and_not_anything_off_the_w
     let invite = open_invite(&alice, id, NOW + 300);
     let mut h = harness();
 
-    let stored: Arc<Mutex<Option<(AccountId, UnixTime, bool)>>> = Arc::new(Mutex::new(None));
+    let stored: Arc<Mutex<Option<(AccountId, UnixTime)>>> = Arc::new(Mutex::new(None));
     let stored_slot = Arc::clone(&stored);
 
     let _ = serve_link_reply(
@@ -562,18 +562,15 @@ async fn the_stored_link_carries_the_verified_account_and_not_anything_off_the_w
                 link.link_id(),
                 "the secret handed over must derive the id the record is filed under"
             );
-            *stored_slot.lock().expect("not poisoned") = Some((
-                link.peer_account().clone(),
-                link.created_at(),
-                link.fingerprint_verified(),
-            ));
+            *stored_slot.lock().expect("not poisoned") =
+                Some((link.peer_account().clone(), link.created_at()));
             Ok(())
         },
     )
     .await
     .expect("an approved reply completes");
 
-    let (account, created_at, verified) = stored
+    let (account, created_at) = stored
         .lock()
         .expect("not poisoned")
         .clone()
@@ -584,10 +581,6 @@ async fn the_stored_link_carries_the_verified_account_and_not_anything_off_the_w
         "the account comes from the verified token's own claims"
     );
     assert_eq!(created_at, UnixTime::from_secs(NOW));
-    assert!(
-        !verified,
-        "nothing in this exchange compares Fingerprints, so the flag it writes is false"
-    );
 }
 
 // DCR-075: the wait on a person is bounded by the invite's own expiry and

@@ -75,31 +75,27 @@ pub fn device_fingerprint(
 }
 
 /// One Link this device holds with a peer's account (docs/11, "State
-/// after linking"): the account, the id removal and Fingerprint
-/// verification address it by, and the created-at, verified, and
-/// full-access flags. Per DCR-069, `peer_email`, `policy` and
-/// `known_devices` are absent.
+/// after linking"): the account, the id removal addresses it by, and the
+/// created-at and full-access flags. Per DCR-069, `peer_email`, `policy`
+/// and `known_devices` are absent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Link {
     link_id: LinkId,
     peer_account: AccountId,
     peer_label: Option<String>,
     created_at: UnixTime,
-    fingerprint_verified: bool,
     full_access: bool,
 }
 
 impl Link {
-    /// Builds a `Link` from everything mandatory. `peer_label`,
-    /// `fingerprint_verified`, and `full_access` start absent, `false`, and
-    /// `false` respectively.
+    /// Builds a `Link` from everything mandatory. `peer_label` and
+    /// `full_access` start absent and `false` respectively.
     pub fn new(link_id: LinkId, peer_account: AccountId, created_at: UnixTime) -> Self {
         Self {
             link_id,
             peer_account,
             peer_label: None,
             created_at,
-            fingerprint_verified: false,
             full_access: false,
         }
     }
@@ -107,12 +103,6 @@ impl Link {
     /// Records the label the user gave this peer.
     pub fn with_label(mut self, label: &str) -> Self {
         self.peer_label = Some(label.to_string());
-        self
-    }
-
-    /// Records whether this peer's Fingerprint has been verified.
-    pub fn with_fingerprint_verified(mut self, verified: bool) -> Self {
-        self.fingerprint_verified = verified;
         self
     }
 
@@ -142,11 +132,6 @@ impl Link {
         self.created_at
     }
 
-    /// Whether this peer's Fingerprint has been verified.
-    pub fn fingerprint_verified(&self) -> bool {
-        self.fingerprint_verified
-    }
-
     /// Whether this peer's account has full access.
     pub fn full_access(&self) -> bool {
         self.full_access
@@ -160,7 +145,6 @@ impl Link {
             peer_sub: self.peer_account.sub().to_string(),
             peer_label: self.peer_label.clone(),
             created_at: self.created_at.as_secs(),
-            fingerprint_verified: self.fingerprint_verified,
             full_access: self.full_access,
         }
     }
@@ -177,9 +161,8 @@ impl Link {
         let peer_account = AccountId::new(&record.peer_iss, &record.peer_sub);
         let created_at = UnixTime::from_secs(record.created_at);
 
-        let mut link = Self::new(link_id, peer_account, created_at)
-            .with_fingerprint_verified(record.fingerprint_verified)
-            .with_full_access(record.full_access);
+        let mut link =
+            Self::new(link_id, peer_account, created_at).with_full_access(record.full_access);
         if let Some(label) = record.peer_label {
             link = link.with_label(&label);
         }
@@ -198,7 +181,6 @@ struct LinkRecord {
     peer_sub: String,
     peer_label: Option<String>,
     created_at: i64,
-    fingerprint_verified: bool,
     #[serde(default)]
     full_access: bool,
 }
@@ -229,8 +211,8 @@ pub enum LinkRegistryError {
     /// `link_id`. The slot is addressed by `link_id`, so a mismatched pair
     /// would store the secret under a name nothing could find it by.
     SecretMismatch,
-    /// `remove`, `set_fingerprint_verified`, or `set_full_access` was called
-    /// with a `link_id` this registry does not hold.
+    /// `remove` or `set_full_access` was called with a `link_id` this registry
+    /// does not hold.
     UnknownLink,
     /// The `SecretStore` failed while `add` stored, `remove` discarded, or
     /// `link_secret` read a Link Secret.
@@ -471,27 +453,6 @@ impl LinkRegistry {
         LinkSecret::from_bytes(&bytes)
             .map(Some)
             .map_err(|source| LinkRegistryError::Malformed(source.to_string()))
-    }
-
-    /// Marks the Link carrying `id` as Fingerprint-verified or not. Refuses
-    /// an id this registry does not hold, changing nothing.
-    pub fn set_fingerprint_verified(
-        &mut self,
-        id: &LinkId,
-        verified: bool,
-    ) -> Result<(), LinkRegistryError> {
-        let index = self
-            .links
-            .iter()
-            .position(|link| &link.link_id == id)
-            .ok_or(LinkRegistryError::UnknownLink)?;
-
-        let mut prospective = self.links.clone();
-        prospective[index].fingerprint_verified = verified;
-        self.persist(&prospective)?;
-
-        self.links = prospective;
-        Ok(())
     }
 
     /// Sets whether the Link carrying `id` has full access. Refuses

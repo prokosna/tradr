@@ -354,9 +354,7 @@ pub fn pending_link_proposal(invites: State<'_, Arc<LinkInviteState>>) -> Option
 }
 
 /// One Link this device holds, as exposed to the frontend (docs/11,
-/// "State after linking"). Carries no `fingerprint_verified`: nothing in
-/// this workspace ever writes that field `true`, so listing it would show
-/// a permanently-false value (DF-38).
+/// "State after linking").
 #[derive(Debug, Clone, Serialize)]
 pub struct LinkDto {
     /// The `LinkId` as lowercase hex.

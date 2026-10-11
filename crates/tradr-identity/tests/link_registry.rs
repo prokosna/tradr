@@ -673,9 +673,7 @@ fn a_refused_duplicate_never_reaches_the_secret_store() {
 fn every_field_of_a_link_survives_a_reload_from_disk() {
     let path = scratch_path();
     let vault = Vault::default();
-    let stored = a_link(&secret(0x07), "bob-subject")
-        .with_label("Bob")
-        .with_fingerprint_verified(true);
+    let stored = a_link(&secret(0x07), "bob-subject").with_label("Bob");
     {
         let mut registry = LinkRegistry::load(&path).expect("a missing file loads");
         registry
@@ -735,7 +733,7 @@ fn the_file_carries_the_six_fields_dcr_069_names_and_a_numeric_created_at() {
     assert_eq!(record["peer_sub"], "bob-subject");
     assert_eq!(record["peer_label"], "Bob");
     assert_eq!(record["created_at"], serde_json::json!(NOW));
-    assert_eq!(record["fingerprint_verified"], serde_json::json!(false));
+    assert!(record.get("fingerprint_verified").is_none());
 }
 
 #[test]
@@ -758,37 +756,25 @@ fn the_file_never_carries_the_link_secret() {
 }
 
 #[test]
-fn marking_a_fingerprint_verified_survives_a_reload() {
+fn a_file_carrying_the_removed_fingerprint_key_loads_and_loses_it_at_the_next_write() {
     let path = scratch_path();
-    let vault = Vault::default();
-    {
-        let mut registry = LinkRegistry::load(&path).expect("a missing file loads");
-        registry
-            .add(a_link(&secret(0x0a), "bob-subject"), &secret(0x0a), &vault)
-            .expect("a first link is accepted");
-        registry
-            .set_fingerprint_verified(&derive_link_id(&secret(0x0a)), true)
-            .expect("a known link is markable");
-    }
+    std::fs::write(
+        &path,
+        br#"{"links":[{"link_id":"01010101010101010101010101010101",
+             "peer_iss":"https://accounts.google.com","peer_sub":"bob-subject",
+             "peer_label":null,"created_at":1800000000,"fingerprint_verified":true}]}"#,
+    )
+    .expect("the scratch file is writable");
 
-    let reloaded = LinkRegistry::load(&path).expect("the written file loads");
+    let mut registry = LinkRegistry::load(&path).expect("the file loads");
+    assert_eq!(registry.links().len(), 1);
 
-    assert_eq!(
-        reloaded
-            .link(&derive_link_id(&secret(0x0a)))
-            .map(Link::fingerprint_verified),
-        Some(true)
-    );
-}
+    registry
+        .set_full_access(&link_id(0x01), true)
+        .expect("setting full access writes the registry");
 
-#[test]
-fn marking_a_link_this_registry_does_not_hold_is_refused() {
-    let path = scratch_path();
-    let mut registry = LinkRegistry::load(&path).expect("a missing file loads");
-
-    let result = registry.set_fingerprint_verified(&link_id(0xff), true);
-
-    assert!(matches!(result, Err(LinkRegistryError::UnknownLink)));
+    let text = std::fs::read_to_string(&path).expect("the written file is readable");
+    assert!(!text.contains("fingerprint_verified"));
 }
 
 // --- What the registry refuses ---
