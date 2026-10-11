@@ -37,6 +37,7 @@
 		"tradr:allow-list-links",
 		"tradr:allow-remove-link",
 		"tradr:allow-set-link-full-access",
+		"tradr:allow-receive-folder",
 		"tradr:allow-set-brokr",
 		"tradr:allow-brokr-status",
 		"tradr:allow-collect-brokr-now",

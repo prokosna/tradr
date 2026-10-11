@@ -223,8 +223,12 @@ pub fn init_lifecycle<R: Runtime>(
             .map(|p| p.join("downloads"))
             .unwrap_or_else(|_| std::path::PathBuf::from("/tmp/tradr-downloads"))
     });
+    #[cfg(target_os = "android")]
+    let downloads_dir = crate::receive_folder::choose_receive_dir(downloads_dir);
     std::fs::create_dir_all(&downloads_dir)
         .map_err(|e| format!("could not create downloads directory: {e}"))?;
+
+    app.manage(crate::receive_folder::ReceiveFolder(downloads_dir.clone()));
 
     #[cfg(target_os = "android")]
     let vfs = {

@@ -660,6 +660,32 @@ Denies the publish_sharing_shortcuts command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-receive-folder`
+
+</td>
+<td>
+
+Enables the receive_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-receive-folder`
+
+</td>
+<td>
+
+Denies the receive_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-remove-link`
 
 </td>

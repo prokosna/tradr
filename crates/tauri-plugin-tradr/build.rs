@@ -33,6 +33,7 @@ const COMMANDS: &[&str] = &[
     "list_links",
     "remove_link",
     "set_link_full_access",
+    "receive_folder",
     "set_brokr",
     "brokr_status",
     "collect_brokr_now",
