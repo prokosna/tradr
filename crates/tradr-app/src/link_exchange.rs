@@ -319,8 +319,6 @@ where
         .await;
     }
 
-    // Step 6: nothing in this exchange compares Fingerprints, so
-    // fingerprint_verified is left at its default of false.
     let mut link = Link::new(link_id, peer_account, clock.now());
     if let Some(name) = params.reply.display_name() {
         link = link.with_label(name.as_str());
