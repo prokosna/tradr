@@ -124,6 +124,18 @@ pub async fn prepare_item(
     rel_path: &RelPath,
     spool: std::fs::File,
 ) -> Result<PreparedItem, TransferSessionError> {
+    let mut noop = |_: u64| {};
+    prepare_item_with_progress(vfs, root, rel_path, spool, &mut noop).await
+}
+
+/// Prepares a file for transfer while reporting cumulative bytes read via a progress callback.
+pub async fn prepare_item_with_progress(
+    vfs: &impl Vfs,
+    root: RootId,
+    rel_path: &RelPath,
+    spool: std::fs::File,
+    on_read: &mut (dyn FnMut(u64) + Send),
+) -> Result<PreparedItem, TransferSessionError> {
     let read_handle = vfs.open_read(root, rel_path).await?;
     let mut builder = OutboardBuilder::new(spool);
     let mut buf = vec![0u8; REFERENCE_CHUNK_SIZE_BYTES as usize];
@@ -145,6 +157,7 @@ pub async fn prepare_item(
             .ok_or(TransferSessionError::Vfs(VfsError::Io(
                 std::io::ErrorKind::FileTooLarge,
             )))?;
+        on_read(offset);
     }
 
     let (spooled_file, hash) = builder

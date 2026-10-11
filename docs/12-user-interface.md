@@ -28,7 +28,7 @@ Everything else -- signing in, linking another account, adding a device by addre
 
 1. **Select files** (a button in the send card) or **drop files anywhere on the window**. The send card turns into a tray: the files as chips with name and size, a total, and **Clear**.
 2. The device list is headed **"Send to"** while files are waiting. Tapping a device sends to it.
-3. The device's tile shows a progress ring and "Sending… 42%"; the send card shows the same with the file being sent. Other devices stay tappable; a second send queues behind the first rather than being refused.
+3. The device's tile shows a progress ring and "Sending… 42%"; the send card shows the same with the file being sent. **Before any byte leaves, the sender reads each file once for its Content Hash ([docs/04](04-transfer-protocol.md)), and for a multi-gigabyte file that is the longer wait; the tile and the send card show "Preparing… 42%" for it, with the same bar, so working is never mistaken for stuck (asked by the user on 2026-10-11, DCR-185).** It is carried by the progress event that already exists: its `status` gains the value `preparing`, with the bytes read so far and the file's size, one event per megabyte read. Nothing on the wire changes. Other devices stay tappable; a second send queues behind the first rather than being refused.
 4. On success the tile shows **"Sent"** with a check for a few seconds and the tray clears. On failure the tile shows **"Couldn't send"** and the error in one plain sentence, and the files stay in the tray so a retry is one tap.
 
 ### Sending, device first
