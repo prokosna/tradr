@@ -175,6 +175,73 @@ describe("App component", () => {
 		});
 	});
 
+	it("shows Preparing on tile and card during preparing progress and turns back to Sending on transferring", async () => {
+		let resolveSend!: (paths: string[]) => void;
+		const sendPromise = new Promise<string[]>((resolve) => {
+			resolveSend = resolve;
+		});
+
+		customHandlers["plugin:tradr|send_files"] = () => {
+			return sendPromise;
+		};
+
+		render(<App />);
+		await screen.findByText("Pixel 8");
+
+		await act(async () => {
+			await emit("share-intent", {
+				action: "send",
+				mimeType: null,
+				extraText: null,
+				targetDevice: null,
+				transferId: null,
+				files: [
+					{
+						name: "photo.jpg",
+						size: 4,
+						cachePath: "/tmp/photo.jpg",
+						adoptedId: null,
+					},
+				],
+			});
+		});
+
+		fireEvent.click(screen.getByText("Pixel 8"));
+
+		await act(async () => {
+			await emit("transfer-progress", {
+				transfer_id: "tx-test-1",
+				item_id: "item-1",
+				rel_path: "photo.jpg",
+				bytes_transferred: 1,
+				total_bytes: 4,
+				status: "preparing",
+			});
+		});
+
+		expect(screen.getByText("Preparing photo.jpg · 25%")).toBeDefined();
+		expect(screen.getByText("Preparing to send to Pixel 8…")).toBeDefined();
+		expect(screen.queryByText(/Sending/)).toBeNull();
+
+		await act(async () => {
+			await emit("transfer-progress", {
+				transfer_id: "tx-test-1",
+				item_id: "item-1",
+				rel_path: "photo.jpg",
+				bytes_transferred: 2,
+				total_bytes: 4,
+				status: "transferring",
+			});
+		});
+
+		expect(screen.getByText("Sending photo.jpg · 50%")).toBeDefined();
+		expect(screen.getByText("Sending to Pixel 8…")).toBeDefined();
+
+		await act(async () => {
+			resolveSend(["/tmp/photo.jpg"]);
+		});
+	});
+
 	it("preserves waiting files and displays failure notice when send rejects", async () => {
 		customHandlers["plugin:tradr|send_files"] = () => {
 			return Promise.reject("Transfer timeout");

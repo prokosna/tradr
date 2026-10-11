@@ -106,7 +106,9 @@ export function DeviceTile({
 				{sendState?.status === "sending" ? (
 					<div className="stack">
 						<span className="small muted">
-							Sending {sendState.fileName}
+							{sendState.progress?.status === "preparing"
+								? `Preparing ${sendState.fileName}`
+								: `Sending ${sendState.fileName}`}
 							{sendState.progress && sendState.progress.total_bytes > 0
 								? ` · ${percent}%`
 								: ""}

@@ -95,7 +95,11 @@ export function SendCard({
 
 					{isSending && activeSend ? (
 						<div className="stack">
-							<p>Sending to {activeSend.targetName}…</p>
+							<p>
+								{progress?.status === "preparing"
+									? `Preparing to send to ${activeSend.targetName}…`
+									: `Sending to ${activeSend.targetName}…`}
+							</p>
 							{progress && (
 								<div className="stack">
 									<span className="small muted">
