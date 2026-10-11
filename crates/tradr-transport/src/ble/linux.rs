@@ -42,6 +42,15 @@ pub fn gatt_error(kind: &bluer::ErrorKind) -> TransportError {
     }
 }
 
+/// Rejects an unpowered adapter as unreachable rather than powering it on (docs/03, DCR-180).
+pub fn central_powered(powered: bool) -> Result<(), TransportError> {
+    if powered {
+        Ok(())
+    } else {
+        Err(TransportError::Unreachable)
+    }
+}
+
 /// Transmits bytes across a GATT characteristic using write without response.
 pub struct GattByteSink {
     // The mutex keeps concurrent senders from interleaving pieces of two byte streams.
@@ -199,16 +208,12 @@ impl BluerCentral {
             .default_adapter()
             .await
             .map_err(|e| gatt_error(&e.kind))?;
-        if !adapter
-            .is_powered()
-            .await
-            .map_err(|e| gatt_error(&e.kind))?
-        {
+        central_powered(
             adapter
-                .set_powered(true)
+                .is_powered()
                 .await
-                .map_err(|e| gatt_error(&e.kind))?;
-        }
+                .map_err(|e| gatt_error(&e.kind))?,
+        )?;
         Ok(Self::new(adapter, key_store, rng, verifier, binding, clock))
     }
 

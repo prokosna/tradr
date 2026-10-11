@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 
-use tradr_discovery::{BleError, TRADR_SERVICE_UUID, ble_error, tradr_scan_report};
+use tradr_discovery::{
+    BleError, TRADR_SERVICE_UUID, adapter_powered, ble_error, tradr_scan_report,
+};
 
 #[test]
 fn not_supported_maps_to_unsupported_and_transient_errors_do_not() {
@@ -161,4 +163,10 @@ fn service_uuid_matches_advertiser_and_expected_uuid_string() {
         None => panic!("tradr_scan_report must match the expected 128-bit uuid"),
     };
     assert_eq!(report.service_data(), &payload);
+}
+
+#[test]
+fn an_unpowered_adapter_is_unavailable_and_is_not_powered_on() {
+    assert_eq!(adapter_powered(true), Ok(()));
+    assert_eq!(adapter_powered(false), Err(BleError::AdapterUnavailable));
 }
