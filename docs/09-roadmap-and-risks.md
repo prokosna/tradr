@@ -193,7 +193,7 @@ Written down, not yet decided.
 2. **Whether same-account transfers auto-accept by default.**
    Convenient, but a compromised account could push files silently. A compromise is auto-accept with a confirmation threshold on size or extension. Decide from how it actually feels.
 
-3. **How much transfer history to retain.**
+3. **How much transfer history to retain.** ~~Open~~ **Decided 2026-10-10 by the user (DCR-184): the list of received files is kept across restarts with no expiry, and the person clears it by hand.** [docs/12](12-user-interface.md#receiving) carries what a row holds and where it is stored. It stays a sensitive record, which is why Clear is one press away and the list never leaves the device. The text below is kept as the record of the question.
    A list of received files is useful, and is itself a sensitive record. No default retention period has been chosen.
 
 4. **Whether to do clipboard sharing.**
