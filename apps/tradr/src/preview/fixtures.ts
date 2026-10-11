@@ -13,6 +13,7 @@ import type {
 	LinkProposalDto,
 	LinkReplyDto,
 	PeerInfo,
+	ReceivedRow,
 	ShareInfo,
 	SignInOutcome,
 	StaticPeerInfo,
@@ -283,6 +284,34 @@ export const fixtureBrokrDeliveries: DeliveryDto[] = [
 	},
 ];
 
+let fixtureReceivedCleared = false;
+
+export function resetFixtureReceived(): void {
+	fixtureReceivedCleared = false;
+}
+
+export function createFixtureReceivedRows(): ReceivedRow[] {
+	const nowSecs = Math.floor(Date.now() / 1000);
+	return [
+		{
+			id: 1,
+			path: "report-2026.pdf",
+			device_id: "dev-pixel-8",
+			device_name: "Pixel 8",
+			received_at: nowSecs,
+			how: "sent",
+		},
+		{
+			id: 2,
+			path: "family-photo.jpg",
+			device_id: "dev-thinkpad",
+			device_name: null,
+			received_at: nowSecs - 3 * 86400,
+			how: "downloaded",
+		},
+	];
+}
+
 export interface ScenarioData {
 	identity: DeviceIdentitySnapshot;
 	signIn: SignInOutcome | null;
@@ -294,6 +323,7 @@ export interface ScenarioData {
 	brokrStatus: BrokrStatusDto;
 	knownDevices: KnownDeviceDto[];
 	deliveries: DeliveryDto[];
+	receivedHistory: ReceivedRow[];
 }
 
 export function getScenarioData(scenario: Scenario): ScenarioData {
@@ -310,6 +340,7 @@ export function getScenarioData(scenario: Scenario): ScenarioData {
 				brokrStatus: fixtureUnconfiguredBrokrStatus,
 				knownDevices: fixtureKnownDevices,
 				deliveries: [],
+				receivedHistory: [],
 			};
 		case "empty":
 			return {
@@ -323,6 +354,7 @@ export function getScenarioData(scenario: Scenario): ScenarioData {
 				brokrStatus: fixtureUnconfiguredBrokrStatus,
 				knownDevices: fixtureKnownDevices,
 				deliveries: [],
+				receivedHistory: [],
 			};
 		case "brokr":
 			return {
@@ -336,8 +368,22 @@ export function getScenarioData(scenario: Scenario): ScenarioData {
 				brokrStatus: fixtureConfiguredBrokrStatus,
 				knownDevices: fixtureBrokrKnownDevices,
 				deliveries: fixtureBrokrDeliveries,
+				receivedHistory: createFixtureReceivedRows(),
 			};
 		case "share":
+			return {
+				identity: fixtureIdentity,
+				signIn: fixtureSignIn,
+				peers: fixturePeers,
+				staticPeers: fixtureStaticPeers,
+				links: fixtureLinks,
+				shares: fixtureShares,
+				directory: fixtureDirectory,
+				brokrStatus: fixtureUnconfiguredBrokrStatus,
+				knownDevices: fixtureKnownDevices,
+				deliveries: [],
+				receivedHistory: [],
+			};
 		case "signed-in":
 			return {
 				identity: fixtureIdentity,
@@ -350,6 +396,7 @@ export function getScenarioData(scenario: Scenario): ScenarioData {
 				brokrStatus: fixtureUnconfiguredBrokrStatus,
 				knownDevices: fixtureKnownDevices,
 				deliveries: [],
+				receivedHistory: createFixtureReceivedRows(),
 			};
 	}
 }
@@ -451,4 +498,17 @@ export const fixtureCommands: Record<
 		};
 	},
 	"plugin:tradr|list_deliveries": () => fixtureData.deliveries,
+	"plugin:tradr|received_history": () => {
+		if (fixtureReceivedCleared) {
+			return [];
+		}
+		if (fixtureData.receivedHistory.length > 0) {
+			return createFixtureReceivedRows();
+		}
+		return [];
+	},
+	"plugin:tradr|clear_received_history": () => {
+		fixtureReceivedCleared = true;
+		return null;
+	},
 };

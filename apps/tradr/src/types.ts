@@ -148,6 +148,17 @@ export interface FilesReceivedPayload {
 	files: string[];
 }
 
+// Mirrors the Rust struct tradr_app::received_history::ReceivedRow
+// returns from `received_history`.
+export interface ReceivedRow {
+	id: number;
+	path: string;
+	device_id: string;
+	device_name: string | null;
+	received_at: number;
+	how: "sent" | "downloaded";
+}
+
 // Mirrors the Rust struct crates/tauri-plugin-tradr/src/brokr_commands.rs
 // returns from `brokr_status` and `set_brokr`.
 export interface BrokrStatusDto {

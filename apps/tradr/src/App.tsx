@@ -6,14 +6,13 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PeerSendStatus } from "./components/DeviceTile.js";
 import { Header } from "./components/Header.js";
-import type { ReceivedItem } from "./components/ReceivedCard.js";
 import type { ActiveSendInfo, StagedFile } from "./components/SendCard.js";
 import type {
 	BrokrStatusDto,
 	DeliveryDto,
-	FilesReceivedPayload,
 	KnownDeviceDto,
 	PeerInfo,
+	ReceivedRow,
 	ShareIntent,
 	SharedFilePayload,
 	SignInOutcome,
@@ -94,7 +93,8 @@ export function App() {
 		null,
 	);
 	const [isDragging, setIsDragging] = useState(false);
-	const [receivedFiles, setReceivedFiles] = useState<ReceivedItem[]>([]);
+	const [receivedRows, setReceivedRows] = useState<ReceivedRow[]>([]);
+	const [receivedError, setReceivedError] = useState<string | null>(null);
 
 	const [knownDevices, setKnownDevices] = useState<KnownDeviceDto[]>([]);
 	const [, setKnownDevicesError] = useState<string | null>(null);
@@ -316,6 +316,21 @@ export function App() {
 		return () => clearInterval(interval);
 	}, [refreshPeers]);
 
+	const refreshReceivedHistory = useCallback(() => {
+		invoke<ReceivedRow[]>("plugin:tradr|received_history")
+			.then((rows) => {
+				setReceivedRows(rows);
+				setReceivedError(null);
+			})
+			.catch((e) => {
+				setReceivedError(String(e));
+			});
+	}, []);
+
+	useEffect(() => {
+		refreshReceivedHistory();
+	}, [refreshReceivedHistory]);
+
 	useEffect(() => {
 		const handleVisibilityChange = () => {
 			if (
@@ -464,16 +479,8 @@ export function App() {
 		// Subscribes to files received emitted by the transfer listener.
 		unlistens.push(
 			subscribe(
-				listen<FilesReceivedPayload>("files-received", (event) => {
-					const { device_id, files } = event.payload;
-					const now = new Date();
-					const incoming: ReceivedItem[] = files.map((filePath, idx) => ({
-						id: `${now.getTime()}-${idx}-${filePath}`,
-						deviceId: device_id,
-						fileName: filePath.split(/[/\\]/).pop() || filePath,
-						receivedAt: now,
-					}));
-					setReceivedFiles((prev) => [...incoming, ...prev].slice(0, 50));
+				listen("files-received", () => {
+					refreshReceivedHistory();
 				}),
 			),
 		);
@@ -536,7 +543,7 @@ export function App() {
 				unlisten();
 			}
 		};
-	}, [enqueueSend]);
+	}, [enqueueSend, refreshReceivedHistory]);
 
 	const startSignIn = () => {
 		setSignIn({ status: "signing_in" });
@@ -696,7 +703,9 @@ export function App() {
 						progress={progress}
 						sendError={sendError}
 						peerSendStates={peerSendStates}
-						receivedFiles={receivedFiles}
+						receivedRows={receivedRows}
+						receivedError={receivedError}
+						onReloadReceived={refreshReceivedHistory}
 						onSelectFiles={handleSelectFiles}
 						onClearWaitingFiles={handleClearWaitingFiles}
 						onTileTap={handleTileTap}
