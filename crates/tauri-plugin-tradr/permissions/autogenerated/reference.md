@@ -1050,6 +1050,32 @@ Denies the set_link_full_access command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-share-received`
+
+</td>
+<td>
+
+Enables the share_received command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-share-received`
+
+</td>
+<td>
+
+Denies the share_received command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-show-incoming-transfer-notification`
 
 </td>

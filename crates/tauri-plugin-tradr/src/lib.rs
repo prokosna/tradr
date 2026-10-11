@@ -90,6 +90,7 @@ pub fn init<R: Runtime>(
             received_actions::received_actions,
             received_actions::open_received,
             received_actions::reveal_received,
+            received_actions::share_received,
             brokr_commands::set_brokr,
             brokr_commands::brokr_status,
             brokr_commands::collect_brokr_now,

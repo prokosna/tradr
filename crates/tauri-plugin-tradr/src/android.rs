@@ -211,6 +211,36 @@ pub async fn show_incoming_transfer_notification<R: Runtime>(
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ReceivedFileArgs<'a> {
+    path: &'a str,
+}
+
+/// Opens a received file in its default application on Android.
+pub async fn open_received_file<R: Runtime>(
+    handle: &PluginHandle<R>,
+    path: &str,
+) -> Result<(), String> {
+    let args = ReceivedFileArgs { path };
+    handle
+        .run_mobile_plugin_async("openReceivedFile", args)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Shares a received file via the system chooser on Android.
+pub async fn share_received_file<R: Runtime>(
+    handle: &PluginHandle<R>,
+    path: &str,
+) -> Result<(), String> {
+    let args = ReceivedFileArgs { path };
+    handle
+        .run_mobile_plugin_async("shareReceivedFile", args)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SignInRequest<'a> {
     server_client_id: &'a str,
     nonce: &'a str,

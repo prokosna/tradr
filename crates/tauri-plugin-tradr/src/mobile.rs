@@ -44,3 +44,19 @@ pub async fn show_incoming_transfer_notification<R: Runtime>(
         .await
         .map_err(|e| format!("failed to show incoming transfer notification: {e}"))
 }
+
+/// Opens a received file via TradrPlugin.
+pub async fn open_received_file<R: Runtime>(
+    handle: &PluginHandle<R>,
+    path: &str,
+) -> Result<(), String> {
+    crate::android::open_received_file(handle, path).await
+}
+
+/// Shares a received file via the system chooser via TradrPlugin.
+pub async fn share_received_file<R: Runtime>(
+    handle: &PluginHandle<R>,
+    path: &str,
+) -> Result<(), String> {
+    crate::android::share_received_file(handle, path).await
+}
