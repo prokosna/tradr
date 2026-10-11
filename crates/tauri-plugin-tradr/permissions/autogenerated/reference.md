@@ -556,6 +556,32 @@ Denies the open_link_invite command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-open-received`
+
+</td>
+<td>
+
+Enables the open_received command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-open-received`
+
+</td>
+<td>
+
+Denies the open_received command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-pending-link-proposal`
 
 </td>
@@ -712,6 +738,32 @@ Denies the receive_folder command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-received-actions`
+
+</td>
+<td>
+
+Enables the received_actions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-received-actions`
+
+</td>
+<td>
+
+Denies the received_actions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-received-history`
 
 </td>
@@ -861,6 +913,32 @@ Enables the request_permissions command without any pre-configured scope.
 <td>
 
 Denies the request_permissions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-reveal-received`
+
+</td>
+<td>
+
+Enables the reveal_received command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-reveal-received`
+
+</td>
+<td>
+
+Denies the reveal_received command without any pre-configured scope.
 
 </td>
 </tr>
