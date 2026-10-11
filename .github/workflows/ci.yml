@@ -29,6 +29,8 @@ jobs:
   # frontend console calls.
   checks:
     runs-on: ubuntu-latest
+    # A hung test otherwise holds a merge for GitHub's six-hour default.
+    timeout-minutes: 45
     steps:
       # ci/state-sync.sh greps `git log` for every DCR-N recorded in
       # STATE.md; actions/checkout's default fetch-depth of 1 would leave
@@ -53,6 +55,7 @@ jobs:
   # a plain `cargo build` links against the host WebKitGTK stack on Linux.
   rust:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -85,6 +88,7 @@ jobs:
   # must work completely standalone with no Brokr running or configured.
   no-brokr:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -129,6 +133,7 @@ jobs:
   # crate on its own host.
   desktop:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -173,6 +178,7 @@ jobs:
     # macos-latest rolled to macOS 26, where clang segfaults while linking
     # phf_macros and the failure is reported as a compile error (2026-09-13).
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -203,6 +209,7 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -239,6 +246,7 @@ jobs:
   android-debug-smoke:
     name: "android-debug-smoke (aarch64, debug only -- not the release toolchain check)"
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -315,6 +323,7 @@ jobs:
   android-release-toolchain:
     name: "android-release-toolchain (four ABIs, release -- ADR-0001's withdrawal-condition evidence)"
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
