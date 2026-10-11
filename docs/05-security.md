@@ -443,6 +443,18 @@ That ladder is a **search on load, not only a preference on write**. A device th
 
 **What the over-approximation cost is a whole class of machine, measured on 2026-09-20.** A Linux host reached only over ssh starts `gnome-keyring-daemon` from PAM, so Secret Service answers on the bus and the rung joins the ladder; public-key authentication hands PAM no password, so the collection is never unlocked; and no prompter can run to unlock it later. **Present, and permanently locked, is the resting state of an ordinary Linux server** -- not an edge case -- and under the original rule `tradr-cli` could not open its Device Key there at all, although the key was sitting in the file rung one step below. The instance that found it had a `login.keyring` of 105 bytes last written ten months before the Device Key was created, so the collection the search stopped for provably held nothing.
 
+### The ladder is about availability, not at-rest security (DCR-178)
+
+**The file rung stays, in plaintext, and the ladder is not a security gradient. Ruled by the user on 2026-10-10.** What the ladder guarantees is that a device can always open its Device Key: with a keyring, without one, over ssh, on a headless box. It does not guarantee that a key is protected at rest, and nothing in Tradr may say or imply that it is.
+
+**Why the ladder cannot be read as a gradient.** Which rung a device lands on is decided by whether a Secret Service happened to be running the first time it started, and [a key is never promoted afterwards](#descending-the-linux-ladder), so nobody chose it. The top rung's protection is narrower than its position suggests: a login keyring with an empty password stores its items in plaintext, and while the session is unlocked any process running as the same user can read any secret in it. So the Secret Service rung protects against an offline reader of the disk, on a machine whose keyring has a password, and against nothing else.
+
+**What a key on the file rung is exposed to**: anyone who can read the user's files -- a stolen unencrypted disk, a backup, another process running as that user. Full-disk encryption is what covers the first two, and it is the operating system's to provide. The remedy after a suspected copy is [the one a stolen device has](#that-is-also-the-revocation-mechanism): revoke access at the provider, and enrol the device again with new keys.
+
+**A passphrase-encrypted file rung was considered and is not pursued.** It is the shape an ssh private key has and would protect a key at rest on every platform, headless included. It costs a prompt at every start, which a resident receiver and `tradr-cli receive` under a service manager cannot answer, and it reaches `SecretStore` in Layer 0. Hardware backing, in [the intended design](#key-storage) above, is the route to at-rest protection if one is ever built.
+
+**What Settings and `backing()` report is unchanged**: the storage method in use, named as it is. A device on the file rung says so; it is a statement of where the key is, not a warning that a better rung was missed.
+
 ### One rung per device, and what else goes on it
 
 **A Link Secret goes on the rung the Device Key selected, and no second selection is made anywhere** (DCR-075). The ladder is a search on load, and what it searches for is a value some earlier run wrote. A Link Secret's slot is written moments after the search that would look for it, so there is nothing anywhere to find and the search returns its own documented fallback, the highest rung — which on a device that descended for its Device Key is not the rung that device's secrets are on. **Two rungs holding one device's secrets is two answers to a question Settings displays one answer to.**
