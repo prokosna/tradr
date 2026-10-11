@@ -29,3 +29,4 @@ Decisions and the reasoning behind them. To change a decision, write a new ADR a
 | [0023](0023-one-unsafe-call-adopts-an-android-descriptor.md) | One `unsafe` call adopts a file descriptor Android hands over | Accepted |
 | [0024](0024-one-folder-per-device-full-access.md) | A device exposes one folder, read-write, to its own account and to Links granted full access | Accepted |
 | [0025](0025-hpke-for-deferred-delivery.md) | HPKE to the recipient's agreement key carries a Deferred Delivery, and the sender signs it | Accepted |
+| [0026](0026-one-operation-hands-the-os-a-received-files-location.md) | One operation hands the operating system a received file's location, for Open and Share | Accepted |

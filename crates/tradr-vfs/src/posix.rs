@@ -770,6 +770,21 @@ impl PosixVfs {
             Err(err) => Err(err),
         }
     }
+
+    /// Hands the operating system a received file's validated location (ADR-0026).
+    pub fn host_file_path(&self, root: RootId, at: &RelPath) -> Result<PathBuf, VfsError> {
+        if self.has_open_file(root)? {
+            return Err(VfsError::UnsupportedEntry);
+        }
+        let root_entry = self.get_root(root)?;
+        let file = open_read_sync(&root_entry, at)?;
+        drop(file);
+        let mut path = root_entry.canonical_path;
+        for component in at.components() {
+            path.push(component);
+        }
+        Ok(path)
+    }
 }
 
 impl Vfs for PosixVfs {
