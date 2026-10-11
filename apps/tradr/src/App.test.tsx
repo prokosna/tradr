@@ -820,4 +820,48 @@ describe("App component", () => {
 			expect(collectCallsConfigured).toHaveLength(1);
 		});
 	});
+
+	it("renders the default fixture receive folder on the Received card", async () => {
+		render(<App />);
+
+		expect(
+			await screen.findByText("Saved in /home/haruka/Downloads"),
+		).toBeDefined();
+	});
+
+	it("renders custom receive folder when resolved", async () => {
+		customHandlers["plugin:tradr|receive_folder"] = () =>
+			"/storage/emulated/0/Download/Tradr";
+
+		render(<App />);
+
+		expect(
+			await screen.findByText("Saved in /storage/emulated/0/Download/Tradr"),
+		).toBeDefined();
+	});
+
+	it("renders error notice when receive_folder rejects", async () => {
+		customHandlers["plugin:tradr|receive_folder"] = () =>
+			Promise.reject("no folder");
+
+		render(<App />);
+
+		expect(
+			await screen.findByText("Couldn't find where files are saved: no folder"),
+		).toBeDefined();
+	});
+
+	it("renders no Saved in text when receive_folder resolves null", async () => {
+		customHandlers["plugin:tradr|receive_folder"] = () => null;
+
+		render(<App />);
+
+		await screen.findByRole("heading", { name: "Received" });
+		await waitFor(() => {
+			expect(
+				recordedCalls.some((c) => c.cmd === "plugin:tradr|receive_folder"),
+			).toBe(true);
+			expect(screen.queryByText(/^Saved in/)).toBeNull();
+		});
+	});
 });

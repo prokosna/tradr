@@ -817,3 +817,9 @@ button:disabled,
 	align-items: center;
 	gap: var(--space-3);
 }
+
+.received-folder {
+	margin: 0;
+	font-size: 0.875rem;
+	overflow-wrap: anywhere;
+}

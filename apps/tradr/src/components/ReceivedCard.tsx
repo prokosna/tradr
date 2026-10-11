@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
 import type { PeerInfo } from "../types.js";
 
 export interface ReceivedItem {
@@ -12,10 +14,34 @@ export interface ReceivedCardProps {
 	peers: PeerInfo[];
 }
 
+type FolderLoadState =
+	| { status: "loading" }
+	| { status: "loaded"; path: string | null | undefined }
+	| { status: "error"; message: string };
+
 export function ReceivedCard({ items, peers }: ReceivedCardProps) {
+	const [folder, setFolder] = useState<FolderLoadState>({
+		status: "loading",
+	});
+
+	useEffect(() => {
+		invoke<string | null | undefined>("plugin:tradr|receive_folder").then(
+			(path) => setFolder({ status: "loaded", path }),
+			(error) => setFolder({ status: "error", message: String(error) }),
+		);
+	}, []);
+
 	return (
 		<section className="card stack home-received">
 			<h2 className="card-title">Received</h2>
+			{folder.status === "loaded" && folder.path ? (
+				<p className="muted received-folder">Saved in {folder.path}</p>
+			) : null}
+			{folder.status === "error" ? (
+				<p className="error-text received-folder">
+					Couldn't find where files are saved: {folder.message}
+				</p>
+			) : null}
 			{items.length === 0 ? (
 				<p className="muted">Files sent to this device appear here.</p>
 			) : (
