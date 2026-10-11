@@ -41,6 +41,7 @@ Everything else -- signing in, linking another account, adding a device by addre
 - Receiving needs no action: while the app is open (and on Android while it is resident, ADR-0022) own-account devices are accepted automatically (DCR-129). The Received card says so when it is empty: "Files sent to this device appear here."
 - Each arrival adds a row to **Received** on the home screen: the file name, which device it came from, and when. The list covers what arrived since the app started; keeping history across restarts is open decision 11.
 - On Android the existing notification stays the signal while the app is in the background.
+- **The Received card names the folder files are saved in**, under its title, on every platform (DCR-182). On Android that is Download/Tradr, or the app's own directory on a device where [the shared folder cannot be written](08-platform-integration.md#where-received-files-land). The plugin answers it with one command, `receive_folder`, returning the path.
 
 ### Opening another device's folder
 
