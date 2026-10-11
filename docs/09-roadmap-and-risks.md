@@ -186,7 +186,8 @@ R1, R2, and R8 are the heavy ones. R2 gets an explicit decision point at the end
 
 Written down, not yet decided.
 
-1. **Whether one device may use several Google accounts.**
+1. **Whether one device may use several Google accounts.** ~~Open~~ **Decided 2026-10-10 by the user (DCR-179): one account per device in v1.**
+   A device holds one Attestation, one kept sign-in and one Account Broadcast Key, and `same-account` means that one account everywhere it is read. Reaching another account's devices is what a Link is for. Switching a device between accounts, and holding two at once, are not designed and nothing in v1 offers either; the question reopens only on a request from someone using it. The text below is kept as the record of the question.
    Wanting to switch between work and personal is a real request. Several Attestations are technically fine, but the UI and the Share audience model both get more complicated. Ship v1 single-account and decide from feedback.
 
 2. **Whether same-account transfers auto-accept by default.**
