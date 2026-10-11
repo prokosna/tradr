@@ -33,11 +33,14 @@ impl std::fmt::Display for ReceivedActionError {
 
 impl std::error::Error for ReceivedActionError {}
 
+#[cfg(target_os = "android")]
+const OFFERED_ACTIONS: &[&str] = &["open", "share"];
+
+#[cfg(target_os = "ios")]
+const OFFERED_ACTIONS: &[&str] = &[];
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 const OFFERED_ACTIONS: &[&str] = &["open", "reveal"];
-
-#[cfg(any(target_os = "android", target_os = "ios"))]
-const OFFERED_ACTIONS: &[&str] = &[];
 
 /// Returns the actions offered for received files on this platform.
 pub fn offered_actions() -> &'static [&'static str] {
@@ -70,7 +73,7 @@ fn perform_open(path: &std::path::Path) -> Result<(), String> {
     tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
 }
 
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "ios")]
 fn perform_open(_path: &std::path::Path) -> Result<(), String> {
     Err("This device cannot do that.".to_string())
 }
@@ -85,6 +88,11 @@ fn perform_reveal(_path: &std::path::Path) -> Result<(), String> {
     Err("This device cannot do that.".to_string())
 }
 
+#[cfg(not(target_os = "android"))]
+fn perform_share(_path: &std::path::Path) -> Result<(), String> {
+    Err("This device cannot do that.".to_string())
+}
+
 /// Returns the actions offered for received files on this platform.
 #[tauri::command]
 pub fn received_actions() -> Result<Vec<String>, String> {
@@ -93,14 +101,29 @@ pub fn received_actions() -> Result<Vec<String>, String> {
 
 /// Opens the received file in its default application.
 #[tauri::command]
-pub fn open_received(
+pub async fn open_received<R: tauri::Runtime>(
+    #[allow(unused_variables)] app: tauri::AppHandle<R>,
     id: u64,
     history: State<'_, Arc<ReceivedHistory>>,
     vfs: State<'_, Arc<NativeVfs>>,
 ) -> Result<(), String> {
     let path =
         locate_received(&history, &vfs, downloads_root_id(), id).map_err(|e| e.to_string())?;
-    perform_open(&path)
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        let handle_state = app
+            .try_state::<crate::android::AndroidPluginHandle<R>>()
+            .ok_or_else(|| "android plugin handle not found".to_string())?;
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| "Failed to convert file path to string".to_string())?;
+        crate::android::open_received_file(&handle_state.0, path_str).await
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        perform_open(&path)
+    }
 }
 
 /// Reveals the received file in its directory in the file manager.
@@ -113,4 +136,31 @@ pub fn reveal_received(
     let path =
         locate_received(&history, &vfs, downloads_root_id(), id).map_err(|e| e.to_string())?;
     perform_reveal(&path)
+}
+
+/// Shares the received file via the platform sharing mechanism.
+#[tauri::command]
+pub async fn share_received<R: tauri::Runtime>(
+    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+    id: u64,
+    history: State<'_, Arc<ReceivedHistory>>,
+    vfs: State<'_, Arc<NativeVfs>>,
+) -> Result<(), String> {
+    let path =
+        locate_received(&history, &vfs, downloads_root_id(), id).map_err(|e| e.to_string())?;
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        let handle_state = app
+            .try_state::<crate::android::AndroidPluginHandle<R>>()
+            .ok_or_else(|| "android plugin handle not found".to_string())?;
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| "Failed to convert file path to string".to_string())?;
+        crate::android::share_received_file(&handle_state.0, path_str).await
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        perform_share(&path)
+    }
 }

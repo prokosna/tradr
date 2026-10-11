@@ -5,6 +5,8 @@ import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ActivityNotFoundException
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -17,11 +19,13 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.Base64
 import android.util.Log
+import android.webkit.MimeTypeMap
 import android.webkit.WebView
 import androidx.activity.result.ActivityResult
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
@@ -117,6 +121,11 @@ class SendBleGattBytesArgs {
 @InvokeArg
 class CloseBleGattLinkArgs {
     var handle: String? = null
+}
+
+@InvokeArg
+class ReceivedFileArgs {
+    var path: String = ""
 }
 
 // WI-M0-005 proves both ADR-0001 call directions with Rust; WI-M0-005b adds
@@ -718,5 +727,59 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
         payload.put("targetDevice", JSONObject.NULL)
         payload.put("files", JSONArray())
         channel.send(payload)
+    }
+
+    private fun fileUriAndType(path: String): Pair<Uri, String> {
+        val file = File(path)
+        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.tradr.files", file)
+        val ext = file.extension.lowercase()
+        val mimeType = if (ext.isNotEmpty()) {
+            MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+        } else {
+            "*/*"
+        }
+        return Pair(uri, mimeType)
+    }
+
+    @Command
+    fun openReceivedFile(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(ReceivedFileArgs::class.java)
+            val (uri, mimeType) = fileUriAndType(args.path)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mimeType)
+                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            }
+            activity.startActivity(intent)
+            invoke.resolve()
+        } catch (e: ActivityNotFoundException) {
+            invoke.reject("No app on this device can open this file.")
+        } catch (e: IllegalArgumentException) {
+            invoke.reject(e.message ?: e.toString())
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: e.toString())
+        }
+    }
+
+    @Command
+    fun shareReceivedFile(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(ReceivedFileArgs::class.java)
+            val (uri, mimeType) = fileUriAndType(args.path)
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                clipData = ClipData.newRawUri(null, uri)
+            }
+            activity.startActivity(Intent.createChooser(shareIntent, null))
+            invoke.resolve()
+        } catch (e: ActivityNotFoundException) {
+            invoke.reject("No app on this device can open this file.")
+        } catch (e: IllegalArgumentException) {
+            invoke.reject(e.message ?: e.toString())
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: e.toString())
+        }
     }
 }

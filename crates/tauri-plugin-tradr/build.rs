@@ -39,6 +39,7 @@ const COMMANDS: &[&str] = &[
     "received_actions",
     "open_received",
     "reveal_received",
+    "share_received",
     "set_brokr",
     "brokr_status",
     "collect_brokr_now",
