@@ -2,7 +2,6 @@
 //! behind a port, so no HTTP type reaches this crate (docs/13, Change Drill D6).
 
 mod api;
-mod atomic;
 mod collect;
 mod collector;
 mod devices;

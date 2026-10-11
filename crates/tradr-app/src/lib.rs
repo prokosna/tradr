@@ -4,6 +4,7 @@
 
 #[cfg(unix)]
 pub mod adopted;
+mod atomic;
 pub mod attestation;
 pub mod broadcast_secrets;
 pub mod brokr;
@@ -24,6 +25,7 @@ pub mod peer_trust;
 pub mod peers;
 #[cfg(not(target_os = "android"))]
 pub mod receive;
+pub mod received_history;
 pub mod send;
 #[cfg(not(target_os = "android"))]
 pub mod send_session;

@@ -30,7 +30,7 @@ fn create_temp_sibling(path: &Path) -> std::io::Result<(std::fs::File, PathBuf)>
     ))
 }
 
-pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

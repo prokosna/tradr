@@ -1,7 +1,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-use super::atomic::write_atomic;
+use crate::atomic::write_atomic;
 
 const COLLECTED_FILE: &str = "collected.json";
 
