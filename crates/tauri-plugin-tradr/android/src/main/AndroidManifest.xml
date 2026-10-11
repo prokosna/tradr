@@ -20,7 +20,7 @@
             android:foregroundServiceType="connectedDevice"
             android:exported="false" />
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name="com.tradr.plugin.TradrFileProvider"
             android:authorities="${applicationId}.tradr.files"
             android:exported="false"
             android:grantUriPermissions="true">
