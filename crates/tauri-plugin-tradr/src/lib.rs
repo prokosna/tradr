@@ -34,6 +34,7 @@ pub mod own_name;
 mod paths;
 pub mod peer_trust;
 pub mod receive_folder;
+pub mod received;
 mod sign_in;
 
 use own_name::OwnDisplayName;
@@ -83,6 +84,8 @@ pub fn init<R: Runtime>(
             link_commands::remove_link,
             link_commands::set_link_full_access,
             receive_folder::receive_folder,
+            received::received_history,
+            received::clear_received_history,
             brokr_commands::set_brokr,
             brokr_commands::brokr_status,
             brokr_commands::collect_brokr_now,

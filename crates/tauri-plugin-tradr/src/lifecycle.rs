@@ -300,17 +300,6 @@ pub fn init_lifecycle<R: Runtime>(
         Arc::new(SystemClock),
     ));
 
-    let app_handle = app.clone();
-    let on_arrival: ArrivalHook = Arc::new(move |peer: DeviceId, paths: &[RelPath]| {
-        let payload = FilesReceivedPayload {
-            device_id: peer.to_string(),
-            files: paths.iter().map(|p| p.to_string()).collect(),
-        };
-        if let Err(e) = app_handle.emit("files-received", payload) {
-            eprintln!("failed to emit files-received event: {e}");
-        }
-    });
-
     let known_devices_path = app_data_dir.join("known_devices.json");
     let known_devices = match KnownDevicesStore::open(&known_devices_path) {
         Ok(k) => Arc::new(k),
@@ -321,6 +310,35 @@ pub fn init_lifecycle<R: Runtime>(
             ));
         }
     };
+
+    let received_history = Arc::new(tradr_app::received_history::ReceivedHistory::new(
+        &app_data_dir,
+    ));
+
+    let app_handle = app.clone();
+    let history_for_hook = received_history.clone();
+    let known_devices_for_hook = known_devices.clone();
+    let on_arrival: ArrivalHook = Arc::new(move |peer: DeviceId, paths: &[RelPath]| {
+        let snapshot = known_devices_for_hook.snapshot();
+        let name = crate::received::known_name(&snapshot, &peer);
+        if let Err(e) = crate::received::record_received(
+            &history_for_hook,
+            name,
+            &SystemClock,
+            peer,
+            paths,
+            tradr_app::received_history::ReceivedHow::Sent,
+        ) {
+            eprintln!("failed to record received files: {e}");
+        }
+        let payload = FilesReceivedPayload {
+            device_id: peer.to_string(),
+            files: paths.iter().map(|p| p.to_string()).collect(),
+        };
+        if let Err(e) = app_handle.emit("files-received", payload) {
+            eprintln!("failed to emit files-received event: {e}");
+        }
+    });
 
     let listener = Arc::new(TransferListener {
         vfs: vfs.clone(),
@@ -438,6 +456,7 @@ pub fn init_lifecycle<R: Runtime>(
     app.manage(peer_list);
     app.manage(known_devices);
     app.manage(brokr_state);
+    app.manage(received_history);
 
     Ok(Some(LifecycleHandles {
         listener,

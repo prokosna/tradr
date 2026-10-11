@@ -166,6 +166,32 @@ Denies the clear_brokr command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-clear-received-history`
+
+</td>
+<td>
+
+Enables the clear_received_history command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-clear-received-history`
+
+</td>
+<td>
+
+Denies the clear_received_history command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-collect-brokr-now`
 
 </td>
@@ -679,6 +705,32 @@ Enables the receive_folder command without any pre-configured scope.
 <td>
 
 Denies the receive_folder command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-received-history`
+
+</td>
+<td>
+
+Enables the received_history command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-received-history`
+
+</td>
+<td>
+
+Denies the received_history command without any pre-configured scope.
 
 </td>
 </tr>

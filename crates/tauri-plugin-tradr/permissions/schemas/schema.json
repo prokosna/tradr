@@ -367,6 +367,18 @@
           "markdownDescription": "Denies the clear_brokr command without any pre-configured scope."
         },
         {
+          "description": "Enables the clear_received_history command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-clear-received-history",
+          "markdownDescription": "Enables the clear_received_history command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear_received_history command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-clear-received-history",
+          "markdownDescription": "Denies the clear_received_history command without any pre-configured scope."
+        },
+        {
           "description": "Enables the collect_brokr_now command without any pre-configured scope.",
           "type": "string",
           "const": "allow-collect-brokr-now",
@@ -605,6 +617,18 @@
           "type": "string",
           "const": "deny-receive-folder",
           "markdownDescription": "Denies the receive_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the received_history command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-received-history",
+          "markdownDescription": "Enables the received_history command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the received_history command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-received-history",
+          "markdownDescription": "Denies the received_history command without any pre-configured scope."
         },
         {
           "description": "Enables the remove_link command without any pre-configured scope.",

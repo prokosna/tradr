@@ -38,6 +38,8 @@
 		"tradr:allow-remove-link",
 		"tradr:allow-set-link-full-access",
 		"tradr:allow-receive-folder",
+		"tradr:allow-received-history",
+		"tradr:allow-clear-received-history",
 		"tradr:allow-set-brokr",
 		"tradr:allow-brokr-status",
 		"tradr:allow-collect-brokr-now",

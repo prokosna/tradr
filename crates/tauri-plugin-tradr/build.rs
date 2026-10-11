@@ -34,6 +34,8 @@ const COMMANDS: &[&str] = &[
     "remove_link",
     "set_link_full_access",
     "receive_folder",
+    "received_history",
+    "clear_received_history",
     "set_brokr",
     "brokr_status",
     "collect_brokr_now",
