@@ -95,6 +95,8 @@ pub fn init<R: Runtime>(
             brokr_commands::brokr_status,
             brokr_commands::collect_brokr_now,
             brokr_commands::clear_brokr,
+            brokr_commands::connect_brokr_link,
+            brokr_commands::brokr_link,
             brokr_commands::list_known_devices,
             brokr_commands::send_deferred,
             brokr_commands::list_deliveries,

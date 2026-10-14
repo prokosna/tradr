@@ -88,6 +88,32 @@ Denies the attestation_bundle command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-brokr-link`
+
+</td>
+<td>
+
+Enables the brokr_link command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-brokr-link`
+
+</td>
+<td>
+
+Denies the brokr_link command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-brokr-status`
 
 </td>
@@ -211,6 +237,32 @@ Enables the collect_brokr_now command without any pre-configured scope.
 <td>
 
 Denies the collect_brokr_now command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-connect-brokr-link`
+
+</td>
+<td>
+
+Enables the connect_brokr_link command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-connect-brokr-link`
+
+</td>
+<td>
+
+Denies the connect_brokr_link command without any pre-configured scope.
 
 </td>
 </tr>

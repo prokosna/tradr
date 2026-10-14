@@ -6,6 +6,7 @@ mod collect;
 mod collector;
 mod devices;
 mod http;
+mod link;
 mod outbox;
 mod placed;
 mod register;
@@ -23,6 +24,7 @@ pub use collector::{
 };
 pub use devices::{DeliveryDto, KnownDeviceDto, delivery_dto, delivery_dtos, known_device_dtos};
 pub use http::HttpBrokrApi;
+pub use link::{BrokrLink, BrokrLinkError, stored_link};
 pub use outbox::{DeliveryStatus, OutboxError, SentDeliveries, SentRecord};
 pub use placed::{PlacedDeliveries, PlacedError};
 pub use register::register;

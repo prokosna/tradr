@@ -44,6 +44,8 @@ const COMMANDS: &[&str] = &[
     "brokr_status",
     "collect_brokr_now",
     "clear_brokr",
+    "connect_brokr_link",
+    "brokr_link",
     "list_known_devices",
     "send_deferred",
     "list_deliveries",

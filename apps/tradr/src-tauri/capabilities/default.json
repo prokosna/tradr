@@ -48,6 +48,8 @@
 		"tradr:allow-brokr-status",
 		"tradr:allow-collect-brokr-now",
 		"tradr:allow-clear-brokr",
+		"tradr:allow-connect-brokr-link",
+		"tradr:allow-brokr-link",
 		"tradr:allow-list-known-devices",
 		"tradr:allow-send-deferred",
 		"tradr:allow-list-deliveries",
