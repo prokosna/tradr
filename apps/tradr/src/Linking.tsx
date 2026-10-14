@@ -302,20 +302,28 @@ export function Linking() {
 	const handleCopyCode = useCallback(() => {
 		if (inviteState.status !== "loaded") return;
 		setCopyError(null);
-		navigator.clipboard
-			.writeText(inviteState.invite.blob)
-			.then(() => {
-				setCopyStatus("copied");
-				if (copyTimerRef.current) {
-					clearTimeout(copyTimerRef.current);
-				}
-				copyTimerRef.current = setTimeout(() => {
-					setCopyStatus("idle");
-				}, 2000);
-			})
-			.catch((e) => {
-				setCopyError(String(e));
-			});
+		if (!navigator.clipboard?.writeText) {
+			setCopyError("Couldn't copy. Select the code and copy it.");
+			return;
+		}
+		try {
+			navigator.clipboard
+				.writeText(inviteState.invite.blob)
+				.then(() => {
+					setCopyStatus("copied");
+					if (copyTimerRef.current) {
+						clearTimeout(copyTimerRef.current);
+					}
+					copyTimerRef.current = setTimeout(() => {
+						setCopyStatus("idle");
+					}, 2000);
+				})
+				.catch(() => {
+					setCopyError("Couldn't copy. Select the code and copy it.");
+				});
+		} catch {
+			setCopyError("Couldn't copy. Select the code and copy it.");
+		}
 	}, [inviteState]);
 
 	const handleApprove = useCallback(() => {
