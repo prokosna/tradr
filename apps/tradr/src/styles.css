@@ -835,6 +835,22 @@ button:disabled,
 	gap: var(--space-3);
 }
 
+.brokr-link-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	flex-wrap: wrap;
+}
+
+.brokr-link-row .input {
+	flex: 1;
+	min-width: 200px;
+}
+
+.brokr-manual > .stack {
+	margin-top: var(--space-3);
+}
+
 .home-received p {
 	margin: 0;
 }

@@ -482,6 +482,15 @@ export const fixtureCommands: Record<
 			last_error: null,
 		};
 	},
+	"plugin:tradr|connect_brokr_link": () => ({
+		configured: true,
+		url: "http://brokr.local:8080",
+		last_pass: null,
+		delivered: 0,
+		last_error: null,
+	}),
+	"plugin:tradr|brokr_link": () =>
+		"tradr://brokr?url=http%3A%2F%2Fbrokr.local%3A8080&token=example-token",
 	"plugin:tradr|clear_brokr": () => null,
 	"plugin:tradr|collect_brokr_now": () => null,
 	"plugin:tradr|list_known_devices": () => fixtureData.knownDevices,
