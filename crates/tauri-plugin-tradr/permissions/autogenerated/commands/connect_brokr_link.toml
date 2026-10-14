@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-connect-brokr-link"
+description = "Enables the connect_brokr_link command without any pre-configured scope."
+commands.allow = ["connect_brokr_link"]
+
+[[permission]]
+identifier = "deny-connect-brokr-link"
+description = "Denies the connect_brokr_link command without any pre-configured scope."
+commands.deny = ["connect_brokr_link"]

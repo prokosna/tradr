@@ -331,6 +331,18 @@
           "markdownDescription": "Denies the attestation_bundle command without any pre-configured scope."
         },
         {
+          "description": "Enables the brokr_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-brokr-link",
+          "markdownDescription": "Enables the brokr_link command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the brokr_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-brokr-link",
+          "markdownDescription": "Denies the brokr_link command without any pre-configured scope."
+        },
+        {
           "description": "Enables the brokr_status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-brokr-status",
@@ -389,6 +401,18 @@
           "type": "string",
           "const": "deny-collect-brokr-now",
           "markdownDescription": "Denies the collect_brokr_now command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the connect_brokr_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-connect-brokr-link",
+          "markdownDescription": "Enables the connect_brokr_link command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the connect_brokr_link command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-connect-brokr-link",
+          "markdownDescription": "Denies the connect_brokr_link command without any pre-configured scope."
         },
         {
           "description": "Enables the decline_link command without any pre-configured scope.",

@@ -5,11 +5,11 @@ use serde::Serialize;
 use tauri::State;
 
 use tradr_app::brokr::{
-    ArrivalHook, BrokrApi, BrokrError, BrokrSettings, Collector, CollectorParts, DeliveryDto,
-    DeliveryStatus, HttpBrokrApi, JoinToken, KnownDeviceDto, LinksFn, OutboxEntry, OutboxState,
-    OwnAccountFn, PlacedDeliveries, SendDeferredContext, SentDeliveries, clear_join_token,
-    clear_session, clear_settings, delivery_dtos, ensure_session, known_device_dtos, load_settings,
-    save_join_token, save_settings,
+    ArrivalHook, BrokrApi, BrokrError, BrokrLink, BrokrSettings, Collector, CollectorParts,
+    DeliveryDto, DeliveryStatus, HttpBrokrApi, JoinToken, KnownDeviceDto, LinksFn, OutboxEntry,
+    OutboxState, OwnAccountFn, PlacedDeliveries, SendDeferredContext, SentDeliveries,
+    clear_join_token, clear_session, clear_settings, delivery_dtos, ensure_session,
+    known_device_dtos, load_settings, save_join_token, save_settings, stored_link,
 };
 use tradr_app::known_store::KnownDevicesStore;
 use tradr_app::peer_trust::PeerTrust;
@@ -251,6 +251,24 @@ impl BrokrState {
         Ok(())
     }
 
+    /// Connects to a Brokr using a Brokr link, configuring address and join token.
+    pub fn connect_link(&self, link: String) -> Result<BrokrStatusDto, String> {
+        let parsed = BrokrLink::parse(&link).map_err(|e| e.to_string())?;
+        self.set_brokr(
+            parsed.url().to_string(),
+            parsed.token().as_str().to_string(),
+        )
+    }
+
+    /// Returns the active Brokr link if configured.
+    pub fn link(&self) -> Result<String, String> {
+        match stored_link(&self.deps.app_data_dir, self.deps.secrets.as_ref()) {
+            Ok(Some(link)) => Ok(link.to_link()),
+            Ok(None) => Err("No Brokr is connected.".to_string()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
     /// Returns the active Brokr HTTP API adapter if configured.
     pub fn api(&self) -> Option<Arc<HttpBrokrApi>> {
         let inner = match self.inner.lock() {
@@ -288,6 +306,21 @@ pub async fn collect_brokr_now(state: State<'_, Arc<BrokrState>>) -> Result<(), 
 #[tauri::command]
 pub async fn clear_brokr(state: State<'_, Arc<BrokrState>>) -> Result<(), String> {
     state.clear()
+}
+
+/// Configures the Brokr from a Brokr link and starts collecting.
+#[tauri::command]
+pub async fn connect_brokr_link(
+    link: String,
+    state: State<'_, Arc<BrokrState>>,
+) -> Result<BrokrStatusDto, String> {
+    state.connect_link(link)
+}
+
+/// Returns the Brokr link for the current configuration.
+#[tauri::command]
+pub async fn brokr_link(state: State<'_, Arc<BrokrState>>) -> Result<String, String> {
+    state.link()
 }
 
 /// Lists known devices met through verified direct handshakes, excluding this device.

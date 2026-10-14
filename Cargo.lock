@@ -5724,6 +5724,7 @@ dependencies = [
  "blake3",
  "dirs",
  "flume",
+ "form_urlencoded",
  "futures-util",
  "hostname",
  "mdns-sd",
