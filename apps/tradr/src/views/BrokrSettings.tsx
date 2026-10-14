@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BrokrStatusDto } from "../types.js";
 
 export interface BrokrSettingsProps {
@@ -8,10 +8,23 @@ export interface BrokrSettingsProps {
 
 export function BrokrSettings({ onStatusChange }: BrokrSettingsProps) {
 	const [status, setStatus] = useState<BrokrStatusDto | null>(null);
+	const [link, setLink] = useState("");
 	const [url, setUrl] = useState("");
 	const [joinToken, setJoinToken] = useState("");
+	const [shownLink, setShownLink] = useState<string | null>(null);
+	const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
+	const [copyError, setCopyError] = useState<string | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const [isBusy, setIsBusy] = useState(false);
+	const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	useEffect(() => {
+		return () => {
+			if (copyTimerRef.current) {
+				clearTimeout(copyTimerRef.current);
+			}
+		};
+	}, []);
 
 	const loadStatus = useCallback(() => {
 		invoke<BrokrStatusDto>("plugin:tradr|brokr_status")
@@ -29,6 +42,26 @@ export function BrokrSettings({ onStatusChange }: BrokrSettingsProps) {
 	}, [loadStatus]);
 
 	const handleConnect = async () => {
+		const trimmedLink = link.trim();
+		if (trimmedLink) {
+			setIsBusy(true);
+			setActionError(null);
+			try {
+				const updated = await invoke<BrokrStatusDto>(
+					"plugin:tradr|connect_brokr_link",
+					{ link: trimmedLink },
+				);
+				setStatus(updated);
+				onStatusChange?.(updated);
+				setLink("");
+			} catch (e) {
+				setActionError(String(e));
+			} finally {
+				setIsBusy(false);
+			}
+			return;
+		}
+
 		if (!url.trim() || !joinToken.trim()) return;
 		setIsBusy(true);
 		setActionError(null);
@@ -44,6 +77,58 @@ export function BrokrSettings({ onStatusChange }: BrokrSettingsProps) {
 			setActionError(String(e));
 		} finally {
 			setIsBusy(false);
+		}
+	};
+
+	const handleToggleLink = async () => {
+		if (shownLink !== null) {
+			setShownLink(null);
+			setCopyState("idle");
+			setCopyError(null);
+			if (copyTimerRef.current) {
+				clearTimeout(copyTimerRef.current);
+			}
+			return;
+		}
+		setIsBusy(true);
+		setActionError(null);
+		try {
+			const fetched = await invoke<string>("plugin:tradr|brokr_link");
+			setShownLink(fetched);
+			setCopyState("idle");
+			setCopyError(null);
+		} catch (e) {
+			setActionError(String(e));
+			setShownLink(null);
+		} finally {
+			setIsBusy(false);
+		}
+	};
+
+	const handleCopyLink = () => {
+		if (!shownLink) return;
+		setCopyError(null);
+		if (!navigator.clipboard?.writeText) {
+			setCopyError("Couldn't copy. Select the link and copy it.");
+			return;
+		}
+		try {
+			navigator.clipboard
+				.writeText(shownLink)
+				.then(() => {
+					setCopyState("copied");
+					if (copyTimerRef.current) {
+						clearTimeout(copyTimerRef.current);
+					}
+					copyTimerRef.current = setTimeout(() => {
+						setCopyState("idle");
+					}, 2000);
+				})
+				.catch(() => {
+					setCopyError("Couldn't copy. Select the link and copy it.");
+				});
+		} catch {
+			setCopyError("Couldn't copy. Select the link and copy it.");
 		}
 	};
 
@@ -76,6 +161,12 @@ export function BrokrSettings({ onStatusChange }: BrokrSettingsProps) {
 			};
 			setStatus(updated);
 			onStatusChange?.(updated);
+			setShownLink(null);
+			setCopyState("idle");
+			setCopyError(null);
+			if (copyTimerRef.current) {
+				clearTimeout(copyTimerRef.current);
+			}
 		} catch (e) {
 			setActionError(String(e));
 		} finally {
@@ -98,22 +189,13 @@ export function BrokrSettings({ onStatusChange }: BrokrSettingsProps) {
 			{!status?.configured ? (
 				<div className="stack">
 					<label className="field">
-						<span className="small">Brokr address</span>
-						<input
-							type="text"
-							className="input"
-							value={url}
-							onChange={(e) => setUrl(e.target.value)}
-							placeholder="http://192.168.1.50:8080"
-						/>
-					</label>
-					<label className="field">
-						<span className="small">Join token</span>
+						<span className="small">Brokr link</span>
 						<input
 							type="password"
 							className="input"
-							value={joinToken}
-							onChange={(e) => setJoinToken(e.target.value)}
+							value={link}
+							onChange={(e) => setLink(e.target.value)}
+							placeholder="tradr://brokr?url=...&token=..."
 						/>
 					</label>
 					<div>
@@ -126,6 +208,30 @@ export function BrokrSettings({ onStatusChange }: BrokrSettingsProps) {
 							Connect
 						</button>
 					</div>
+					<details className="brokr-manual">
+						<summary>Enter the address and token instead</summary>
+						<div className="stack">
+							<label className="field">
+								<span className="small">Brokr address</span>
+								<input
+									type="text"
+									className="input"
+									value={url}
+									onChange={(e) => setUrl(e.target.value)}
+									placeholder="http://192.168.1.50:8080"
+								/>
+							</label>
+							<label className="field">
+								<span className="small">Join token</span>
+								<input
+									type="password"
+									className="input"
+									value={joinToken}
+									onChange={(e) => setJoinToken(e.target.value)}
+								/>
+							</label>
+						</div>
+					</details>
 				</div>
 			) : (
 				<div className="stack">
@@ -151,8 +257,37 @@ export function BrokrSettings({ onStatusChange }: BrokrSettingsProps) {
 							>
 								Disconnect
 							</button>
+							<button
+								type="button"
+								className="btn"
+								onClick={handleToggleLink}
+								disabled={isBusy}
+							>
+								{shownLink !== null ? "Hide link" : "Show link"}
+							</button>
 						</div>
 					</div>
+
+					{shownLink !== null && (
+						<div className="stack">
+							<div className="brokr-link-row">
+								<input
+									type="text"
+									readOnly
+									className="input"
+									aria-label="Brokr link"
+									value={shownLink}
+								/>
+								<button type="button" className="btn" onClick={handleCopyLink}>
+									{copyState === "copied" ? "Copied" : "Copy"}
+								</button>
+							</div>
+							{copyError && <p className="error-text">{copyError}</p>}
+							<p className="small muted">
+								Anyone with this link can add a device to your Brokr.
+							</p>
+						</div>
+					)}
 
 					{status.last_error && (
 						<div className="stack">
