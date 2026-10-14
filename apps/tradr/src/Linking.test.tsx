@@ -7,9 +7,13 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Linking } from "./Linking.js";
-import { fixtureCommands, fixtureLinkProposal } from "./preview/fixtures.js";
+import {
+	fixtureCommands,
+	fixtureLinkInvite,
+	fixtureLinkProposal,
+} from "./preview/fixtures.js";
 import type { LinkProposalDto } from "./types.js";
 
 describe("Linking component", () => {
@@ -28,6 +32,10 @@ describe("Linking component", () => {
 			},
 			{ shouldMockEvents: true },
 		);
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
 	});
 
 	it("invokes reply_to_link_invite with the previewed blob when Link accounts is clicked", async () => {
@@ -109,5 +117,86 @@ describe("Linking component", () => {
 			);
 			expect(approveCalls.length).toBeGreaterThan(0);
 		});
+	});
+
+	it("calls navigator.clipboard.writeText with the invite blob and button reads Copied", async () => {
+		const writeTextMock = vi.fn().mockResolvedValue(undefined);
+		Object.defineProperty(navigator, "clipboard", {
+			value: { writeText: writeTextMock },
+			configurable: true,
+			writable: true,
+		});
+
+		render(<Linking />);
+
+		const inviteButton = screen.getByRole("button", {
+			name: "Invite another account",
+		});
+		fireEvent.click(inviteButton);
+
+		const copyButton = await screen.findByRole("button", {
+			name: "Copy code",
+		});
+
+		vi.useFakeTimers();
+		await act(async () => {
+			fireEvent.click(copyButton);
+		});
+
+		expect(writeTextMock).toHaveBeenCalledWith(fixtureLinkInvite.blob);
+		expect(screen.getByRole("button", { name: "Copied" })).toBeDefined();
+
+		act(() => {
+			vi.advanceTimersByTime(2000);
+		});
+		expect(screen.getByRole("button", { name: "Copy code" })).toBeDefined();
+	});
+
+	it("shows Couldn't copy text when writeText rejects", async () => {
+		const writeTextMock = vi.fn().mockRejectedValue(new Error("denied"));
+		Object.defineProperty(navigator, "clipboard", {
+			value: { writeText: writeTextMock },
+			configurable: true,
+			writable: true,
+		});
+
+		render(<Linking />);
+
+		const inviteButton = screen.getByRole("button", {
+			name: "Invite another account",
+		});
+		fireEvent.click(inviteButton);
+
+		const copyButton = await screen.findByRole("button", {
+			name: "Copy code",
+		});
+		fireEvent.click(copyButton);
+
+		await screen.findByText("Couldn't copy. Select the code and copy it.");
+	});
+
+	it("shows Couldn't copy text when navigator.clipboard is undefined", async () => {
+		Object.defineProperty(navigator, "clipboard", {
+			value: undefined,
+			configurable: true,
+			writable: true,
+		});
+
+		render(<Linking />);
+
+		const inviteButton = screen.getByRole("button", {
+			name: "Invite another account",
+		});
+		fireEvent.click(inviteButton);
+
+		const copyButton = await screen.findByRole("button", {
+			name: "Copy code",
+		});
+
+		expect(() => {
+			fireEvent.click(copyButton);
+		}).not.toThrow();
+
+		await screen.findByText("Couldn't copy. Select the code and copy it.");
 	});
 });
