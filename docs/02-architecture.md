@@ -345,7 +345,7 @@ One resident process. Closing the window leaves it in the tray, still listening 
 | ABK record | `account-broadcast-key.json` in app data, the generation and creation time; the key itself is in the OS key store | Purely local |
 | Share definitions | **Nowhere: no Share can be defined yet** (DF-109). `get_visible_shares` answers one constant entry for every peer | Purely local once they exist |
 | Local settings | **Nowhere**: nothing a person can change is kept outside the rows above | |
-| Known peers and pinned keys | **Nowhere: nothing pins a peer's key** (DF-108). Every connection re-runs [05](05-security.md)'s seven steps against the peer's Attestation | Trust lives in the provider's JWKS, cached in memory for the life of the process, and in the Link records |
+| Known peers and pinned keys | **Known Devices records each met peer's keys for Deferred Delivery, and nothing refuses a connection on them** (DCR-188). Every connection re-runs [05](05-security.md)'s seven steps against the peer's Attestation | Trust lives in the provider's JWKS, cached in memory for the life of the process, and in the Link records |
 | In-flight transfer state | Partial files alone, their size read back on resume (DCR-154) | Survives a process restart |
 | ABK and Link Secrets | OS key store | Secrets used to recognize peers over BLE |
 | File contents | Never duplicated | Written straight to the destination, with no intermediate copy |
@@ -356,7 +356,9 @@ One resident process. Closing the window leaves it in the tray, still listening 
 
 **No crate in this workspace depends on SQLite, and the table above used to say five of its rows lived there, corrected 2026-09-24 by DCR-158.** Each row now names the store the code actually uses, or says that none exists; a row that describes design still unbuilt says so and names the Deferred entry carrying it, rather than being deleted.
 
-Working at Tier 0 means **trust lives on each device and nowhere else**. **Steps 2 and 3 below are the design and are unbuilt** (DF-108): today every connection runs step 1 in full, against a JWKS cached in memory and warmed by this device's own sign-in ([05](05-security.md#the-first-document-in-a-cache-comes-from-this-devices-own-sign-in)).
+Working at Tier 0 means **trust lives on each device and nowhere else**. **Steps 2 and 3 below were the original design and are not built, ruled by the user on 2026-10-14 as DCR-188**: every connection runs step 1 in full, against a JWKS cached in memory and warmed by this device's own sign-in ([05](05-security.md#the-first-document-in-a-cache-comes-from-this-devices-own-sign-in)).
+
+**Why a pin would catch almost nothing.** A Device ID is the first 16 bytes of `BLAKE3(identity_pub)`, so an identity key cannot change under a known Device ID; a reinstalled device has a new Device ID and is a new device, not a changed one. What a pin could still notice is the agreement key replaced under the same identity key, and producing that takes the identity private key and the account together, which is the device itself. Per-connection verification already refuses everything else, so Known Devices records a changed key and goes on, and nothing asks the person.
 
 1. When devices A and B first meet, each verifies the other's Attestation. A matching provider signature, a matching `(iss, sub)` pair, and a `nonce` corresponding to the peer's public keys together establish that this is a device of the same account.
 2. Each then pins the other's Device Key locally.
