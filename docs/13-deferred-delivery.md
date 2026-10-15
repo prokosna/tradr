@@ -20,7 +20,7 @@ The Brokr is outside the circle of trust, as docs/07 requires, and this feature 
 
 Three consequences, each a rule:
 
-- **A device sends only to devices it has met.** The recipient's public keys come from a **Known Devices** record this device wrote after a direct, verified handshake with it (docs/05's seven steps, and the key join), never from the Brokr. The Brokr could otherwise hand a sender any key it liked. This is also what puts an offline device in the list at all. It answers the remembering half of DF-108 and nothing more: a changed key on a known Device ID is recorded, not yet refused.
+- **A device sends only to devices it has met.** The recipient's public keys come from a **Known Devices** record this device wrote after a direct, verified handshake with it (docs/05's seven steps, and the key join), never from the Brokr. The Brokr could otherwise hand a sender any key it liked. This is also what puts an offline device in the list at all. A changed key on a known Device ID is recorded and not refused (DCR-188, [docs/02](02-architecture.md#where-trust-actually-lives)).
 - **The Brokr learns no identity.** It never sees an Attestation, because an Attestation carries the Google `sub` and email, which invariant I3 keeps from every Brokr. The sender's Attestation travels **inside** the encrypted delivery. The recipient verifies it, through the seven steps, when it collects.
 - **Filenames and sizes per file are inside the encryption.** What the Brokr sees is a recipient Device ID, a sender Device ID, a total size, an upload time and an opaque body.
 
@@ -120,5 +120,5 @@ tradr://brokr?url=<the Brokr's address>&token=<the join token>
 
 - Rendezvous, NAT traversal, relay of live transfers, FCM wake-up, linking through a Brokr, and the revocation list: later, as docs/07 designs them
 - A WebSocket: polling every 5 minutes is enough for a delivery that waits for days, and it is one less long-lived connection to keep on a phone
-- Refusing a changed key on a known Device ID: DF-108's decision, still open
+- Refusing a changed key on a known Device ID: not wanted, DCR-188
 - Distributing the Brokr's configuration between devices automatically

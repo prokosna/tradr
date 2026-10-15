@@ -344,7 +344,7 @@ rows of four.
 
 This catches the case where Google forged an Attestation for an unknown device, at the moment a Link is made.
 
-**No record is kept that the words were compared, ruled by the user on 2026-10-10 as DCR-181.** The earlier design had each peer "marked verified" by a separate act and refused a verified peer whose fingerprint later changed. That act was never offered, the flag it would have set was `false` on every Link ever written, and nothing read it. The comparison is the consent given when the Link is made, and it is not asked for a second time. **What a later change of key is refused on is the key itself and not a flag**: a changed Device Key under a known Device ID is a separate ruling of the same day, not yet designed here.
+**No record is kept that the words were compared, ruled by the user on 2026-10-10 as DCR-181.** The earlier design had each peer "marked verified" by a separate act and refused a verified peer whose fingerprint later changed. That act was never offered, the flag it would have set was `false` on every Link ever written, and nothing read it. The comparison is the consent given when the Link is made, and it is not asked for a second time. **A later change of key is not refused either, ruled by the user on 2026-10-14 as DCR-188**: an identity key cannot change under its Device ID, and what can change under it needs that key and the account together; [docs/02](02-architecture.md#where-trust-actually-lives) says why.
 
 ### Why 132 bits, when the words were always twelve
 
