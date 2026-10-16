@@ -219,16 +219,17 @@ jobs:
       - name: Package macOS release artifact
         run: |
           mkdir -p dist
-          shopt -s globstar nullglob
-          apps=(target/**/bundle/macos/*.app)
-          if [ "${#apps[@]}" -eq 0 ]; then
-            apps=(**/bundle/macos/*.app)
+          app=$(find "$GITHUB_WORKSPACE/target" -type d -path '*/bundle/macos/*.app' -prune)
+          if [ -z "$app" ]; then
+            count=0
+          else
+            count=$(printf '%s\n' "$app" | wc -l | tr -d '[:space:]')
           fi
-          if [ "${#apps[@]}" -ne 1 ] || [ ! -d "${apps[0]}" ]; then
-            echo "::error::Expected exactly one .app directory under target/**/bundle/macos/, found ${#apps[@]}"
+          if [ "$count" -ne 1 ] || [ ! -d "$app" ]; then
+            echo "::error::Expected exactly one .app directory under target/**/bundle/macos/, found $count"
             exit 1
           fi
-          ditto -c -k --keepParent "${apps[0]}" "dist/tradr_${{ needs.prepare.outputs.version }}_aarch64.app.zip"
+          ditto -c -k --keepParent "$app" "dist/tradr_${{ needs.prepare.outputs.version }}_aarch64.app.zip"
 
       - uses: actions/upload-artifact@v4
         with:
