@@ -31,6 +31,7 @@ dist/
 *.p12
 *.pem
 *.key
+/apps/tradr/src-tauri/gen/android/keystore.properties
 google-services.json
 fcm.json
 # Raw OAuth client downloads. The values they carry belong in committed

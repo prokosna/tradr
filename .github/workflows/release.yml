@@ -1,0 +1,374 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  PNPM_VERSION: "10.20.0"
+  NODE_VERSION: "24"
+  # Pinned to what this workspace's Cargo.toml files already carry
+  # (`features = []`); a mismatched CLI version is the thing most likely
+  # to make `cargo tauri build`/`android build` behave differently here
+  # than it did in local verification.
+  TAURI_CLI_VERSION: "2.11.4"
+  # Named once so the SDK/NDK cache key and the sdkmanager install list
+  # can never drift apart (WI-M0-015b).
+  ANDROID_NDK_VERSION: "27.3.13750724"
+  ANDROID_BUILD_TOOLS_VERSION: "35.0.0"
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Validate release tag and secrets
+        id: version
+        env:
+          TRADR_OAUTH_CLIENT_IDS: ${{ secrets.TRADR_OAUTH_CLIENT_IDS }}
+          TRADR_OAUTH_CLIENT_SECRET: ${{ secrets.TRADR_OAUTH_CLIENT_SECRET }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Release tag '$GITHUB_REF_NAME' must match v<major>.<minor>.<patch> (got version '$version')"
+            exit 1
+          fi
+          if [ -z "$TRADR_OAUTH_CLIENT_IDS" ]; then
+            echo "::error::Required secret TRADR_OAUTH_CLIENT_IDS is empty or unset"
+            exit 1
+          fi
+          if [ -z "$TRADR_OAUTH_CLIENT_SECRET" ]; then
+            echo "::error::Required secret TRADR_OAUTH_CLIENT_SECRET is empty or unset"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      TRADR_OAUTH_CLIENT_IDS: ${{ secrets.TRADR_OAUTH_CLIENT_IDS }}
+      TRADR_OAUTH_CLIENT_SECRET: ${{ secrets.TRADR_OAUTH_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: desktop
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Tauri Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf
+
+      - name: Install tauri-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
+
+      - name: Write release configuration
+        run: echo '{"version":"${{ needs.prepare.outputs.version }}"}' > apps/tradr/src-tauri/tauri.release.conf.json
+
+      - name: cargo tauri build
+        working-directory: apps/tradr/src-tauri
+        run: cargo tauri build --bundles deb --config tauri.release.conf.json
+
+      - name: Package Linux release artifact
+        run: |
+          mkdir -p dist
+          mapfile -t debs < <(find "$GITHUB_WORKSPACE/target" -path '*/bundle/deb/*.deb')
+          if [ "${#debs[@]}" -ne 1 ] || [ ! -f "${debs[0]}" ]; then
+            echo "::error::Expected exactly one .deb file under target, found ${#debs[@]}"
+            exit 1
+          fi
+          cp "${debs[0]}" "dist/tradr_${{ needs.prepare.outputs.version }}_amd64.deb"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/
+
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      TRADR_OAUTH_CLIENT_IDS: ${{ secrets.TRADR_OAUTH_CLIENT_IDS }}
+      TRADR_OAUTH_CLIENT_SECRET: ${{ secrets.TRADR_OAUTH_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install tauri-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
+
+      - name: Write release configuration
+        run: echo '{"version":"${{ needs.prepare.outputs.version }}"}' > apps/tradr/src-tauri/tauri.release.conf.json
+
+      - name: cargo tauri build
+        working-directory: apps/tradr/src-tauri
+        run: cargo tauri build --bundles nsis --config tauri.release.conf.json
+
+      - name: Package Windows release artifact
+        run: |
+          mkdir -p dist
+          shopt -s globstar nullglob
+          exes=(target/**/bundle/nsis/*-setup.exe)
+          if [ "${#exes[@]}" -eq 0 ]; then
+            exes=(**/bundle/nsis/*-setup.exe)
+          fi
+          if [ "${#exes[@]}" -ne 1 ] || [ ! -f "${exes[0]}" ]; then
+            echo "::error::Expected exactly one *-setup.exe under target/**/bundle/nsis/, found ${#exes[@]}"
+            exit 1
+          fi
+          cp "${exes[0]}" "dist/tradr_${{ needs.prepare.outputs.version }}_x64-setup.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/
+
+  macos:
+    needs: prepare
+    # macos-latest rolled to macOS 26, where clang segfaults while linking
+    # phf_macros and the failure is reported as a compile error (2026-09-13).
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      TRADR_OAUTH_CLIENT_IDS: ${{ secrets.TRADR_OAUTH_CLIENT_IDS }}
+      TRADR_OAUTH_CLIENT_SECRET: ${{ secrets.TRADR_OAUTH_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install tauri-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
+
+      - name: Write release configuration
+        run: echo '{"version":"${{ needs.prepare.outputs.version }}"}' > apps/tradr/src-tauri/tauri.release.conf.json
+
+      - name: cargo tauri build
+        working-directory: apps/tradr/src-tauri
+        run: cargo tauri build --bundles app --config tauri.release.conf.json
+
+      - name: Package macOS release artifact
+        run: |
+          mkdir -p dist
+          shopt -s globstar nullglob
+          apps=(target/**/bundle/macos/*.app)
+          if [ "${#apps[@]}" -eq 0 ]; then
+            apps=(**/bundle/macos/*.app)
+          fi
+          if [ "${#apps[@]}" -ne 1 ] || [ ! -d "${apps[0]}" ]; then
+            echo "::error::Expected exactly one .app directory under target/**/bundle/macos/, found ${#apps[@]}"
+            exit 1
+          fi
+          ditto -c -k --keepParent "${apps[0]}" "dist/tradr_${{ needs.prepare.outputs.version }}_aarch64.app.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/
+
+  android:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    # Android never receives the OAuth secret at all (DCR-030).
+    env:
+      TRADR_OAUTH_CLIENT_IDS: ${{ secrets.TRADR_OAUTH_CLIENT_IDS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup show
+      - run: rustup target add aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: android-release-all-abi
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Gradle 8.14.3, which Tauri scaffolds, cannot read Java 25 class
+      # files ("Unsupported class file major version 69", WI-M0-004), and
+      # the Android Gradle Plugin does not support 25 either. The JDK is
+      # pinned rather than trusting the runner's default.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # Google removed the obsolete `tools` package from the SDK
+      # repository, and the action installs it by default, so the default
+      # fails at `sdkmanager tools`. The two components this job needs
+      # arrive from its own `sdkmanager --install` step below.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      # Makes ANDROID_HOME available to the `${{ env.* }}` expressions
+      # below, rather than assuming the action's own export reaches that
+      # context too.
+      - run: echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+      - name: Cache Android SDK/NDK components
+        id: android-sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+            ${{ env.ANDROID_HOME }}/platforms/android-36
+            ${{ env.ANDROID_HOME }}/platforms/android-35
+            ${{ env.ANDROID_HOME }}/build-tools/${{ env.ANDROID_BUILD_TOOLS_VERSION }}
+          key: android-sdk-${{ env.ANDROID_NDK_VERSION }}-${{ env.ANDROID_BUILD_TOOLS_VERSION }}-${{ runner.os }}
+      - name: Install Android SDK/NDK components
+        if: steps.android-sdk-cache.outputs.cache-hit != 'true'
+        run: sdkmanager --install "platforms;android-36" "platforms;android-35" "build-tools;${{ env.ANDROID_BUILD_TOOLS_VERSION }}" "ndk;${{ env.ANDROID_NDK_VERSION }}"
+
+      - name: Install tauri-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
+
+      - name: Write release configuration
+        run: echo '{"version":"${{ needs.prepare.outputs.version }}"}' > apps/tradr/src-tauri/tauri.release.conf.json
+
+      - name: Configure Android release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::Secret ANDROID_KEYSTORE_BASE64 is empty or unset"
+            exit 1
+          fi
+          if [ -z "$ANDROID_KEYSTORE_PASSWORD" ]; then
+            echo "::error::Secret ANDROID_KEYSTORE_PASSWORD is empty or unset"
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/tradr-release.jks"
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=tradr\nkeyPassword=%s\n' \
+            "$RUNNER_TEMP/tradr-release.jks" \
+            "$ANDROID_KEYSTORE_PASSWORD" \
+            "$ANDROID_KEYSTORE_PASSWORD" > apps/tradr/src-tauri/gen/android/keystore.properties
+
+      - name: cargo tauri android build
+        working-directory: apps/tradr/src-tauri
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/${{ env.ANDROID_NDK_VERSION }}"
+          cargo tauri android build --apk -t aarch64 --config tauri.release.conf.json
+
+      - name: Verify and package Android release artifact
+        run: |
+          mkdir -p dist
+          mapfile -t apks < <(find apps/tradr/src-tauri/gen/android/app/build/outputs/apk -path '*/release/*' -name '*.apk')
+          if [ "${#apks[@]}" -ne 1 ] || [ ! -f "${apks[0]}" ]; then
+            echo "::error::Expected exactly one release .apk under apps/tradr/src-tauri/gen/android/app/build/outputs/apk/, found ${#apks[@]}"
+            exit 1
+          fi
+          "$ANDROID_HOME/build-tools/${{ env.ANDROID_BUILD_TOOLS_VERSION }}/apksigner" verify --print-certs "${apks[0]}"
+          cp "${apks[0]}" "dist/tradr_${{ needs.prepare.outputs.version }}_aarch64.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: dist/
+
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [prepare, linux, windows, macos, android]
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --title "Tradr ${{ needs.prepare.outputs.version }}" \
+            --notes "Draft beta built from tag $GITHUB_REF_NAME; see docs/09-roadmap-and-risks.md Release builds." \
+            dist/*
