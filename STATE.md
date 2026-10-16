@@ -6,7 +6,7 @@
 > **Commits newer than `last_updated` mean the first job is reconciling this file.** `branch`, `work_items_landed`, and `last_commit` are no longer declared here — see [docs/10](docs/10-implementation-process.md#the-yaml-header--what-is-in-it-and-what-was-removed-dcr-060) for the one-command equivalents.
 
 ```yaml
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 phase: implementing
 current_milestone: M8
 implementation_started: true
@@ -73,7 +73,7 @@ repo_initialized: true (pushed to git@github.com:prokosna/tradr)
 
 | # | Decision | Needed by | Who decides |
 |---|---|---|---|
-| 16 | **How the beta reaches the user's devices.** Asked for on 2026-10-11 as "a beta I can ship to myself". Today each device builds from source. The alternative is a `release` workflow, run by hand or on a tag, that attaches a Windows installer, a macOS app, a Linux package and an Android APK to a GitHub release. **It cannot be finished without the user**: the OAuth client ids the build reads from the deployment env file must become repository secrets, and Android sign-in is tied to the certificate the APK is signed with, so the keystore whose fingerprint is registered in the Google console has to be supplied as a secret too (or a new one registered). macOS would be unsigned and opened through the right-click exception. Auto-update stays off: `tauri.conf.json` still holds a placeholder endpoint and key | Before the beta is called shipped | User |
+| 16 | **How the beta reaches the user's devices. Decided by the user on 2026-10-16 as DCR-189** ([docs/09](docs/09-roadmap-and-risks.md#release-builds-decided-2026-10-16-by-the-user-dcr-189)): a draft Release on a `vX.Y.Z` tag; Android `aarch64` APK signed by a new project keystore, Windows NSIS, macOS `.app` zipped, Linux `.deb`. Leaves this table when its Work Item lands. **What the user owes**: registering the new keystore's SHA-1 for `com.tradr.app` in the Google console | Before the beta is called shipped | Decided |
 | 14 | **Whether BLE ships at the priority M7 gave it.** The user said on 2026-09-19 that the devices here do not use it, and M7's completion criterion has never been run -- it cost the roadmap's largest estimation risk, four to five weeks, and every row of it is landed and green. **Nothing is being proposed here**: the code exists, `no-brokr` and the Tier 0/1 inventory cover it, and removing it would be a larger change than leaving it. **What is undecided is whether it is ever exercised**, and the honest answers differ -- a capability that is shipped and never run is one whose first real user finds its defects, which is what Run A just demonstrated for QUIC. **It is carried rather than forced**, because the cost of deciding it now is higher than the cost of leaving it. **Its cheapest resolution closed on 2026-09-20**: DF-91 was the route back to Run C needing no new hardware, on the reading that a Kindle which can sign in is a second Android, and DCR-140 rules that it cannot and will not. What is left is new hardware or the desktop PC booted to Linux as the sender | Before M10, or the first time BLE costs a Work Item | User |
 
 ### Build environment, Ubuntu 24.04.4 LTS

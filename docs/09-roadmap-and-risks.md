@@ -164,6 +164,23 @@ M5 is cheap and resolves UC-6, so **it comes before M6 and M7**.
 
 - **A signing key that outlives a machine.** ~~Apple Developer Program and Authenticode~~ are for distributing to strangers, so **open decision 8 loses its purchase and its weeks of lead time, and R9 with it**: an unsigned build costs one Gatekeeper override per macOS install and one SmartScreen click per Windows install. **What does not go away is Android.** A debug keystore is per-machine and disposable, and an Android OAuth client is bound to one package name and one certificate, so regenerating it silently breaks sign-in. A project keystore kept somewhere durable, and a client registered against it, is free and is the residue of decision 8 that a private deployment still owes
 
+### Release builds, decided 2026-10-16 by the user (DCR-189)
+
+**A beta reaches the person's own devices as a draft GitHub Release, built by `.github/workflows/release.yml` when a tag `vX.Y.Z` is pushed.** The repository is public, so a published Release is downloadable by anyone; a draft is visible only to those who can write to the repository, which is what keeps it private without a second channel. The person publishes nothing; they download from the draft on each device.
+
+| Platform | Artifact | Signing |
+|---|---|---|
+| Android | One release APK, `aarch64` only, package `com.tradr.app` | The project keystore, held as repository secrets |
+| Windows | An NSIS installer | None: one SmartScreen click per install |
+| macOS | The `.app` for Apple Silicon, zipped | None: one Gatekeeper override per install. No DMG, which is DF-81's flake |
+| Linux | One `.deb` | None |
+
+- **The tag is the version.** The workflow passes `X.Y.Z` to every build as the app's version, so a release needs no commit, and Android's `versionCode` grows with it. A tag that is not three numbers is refused.
+- **The OAuth client comes from repository secrets**, `TRADR_OAUTH_CLIENT_IDS` and `TRADR_OAUTH_CLIENT_SECRET`, read by `build.rs` exactly as it reads the environment anywhere else (DCR-030). **A release with either one empty is refused**, because it would install and never sign in. CI's other jobs still build with neither.
+- **The Android keystore is this project's own, made on 2026-10-16 and not the build machine's debug keystore**: the residue of decision 8 above. It reaches the build as a secret, and the Gradle release build signs with it only when the workflow has written it out, so `android-release-toolchain` still builds unsigned. **Its SHA-1 must be registered in the Google console for `com.tradr.app`**, because an Android OAuth client is one package and one certificate; until it is, the release APK installs and its sign-in is refused.
+- **A release APK is a different app from the debug one.** `com.tradr.app.debug` and `com.tradr.app` install side by side, with separate data, so the release app has its own Device Key and Device ID and meets every other device as a new one.
+- **Auto-update stays off.** `tauri.conf.json`'s updater endpoint and key are still placeholders, and the workflow builds no updater artifacts.
+
 ## Risks
 
 | # | Risk | Impact | Likelihood | Response |
