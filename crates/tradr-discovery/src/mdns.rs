@@ -6,7 +6,9 @@
 
 use std::net::Ipv6Addr;
 
-use mdns_sd::{ResolvedService, ScopedIp, ServiceDaemon, ServiceEvent, ServiceInfo};
+use mdns_sd::{
+    ResolvedService, ScopedIp, ServiceDaemon, ServiceEvent, ServiceInfo, VERIFY_TIMEOUT_DEFAULT,
+};
 use tradr_core::{
     BoxFuture, Candidate, DiscoveryError, DiscoveryEvent, DiscoverySource, ObservationId,
     ObservationKey, PeerObservation, Rng, RngError, SourceId, TransportId,
@@ -85,6 +87,30 @@ impl DiscoverySource for MdnsSource {
                 }
             }
         })
+    }
+}
+
+/// Rechecks mDNS observations by querying the daemon to verify instance
+/// liveliness (docs/03, "A device that vanishes is rechecked when a send fails
+/// or the person asks").
+#[derive(Clone)]
+pub struct MdnsRecheck {
+    daemon: ServiceDaemon,
+}
+
+impl MdnsRecheck {
+    /// Wraps a running `ServiceDaemon` for issuing rechecks (docs/03, "A
+    /// device that vanishes is rechecked when a send fails or the person asks").
+    pub fn new(daemon: ServiceDaemon) -> Self {
+        Self { daemon }
+    }
+
+    /// Queries the instance again via `verify` with `VERIFY_TIMEOUT_DEFAULT`
+    /// (docs/03, "A device that vanishes is rechecked when a send fails or the
+    /// person asks").
+    pub fn recheck(&self, key: &ObservationKey) -> Result<(), mdns_sd::Error> {
+        self.daemon
+            .verify(key.as_str().to_string(), VERIFY_TIMEOUT_DEFAULT)
     }
 }
 

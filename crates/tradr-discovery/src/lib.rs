@@ -25,7 +25,9 @@ pub use ble_linux::{BluerAdvertiser, BluerScanner, adapter_powered, ble_error, t
 pub use eid::{
     BROADCAST_SECRET_LEN, BroadcastSecret, EID_LEN, EID_WINDOW_SECS, Eid, EidError, EidWindow,
 };
-pub use mdns::{MDNS_SOURCE_ID, MdnsSource, SERVICE_TYPE, advertisement, instance_name};
+pub use mdns::{
+    MDNS_SOURCE_ID, MdnsRecheck, MdnsSource, SERVICE_TYPE, advertisement, instance_name,
+};
 pub use rotation::{
     BLE_ADVERTISED_SET_MAX, BLE_ADVERTISEMENT_SLOT_SECS, BleRotation, RotationTick,
 };
