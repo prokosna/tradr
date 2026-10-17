@@ -7,7 +7,9 @@ use tauri::{Emitter, State};
 use tradr_app::received_history::{ReceivedHistory, ReceivedHow};
 
 use tradr_core::{BoxFuture, PeerList, PublicIdentity, RelPath, SecureChannel, TrustTier};
-use tradr_discovery::{MdnsSource, StaticPeerId, StaticPeerRegistry, StaticPeerSource};
+use tradr_discovery::{
+    MdnsRecheck, MdnsSource, StaticPeerId, StaticPeerRegistry, StaticPeerSource,
+};
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
 use tradr_transport::selection::TransferSize;
@@ -26,7 +28,8 @@ use tradr_app::browse::{
 use tradr_app::capabilities::LocalCapabilities;
 use tradr_app::known_store::{KnownDeviceRecorder, KnownDevicesStore};
 use tradr_app::peers::{
-    PeerInfo, StaticPeerInfo, connect_and_pin, drain_peer_sources, peer_info, resolve_peer,
+    PeerInfo, StaticPeerInfo, connect_and_pin, drain_peer_sources, peer_info, recheck_mdns_peers,
+    resolve_peer,
 };
 use tradr_app::send::{execute_send_files_with_progress, resolve_send_items};
 use tradr_app::share::SharedFilePayload;
@@ -61,6 +64,28 @@ pub async fn get_peers(
     }
 
     Ok(list.peers().iter().map(peer_info).collect())
+}
+
+/// Drains peer sources and asks every mDNS peer whether it is still present (DCR-191).
+#[tauri::command]
+pub async fn refresh_peers(
+    identity_state: State<'_, IdentityState>,
+    mdns_source: State<'_, tokio::sync::Mutex<MdnsSource>>,
+    static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
+    peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
+    mdns_recheck: State<'_, Arc<MdnsRecheck>>,
+) -> Result<u32, String> {
+    let self_id = identity_state.public_identity()?.device_id();
+    let mut mdns = mdns_source.lock().await;
+    let mut static_source = static_peer_source.lock().await;
+    let mut list = peer_list.lock().await;
+
+    drain_peer_sources(&mut mdns, &mut static_source, &mut list, self_id).await?;
+
+    let count = recheck_mdns_peers(&list, None, &|key| {
+        mdns_recheck.recheck(key).map_err(|e| e.to_string())
+    })?;
+    u32::try_from(count).map_err(|e| e.to_string())
 }
 
 /// Lists every Static Peer entry currently registered.
@@ -137,6 +162,7 @@ pub async fn send_files<R: tauri::Runtime>(
     static_peer_source: State<'_, tokio::sync::Mutex<StaticPeerSource>>,
     static_peer_registry: State<'_, tokio::sync::Mutex<StaticPeerRegistry>>,
     peer_list: State<'_, Arc<tokio::sync::Mutex<PeerList>>>,
+    mdns_recheck: State<'_, Arc<MdnsRecheck>>,
     transports: State<'_, Arc<TransportSet>>,
     vfs: State<'_, Arc<NativeVfs>>,
     capabilities: State<'_, Arc<LocalCapabilities>>,
@@ -177,55 +203,69 @@ pub async fn send_files<R: tauri::Runtime>(
         }
     };
 
-    let send_result = async {
-        let total_bytes: u64 = items.iter().map(|item| item.size_bytes).sum();
-        let resolved = {
-            let list = peer_list.lock().await;
-            let registry = static_peer_registry.lock().await;
-            resolve_peer(
-                &peer_id,
-                &list,
-                &registry,
-                transports.as_ref(),
-                TransferSize::Bytes(total_bytes),
-            )?
-        };
-        let channel =
-            connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved).await?;
+    let send_result =
+        async {
+            let total_bytes: u64 = items.iter().map(|item| item.size_bytes).sum();
+            let resolved = {
+                let list = peer_list.lock().await;
+                let registry = static_peer_registry.lock().await;
+                resolve_peer(
+                    &peer_id,
+                    &list,
+                    &registry,
+                    transports.as_ref(),
+                    TransferSize::Bytes(total_bytes),
+                )?
+            };
+            let channel =
+                match connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved)
+                    .await
+                {
+                    Ok(channel) => channel,
+                    Err(dial_err) => {
+                        let list = peer_list.lock().await;
+                        if let Err(e) = recheck_mdns_peers(&list, Some(&peer_id), &|key| {
+                            mdns_recheck.recheck(key).map_err(|err| err.to_string())
+                        }) {
+                            eprintln!("failed to recheck peer {peer_id}: {e}");
+                        }
+                        return Err(dial_err);
+                    }
+                };
 
-        let public_identity = identity_state.public_identity()?;
-        let key_store = identity_state.key_store()?;
-        let attestation_token = sign_in_state
-            .id_token()
-            .ok_or_else(|| "sign in before sending files".to_string())?;
-        let verify_attestation = peer_verifier(
-            peer_trust_state.peer_trust()?,
-            sign_in_state.inner().clone(),
-            link_registry.registry()?,
-            Arc::new(SystemClock),
-        );
+            let public_identity = identity_state.public_identity()?;
+            let key_store = identity_state.key_store()?;
+            let attestation_token = sign_in_state
+                .id_token()
+                .ok_or_else(|| "sign in before sending files".to_string())?;
+            let verify_attestation = peer_verifier(
+                peer_trust_state.peer_trust()?,
+                sign_in_state.inner().clone(),
+                link_registry.registry()?,
+                Arc::new(SystemClock),
+            );
 
-        let app_handle = app.clone();
-        execute_send_files_with_progress(
-            channel.as_ref(),
-            vfs.as_ref(),
-            &items,
-            &public_identity,
-            key_store.as_ref(),
-            attestation_token,
-            capabilities.get(),
-            Some(known_devices.inner().as_ref() as &dyn KnownDeviceRecorder),
-            verify_attestation,
-            move |progress| {
-                use tauri::Emitter;
-                if let Err(e) = app_handle.emit("transfer-progress", &progress) {
-                    eprintln!("emit transfer-progress event failed: {e}");
-                }
-            },
-        )
-        .await
-    }
-    .await;
+            let app_handle = app.clone();
+            execute_send_files_with_progress(
+                channel.as_ref(),
+                vfs.as_ref(),
+                &items,
+                &public_identity,
+                key_store.as_ref(),
+                attestation_token,
+                capabilities.get(),
+                Some(known_devices.inner().as_ref() as &dyn KnownDeviceRecorder),
+                verify_attestation,
+                move |progress| {
+                    use tauri::Emitter;
+                    if let Err(e) = app_handle.emit("transfer-progress", &progress) {
+                        eprintln!("emit transfer-progress event failed: {e}");
+                    }
+                },
+            )
+            .await
+        }
+        .await;
 
     #[cfg(target_os = "android")]
     if let Some((adopted, ids)) = adopted_ctx {

@@ -11,7 +11,7 @@ use tradr_core::{
     BoxFuture, Capabilities, Clock, DeviceId, DisplayName, Incoming, KeyBinding, KeyStore,
     PeerList, PublicIdentity, RelPath, RootId, Transport, TrustTier, VersionRange,
 };
-use tradr_discovery::{DeclaredCapabilities, MdnsSource, StaticPeerRegistry};
+use tradr_discovery::{DeclaredCapabilities, MdnsRecheck, MdnsSource, StaticPeerRegistry};
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
 use tradr_integrity::BaoVerifier;
@@ -251,6 +251,7 @@ pub fn init_lifecycle<R: Runtime>(
     let bound_port = local_addr.port();
 
     let daemon = mdns_daemon()?;
+    let mdns_recheck = Arc::new(MdnsRecheck::new(daemon.clone()));
 
     let capabilities = Arc::new(LocalCapabilities::new(Capabilities::DIRECT_QUIC));
 
@@ -451,6 +452,7 @@ pub fn init_lifecycle<R: Runtime>(
     app.manage(vfs);
     app.manage(transport_set);
     app.manage(tokio::sync::Mutex::new(mdns_source));
+    app.manage(mdns_recheck);
     app.manage(tokio::sync::Mutex::new(static_peer_source));
     app.manage(tokio::sync::Mutex::new(static_peer_registry));
     app.manage(peer_list);
