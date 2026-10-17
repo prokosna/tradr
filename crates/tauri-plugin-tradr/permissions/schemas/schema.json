@@ -679,6 +679,18 @@
           "markdownDescription": "Denies the received_history command without any pre-configured scope."
         },
         {
+          "description": "Enables the refresh_peers command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-refresh-peers",
+          "markdownDescription": "Enables the refresh_peers command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the refresh_peers command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-refresh-peers",
+          "markdownDescription": "Denies the refresh_peers command without any pre-configured scope."
+        },
+        {
           "description": "Enables the remove_link command without any pre-configured scope.",
           "type": "string",
           "const": "allow-remove-link",

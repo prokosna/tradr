@@ -58,6 +58,7 @@ pub fn init<R: Runtime>(
             attestation::attestation_bundle,
             attestation::verify_peer_attestation,
             commands::get_peers,
+            commands::refresh_peers,
             commands::get_visible_shares,
             commands::list_peer_directory,
             commands::download_file,

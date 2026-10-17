@@ -842,6 +842,32 @@ Denies the received_history command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-refresh-peers`
+
+</td>
+<td>
+
+Enables the refresh_peers command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-refresh-peers`
+
+</td>
+<td>
+
+Denies the refresh_peers command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-remove-link`
 
 </td>
