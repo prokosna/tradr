@@ -203,6 +203,9 @@ pub fn resolve_peer(
     Err(format!("peer with id {peer_id} not found"))
 }
 
+/// Stand-in dial deadline before Phase 3 races (docs/03, DCR-192).
+pub const DIAL_DEADLINE: Duration = Duration::from_secs(3);
+
 /// Dials `resolved.candidate` under `resolved.expectation` and, when made
 /// under `Unpinned`, writes the `DeviceId` the channel authenticated back
 /// into the registry (docs/03, "The pin"). An `AlreadyPinned` refusal --
@@ -220,15 +223,24 @@ pub async fn connect_and_pin(
             resolved.candidate.address()
         )
     })?;
-    let channel = dialler
-        .connect(&resolved.candidate, &resolved.expectation)
-        .await
-        .map_err(|e| {
-            format!(
-                "failed to connect to peer at {}: {e}",
-                resolved.candidate.address()
-            )
-        })?;
+    let channel = tokio::time::timeout(
+        DIAL_DEADLINE,
+        dialler.connect(&resolved.candidate, &resolved.expectation),
+    )
+    .await
+    .map_err(|_elapsed| {
+        format!(
+            "failed to connect to peer at {}: no answer within {} seconds",
+            resolved.candidate.address(),
+            DIAL_DEADLINE.as_secs()
+        )
+    })?
+    .map_err(|e| {
+        format!(
+            "failed to connect to peer at {}: {e}",
+            resolved.candidate.address()
+        )
+    })?;
 
     if let Some(static_id) = resolved.pin_target {
         registry
