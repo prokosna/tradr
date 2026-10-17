@@ -9,8 +9,8 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use tradr_core::{
-    Candidate, DeviceId, DiscoveryEvent, DiscoverySource, Peer, PeerExpectation, PeerList,
-    SecureChannel,
+    Candidate, DeviceId, DiscoveryEvent, DiscoverySource, ObservationKey, Peer, PeerExpectation,
+    PeerList, SecureChannel,
 };
 use tradr_discovery::{
     MDNS_SOURCE_ID, MdnsSource, STATIC_PEER_SOURCE_ID, StaticPeerId, StaticPeerRegistry,
@@ -326,4 +326,55 @@ pub fn select_peer_key(selector: &str, list: &PeerList) -> Result<Option<String>
             ))
         }
     }
+}
+
+/// Collects mDNS observation keys across the list or for a specific peer to
+/// target verification queries at vanishing LAN instances (docs/03, "A device
+/// that vanishes is rechecked when a send fails or the person asks").
+pub fn mdns_observation_keys(list: &PeerList, peer_id: Option<&str>) -> Vec<ObservationKey> {
+    match peer_id {
+        Some(id) => {
+            for peer in list.peers() {
+                let matches = match peer.device_id() {
+                    Some(device_id) => device_id.to_string() == id,
+                    None => peer
+                        .observations()
+                        .first()
+                        .map(|o| o.id().to_string() == id)
+                        .unwrap_or(false),
+                };
+                if matches {
+                    return peer
+                        .observations()
+                        .iter()
+                        .filter(|o| o.id().source() == MDNS_SOURCE_ID)
+                        .map(|o| o.id().key().clone())
+                        .collect();
+                }
+            }
+            Vec::new()
+        }
+        None => list
+            .peers()
+            .iter()
+            .flat_map(|peer| peer.observations())
+            .filter(|o| o.id().source() == MDNS_SOURCE_ID)
+            .map(|o| o.id().key().clone())
+            .collect(),
+    }
+}
+
+/// Dispatches verification queries for selected mDNS observations, aborting on
+/// the first daemon error (docs/03, "A device that vanishes is rechecked when a
+/// send fails or the person asks").
+pub fn recheck_mdns_peers(
+    list: &PeerList,
+    peer_id: Option<&str>,
+    recheck: &dyn Fn(&ObservationKey) -> Result<(), String>,
+) -> Result<usize, String> {
+    let keys = mdns_observation_keys(list, peer_id);
+    for key in &keys {
+        recheck(key)?;
+    }
+    Ok(keys.len())
 }
