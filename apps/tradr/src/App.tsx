@@ -72,6 +72,9 @@ interface SendJob extends ActiveSendInfo {
 	deviceId?: string;
 }
 
+// Matches mDNS's verify timeout before instances are evicted (docs/03, DCR-191).
+const MDNS_VERIFY_TIMEOUT_MS = 10_000;
+
 export function App() {
 	const [route, setRoute] = useState<Route>(() =>
 		typeof window !== "undefined"
@@ -102,6 +105,9 @@ export function App() {
 	const [, setBrokrStatusError] = useState<string | null>(null);
 	const [deliveries, setDeliveries] = useState<DeliveryDto[]>([]);
 	const [, setDeliveriesError] = useState<string | null>(null);
+	const [isRefreshing, setIsRefreshing] = useState(false);
+	const [refreshError, setRefreshError] = useState<string | null>(null);
+	const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const peerIds = new Set(
 		peers.map((p) => p.device_id).filter((id) => id && id.length > 0),
@@ -315,6 +321,39 @@ export function App() {
 		const interval = setInterval(refreshPeers, 2000);
 		return () => clearInterval(interval);
 	}, [refreshPeers]);
+
+	const handleRefresh = useCallback(() => {
+		setIsRefreshing(true);
+		refreshPeers();
+		if (refreshTimerRef.current !== null) {
+			clearTimeout(refreshTimerRef.current);
+		}
+		refreshTimerRef.current = setTimeout(() => {
+			setIsRefreshing(false);
+			refreshTimerRef.current = null;
+		}, MDNS_VERIFY_TIMEOUT_MS);
+
+		invoke<number>("plugin:tradr|refresh_peers")
+			.then(() => {
+				setRefreshError(null);
+			})
+			.catch((e) => {
+				if (refreshTimerRef.current !== null) {
+					clearTimeout(refreshTimerRef.current);
+					refreshTimerRef.current = null;
+				}
+				setIsRefreshing(false);
+				setRefreshError(String(e));
+			});
+	}, [refreshPeers]);
+
+	useEffect(() => {
+		return () => {
+			if (refreshTimerRef.current !== null) {
+				clearTimeout(refreshTimerRef.current);
+			}
+		};
+	}, []);
 
 	const refreshReceivedHistory = useCallback(() => {
 		invoke<ReceivedRow[]>("plugin:tradr|received_history")
@@ -710,6 +749,9 @@ export function App() {
 						onClearWaitingFiles={handleClearWaitingFiles}
 						onTileTap={handleTileTap}
 						onOpenFolder={handleOpenFolder}
+						isRefreshing={isRefreshing}
+						refreshError={refreshError}
+						onRefresh={handleRefresh}
 					/>
 				)}
 			</main>

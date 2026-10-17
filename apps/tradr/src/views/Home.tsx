@@ -37,6 +37,9 @@ export interface HomeProps {
 	onClearWaitingFiles: () => void;
 	onTileTap: (peer: PeerInfo) => void;
 	onOpenFolder: (peerKey: string) => void;
+	isRefreshing: boolean;
+	refreshError: string | null;
+	onRefresh: () => void;
 }
 
 export function Home({
@@ -60,6 +63,9 @@ export function Home({
 	onClearWaitingFiles,
 	onTileTap,
 	onOpenFolder,
+	isRefreshing,
+	refreshError,
+	onRefresh,
 }: HomeProps) {
 	const showSignIn = signIn.status !== "signed_in";
 	const devicesTitle = waitingFiles.length > 0 ? "Send to" : "Devices";
@@ -72,7 +78,26 @@ export function Home({
 			<section
 				className={`card stack home-devices ${showSignIn ? "dimmed" : ""}`}
 			>
-				<h2 className="card-title">{devicesTitle}</h2>
+				<div className="card-header">
+					<h2 className="card-title">{devicesTitle}</h2>
+					{!showSignIn && (
+						<button
+							type="button"
+							className="btn btn--ghost"
+							onClick={onRefresh}
+							disabled={isRefreshing}
+						>
+							{isRefreshing ? "Checking…" : "Refresh"}
+						</button>
+					)}
+				</div>
+
+				{refreshError ? (
+					<div>
+						<p className="small error-text">Couldn't check your devices.</p>
+						<p className="small muted">{refreshError}</p>
+					</div>
+				) : null}
 
 				{showSignIn ? (
 					<p className="muted">

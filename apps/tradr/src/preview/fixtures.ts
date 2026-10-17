@@ -420,6 +420,7 @@ export const fixtureCommands: Record<
 	"plugin:tradr|receive_folder": () => "/home/haruka/Downloads",
 	"plugin:tradr|sign_in_status": () => fixtureData.signIn,
 	"plugin:tradr|sign_in": () => fixtureSignIn,
+	"plugin:tradr|refresh_peers": () => 1,
 	"plugin:tradr|get_peers": () => fixtureData.peers,
 	"plugin:tradr|list_static_peers": () => fixtureData.staticPeers,
 	"plugin:tradr|add_static_peer": () => "static-thinkpad",
