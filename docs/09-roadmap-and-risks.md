@@ -172,13 +172,14 @@ M5 is cheap and resolves UC-6, so **it comes before M6 and M7**.
 |---|---|---|
 | Android | One release APK, `aarch64` only, package `com.tradr.app` | The project keystore, held as repository secrets |
 | Windows | An NSIS installer | None: one SmartScreen click per install |
-| macOS | The `.app` for Apple Silicon, zipped | None: one Gatekeeper override per install. No DMG, which is DF-81's flake |
+| macOS | The `.app` for Apple Silicon, zipped | Ad-hoc only, no Apple identity (DCR-190): one "Open Anyway" in Privacy & Security per install. No DMG, which is DF-81's flake |
 | Linux | One `.deb` | None |
 
 - **The tag is the version.** The workflow passes `X.Y.Z` to every build as the app's version, so a release needs no commit, and Android's `versionCode` grows with it. A tag that is not three numbers is refused.
 - **The OAuth client comes from repository secrets**, `TRADR_OAUTH_CLIENT_IDS` and `TRADR_OAUTH_CLIENT_SECRET`, read by `build.rs` exactly as it reads the environment anywhere else (DCR-030). **A release with either one empty is refused**, because it would install and never sign in. CI's other jobs still build with neither.
 - **The Android keystore is this project's own, made on 2026-10-16 and not the build machine's debug keystore**: the residue of decision 8 above. It reaches the build as a secret, and the Gradle release build signs with it only when the workflow has written it out, so `android-release-toolchain` still builds unsigned. **Its SHA-1 must be registered in the Google console for `com.tradr.app`**, because an Android OAuth client is one package and one certificate; until it is, the release APK installs and its sign-in is refused.
 - **A release APK is a different app from the debug one.** `com.tradr.app.debug` and `com.tradr.app` install side by side, with separate data, so the release app has its own Device Key and Device ID and meets every other device as a new one.
+- **The macOS bundle is signed ad-hoc, because an unsigned one cannot be overridden (DCR-190).** `v0.1.1`'s `.app` carried no bundle signature, and a downloaded unsigned bundle is reported as damaged, with no way to open it but removing the quarantine by hand (DF-139). An ad-hoc signature (`signingIdentity` `-`) names no developer and costs nothing; Gatekeeper then refuses it as from an unidentified developer, which Privacy & Security's "Open Anyway" lifts once. The workflow verifies the signature before packaging, so a release cannot ship an unsigned bundle again.
 - **Auto-update stays off.** `tauri.conf.json`'s updater endpoint and key are still placeholders, and the workflow builds no updater artifacts.
 
 ## Risks
