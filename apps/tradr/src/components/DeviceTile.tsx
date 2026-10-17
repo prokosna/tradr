@@ -77,7 +77,7 @@ export function DeviceTile({
 
 	const tileClasses = [
 		"device-tile",
-		isOffline ? "device-tile--offline dimmed" : "",
+		isOffline ? "device-tile--offline" : "",
 		!isTappable ? "device-tile--not-tappable" : "",
 		isBusy ? "device-tile--busy" : "",
 		hasWaitingFiles && (!isOffline || brokrConfigured)

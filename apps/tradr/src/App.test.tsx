@@ -1198,6 +1198,54 @@ describe("App component", () => {
 		});
 	});
 
+	it("does not give the offline tile the dimmed class, whose pointer-events: none would swallow the tap", async () => {
+		customHandlers["plugin:tradr|brokr_status"] = () => ({
+			configured: true,
+			url: "http://brokr.local:8080",
+			last_pass: 1727654400,
+			delivered: 0,
+			last_error: null,
+		});
+		customHandlers["plugin:tradr|list_known_devices"] = () => [
+			...fixtureKnownDevices,
+			{
+				device_id: "dev-offline-tablet",
+				display_name: "Offline Tablet",
+				tier: "same-account",
+				last_seen: 1727000000,
+			},
+		];
+
+		const { container } = render(<App />);
+		await screen.findByText("Offline Tablet");
+
+		await act(async () => {
+			await emit("share-intent", {
+				action: "send",
+				mimeType: null,
+				extraText: null,
+				targetDevice: null,
+				transferId: null,
+				files: [
+					{
+						name: "offline-notes.txt",
+						size: 512,
+						cachePath: "/tmp/offline-notes.txt",
+						adoptedId: null,
+					},
+				],
+			});
+		});
+
+		await screen.findByText("Send later →");
+
+		const tabletTile = container.querySelector(
+			'[data-device-key="dev-offline-tablet"]',
+		);
+		expect(tabletTile).not.toBeNull();
+		expect(tabletTile?.classList.contains("dimmed")).toBe(false);
+	});
+
 	it("invokes neither send_files nor send_deferred when offline tile is tapped without configured Brokr", async () => {
 		customHandlers["plugin:tradr|brokr_status"] = () => ({
 			configured: false,
