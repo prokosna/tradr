@@ -8,7 +8,7 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
 import {
 	fixtureCommands,
@@ -46,6 +46,7 @@ describe("App component", () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		window.location.hash = "";
 	});
 
@@ -1434,5 +1435,95 @@ describe("App component", () => {
 			).toBe(true);
 			expect(screen.queryByText(/^Saved in/)).toBeNull();
 		});
+	});
+
+	it("records exactly one refresh_peers call and shows disabled Checking… when Refresh is pressed", async () => {
+		render(<App />);
+		await screen.findByText("Pixel 8");
+
+		const refreshBtn = screen.getByRole("button", { name: "Refresh" });
+
+		vi.useFakeTimers();
+		await act(async () => {
+			fireEvent.click(refreshBtn);
+		});
+
+		const refreshCalls = recordedCalls.filter(
+			(c) => c.cmd === "plugin:tradr|refresh_peers",
+		);
+		expect(refreshCalls).toHaveLength(1);
+
+		const checkingBtn = screen.getByRole("button", { name: "Checking…" });
+		expect(checkingBtn).toBeDefined();
+		expect((checkingBtn as HTMLButtonElement).disabled).toBe(true);
+	});
+
+	it("reads Refresh and is enabled after ten seconds, remaining disabled at nine seconds", async () => {
+		render(<App />);
+		await screen.findByText("Pixel 8");
+
+		const refreshBtn = screen.getByRole("button", { name: "Refresh" });
+
+		vi.useFakeTimers();
+		await act(async () => {
+			fireEvent.click(refreshBtn);
+		});
+
+		const checkingBtn = screen.getByRole("button", { name: "Checking…" });
+		expect((checkingBtn as HTMLButtonElement).disabled).toBe(true);
+
+		act(() => {
+			vi.advanceTimersByTime(9000);
+		});
+		expect(screen.getByRole("button", { name: "Checking…" })).toBeDefined();
+		expect(
+			(screen.getByRole("button", { name: "Checking…" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(true);
+
+		act(() => {
+			vi.advanceTimersByTime(1000);
+		});
+		const enabledBtn = screen.getByRole("button", { name: "Refresh" });
+		expect(enabledBtn).toBeDefined();
+		expect((enabledBtn as HTMLButtonElement).disabled).toBe(false);
+	});
+
+	it("shows Couldn't check your devices. and keeps button enabled when refresh_peers rejects", async () => {
+		customHandlers["plugin:tradr|refresh_peers"] = () =>
+			Promise.reject("check failure");
+
+		render(<App />);
+		await screen.findByText("Pixel 8");
+
+		const refreshBtn = screen.getByRole("button", { name: "Refresh" });
+
+		await act(async () => {
+			fireEvent.click(refreshBtn);
+		});
+
+		const errorMsg = await screen.findByText("Couldn't check your devices.");
+		expect(errorMsg.className).toContain("error-text");
+		expect(screen.getByText("check failure")).toBeDefined();
+
+		const enabledBtn = screen.getByRole("button", { name: "Refresh" });
+		expect(enabledBtn).toBeDefined();
+		expect((enabledBtn as HTMLButtonElement).disabled).toBe(false);
+
+		customHandlers["plugin:tradr|refresh_peers"] = () => 1;
+		await act(async () => {
+			fireEvent.click(enabledBtn);
+		});
+		expect(screen.queryByText("Couldn't check your devices.")).toBeNull();
+	});
+
+	it("renders no Refresh button when signed out", async () => {
+		customHandlers["plugin:tradr|sign_in_status"] = () => null;
+
+		render(<App />);
+		await screen.findByRole("button", { name: "Sign in with Google" });
+
+		expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Checking…" })).toBeNull();
 	});
 });
