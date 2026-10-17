@@ -53,6 +53,18 @@ Four `DiscoverySource` implementations run concurrently, merging into one peer l
 
 **A malformed record is skipped, and the source keeps running.** Anyone on the LAN can advertise anything, so a record with a missing key, an `id` that is not 22 base64url characters, or a value carrying a control character is one the source ignores while continuing to browse. That is a filter and not a swallowed error: nothing failed that a caller could act on, and a source that died on the first hostile advertisement would be trivially deniable.
 
+#### A device that vanishes is rechecked when a send fails or the person asks, decided 2026-10-17 as DCR-191
+
+**An instance leaves the list on a goodbye or when its SRV record expires, and the expiry is two minutes.** `mdns-sd` evicts an instance whose SRV record has lapsed, and a host record's TTL is RFC 6762's 120 seconds. A device that quits sends a goodbye and leaves at once. **A device that loses Wi-Fi, sleeps or walks out of range sends nothing**, so for up to two minutes it is listed as present and a send to it fails at the dial. The user reported exactly this on 2026-10-17 (DF-141).
+
+**The remedy is RFC 6762 §10.4's, and `mdns-sd` implements it as `ServiceDaemon::verify`.** It queries the instance's SRV and address records again. If nothing answers within the timeout, it flushes them and emits `ServiceRemoved`, and that is the `Lost` this source already reports. **Nothing downstream changes**: a `Lost` already takes the observation out of the peer list, and a known device that no source reports is already shown "offline", with Send later when a Brokr is configured ([docs/13](13-deferred-delivery.md)).
+
+- **Two triggers, and no timer.** A send whose dial fails rechecks that peer's mDNS observations. The device list's **Refresh** ([docs/12](12-user-interface.md#sending-files-first)) rechecks every mDNS observation in the list. A periodic recheck was offered to the user and not chosen: it would cost multicast traffic and an Android phone's battery to answer a question nobody had asked yet.
+- **Only mDNS observations are rechecked.** Their `ObservationKey` is the instance's full name, which is what `verify` takes. A Static Peer has no record to expire, and BLE already ages out after 30 seconds of silence.
+- **The timeout is the RFC's ten seconds, `VERIFY_TIMEOUT_DEFAULT`.** A shorter one would flush a phone whose multicast arrives late. The remaining risk: a live device that misses the queries for ten seconds is shown offline until it next announces itself or the browse's own query hears it. A send to it in that window takes Send later, or fails as it would have without the recheck.
+- **The recheck is issued, not awaited.** The dial's error reaches the screen at once. The tile turns offline when the flush arrives, which the front end's two-second poll of the list picks up.
+- **Where it lives.** `tradr-discovery` owns the call into the daemon, since `mdns-sd` is a driver. Choosing which observations to recheck, all of them or one peer's, is `tradr-app`'s and is tested with no daemon. The plugin only wires the two. No trait in `tradr-core` changes, and D9 is untouched.
+
 Putting the Device ID in the TXT record exposes device identity to anyone on the LAN. That is accepted: a LAN is already a somewhat trusted space, and concealing identity there would badly hurt how quickly discovery works. **Proximity, where anonymity does matter, is handled differently** — see EIDs below.
 
 #### Where the `n` field's value comes from, decided 2026-09-22 as DCR-145
