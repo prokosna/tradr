@@ -209,8 +209,9 @@ jobs:
         with:
           tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
 
+      # An unsigned downloaded bundle is reported as damaged by macOS.
       - name: Write release configuration
-        run: echo '{"version":"${{ needs.prepare.outputs.version }}"}' > apps/tradr/src-tauri/tauri.release.conf.json
+        run: echo '{"version":"${{ needs.prepare.outputs.version }}","bundle":{"macOS":{"signingIdentity":"-"}}}' > apps/tradr/src-tauri/tauri.release.conf.json
 
       - name: cargo tauri build
         working-directory: apps/tradr/src-tauri
@@ -227,6 +228,10 @@ jobs:
           fi
           if [ "$count" -ne 1 ] || [ ! -d "$app" ]; then
             echo "::error::Expected exactly one .app directory under target/**/bundle/macos/, found $count"
+            exit 1
+          fi
+          if ! codesign --verify --deep --strict --verbose=2 "$app"; then
+            echo "::error::The macOS bundle is not signed"
             exit 1
           fi
           ditto -c -k --keepParent "$app" "dist/tradr_${{ needs.prepare.outputs.version }}_aarch64.app.zip"
