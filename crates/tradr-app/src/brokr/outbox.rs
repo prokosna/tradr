@@ -1,8 +1,6 @@
 use std::fmt;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use tradr_core::{Clock, DeviceId, UnixTime};
@@ -12,7 +10,6 @@ use super::api::{OutboxEntry, OutboxState};
 use super::send::SentDelivery;
 
 const DELIVERIES_FILE: &str = "deliveries.json";
-const MAX_TEMP_ATTEMPTS: u32 = 100;
 const THIRTY_DAYS_SECS: i64 = 30 * 24 * 3600;
 const SIXTY_DAYS_SECS: i64 = 60 * 24 * 3600;
 
@@ -151,32 +148,6 @@ impl DeliveryStatus {
     pub fn collected_at(&self) -> Option<i64> {
         self.collected_at
     }
-}
-
-fn create_temp_sibling(path: &Path) -> Result<(std::fs::File, PathBuf), OutboxError> {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    for _ in 0..MAX_TEMP_ATTEMPTS {
-        let count = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let mut name = path
-            .file_name()
-            .map(|n| n.to_os_string())
-            .unwrap_or_default();
-        name.push(format!(".tmp-{}-{count}", std::process::id()));
-        let temp = path.with_file_name(name);
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)
-        {
-            Ok(file) => return Ok((file, temp)),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(OutboxError::Io(e)),
-        }
-    }
-    Err(OutboxError::Io(std::io::Error::other(
-        "no fresh temporary file name was free",
-    )))
 }
 
 /// A local record of sent deferred deliveries persisted to `deliveries.json`.
@@ -374,18 +345,6 @@ impl SentDeliveries {
             .collect();
         let bytes =
             serde_json::to_vec_pretty(&wires).map_err(|e| OutboxError::Malformed(e.to_string()))?;
-        let (mut file, temp) = create_temp_sibling(&path)?;
-        let written = file.write_all(&bytes).and_then(|()| file.sync_all());
-        drop(file);
-        let result = written
-            .and_then(|()| std::fs::rename(&temp, &path))
-            .map_err(OutboxError::Io);
-        if result.is_err() {
-            let remove_result = std::fs::remove_file(&temp);
-            if let Err(cleanup_err) = remove_result {
-                eprintln!("outbox: failed to clean up temp file: {cleanup_err}");
-            }
-        }
-        result
+        crate::atomic::write_atomic(&path, &bytes).map_err(OutboxError::Io)
     }
 }

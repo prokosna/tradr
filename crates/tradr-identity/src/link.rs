@@ -4,7 +4,6 @@
 //! `linked_accounts` reports is exactly what docs/05 step 6 grants
 //! `TrustTier::Linked` to.
 
-use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -485,24 +484,6 @@ impl LinkRegistry {
         let json =
             serde_json::to_vec_pretty(&file).expect("a LinkFile serializes to json without error");
 
-        let dir = self.path.parent().filter(|dir| !dir.as_os_str().is_empty());
-        if let Some(dir) = dir {
-            fs::create_dir_all(dir).map_err(LinkRegistryError::Io)?;
-        }
-
-        let temp_path = temp_path_for(&self.path);
-        fs::write(&temp_path, &json).map_err(LinkRegistryError::Io)?;
-        fs::rename(&temp_path, &self.path).map_err(LinkRegistryError::Io)
+        crate::atomic::write_atomic(&self.path, &json).map_err(LinkRegistryError::Io)
     }
-}
-
-// A temporary path in the same directory as `path`, so the rename that
-// follows a successful write is same-filesystem and therefore atomic.
-fn temp_path_for(path: &Path) -> PathBuf {
-    let mut name = path
-        .file_name()
-        .map(OsStr::to_os_string)
-        .unwrap_or_default();
-    name.push(format!(".tmp-{}", std::process::id()));
-    path.with_file_name(name)
 }

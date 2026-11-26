@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 //! mDNS and static pins.
 
+mod atomic;
 mod mdns;
 mod static_peer;
 mod txt;
