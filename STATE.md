@@ -34,7 +34,6 @@ Tech debt:
 - `tauri-plugin-opener` is pinned to `=2.5.5` until a deliberate Tauri 2.12 upgrade.
 - Listener failure lines: the cause of the stray "channel already closed" is still unconfirmed.
 - Secret Service prompt wait is unbounded. `SharedSecret` is not zeroized. `KeyStore` is synchronous (it would block on Android Keystore).
-- CI runners are unpinned `-latest`.
 - Several tests survive mutation of the line they guard: the rung choice in `open_identity`, the platform arm in `provider_profile`, the link-reply pin expectation, and others. See `git show ad37cc7:STATE.md`, Deferred table.
 
 ## Notes for the next session

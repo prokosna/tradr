@@ -23,7 +23,7 @@ env:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -54,7 +54,7 @@ jobs:
 
   linux:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     defaults:
       run:
@@ -119,7 +119,7 @@ jobs:
 
   windows:
     needs: prepare
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 45
     defaults:
       run:
@@ -243,7 +243,7 @@ jobs:
 
   android:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 90
     defaults:
       run:
@@ -354,7 +354,7 @@ jobs:
           path: dist/
 
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     needs: [prepare, linux, windows, macos, android]
     permissions:

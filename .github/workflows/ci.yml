@@ -28,7 +28,7 @@ jobs:
   # the frontend gate, discarded results, empty catch blocks, and
   # frontend console calls.
   checks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # A hung test otherwise holds a merge for GitHub's six-hour default.
     timeout-minutes: 45
     steps:
@@ -49,7 +49,7 @@ jobs:
   # workspace build. The workspace includes apps/tradr/src-tauri, so even
   # a plain `cargo build` links against the host WebKitGTK stack on Linux.
   rust:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
   # Enforces Invariant I1 (ADR-0005): Every Tier 0 and Tier 1 feature
   # must work completely standalone with no Brokr running or configured.
   no-brokr:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -127,7 +127,7 @@ jobs:
   # conditions on this platform and a build-health signal for the app
   # crate on its own host.
   desktop:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -203,7 +203,7 @@ jobs:
         run: cargo tauri build --no-bundle
 
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -240,7 +240,7 @@ jobs:
   # is the real ADR-0001 evidence, and runs less often.
   android-debug-smoke:
     name: "android-debug-smoke (aarch64, debug only -- not the release toolchain check)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -326,7 +326,7 @@ jobs:
   # ships. Triggered manually via workflow_dispatch to avoid 41-minute runs.
   android-release-toolchain:
     name: "android-release-toolchain (four ABIs, release -- ADR-0001's withdrawal-condition evidence)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 90
     if: github.event_name == 'workflow_dispatch'
     steps:
