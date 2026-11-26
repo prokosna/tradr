@@ -420,8 +420,16 @@ mod tests {
         .expect("handshake completed within timeout");
     }
 
+    // The paused clock auto-advances while real sockets wait, so this bound
+    // turns a lost packet into a failure instead of a hung CI job.
     #[tokio::test(start_paused = true)]
     async fn keep_alive_preserves_idle_connection_past_timeout() {
+        tokio::time::timeout(Duration::from_secs(600), keep_alive_scenario())
+            .await
+            .expect("the keep-alive scenario finishes within its bound");
+    }
+
+    async fn keep_alive_scenario() {
         let server_store = device(0x22);
         let server_bind: SocketAddr = "127.0.0.1:0".parse().expect("valid address literal");
         let server_transport = QuicTransport::new(server_store, server_bind).expect("server binds");
