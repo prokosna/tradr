@@ -14,7 +14,7 @@ env:
   # (`features = []`); a mismatched CLI version is the thing most likely
   # to make `cargo tauri build`/`android build` behave differently here
   # than it did in local verification.
-  TAURI_CLI_VERSION: "2.11.4"
+  TAURI_CLI_VERSION: "2.12.6"
   # Named once so the SDK/NDK cache key and the sdkmanager install list
   # can never drift apart (WI-M0-015b).
   ANDROID_NDK_VERSION: "27.3.13750724"
