@@ -157,7 +157,7 @@ pub fn dial_target(
     invite: &Invite,
     list: &PeerList,
     transports: &TransportSet,
-) -> Result<(DeviceId, Candidate), String> {
+) -> Result<(Candidate, PeerExpectation), String> {
     let inviter_device_id =
         DeviceId::from_identity_digest(blake3::hash(invite.identity_pub().as_bytes()).as_bytes());
     for peer in list.peers() {
@@ -167,7 +167,8 @@ pub fn dial_target(
                 &inviter_device_id.to_string(),
                 transports,
             )?;
-            return Ok((inviter_device_id, candidate));
+            // The invite is the pin: the dial must authenticate the key it carries.
+            return Ok((candidate, PeerExpectation::Device(inviter_device_id)));
         }
     }
     Err(format!(
@@ -257,7 +258,7 @@ pub async fn reply_to_link_invite(
             .await?;
     }
 
-    let (inviter_device_id, candidate) = {
+    let (candidate, expectation) = {
         let list = peer_list.lock().await;
         dial_target(&invite, &list, transports.as_ref())?
     };
@@ -271,7 +272,7 @@ pub async fn reply_to_link_invite(
     })?;
 
     let channel = dialler
-        .connect(&candidate, &PeerExpectation::Device(inviter_device_id))
+        .connect(&candidate, &expectation)
         .await
         .map_err(|e| format!("failed to connect to peer at {}: {e}", candidate.address()))?;
 

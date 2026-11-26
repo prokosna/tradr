@@ -869,6 +869,74 @@ fn a_device_id_no_observation_carries_is_its_own_sentence() {
     );
 }
 
+// ---- 5b. The invite is the pin ------------------------------------------
+
+struct NoDialTransport;
+
+impl tradr_core::Transport for NoDialTransport {
+    fn id(&self) -> tradr_core::TransportId {
+        tradr_core::TransportId::new("direct-quic")
+    }
+
+    fn connect<'a>(
+        &'a self,
+        _candidate: &'a tradr_core::Candidate,
+        _expect: &'a tradr_core::PeerExpectation,
+    ) -> tradr_core::BoxFuture<
+        'a,
+        Result<Box<dyn tradr_core::SecureChannel>, tradr_core::TransportError>,
+    > {
+        Box::pin(async { Err(tradr_core::TransportError::Unreachable) })
+    }
+
+    fn listen(
+        &self,
+    ) -> tradr_core::BoxFuture<'_, Result<Box<dyn tradr_core::Incoming>, tradr_core::TransportError>>
+    {
+        Box::pin(async { Err(tradr_core::TransportError::Unreachable) })
+    }
+}
+
+#[test]
+fn the_dial_authenticates_the_key_the_invite_carries() {
+    let alice = identity(1);
+    let invite = an_invite(
+        &alice,
+        invite_id(9),
+        half(0xA1),
+        NOW + 300,
+        UNCHECKED_TOKEN.to_string(),
+    );
+    let inviter =
+        DeviceId::from_identity_digest(blake3::hash(invite.identity_pub().as_bytes()).as_bytes());
+    let candidate = tradr_core::Candidate::new(
+        tradr_core::TransportId::new("direct-quic"),
+        "192.168.1.42:21820",
+    )
+    .expect("valid candidate");
+    let key = tradr_core::ObservationKey::new("alice._tradr._udp.local.").expect("valid key");
+    let observation = tradr_core::PeerObservation::new(
+        tradr_core::ObservationId::new(tradr_discovery::MDNS_SOURCE_ID, key),
+        vec![candidate.clone()],
+    )
+    .with_device_id(inviter);
+    let mut list = PeerList::new();
+    list.apply(
+        tradr_discovery::MDNS_SOURCE_ID,
+        tradr_core::DiscoveryEvent::Observed(observation),
+    )
+    .expect("apply observation");
+    let transports = tradr_transport::set::TransportSet::new(vec![
+        Arc::new(NoDialTransport) as Arc<dyn tradr_core::Transport>
+    ]);
+
+    let (picked, expectation) =
+        dial_target(&invite, &list, &transports).expect("the inviter is discovered");
+
+    assert_eq!(picked, candidate);
+    assert_eq!(expectation, tradr_core::PeerExpectation::Device(inviter));
+}
+
 // ---- 6. Replier's display name travels in the LinkReply frame --------------
 
 #[tokio::test]
