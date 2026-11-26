@@ -40,6 +40,7 @@ Product:
 - Hardware-backed keys (Keystore, Secure Enclave, TPM). Blocked on `backing()` being one value for two keys.
 
 Tech debt:
+- `packages/` holds empty stubs, and the ts-proto output (`packages/protocol`, `buf.gen.yaml`) is imported by nothing. Delete both, or use them.
 - `keep_alive_preserves_idle_connection_past_timeout` once hung CI for an hour; it needs a bound.
 - `tauri-plugin-opener` is pinned to `=2.5.5` until a deliberate Tauri 2.12 upgrade.
 - The atomic-write registry helper is copied in several places (tradr-identity, tradr-app). Unify it.

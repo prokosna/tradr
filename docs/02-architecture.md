@@ -20,7 +20,7 @@ A Brokr never talks to Google and never verifies anything. Every device fetches 
 |---|---|---|
 | Rust | network, disk, keys, crypto | mature crates (quinn, btleplug, bluer, snow, blake3); Tauri's native side is Rust; GB/s hashing |
 | Kotlin | Android-only OS APIs: share sheet, SAF, foreground service, `BluetoothLeAdvertiser`, Custom Tabs OAuth | unreachable from Rust |
-| TypeScript | all UI (React), the Brokr (Fastify) | UI never touches network or disk |
+| TypeScript | all UI (React, `apps/tradr/src`), the Brokr (Fastify) | UI never touches network or disk; it calls plugin commands with hand-written types (`types.ts`) |
 
 Rule: hot paths, low-level OS APIs and secret keys → Rust. Android-only APIs → Kotlin. Everything else → TypeScript.
 
@@ -31,7 +31,8 @@ proto/tradr/v1/          wire schema (source of truth; prost for Rust, ts-proto 
 apps/tradr/              Tauri 2 app (desktop + Android); src-tauri/gen/android holds Kotlin
 apps/tradr-cli/          CLI front end; binary `tradr-cli`; may not name tauri
 apps/brokr/              optional backend, TypeScript + Fastify
-packages/                pnpm workspace: ui, protocol, client-state, ...
+packages/                pnpm workspace stubs (ui, client-state, brokr-client are empty; protocol holds
+                         ts-proto output that no app imports). The UI lives in apps/tradr/src
 crates/
   tradr-core             Layer 0/1: domain types, protocol state machines, all traits. No I/O
   tradr-proto            protobuf codec. Only crate naming prost
