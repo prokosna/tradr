@@ -37,11 +37,8 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 
 | Term | Definition |
 |---|---|
-| **Share** | A definition exposing a directory on a Device to a given Audience. Carries a root, a mode, and an audience. |
-| **Share Root** | The directory a Share exposes. Nothing outside it is ever reachable. |
-| **Audience** | Who may see a Share: `account` (all devices of your account) or a set of `link:<link_id>`. |
-| **Mode** | A Share's permission: `ro` (read only) or `rw` (write and delete allowed). |
-| **VFS** | The abstraction over a Share Root that presents POSIX paths and Android SAF URIs through one interface. |
+| **Folder** | The one directory a device exposes: its receive directory, read-write, to its own account and to Links with `full_access` ([ADR-0024](docs/adr/0024-one-folder-per-device-full-access.md)). The UI calls it "folder"; older code says Share. |
+| **VFS** | The `tradr-vfs` abstraction that owns every file path and enforces the folder boundary. |
 
 ## Transfer
 
@@ -83,14 +80,8 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 
 | Term | Definition |
 |---|---|
-| **Supervisor** | The expensive model that instructs, reviews, tracks progress, and decides on design. The only role that may edit `docs/` and `STATE.md`. Does not write ordinary implementation code. |
-| **Implementer** | The cheap model that implements a Work Item. Never edits `docs/` or `STATE.md`, never changes the design on its own. |
-| **Work Item** | The unit of instruction, review, and record. Small enough to judge in one review — roughly 400 lines and 8 files. |
-| **Work Order** | The Supervisor's instruction to the Implementer: target, referenced design, definition of done, constraints, prohibitions. |
-| **DCR** (Design Change Request) | The Implementer's stop request when implementation reveals a design problem. The Supervisor rules on it, and if accepted, `docs/` changes first. |
-| **Verdict** | A review outcome: `PASS`, `REVISE`, or `REDESIGN`. |
-| **Critical Module** | A module whose tests the Supervisor writes first and whose implementation the Implementer then makes pass. Covers boundary enforcement, Attestation verification, chunk resumption, and filename sanitization. |
-| **Change Drill** | Measuring flexibility against external change by counting the files a hypothetical change would touch. |
+| **Critical Module** | A module where being wrong causes a severe failure nothing else catches. Its tests are written first. The list is in [CLAUDE.md](CLAUDE.md). |
+| **Change budget** | What a hypothetical external change (a library swap, a new transport) may touch. Measured by counting files, not by feel. |
 
 ## Usage notes
 

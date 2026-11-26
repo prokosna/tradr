@@ -1,124 +1,98 @@
-# 13. Deferred Delivery, and the Brokr that carries it
+# 13. Deferred Delivery and the Brokr
 
-> Decided 2026-10-03 by DCR-173, from three answers the person using Tradr gave that day: **what is wanted first is sending to a device that is offline**; **the Brokr runs inside the tailnet**, on a machine at home, not on the public internet; and **a parked delivery is held for 30 days**, with its size limits set by whoever deploys the Brokr. This document is M9's design. [docs/07](07-brokr.md) remains the design of the whole Brokr; what is built now is the part below, and the rest of docs/07 -- rendezvous, relay, FCM wake-up, linking through a Brokr, the revocation list -- is deferred to a later milestone.
+A Transfer handed to a Brokr for an **offline** device, and collected when that device is next online. One way, one Transfer. **It is not sync.** It is Tier 2 only; Tier 0 and Tier 1 are untouched (I1, `no-brokr`).
 
-## What it is
+The Brokr runs **inside the tailnet**, at home. Deliveries are held for 30 days.
 
-**Deferred Delivery** ([CONTEXT.md](../CONTEXT.md)): a Transfer the sender hands to a Brokr for a device that is not online, collected when that device next is. One direction, one Transfer, no reconciliation and no shared state. **It is not sync**, and nothing here converges.
+## User-visible behaviour
 
-What a person sees:
+- A device that has been met before but is not reachable now stays in the list as "offline".
+- With a Brokr configured, tapping it with files waiting shows "It's offline -- Tradr will deliver this when it's back". The sender sees waiting, then delivered, or expired.
+- The recipient collects at start, on foreground, every 5 min, and while resident. Files arrive in Received.
+- Without a Brokr, offline tiles are greyed and cannot be tapped.
 
-1. A device that is not reachable now still appears in the device list if this device has met it before, marked "offline". With a Brokr configured, tapping it with files waiting says **"It's offline -- Tradr will deliver this when it's back"** and hands the files to the Brokr.
-2. The sending device shows the delivery as **waiting** until the recipient collects it, then **delivered**; after 30 days uncollected, **expired**.
-3. The recipient collects pending deliveries whenever it is running and reaches the Brokr, and each arrives in **Received** like any other file, from the sending device's name.
+## Trust: a compromised Brokr can delay, drop or duplicate, and nothing else
 
-Without a Brokr configured, an offline device stays in the list, greyed, with "offline", and cannot be tapped to send. **Tier 0 and Tier 1 are untouched** ([ADR-0005](adr/0005-brokr-is-optional.md), invariant I1): everything here is additive, and the `no-brokr` job keeps proving it.
+- **A device sends only to devices it has met.** Recipient keys come from **Known Devices** (written after every verified direct handshake), never from the Brokr. A changed key is recorded, not refused.
+- **The Brokr learns no identity.** The sender's Attestation travels inside the encryption. The Brokr sees recipient and sender Device IDs, total size, time, and an opaque body.
 
-## Where the trust lives
+## Envelope ([ADR-0025](adr/0025-hpke-for-deferred-delivery.md); Critical Module, `tradr-identity`)
 
-The Brokr is outside the circle of trust, as docs/07 requires, and this feature has to work with a Brokr that is compromised. **A compromised Brokr can delay, drop or duplicate a delivery, and nothing else**: it cannot read one, alter one undetected, substitute a recipient's key, or make a delivery appear to come from a device it did not come from.
-
-Three consequences, each a rule:
-
-- **A device sends only to devices it has met.** The recipient's public keys come from a **Known Devices** record this device wrote after a direct, verified handshake with it (docs/05's seven steps, and the key join), never from the Brokr. The Brokr could otherwise hand a sender any key it liked. This is also what puts an offline device in the list at all. A changed key on a known Device ID is recorded and not refused (DCR-188, [docs/02](02-architecture.md#where-trust-actually-lives)).
-- **The Brokr learns no identity.** It never sees an Attestation, because an Attestation carries the Google `sub` and email, which invariant I3 keeps from every Brokr. The sender's Attestation travels **inside** the encrypted delivery. The recipient verifies it, through the seven steps, when it collects.
-- **Filenames and sizes per file are inside the encryption.** What the Brokr sees is a recipient Device ID, a sender Device ID, a total size, an upload time and an opaque body.
-
-## The envelope
-
-**The format is [ADR-0025](adr/0025-hpke-for-deferred-delivery.md): HPKE in base mode (RFC 9180) to the recipient's agreement key, `DHKEM(P-256, HKDF-SHA256)`, `HKDF-SHA256`, `ChaCha20Poly1305`**, with the sender authenticated by a signature from its identity key rather than by HPKE's own auth mode.
+HPKE base mode: `DHKEM(P-256, HKDF-SHA256)`, `HKDF-SHA256`, `ChaCha20Poly1305`, to the recipient's agreement key.
 
 ```
-outer header, readable by the Brokr (routing only)
-  version              1
-  recipient_device_id  16 bytes
-  sender_device_id     16 bytes
-  enc                  65 bytes, the HPKE encapsulated key
-  total_ciphertext_len u64
-
-records, each sealed with the HPKE context, sequence numbers from 0
-  record 0       the manifest
-  record 1..n    the items' bytes, 1 MiB of plaintext per record (invariant I6),
-                 items back to back in manifest order
+outer header (Brokr-readable): version=1 | recipient_device_id 16 | sender_device_id 16 | enc 65 | total_ciphertext_len u64
+records (HPKE seq from 0): [0] manifest, [1..n] item bytes, 1 MiB plaintext each, items back to back
+info = "tradr-deferred-v1" || recipient_id || sender_id
+AAD  = seq || final_flag
 ```
 
-- **The HPKE `info`** is `"tradr-deferred-v1" || recipient_device_id || sender_device_id`, so an envelope cannot be re-addressed.
-- **Each record's associated data** is its sequence number and a final-record flag, so records cannot be reordered, dropped from the end or truncated without the last one failing to open. HPKE's own sequence-numbered nonces do the rest.
-- **The manifest** carries: the `transfer_id`, the sender's `identity_pub`, `KeyBinding` and Attestation token, `created_at` from the sender's `Clock`, the items (relative path, size, Content Hash), and a **signature by the sender's identity key under a new domain tag, `DeferredDelivery`**, over `enc || recipient_device_id || sender_device_id || created_at || transfer_id || the items`. A domain tag of its own is what stops this signature being replayed as any other (docs/05, "Every signature carries a domain tag").
-- **The recipient accepts an envelope only when** it opens, the signature verifies under the manifest's `identity_pub`, that key's Device ID equals `sender_device_id`, the `KeyBinding` joins the identity key to an agreement key, the Attestation passes docs/05's seven steps for that `identity_pub`, and the Trust Tier is `same-account` or `linked`. **Staleness is judged at `created_at`, and `created_at` must be within the last 30 days and not more than 300 seconds ahead of the recipient's clock**: an Attestation that was fresh when its holder sent is honoured for as long as the Brokr may hold the delivery, which bounds how stale an accepted Attestation can be at 60 days. That is a weaker revocation story than a live connection's 30, and it is stated rather than hidden.
-- **Each item is verified against its Content Hash as it is written**, placed through the ordinary receive path (sanitised names, `.tradr-partial`, `rename_no_replace`), and reported in `files-received`.
+The manifest holds `transfer_id`, the sender's `identity_pub`, KeyBinding, Attestation token, `created_at`, and the items (path, size, hash). It is signed with domain tag `tradr-deferred-v1` over `enc || recipient_id || sender_id || created_at || transfer_id || items`.
 
-**The code lives in `tradr-identity`** (ADR-0025). **This is a Critical Module.** Opening an envelope is where a forged delivery would be accepted, so the Supervisor writes its tests first: RFC 9180's published test vectors for the suite, a negative test per acceptance check, truncation, reordering and re-addressing.
+**Accept only if** all of the following hold:
+- the envelope opens;
+- the signature verifies;
+- the key's DeviceId equals `sender_device_id`;
+- the KeyBinding is valid;
+- the Attestation passes the seven steps, **with staleness judged at `created_at`**;
+- `created_at` is within the last 30 days and at most 300 s in the future;
+- the tier is `same-account` or `linked`.
 
-## The Brokr, as built in M9
+An accepted Attestation can therefore be up to 60 days old; this is documented. Items are verified against their hash as they are written and placed through the normal receive path.
 
-**A small HTTP service, TypeScript on Fastify with SQLite**, as docs/09 planned, in `apps/brokr`, run as one container. **Inside the tailnet it listens on plain HTTP by default**: WireGuard already encrypts the hop, and every body it carries is end-to-end encrypted. TLS can be put in front by a reverse proxy or `tailscale serve`. Nothing in the client assumes either.
+Tests: RFC 9180 vectors, a negative test per acceptance check, truncation, reordering, re-addressing.
 
-| Method | Path | What it does |
+## Brokr (`apps/brokr`: TypeScript, Fastify, SQLite)
+
+Plain HTTP inside the tailnet. Put TLS in front with a reverse proxy or `tailscale serve` if wanted.
+
+| Method | Path | |
 |---|---|---|
-| `GET` | `/v1/info` | Version, the limits below, and this deployment's `account_salt` |
-| `POST` | `/v1/challenge` | A fresh nonce for one registration |
-| `POST` | `/v1/register` | `device_id`, `identity_pub`, `join_token`, `account_tag`, `link_tags[]`, and a signature over `"tradr-brokr-v1" \|\| nonce` (docs/07's `BrokrChallenge` tag). Answers a session token |
-| `PUT` | `/v1/deliveries` | Upload one envelope. The outer header is read and checked against the caller's own Device ID and the size limits; the body is stored as it arrives, never buffered whole |
-| `GET` | `/v1/deliveries/inbox` | Deliveries addressed to the caller: id, sender Device ID, size, upload time |
-| `GET` | `/v1/deliveries/:id` | Download one, streamed. Only its recipient may |
-| `DELETE` | `/v1/deliveries/:id` | The recipient's acknowledgement, after every item has been placed. The body is deleted at once |
-| `GET` | `/v1/deliveries/outbox` | The caller's own uploads: waiting, delivered (with when), or expired |
+| GET | `/v1/health` | `{"ok":true}` |
+| GET | `/v1/info` | version, limits, `account_salt` |
+| POST | `/v1/challenge` | nonce |
+| POST | `/v1/register` | `device_id`, `identity_pub`, `join_token`, `account_tag`, `link_tags[]`, signature over `tradr-brokr-v1 || nonce`. Returns a session token |
+| PUT | `/v1/deliveries` | upload, streamed; the header is checked against the caller and the limits |
+| GET | `/v1/deliveries/inbox` | deliveries addressed to the caller |
+| GET | `/v1/deliveries/:id` | download (recipient only) |
+| DELETE | `/v1/deliveries/:id` | ack after placement; the body is deleted |
+| GET | `/v1/deliveries/outbox` | waiting / delivered / expired |
 
-- **Who may address whom is the Brokr's one policy, and it is a grouping, not an identity**: a delivery is accepted only when sender and recipient share the `account_tag` or a `link_tag`, as docs/07 defines them. `account_tag` is `BLAKE3(account_id || account_salt)` with this deployment's salt, so two Brokrs cannot correlate a person.
-- **Limits, set at deployment**: `BROKR_DELIVERY_TTL_DAYS` (30), `BROKR_DELIVERY_MAX_BYTES` (no default: the operator chooses), `BROKR_STORAGE_MAX_BYTES` (likewise), and a per-sender cap on deliveries waiting. Exceeding one is answered with its reason, which the sender shows.
-- **Expiry is swept** at start and hourly: the body is deleted and the outbox says expired. The database records that a delivery existed for as long as its row is kept (30 days after it ends), and docs/07's logging rules hold: no Device IDs in logs by default.
-- **Losing the database loses only what was waiting**, as docs/07 says of relay sessions; devices register again with the join token.
+- Addressing policy: sender and recipient must share an `account_tag` (`BLAKE3(account_id || salt bytes)`) or a `link_tag` (`BLAKE3(link_secret)`).
+- Limits: `BROKR_DELIVERY_TTL_DAYS` (default 30). `BROKR_DELIVERY_MAX_BYTES` and `BROKR_STORAGE_MAX_BYTES` have **no default**. There is also a per-sender cap on waiting deliveries.
+- Expiry sweep at start and hourly. No Device IDs in logs. Losing the DB loses only what was waiting.
 
-## Running the Brokr
-
-**One container, one volume, four settings.** The image is built from `apps/brokr/Dockerfile` at the repository root as its build context; it runs as a user that is not root, listens on 8780, and keeps everything it owns -- the database and the deliveries waiting -- under `/data`.
-
-**`docker-compose.yaml` at the repository root is how it is started, decided 2026-10-10 by DCR-177** at the request of the person running it, who found the limits and the token tedious to type on every start. It builds the image, names the volume, restarts unless stopped, publishes 8780, and **carries the two limits written out** -- 10 GiB per delivery and 100 GiB in all -- to be edited there.
+### Running it
 
 ```sh
-echo 'BROKR_JOIN_TOKEN=<a phrase of your choosing>' > .env
-docker compose up -d --build
+echo 'BROKR_JOIN_TOKEN=<phrase>' > .env    # git-ignored; compose refuses to start without it
+docker compose up -d --build              # docker-compose.yaml: port 8780, /data volume, 10 GiB / 100 GiB limits
 ```
 
-- **The join token is the one setting the file does not carry**: it is read from `.env` beside it, which git ignores, and compose refuses to start without it. A token committed to a repository is a token everyone with the repository holds
-- **The token has no required length or alphabet.** It is typed or pasted once into each device (as a link, below), so choose something typeable; what it guards is the right to register and occupy storage up to the limits, and no device accepts a delivery on the strength of it. Registration attempts are not rate-limited, which is acceptable for a port published to a LAN or a tailnet and is one more reason not to publish it to the internet
+Publish it only on the tailnet or the LAN (`-p 100.x.y.z:8780:8780`). Registration is not rate-limited.
 
-- **`BROKR_JOIN_TOKEN`** is what a device presents once, to register; choose it and keep it (`BROKR_JOIN_TOKEN_FILE` reads it from a file instead). **`BROKR_DELIVERY_MAX_BYTES`** and **`BROKR_STORAGE_MAX_BYTES`** have no default on purpose: how much one delivery and all of them together may occupy is the operator's disk to budget. The example allows 10 GiB per delivery and 100 GiB in all. `BROKR_DELIVERY_TTL_DAYS` defaults to 30.
-- **Reach it over the tailnet, not the internet**: publish the port only on the machine's tailnet address (`-p 100.x.y.z:8780:8780`) or leave it on the LAN, and give devices `http://<that machine's tailnet name>:8780`. Nothing it carries is readable to it, but nothing about it is hardened for the open internet either.
-- **On each device**: Settings, "Deliver when a device is offline", then either paste a Brokr link and press Connect, or type the address and the join token. A device has to have met another directly once before it can send to it while it is offline.
-- **The link is `tradr://brokr?url=http://<host>:8780&token=<the join token>`**, and whoever runs the Brokr can write it by hand: a token made of letters, digits, `-`, `_` and `.` goes in as it is. A device that is already connected shows the same link in Settings, so the second device is set up by pasting what the first one shows ("The Brokr link" below).
-- **Health**: `GET /v1/health` answers `{"ok":true}`; the image's health check calls it.
-- **Losing the volume loses what was waiting and nothing else**: devices register again by themselves with the same join token.
+## Device side
 
-## The device side
+- **`BrokrApi` port**. Its HTTP implementation is `crates/tradr-app/src/brokr/http.rs`, the **only file outside `tradr-oidc` allowed to name `reqwest`** (enforced by `ci/layer-deps.sh`). It follows no redirects, accepts http/https only, and never fetches a JWKS.
+- Registration happens when configured and whenever the session token is refused.
+- **Collect**: download, open, verify, place, ack. A delivery that fails verification is acked, dropped and reported once.
+  - The ids of placed deliveries are written to `collected.json` **before** the ack is sent, so a failed ack does not cause a second placement. A remembered id is acked without being downloaded.
+  - A crash between placing the files and writing the id can still place them twice.
+- **Send**: two passes per file (hash for the manifest, then stream it into the upload). The delivery id is recorded with the file names for the outbox view.
+- **Known Devices**: `DeviceId → PublicIdentity`, last name, tier, last seen.
 
-- **Configuration**: Settings gains **"Deliver when a device is offline"**: a Brokr link, or its address and the join token, and the connection's state ("The Brokr link" below). Sharing it to the account's other devices over their Noise channels (docs/07 step 4) is not in M9.
-- **Registration** happens when configured and whenever the session token is refused. `account_tag` is `BLAKE3(account_id || salt)` over the **bytes** of `account_salt` (16 bytes, sent as hex), and each `link_tag` is `BLAKE3(link_secret)`.
-- **The client speaks to the Brokr through a port, `BrokrApi`**, so a Brokr rewritten in another language changes nothing on the device (Change Drill D6). **Its HTTP implementation is the one place outside `tradr-oidc` allowed to name `reqwest`, decided 2026-10-05 by DCR-174**: `tradr-app`'s `src/brokr/http.rs` and no other file. DCR-024 confined `reqwest` because retrieving a JWKS is a Critical Module whose whole security is TLS to the provider's own host, so a second, less careful HTTP client in the workspace was the risk. The Brokr's traffic is different in kind -- an end-to-end encrypted envelope and a signature over a nonce -- and a compromised path to it can delay or drop a delivery and nothing more ("Where the trust lives"). So the confinement is kept and widened by exactly one file: `ci/layer-deps.sh` refuses `reqwest` in any other manifest, and refuses it in any `tradr-app` source but that one. The adapter never follows a redirect, accepts `http://` and `https://` only, and is never used to fetch a JWKS.
-- **Collecting** runs at start, when the app comes to the foreground, and every 5 minutes while it runs; on Android also while resident (ADR-0022). Each pending delivery is downloaded, opened, verified, placed and acknowledged; a delivery that fails verification is acknowledged and dropped, and reported once, because keeping it would only repeat the failure.
-- **A delivery whose files were placed is remembered until the Brokr has taken its acknowledgement, decided 2026-10-07 by DCR-175.** Placing comes before acknowledging, because the reverse loses a file on a crash; so an acknowledgement that fails leaves the delivery on the Brokr, and the next pass would place it a second time as `name (2)`. The device keeps the ids it has placed in `collected.json`, beside `brokr.json`, and writes one **before** it sends that acknowledgement. A pass that meets a remembered id acknowledges it without downloading it; once the acknowledgement lands, or the inbox no longer lists the id, the id is forgotten, so the record holds only what is in doubt. **The arrival is reported when the files are placed, not when the acknowledgement lands**: the files are there either way, and a failed acknowledgement used to leave them unreported. A compromised Brokr that reuses a remembered id gets that delivery dropped unread, which it could always do ("Where the trust lives"). **What is left is a crash between the last file's placement and that write**, which still places twice; closing it would mean recording before placing, and that is the order that loses a file.
-- **Sending** to an offline known device, with a Brokr configured, reads each file twice -- once to compute its Content Hash, which the manifest at the head of the envelope carries, and once to stream it into the envelope as it is uploaded, never holding a file whole -- and records the delivery id with the names it sent, since the Brokr knows neither; a file that changed between the two passes fails the recipient's hash check, by design; the outbox is polled with the inbox and drives "waiting / delivered / expired".
-- **Known Devices** is a local registry beside the Link registry: `DeviceId` to `PublicIdentity`, the last display name, the Trust Tier, and when it was last seen directly. It is written after every successful direct handshake, in either direction, and read by the device list and the envelope builder.
-
-## The Brokr link
-
-**One line carries a Brokr's whole configuration, decided 2026-10-14 by DCR-187.** The person setting this up said on 2026-10-10 that typing the join token into each device is the hard part, and this document had promised a link since M9 was designed while nothing read one.
+### Brokr link
 
 ```
-tradr://brokr?url=<the Brokr's address>&token=<the join token>
+tradr://brokr?url=<http(s) url, no path>&token=<join token>
 ```
 
-- **The form.** The scheme is `tradr` and the host is `brokr`; the query carries `url` and `token`, each exactly once, each percent-encoded as a form value. A parameter with any other name is ignored, so a later version can add one. A link with a path, a missing or repeated `url` or `token`, or an empty one, is refused, and so is a `url` the address field would refuse (it must be `http` or `https` with no path).
-- **One parser and one writer, in `tradr-app`'s `brokr` module**, beside the settings they read and write. The front end never takes a link apart and never puts one together: it hands the pasted text to the plugin, and asks the plugin for the text to show.
-- **Connecting from a link** is the plugin's `connect_brokr_link`, which takes the pasted text, and then does exactly what `set_brokr` does with an address and a token. Surrounding whitespace is dropped first, since a pasted line usually ends in a newline. A refusal says what is wrong with the link and never repeats the token.
-- **Showing the link** is the plugin's `brokr_link`: it answers the link for the address in `brokr.json` and the join token in the secret store, and is refused when no Brokr is configured or the token cannot be read. It is the one command that hands the join token back to the screen, and it runs only when the person presses **Show link**.
-- **The link is the token.** Whoever holds it can register a device with that Brokr and occupy storage up to its limits, and nothing more ("Where the trust lives"); the screen says so beside the link. It is never written to a log, and an error about a link names the fault and not the link.
-- **How it travels is the person's business**: a note, a message to oneself, or a text file sent with Tradr itself. Tradr does not register `tradr://` with the operating system, so tapping a link opens nothing; it is pasted. A QR is not shown either, since no Tradr device can scan one yet (`WI-M6-009`).
+- One parser and one writer, both in `tradr-app::brokr`.
+- Unknown parameters are ignored. A missing, duplicated or empty `url` or `token` is refused.
+- `connect_brokr_link` takes the pasted link (whitespace trimmed). `brokr_link` returns the link, only on **Show link**.
+- **The link is the token**: never log it, and never echo it in errors.
+- The OS does not register `tradr://`, and there is no QR. The link is pasted.
 
-## What is deliberately not here
+## Not here
 
-- Rendezvous, NAT traversal, relay of live transfers, FCM wake-up, linking through a Brokr, and the revocation list: later, as docs/07 designs them
-- A WebSocket: polling every 5 minutes is enough for a delivery that waits for days, and it is one less long-lived connection to keep on a phone
-- Refusing a changed key on a known Device ID: not wanted, DCR-188
-- Distributing the Brokr's configuration between devices automatically
+Rendezvous, relay, FCM, linking through a Brokr, the revocation list, a WebSocket, automatic config sharing between devices.

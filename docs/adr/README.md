@@ -12,7 +12,7 @@ Decisions and the reasoning behind them. To change a decision, write a new ADR a
 | [0006](0006-blake3-for-content-integrity.md) | BLAKE3 for content integrity | Superseded by [0016](0016-bao-verified-streaming-costs-6-percent.md); its KDF line by [0018](0018-blake3-derive-key-for-eids.md) |
 | [0007](0007-receiver-driven-chunk-pull.md) | The receiver pulls chunks | Accepted |
 | [0008](0008-rust-for-the-native-layer.md) | Network, disk, and keys live in Rust | Accepted |
-| [0009](0009-supervised-implementation-loop.md) | A cheap model implements, an expensive one reviews | Accepted |
+| [0009](0009-supervised-implementation-loop.md) | A cheap model implements, an expensive one reviews | Superseded by [0027](0027-lightweight-process-code-is-the-record.md) |
 | [0010](0010-identity-is-the-issuer-subject-pair.md) | Account identity is the (issuer, subject) pair | Accepted |
 | [0011](0011-keystore-exposes-operations.md) | The KeyStore exposes operations, never key bytes | Accepted |
 | [0012](0012-p256-for-device-keys.md) | P-256 for Device Keys | Accepted |
@@ -30,3 +30,4 @@ Decisions and the reasoning behind them. To change a decision, write a new ADR a
 | [0024](0024-one-folder-per-device-full-access.md) | A device exposes one folder, read-write, to its own account and to Links granted full access | Accepted |
 | [0025](0025-hpke-for-deferred-delivery.md) | HPKE to the recipient's agreement key carries a Deferred Delivery, and the sender signs it | Accepted |
 | [0026](0026-one-operation-hands-the-os-a-received-files-location.md) | One operation hands the operating system a received file's location, for Open and Share | Accepted |
+| [0027](0027-lightweight-process-code-is-the-record.md) | Lightweight process: the code is the record | Accepted |

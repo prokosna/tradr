@@ -1,7 +1,7 @@
 #!/bin/sh
 # Mechanizes DCR-137: compiles crates with Windows cfg gates for MSVC.
 # Scans crates/ only; apps/ is out of scope by ruling.
-# See ci/README.md and docs/10-implementation-process.md.
+# See ci/README.md.
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)

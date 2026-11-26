@@ -1,794 +1,142 @@
 # 05. Security and identity
 
-## The question at the centre
+## Attestation: the IdP is the root of trust ([ADR-0003](adr/0003-google-attestation-as-trust-root.md))
 
-**Without a backend, how does a device prove it belongs to the same Google account?**
-
-The usual answer is an authentication server. A device signs in with Google, hands the ID token to the server, the server verifies it, issues its own session, and maintains a device roster. That makes the server mandatory.
-
-Tradr answers with the **OIDC `nonce` claim** instead.
-
-## Attestation — making the identity provider the root of trust
-
-### The mechanism
-
-An OIDC authorization request may carry a `nonce`. The provider **copies that value into the ID token and signs it**. That is the whole trick.
-
-Nothing below is specific to Google. Any provider that reflects the nonce and publishes a JWKS can serve as a root of trust; Google is simply the only **Provider Profile** shipped. See [ADR-0010](adr/0010-identity-is-the-issuer-subject-pair.md) and [profiles](#provider-profiles) below.
+There is no auth server. A device binds its keys to an account through the OIDC `nonce`, which the provider signs into the ID token:
 
 ```
-1. The device generates key pairs
-     identity key pair    P-256, for signing and identity
-     agreement key pair   P-256, for Noise key agreement
-
-2. It computes a nonce
-     nonce = base64url(BLAKE3(identity_pub || agreement_pub))
-
-3. It runs the provider's authorization flow carrying that nonce
-     https://accounts.google.com/o/oauth2/v2/auth
-       ?client_id=...&scope=openid%20email%20profile
-       &nonce=<the value above>&code_challenge=...&access_type=offline
-
-4. The provider returns an ID token containing
-     {
-       "iss": "https://accounts.google.com", <- which provider
-       "aud": "<the OAuth client ID that ran the flow>",
-       "sub": "104839...",              <- subject, unique within that iss
-       "nonce": "<BLAKE3(public keys)>", <- the binding to the keys
-       "iat": ..., "exp": ...
-     }
-     signed with the provider's private key.
+identity key   P-256 ECDSA     agreement key   P-256 ECDH        (ADR-0012)
+nonce = base64url(BLAKE3(identity_pub || agreement_pub))         65-byte uncompressed SEC-1 points
+id_token = { iss, aud, sub, nonce, iat, exp }  signed by Google
 ```
 
-That token is a provider-signed assertion that:
+### Verification (the seven steps; Critical Module, in `tradr-identity`)
 
-> the holder of account `(iss, sub)` just presented the value `BLAKE3(public keys)`
+1. Select the Provider Profile by exact `iss` match, and by nothing else. No match → reject.
+2. Verify the signature against that profile's JWKS. `alg` must be in the profile's set (Google: RS256 only); the header never selects an algorithm. `kid` selects only among the profile's keys.
+3. `aud` must be a single string, and a member of the profile's client-ID set (every platform's ID).
+4. The nonce binds the peer's keys (the profile's `nonce_binding`: verbatim or hashed).
+5. `iat` is ≤ 30 days old and ≤ 300 s in the future. The two directions give distinct errors (old binding vs. clock skew). `exp` is ignored.
+6. `(iss, sub)` equals ours → `SAME_ACCOUNT`; is a linked pair → `LINKED`; otherwise `REJECTED`, or `NEARBY_EPHEMERAL` in ephemeral mode (not built).
+7. Signature over `tradr-hello-v1 || our Hello.nonce` (proves current key possession).
 
-Since the nonce is a hash of the device's public keys, it functions as:
+- The profile is selected **once** and used for every step.
+- Verification is pure and returns `JwksNeeded` instead of fetching. The composition root fetches through `tradr-oidc` and retries.
+- **Link entry point**: a separate function runs steps 1-5 plus the key join and returns the **account**. Its policy type has no account fields, so step 6 cannot be expressed there.
+- **Key join** (separate from the Attestation): `BLAKE3(Hello.identity_pub)[0..16]` must equal the channel-authenticated DeviceId. This catches a replayed, unaltered Attestation before any tier is computed.
 
-> the holder of `(iss, sub)` controls this key pair
+### JWKS cache (`tradr-identity`) and fetch (`tradr-oidc`: Critical Module)
 
-That is an **Attestation**.
+- The cache is bound to one `jwks_uri` at construction. Installing a document from a different URI is refused.
+- On an unknown `kid`: at most one refetch, with a **5 min floor** between refetches (the cache decides). A failed fetch leaves the existing keys untouched. The cache never expires and is not persisted.
+- The cache is warmed by this device's own sign-in fetch, so an offline device can verify its first peer.
+- The fetch must use HTTPS, follow no redirects, and enforce a status check and a size cap. TLS to the provider's host is the only thing that makes a JWKS Google's.
 
-### What a verifier does
+### Expiry, the kept Attestation, revocation
 
-When device B receives an Attestation from device A:
-
-```
-1. Read iss from the token and select the Provider Profile matching it
-     exactly. No profile -> REJECTED. Nothing else is read first
-2. Fetch that profile's JWKS and verify the id_token signature
-     Cacheable. Verification works offline against an existing cache
-3. Check aud is one of that profile's client IDs
-4. Check the nonce binds A's keys, per the profile's nonce_binding
-     verbatim: nonce == base64url(BLAKE3(identity_pub || agreement_pub))
-     hashed:   nonce == SHA-256 of that value
-5. Check iat is no older than the staleness limit, 30 days by default,
-     and no further ahead than the clock skew allowance, 300 seconds.
-     The two directions reject with different reasons
-6. Compare the pair (iss, sub) against
-     our own pair         -> TRUST_TIER_SAME_ACCOUNT
-     a linked pair        -> TRUST_TIER_LINKED
-     neither              -> NEARBY_EPHEMERAL only in ephemeral receive mode,
-                             otherwise REJECTED
-7. Verify the signature over "tradr-hello-v1" || Hello.nonce
-     <- proves A holds the private key right now, defeating replay
-```
-
-**No Tradr backend appears anywhere in that sequence.** All it requires is the provider's public keys, which anyone can fetch.
-
-**Step 1 comes first for a reason.** Every later step depends on which profile is in force — which JWKS, which `aud` set, which nonce encoding. Selecting the profile from anything other than an exact `iss` match, the JWKS host for instance, would let a token nominate its own verification rules.
-
-#### Why step 3 compares against a set
-
-Google issues one OAuth client ID per platform: one for desktop, one for Android, and one more if iOS is added. **The `aud` in an Attestation is the client ID of whichever platform ran the flow**, so a desktop device verifying an Android peer sees the Android client ID.
-
-Comparing against a single value would therefore fail every cross-platform verification while same-platform pairs kept working — a failure mode that presents as "only Android will not connect" and hides its cause well.
-
-Every device carries the full set of its deployment's client IDs and step 3 accepts membership in it. Those IDs are configuration rather than shipped values -- see [below](#oauth-client-configuration) -- and one string carries them to every device.
-
-Adding a platform means adding its client ID to that one string. **Devices that predate the new platform accept it as soon as they are restarted with the updated configuration**, since an ID whose platform label they do not recognise still joins the `aud` set. When the set was compiled in, the same change required a rebuild and older builds rejected the new platform outright.
-
-#### Why step 5 bounds both directions, and why the future one is not bounded at zero
-
-**A negative age passes every limit forever.** An age computed as `now - iat` and compared against a staleness limit accepts an Attestation minted in the future for as long as it stays in the future, so the future direction has to be bounded or the thirty-day rule is optional. That argument justifies bounding it. It does not justify bounding it at zero, which is what an implementation reading only "falls within the staleness limit" picked, and which stood until a real Windows machine ran into it.
-
-**The `iat` is the provider's clock, not the verifier's.** A device inside ordinary NTP tolerance can be a second or two behind Google, and a machine whose time has simply gone untended can be further. At zero tolerance such a device is refused a token the provider minted moments ago, intermittently when it is nearly right and permanently when it is a few seconds slow -- and sign-in is the first thing a new device does, so the whole application is unreachable to it.
-
-**The allowance is 300 seconds.** It costs 300 seconds of extra Attestation life against a limit of 30 days, and it buys every device whose clock is untended rather than wrong. Kerberos and the common OIDC libraries settled on the same five minutes for the same reason. Both limits are inclusive at exactly their value.
-
-**What tells the two directions apart is that `elapsed_since` fails for exactly one reason, and that is a contract rather than an implementation detail, ruled 2026-09-18 by DCR-134.** Step 5 computes `now.elapsed_since(iat)` and reads a failure as "the `iat` is in the future", then measures the skew the other way round. **The reading is only sound while the function has one way to fail.** Give it a second and the `Err` arm is reached for something that is not a direction at all, and the code answers a clock-skew refusal to a question about skew nobody asked -- **with nothing marking the day it starts happening**, because the arm that mis-handles it is a pattern that already exists and needs no edit.
-
-**So a repair to that function adds precision, never a second failure.** Its subtraction can overflow for values its own type admits -- an `iat` near `i64::MIN` against an ordinary `now` -- and the answer is arithmetic wide enough to be exact rather than an error saying it was not: the gap between any two `UnixTime` values fits a `u64` exactly, at both extremes. **`UnixTimeError` therefore keeps its single variant**, and the sentence above stays true of the code beneath it.
-
-**The two directions reject with different reasons, and that is load-bearing rather than a nicety.** The failure a user meets is a refusal to sign in, and the only thing that tells them which of the two happened is the message. One says the binding is too old to trust; the other says this device's clock disagrees with the provider's. Naming the thirty-day limit for a clock problem costs whoever reads it the whole diagnosis -- it did, for a day, on the first Windows build.
+- The kept `attestation` file (0600, atomic write) is re-verified at every start through `finish_sign_in` against the current keys, and reused while `iat` ≤ 21 days old. It carries `sub` and email but grants nothing without the Device Key.
+- 24 h silent renewal through a refresh token is **not built**. Android renewal is unmeasured.
+- Revocation: revoke the app in Google settings. The device can no longer renew, and peers reject it after 30 days. There is no faster global mechanism at Tier 0.
 
 ### OAuth client configuration
 
-**No client ID and no client secret ship with this software.** Both are configuration, supplied at runtime, and every deployment registers its own Google Cloud project. Tradr is set up by the person running it, not distributed with credentials of its own.
+No client ID or secret ships. Each deployment registers its own Google Cloud project, which makes each deployment its own trust domain.
 
 ```
-TRADR_OAUTH_CLIENT_IDS      desktop:<id>,android:<id>,web:<id>   the same string on every device
-TRADR_OAUTH_CLIENT_SECRET   this platform's secret; a Desktop client has one, an Android client none
+TRADR_OAUTH_CLIENT_IDS     desktop:<id>,android:<id>,web:<id>   same on every device; every id forms the aud set
+TRADR_OAUTH_CLIENT_SECRET  this platform's secret (Desktop has one; Android none)
 ```
 
-**The first is one value, identical across the deployment, and every device derives the rest from it.** A build knows which platform it is, so it looks itself up in the list to find the client it authenticates as, and takes every ID in the list as the `aud` set it accepts. **The label a build looks up is not always its own name**: an Android build looks up `web`, for the reason [below](#android-obtains-its-attestation-without-a-redirect-and-the-server-client-id-is-a-web-registration-dcr-112). Nothing is written twice and nothing differs per device but the secret.
+- A build looks up its own label: desktop → `desktop`, **Android → `web`**, because Credential Manager needs the Web client as the server client ID and Google then sets `aud` to the Web ID. An unknown label still joins the `aud` set.
+- The GUI bakes the values in at build time (`build.rs`, `option_env!`). The CLI reads them from the environment at run time. A half-set pair is refused at startup.
+- The desktop flow is a loopback redirect to `http://127.0.0.1:<port>/callback` with PKCE. Google's Desktop client **requires** its secret for the code exchange (measured).
+- **Android uses Credential Manager** (Google ID). It returns an ID token directly; there is no redirect or code. **Google Play Services is required**. Custom schemes and loopback are blocked for Android clients, and shipping the Desktop secret in an APK is refused.
+- Each Android package/certificate pair (debug, release) needs its own Android client registration.
+- Profiles (issuer, JWKS URI, algorithms, nonce binding) are compiled in. Only the client is configuration. `tradr-oidc` never sees a profile type, and takes plain arguments.
 
-**That is what makes the incomplete list detectable.** An earlier draft had each device configured separately with its own ID and its own audience set, which put the same value in two places and made a forgotten entry surface only at the first connection between two devices, as a rejected peer. Now a deployment that lists `desktop:` and forgets `android:` starts its desktop devices correctly -- as a desktop-only deployment, which is what it is -- and **an Android device refuses to start at all**, saying that this build is Android and the list names no Android client. The mistake is reported where it was made.
+### Identity = `(iss, sub)` ([ADR-0010](adr/0010-identity-is-the-issuer-subject-pair.md))
 
-**An entry naming a platform this build does not know contributes its ID to the `aud` set and nothing else.** Adding iOS later means adding `ios:<id>` to the one string, and existing desktop and Android devices then accept iOS peers without being rebuilt. Rejecting the whole list instead would make adding a platform break every device that predates it, which is the cost the compiled-in design used to carry.
+`account_id = iss || 0x00 || sub`. Email is display-only. Everything derived from account identity uses `account_id`: the Brokr `account_tag`, the bootstrap EID secret, and link records.
 
-**The secret stays out of that list.** Putting each platform's secret beside its ID would be the tidier string, and would place the Desktop client's secret in the environment of every Android device, which never uses it. A value not present cannot leak.
+### What this defends
 
-**Where each front end reads the two values differs, and only one of them is what this section describes, 2026-09-17 by DCR-128.** "Supplied at runtime" is true of a command and was never true of the GUI: a desktop launcher, an Android activity and a double-clicked binary each start with whatever environment a session manager hands them, and none of them is a shell someone exported a variable into. So `apps/tradr/src-tauri/build.rs` bakes both values into the artifact with `cargo::rustc-env` and the app reads them back with `option_env!` -- the concession the shell forces rather than the design -- while **`tradr-cli` reads `TRADR_OAUTH_CLIENT_IDS` and `TRADR_OAUTH_CLIENT_SECRET` out of the process environment when the command runs, and bakes nothing**.
+Defended: forged tokens, tokens minted with our public client ID (wrong `sub`), stolen Attestations (nonce mismatch), replay (`Hello.nonce` signature).
+**Not defended**: Google itself acting maliciously; a takeover of the user's Google account. The Fingerprint mitigates both when a Link is made.
 
-**A second copy of the build script was the other answer and it is worse than the duplication it looks like.** It would bake whatever the environment held at the moment the CLI was compiled, so a person who exports the deployment's correct string and runs `tradr receive` would be refused by a stale one, with nothing anywhere saying that the value being used is not the value they set. **What a missing variable costs instead is one error naming it**: `TRADR_OAUTH_CLIENT_IDS is not set` is already the text `oauth_client` writes, and for the CLI it now names something a person can act on directly.
+## Fingerprint
 
-**Each deployment is therefore its own trust domain**, unable to authenticate against anyone else's. That was previously a consequence of overriding a shipped default; it is now the only mode, and it is the point rather than a side effect.
-
-**Why nothing ships.** Committing a working client so that a clone builds and runs is the obvious convenience, and it was the earlier decision here. Three things cost more than it is worth:
-
-- **A shared client ID is a shared rate limit.** rclone ships one for Google Drive and is retiring it during 2026 for exactly this reason, telling every user to register their own instead. That is this design's risk arriving on someone else's schedule.
-- **A published secret is a single revocation point.** `google_oauth_client_id, google_oauth_client_secret` is a GitHub secret-scanning pattern in the partner programme, so pushing one to a public repository is reported to Google. If Google revokes, every deployment's sign-in stops at once.
-- **A published client is a brandable consent screen.** The measurements below show the secret gates the exchange step, so publishing it lets a third party complete an OAuth flow under this application's name.
-
-Setting up a project is a few minutes in Google Cloud Console, and it is a step the person running an OSS tool takes once.
-
-**A Desktop client still needs its secret, and that is worth knowing before registering one.**
-
-**Google requires it, and this was settled by running the flow.** An earlier probe posting a *fabricated* code proved nothing: `client_secret is missing` arrives as `invalid_request`, which is parameter validation reached before any code is looked up, so it measured the endpoint's handling of a code Google had never issued. The real flow, on 2026-08-24, with a genuine code obtained under `code_challenge_method=S256`:
-
-| Attempt | Result |
-|---|---|
-| Exchange with **no** `client_secret` | `invalid_request` -- *client_secret is missing.* |
-| Exchange **with** it, reusing the same code | a valid `id_token` |
-
-The same request shape, with `code_verifier` present and a code Google never issued, gives that description verbatim -- so the name of the cause comes from Google rather than from inference.
-
-**The second row is what makes the first conclusive, and it did more than it was designed to.** It was included expecting failure -- an authorization code is single use -- so that a refusal could not be mistaken for a spent code. It succeeded instead, which means **the secretless attempt never consumed the code**: Google rejected it before reaching the grant at all. So the refusal is about the secret and nothing else.
-
-RFC 8252 section 8.5 and RFC 7636 make a native app a public client whose PKCE exchange needs no client authentication, and RFC 8252 also permits an authorization server to issue credentials to native apps. Google's Desktop client type does, and requires them.
-
-**The value is checked, not merely required to be present.** Three states, three answers:
-
-| `client_secret` sent | Response |
-|---|---|
-| omitted | `invalid_request` -- *client_secret is missing.* |
-| any wrong value, including the real one with one character changed | `invalid_client` -- *The provided client secret is invalid.* |
-| the real value | `invalid_grant` -- *Malformed auth code*, so client authentication passed |
-
-**So it is not true that this value guards nothing.** What it gates is the exchange step: a third party holding only the client id can raise a consent screen bearing this application's name, because the authorization request needs no secret, but cannot turn the resulting code into tokens. Publishing the secret removes that last step. **PKCE protects something different** -- a code stolen on the user's own machine, by a local process racing the loopback port -- and it goes on doing so whether or not the secret is public.
-
-The reason to publish it anyway is Google's own: an installed application's secret is extractable from any shipped binary, so withholding it from the repository buys a delay rather than a defence, while costing every person who clones the repository a working sign-in. `TRADR_OAUTH_CLIENT_ID` and `TRADR_OAUTH_CLIENT_SECRET` exist so that anyone preferring their own Google project can use one. **That is a judgement about cost, not a claim that nothing is being given away**, and the earlier wording here said otherwise.
-
-**The redirect uri is the loopback IP literal, and that too was measured.** Three authorization requests on 2026-08-24, differing only in `redirect_uri`:
-
-| `redirect_uri` | Response |
-|---|---|
-| `http://127.0.0.1:8731/callback` | accepted |
-| `http://localhost:8731/callback` | accepted |
-| `http://evil.example/callback` | `redirect_uri_mismatch` |
-
-The third row is what makes the first two mean anything: the check is real, and loopback is what it exempts. An installed client's registered `redirect_uris` are not an exhaustive list -- RFC 8252 section 7.3's loopback rule is, and any port is accepted. **The literal is chosen over the name because a name resolves through the host's own resolver**, and what it resolves to is not this process's decision.
-
-**Both variables are set together or neither is.** An ID without its secret, or a secret without its ID, is a pair Google's token endpoint rejects, and the failure surfaces as a refused exchange. Refusing the half-set configuration at startup puts the message where the mistake was made. An Android client is the exception: it has no secret, and none is expected.
-
-**Profiles remain compiled in; only the client is configured.** The issuer, the JWKS URI, the nonce binding and the permitted algorithms are a trust decision and are not settings. What a deployer supplies is which OAuth client speaks for them, never how a peer's token is verified.
-
-### Android obtains its Attestation without a redirect, and the server client id is a Web registration (DCR-112)
-
-**Every redirect an Android OAuth client may present is refused by the provider, so Android does not use one.** A custom URI scheme is disabled for the client and is refused on this design's own trust model besides -- a scheme flow authorizes in a browser, any application may claim the scheme, and an Android client redeems a code with no secret, so a second application on the device could bind its own keys into a token this document's seven steps would accept. Loopback is blocked for that client type. Giving Android the Desktop client instead means shipping the Desktop secret, which is the thing an Android artifact deliberately does not carry.
-
-**What Android uses is the platform's own credential API, which returns an ID token directly.** There is no authorization code, no redirect, no token exchange and no client secret anywhere on the path. Four facts decide whether that token is an Attestation, and each was measured on a real device rather than read:
-
-| Measured | Value |
-|---|---|
-| `nonce` | The caller's own string, verbatim -- so `BLAKE3(device_public_keys)` survives and [ADR-0003](adr/0003-google-attestation-as-trust-root.md)'s binding is constructible |
-| `aud` | The **Web** client id, never the Android one |
-| `iss` | `https://accounts.google.com`, which step 1 compares against |
-| An Android client id as the server client id | Refused, `Developer console is not set up correctly` |
-
-**So the deployment string gains a third entry, and an Android build selects it as its own.**
-
-```
-TRADR_OAUTH_CLIENT_IDS   desktop:<id>,android:<id>,web:<id>
-```
-
-**An Android build looks itself up as `web`, and DCR-116 is this paragraph being corrected rather than extended.** It used to say that no code selects the entry, and that read consistently until the path was implemented: the credential API is handed a server client id, the table above measured the Android one being refused, and the Web id is therefore the value an Android build presents. The client an Android device authenticates as *is* the Web registration, so it is looked up under the label that registration is named by. **The `aud` set is untouched by that**, because it was always every id in the string and never the selected one -- which is what lets a desktop device accept an Android peer without knowing any of this.
-
-**What `android:<id>` means afterwards is narrower than it was, and it is not nothing.** It is presented nowhere: the Android client registration authorizes the *application*, by package name and signing certificate, and that check happens between the device and the provider without passing through this string. Its only remaining effect is contributing an `aud` that nothing will ever mint. Dropping it is therefore safe and is deliberately not done here -- it is a change to a value every device holds, and it costs nothing to keep.
-
-**One Android client covers exactly one pair of package name and signing certificate.** The debug build type carries an application id suffix, so the debug package and the release package are different applications to the provider and need separate registrations; a release build signed by a different key needs its own again. **None of that reaches this string**, which is what keeps it a build-and-console matter rather than a configuration one.
-
-**Google Play Services is therefore a requirement of an Android Tradr, and saying so here is DCR-140, 2026-09-20.** The paragraph above refuses every redirect an Android client may present, so the credential API is the only path an Android build has -- and **the credential API is Google Play Services**. A device without it has no `googleId` provider for Credential Manager to offer and DCR-112's path has nothing to call. **Measured on a Kindle Fire HD on 2026-09-19**: the APK installs, runs, and answers Sign In with `Sign-in failed: no provider dependencies found - please ensure the desired provider dependencies are added`. **It bears on decision 7 twice over.** Distribution is a direct APK precisely so that no store is involved, and a direct APK installs perfectly on a device that can then never reach a Trust Tier -- the failure arriving after installation, at the one action the product exists for. So the requirement is stated in the README's setting-up section as well as here, where a person reads it before building rather than after installing.
-
-**The exit that would remove the requirement is the one DCR-112 already refused, and it was refused on measurement rather than on taste.** A browser authorization-code flow with PKCE needs no credential provider and most of it exists -- `sign_in.rs`'s desktop path builds the authorization url and exchanges the code -- but the three clients it could present are each closed. **A custom URI scheme is disabled for the Android client type**, and is refused on this design's trust model besides. **Loopback is blocked for that client type.** And the Desktop client, which loopback is open for, is the one whose secret an Android artifact deliberately does not carry -- an APK is a published artifact, and [the section above](#oauth-client-configuration) records what a published secret costs. **The Web client is not a fourth answer**: it is what the credential API is handed as a server client id, it holds a secret of its own, and Google registers no loopback redirect for it. **So the requirement is not a gap waiting on effort; it is what the trust model costs on this platform**, and a document that left it unsaid was the defect.
-
-### How an Android build obtains that token (DCR-116)
-
-**One function per platform, chosen at compile time, ending in one verification both of them share.** Desktop keeps the loopback redirect, the code and the exchange. Android builds the same nonce -- `BLAKE3` over this device's public keys, the value [ADR-0003](adr/0003-google-attestation-as-trust-root.md) binds -- hands it to the credential API together with the Web client id, and is given an ID token with no redirect anywhere on the path. **What happens to that token afterwards is the desktop path's own tail, called from both sides**: the key set is fetched and installed, the token verified against the profile, the result classified, and anything but `SameAccount` refused. A platform may differ in how a token is obtained. It may not differ in how one is trusted.
-
-**The three places that build this device's provider profile now ask which platform this is exactly once.** Signing in, verifying a pasted bundle and the `PeerTrust` built at startup each named the Desktop platform outright, which was invisible while only desktop ran and is two defects on Android: the profile would carry the wrong client id, and a Desktop client with no secret is refused at construction -- so an Android build could not have verified a peer at all, quite apart from signing in. One selected answer, three call sites, and a fourth one cannot pick a different platform by accident.
-
-**Acquisition asks for a saved credential first and falls back to the explicit sign-in.** Both option classes were measured on a device: the saved-credential class answers `NoCredentialException` where nothing was ever saved, and the explicit class is the one that completed. Ordering them that way costs one refused call on a first sign-in, and buys the renewal question an instrument inside the product rather than beside it -- **which is why the diagnostic probe is deleted by the same Work Item that lands this**. What the probe was left in the tree to measure is now measurable on the path people use.
-
-**Renewal stays unmeasured, and is deliberately not designed here.** Nothing on Android re-mints on a timer. A second sign-in on a device that has already completed one is the measurement: if the saved-credential class answers it without interaction, an Android device can hold a fresh Attestation the way a desktop one does, and if it does not, a person confirms one. The run reports which class answered, and until it reads back the `renewal` field below is unanswered for this platform.
-
-### Provider profiles
-
-Everything a provider brings lives in one value -- what a peer's token is verified against, and what this device needs to obtain a token of its own. Nothing else in the codebase names a provider.
-
-| Field | Why it cannot be assumed |
-|---|---|
-| `issuer` | Compared exactly against `iss`. Selecting the profile is step 1 |
-| `jwks_uri` | Moves independently of the issuer string. D1 of the Change Drill is this field |
-| `authorization_uri`, `token_uri` | Discovered once from `/.well-known/openid-configuration`, then pinned |
-| `client_ids` | One per platform, per provider. See [above](#why-step-3-compares-against-a-set) |
-| `client_id`, `client_secret` | **Configuration, not shipped.** Which OAuth client speaks for this deployment. See [below](#oauth-client-configuration) |
-| `nonce_binding` | Verbatim or hashed. A provider that stores a digest of the nonce fails step 4 outright under the wrong assumption |
-| `algorithms` | The signature algorithms this provider's tokens may use. The token's `alg` header is compared against this and never used to select. See [above](#the-token-never-chooses-how-it-is-verified) |
-| `renewal` | Whether a fresh ID token can be minted without user interaction, and on what terms |
-
-The last two are why **adding a provider is not a URL swap**, and why they are fields rather than an assumption discovered during a rewrite. `renewal` in particular carries the design's weight: the 24-hour silent renewal below assumes a refresh token and a `prompt=none` path. A provider offering neither shifts that account's whole revocation story, and the profile is where that becomes visible.
-
-**A credential sits in this value at runtime, and that is deliberate.** Splitting it into a verification half and an authentication half would put a provider's name in two places, and Change Drill D2 budgets two files for adding a provider -- one definition and one registration. What keeps that budget is that **`tradr-oidc` never sees this type**: it may not depend on `tradr-identity` at all (`ci/layer-deps.sh`), so the flow takes a uri, a client id and a secret as plain arguments and names no provider. A driver that cannot name a provider cannot acquire a second place to name one.
-
-**Profiles are compiled in and are not user-configurable.** A shipped profile is a root of trust for every user of that build, so adding one is a trust decision taken in an ADR, not a setting.
-
-Google is the only profile shipped. **The pair `(iss, sub)` is nevertheless what identity means everywhere**, not a bare `sub` — see the next section but one, and [ADR-0010](adr/0010-identity-is-the-issuer-subject-pair.md).
-
-### Handling expiry
-
-An ID token's `exp` is typically one hour out. But what an Attestation asserts is not "signed in right now" — it is **a binding** between a key and an account.
-
-- **`exp` is ignored; the age of `iat` is what matters.** Accepted within 30 days by default, and up to 300 seconds ahead of this device's clock — see [step 5](#why-step-5-bounds-both-directions-and-why-the-future-one-is-not-bounded-at-zero)
-- **Desktop devices** hold a Google refresh token and **re-mint an ID token with the same nonce every 24 hours** via a `prompt=none` silent refresh, requiring no user interaction
-- **Android holds no refresh token**, because the credential API above returns an ID token and nothing else. Renewal there is a second call to that API carrying the same nonce, which the nonce being a function of the device keys makes stable across calls. **Whether such a call completes without user interaction is unmeasured**, and is the next thing to measure rather than the next thing to assume -- the instrument being the first option class the sign-in path asks for (DCR-116) rather than a probe beside it: it decides whether an Android device can hold a fresh Attestation the way a desktop one does, or whether a person has to confirm one every day
-- **So `renewal` in the Provider Profile below cannot answer for a provider alone once two platforms differ on it.** The field's terms are a property of the pair, and today Google's terms are one thing through a refresh token and another through a credential API. Nothing needs restructuring while the measurement is missing, and the field is where the answer lands when it arrives
-- A healthy device therefore always presents an Attestation less than a day old
-
-### A kept Attestation (DCR-150)
-
-**A device keeps its own last `id_token` in a file and presents it again at the next start, instead of signing in each time.** Decided 2026-09-23. The file is `attestation` in the application data directory, holding the token text alone, written atomically and `0600` where the platform has modes.
-
-- **It is re-verified on every start, not trusted because it is ours.** It goes through `finish_sign_in`, which is signature, audience, nonce binding against *this* device's current keys, and staleness -- so a token outliving a re-minted Device Key fails the nonce binding and is never presented
-- **Reuse stops at 21 days of `iat`**, not at the thirty a peer allows. A front end started on a token of that age still has nine days before any peer refuses it, which is longer than any session here is expected to run; past 21 days the ordinary sign-in runs and overwrites the file
-- **It is not a credential and that is why a plain file is enough.** It grants nothing without the Device Key, since every peer checks the nonce binding against the key the handshake proves. What it does carry is the account's `sub` and email, which is why the file is readable by its owner alone
-- **Revocation is unchanged.** A kept token cannot outlive the thirty-day staleness limit any more than a fresh one can, so the bound below holds as written
-- **It is not the 24-hour silent renewal above**, which needs a refresh token at rest and is still unbuilt. A kept token asks for a sign-in every three weeks at most; a refresh token would ask for none, and costs a secret on disk that open decision 15 has not settled how to hold
-
-### That is also the revocation mechanism
-
-Revoking Tradr's access in Google account settings means:
-
-1. The refresh token stops working
-2. The device can no longer renew its Attestation
-3. After 30 days, every peer rejects it on staleness
-
-**Having "wait 30 days" as the only way to stop a stolen device is slow.** That is the price of Tier 0's serverless property, offset by:
-
-| Mechanism | Speed | Tier |
-|---|---|---|
-| Revoke access in Google settings | Up to 30 days | 0 |
-| Manual per-device revocation by fingerprint | Immediate on that device; does not propagate | 0 |
-| Gossip of revocations between devices that meet | Whenever they meet | 0 |
-| A Brokr's revocation list | Immediate, pushed to online devices | 2 |
-| ABK rotation | Immediate for remaining devices; the revoked one falls off BLE discovery | 0 |
-
-The staleness limit is configurable down to one day. Shorter means faster revocation but breaks long-offline devices. 30 days is the compromise.
-
-### Why `(iss, sub)` and not email, and not `sub` alone
-
-The `email` claim can change through an account email change or a Workspace domain migration. Display email freely, but **never decide identity on it**.
-
-`sub` is permanent, but it is **unique only within its issuer**. Two providers may issue the same string to different people, and nothing prevents it — OIDC defines the identifier as the pair. So the account identifier is
-
-```
-account_id = iss || 0x00 || sub
-```
-
-and every value derived from account identity takes `account_id`, never the bare subject:
-
-| Derived value | Definition |
-|---|---|
-| `account_tag` | `BLAKE3(account_id \|\| salt)`, the only identifier a Brokr receives |
-| Bootstrap EID secret | `BLAKE3::derive_key("tradr-bootstrap-v1", account_id)`, broadcast over BLE ([ADR-0018](adr/0018-blake3-derive-key-for-eids.md)) |
-| A link record's peer identity | The peer's `(iss, sub)` pair |
-
-**These are persisted and visible on the wire, which is why the pair has to be settled before any of them exists.** Changing the input afterwards changes every device's `account_tag` and bootstrap broadcast at once, and devices on either side of the change stop finding each other until all of them have updated. There is no migration; the old value cannot be recomputed from a token minted under the new rule.
-
-Requiring the pair to match also makes cross-issuer confusion impossible by construction: an account at another provider that happens to share a subject string cannot reach `TRUST_TIER_SAME_ACCOUNT`.
-
-### What this defends, and what it does not
-
-| Attack | Defended? |
-|---|---|
-| Forging an Attestation | Yes — Google's signature is required |
-| Minting a token against our public client ID | Yes — a client ID is not a secret, but the resulting token carries the attacker's own `sub`, which fails step 7 |
-| Replaying someone else's stolen Attestation | Yes — the nonce will not match the attacker's keys |
-| Presenting the attacker's own Attestation | Yes — the `sub` will not match |
-| Replaying an old Attestation | Yes — the signature over `Hello.nonce` proves current key possession |
-| **Google itself acting maliciously** | **No.** Google can forge an Attestation for any `sub` |
-| **The user's Google account being taken over** | **No.** The attacker can enroll new devices |
-
-The last two follow necessarily from choosing Google as the root of trust. **Fingerprint verification** exists to mitigate them.
-
-### An Attestation proves an account, never which device is speaking
-
-Every row above is about the token. **None of them ties the token to the connection it arrived on**, and that join is a separate check with its own failure.
-
-A `SecureChannel` has already authenticated a Device Key by the time a `Hello` is read — that is what the pinned certificate in [docs/03](03-discovery-and-transport.md) buys. The `Hello` then claims an account for a device. Those are two different assertions about two possibly different devices, and only comparing them makes it one: `BLAKE3(Hello.device.identity_pub)[0..16]` must equal the `DeviceId` the channel authenticated.
-
-**The table's third row is true and is not this check.** Replaying a stolen Attestation fails because the nonce binds the victim's keys, so the attacker cannot present it *for their own keys*. What the attacker can do is present it unaltered, for the victim's keys, over a channel authenticated as themselves — every signature verifies, because none of them was ever a statement about who is speaking. The signature over `Hello.nonce` catches it in the end, since the attacker cannot sign under a key they do not hold; the key join catches it several steps earlier, before a Trust Tier has been computed or sent.
-
-[docs/04](04-protocol.md#why-the-key-join-earns-its-place) puts it in order among the exchange's other checks.
-
-## Fingerprint — the option not to trust Google
-
-A Device Key rendered human-readable, equivalent to a Signal safety number.
-
-```
-Take the first 132 bits of BLAKE3("tradr-fp-v1" || identity_pub || agreement_pub),
-most significant bit first, split them into twelve 11-bit indices, and read
-each index from the BIP-39 English word list of 2048. Show them in three
-rows of four.
-
-  example:  harbor  lantern  copper  drift
-            silent  meadow   quartz  ember
-            violet  anchor   pebble  frost
-```
-
-- Settings shows your own fingerprint
-- The inviter's fingerprint is shown when a Link is made, and [the person compares it before consenting](11-account-linking.md#where-the-repliers-consent-goes-and-why-it-is-before-the-dial)
-- Comparing is never mandatory. The default is trust on first use
-
-This catches the case where Google forged an Attestation for an unknown device, at the moment a Link is made.
-
-**No record is kept that the words were compared, ruled by the user on 2026-10-10 as DCR-181.** The earlier design had each peer "marked verified" by a separate act and refused a verified peer whose fingerprint later changed. That act was never offered, the flag it would have set was `false` on every Link ever written, and nothing read it. The comparison is the consent given when the Link is made, and it is not asked for a second time. **A later change of key is not refused either, ruled by the user on 2026-10-14 as DCR-188**: an identity key cannot change under its Device ID, and what can change under it needs that key and the account together; [docs/02](02-architecture.md#where-trust-actually-lives) says why.
-
-### Why 132 bits, when the words were always twelve
-
-**This paragraph said 15 bytes and twelve words, and those two numbers cannot both be true.** Five bytes is 40 bits and four words of an 2048-list is 44, so the split it described could not be implemented at all — found while cutting M6's Layer 0 Work Item, and recorded as DCR-065. Two numbers were defensible and the text named neither.
-
-**132 is the one that keeps everything the reader can see.** Twelve words at 11 bits each is exactly 132, so the three rows of four survive, the list size survives, and only the byte count changes. Taking 120 instead means eleven words with a padding bit in the last one, which is a shape no reader would guess from a display of twelve.
-
-**The bit-level rule is written out because a fingerprint read aloud has to agree between two implementations exactly.** Treat the digest's first 17 bytes as one big-endian bit string; word *i* is bits `[11i, 11i+11)` for *i* in `0..12`. Byte 16 contributes only its top 4 bits, and its low nibble is unused — as are the remaining 15 bytes of a 32-byte BLAKE3 output.
-
-**Layer 0 receives the digest and never computes it**, the same rule `DeviceId::from_identity_digest` follows: the encoding is arithmetic over 32 bytes, and the hash that produced them belongs where a hash function is allowed.
-
-### Where the word list comes from
-
-**"A BIP-39-style list of 2048" named a shape and not a file**, and a Layer 0 crate may not depend on a crate that carries one, so the list is vendored and its provenance belongs here where a review can check it.
-
-| | |
-|---|---|
-| Source | `https://raw.githubusercontent.com/bitcoin/bips/master/bip-0039/english.txt` |
-| SHA-256 | `2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda` |
-| Licence | MIT, per BIP-39's own header. The notice travels with the vendored copy |
-| Shape | 2048 lines, lowercase ASCII, 3 to 8 letters, sorted ascending, one trailing newline |
-
-**The list is chosen for a property the shape does not state: no two words share their first four letters.** That is BIP-39's own rule, and it is what makes a fingerprint survive being read aloud badly — a listener who catches `harb` has the word. A list of 2048 pleasant-sounding words assembled by hand would satisfy every other row of that table and lose this one silently.
-
-**Vendoring is checked structurally rather than by trusting the download.** Every property in the table's last row is asserted by a test, the four-letter rule included, so a truncated or reordered file fails at `cargo test` instead of at the first fingerprint two people compare.
+`BLAKE3("tradr-fp-v1" || identity_pub || agreement_pub)`. Take the first 132 bits, big-endian, as 12 × 11-bit indices into the BIP-39 English list (vendored, SHA-256 `2f5eed53…4dbda`, MIT; any 4-letter prefix is unique). Shown in 3 rows of 4. It is compared when a Link is made. Nothing records that it was compared, and a later key change is not refused.
 
 ## Key storage
 
-Private keys never leave the device after generation. There is no export function; migration means enrolling with new keys.
+`KeyStore` exposes `sign(DomainTag, msg)`, `agree` and `backing()`, and **never key bytes** ([ADR-0011](adr/0011-keystore-exposes-operations.md)). It is `Send + Sync` because rustls signs from many threads.
 
-**This table described three platforms Tradr does not implement, and it said so as "Yes" until 2026-09-19.** What ships is below; what was intended is beneath that, kept because it is still the design and not a retraction of it.
-
-| OS | Storage today | Hardware backing today |
+| OS | Today | Intended (unscheduled) |
 |---|---|---|
-| Android | A `0600` file in the application data directory | **No** |
-| macOS | A `0600` file in the application data directory | **No** |
-| Windows | A `0600` file in the application data directory | **No** |
-| Linux | Secret Service over D-Bus, then a `0600` file | **No** — the last resort is software only |
+| Android, macOS, Windows | 0600 file in app data, **software** | Keystore/StrongBox, Secure Enclave, CNG/TPM |
+| Linux | Secret Service, else a 0600 file | — |
 
-**`crates/tradr-secrets/src/` holds two implementations, `file.rs` and `secret_service.rs`, and `platform_ladder` gates the second on `cfg(target_os = "linux")`.** There is no Keychain, no Secure Enclave, no CNG, no DPAPI and no Android Keystore anywhere in the tree; `StrongBox` and `Keymint` occur only as `SoftwareReason` variants. **Measured rather than read**: an `SM-S928Q`, a device with StrongBox, reports `backing=software`.
+- `backing()` must never overstate itself (Critical Module). Settings shows it.
+- **Linux ladder** (`tradr-secrets` for I/O, `tradr-identity` for policy): it is searched on load. An absent rung is skipped. A failed rung, such as a locked collection, stops the search **only if no lower rung holds the key**: never generate a key over a rung that failed. A key is never moved between rungs. Never unlock a collection (the D-Bus prompt blocks forever when headless). The kernel keyring is not a rung, because it does not survive a reboot.
+- The ladder guarantees availability, not at-rest security. The file rung is plaintext, and full-disk encryption is the OS's job.
+- Link Secrets and the ABK are stored on the rung the Device Key selected. The rung is chosen once, at open.
+- Key generation is a Critical Module: a predictable key is a derivable key.
 
-**The code was always honest and this table was not.** [CLAUDE.md](../CLAUDE.md#6-critical-modules--tests-come-first) §6 names the opposite failure for this Critical Module -- a `backing()` that overstates itself -- and nothing catches this one, because no gate compares a design table with an implementation. **Decision 13, 2026-09-19, ruled that the table is corrected rather than implemented**, on the ground that a false document is today's defect while a missing capability is a roadmap item, and that conflating them puts a Layer 0 change ahead of the work M8's completion criterion is waiting on.
+### Signatures
 
-**The intended design, unimplemented and unscheduled:**
+- Raw 64-byte `r || s` with low-`s` normalization, never DER (the Brokr verifies with WebCrypto).
+- **ECDSA nonces follow RFC 6979, never the injected `Rng`**: a reused nonce leaks the key.
+- Every identity-key signature is domain-separated by a closed `DomainTag` set:
 
-| OS | Intended storage | Intended backing |
-|---|---|---|
-| Android | Android Keystore, attempting `setIsStrongBoxBacked(true)`, falling back to the TEE | StrongBox or TEE |
-| macOS | Keychain, with Secure Enclave key generation where available | The Enclave handles P-256, which is what Device Keys use |
-| Windows | CNG with DPAPI; the Platform Crypto Provider where a TPM exists | With a TPM |
-
-**One obstacle is known and is why "unscheduled" is honest rather than lazy.** A Device Key is two keys, and [ADR-0011](adr/0011-keystore-exposes-operations.md)'s `backing()` answers once for both. Android Keystore admits ECDH only from API 31, and StrongBox support for key agreement is not universal -- so the identity key can land in hardware while the agreement key does not, which the trait cannot currently express. **Implementing this is therefore a Layer 0 question and not only a platform one.**
-
-**Falling short of hardware backing is stated plainly.** Settings displays the storage method in use and says so explicitly when it has fallen back to a file. Headless environments without a running Secret Service get a warning.
-
-### A key store is shared, and the implementations pay for it
-
-`KeyStore` is `Send + Sync`. That is a statement about custody rather than a bound added to satisfy a compiler: **one device's key custody is reachable from several threads at once**, and every implementation has to be built for that.
-
-The immediate reason is the TLS stack. `rustls` takes the external signer [ADR-0011](adr/0011-keystore-exposes-operations.md) requires as a signing key that is `Send + Sync`, holds it for the life of a configuration, and signs each `CertificateVerify` from whichever thread is driving that handshake — and one QUIC endpoint drives several at once. A key store usable only from the thread that opened it could not sign a handshake at all, so this is not a preference between two workable shapes.
-
-**The cost lands on the implementations, not on the callers, and that is deliberate.** A Keymint binder handle, a TPM context and a Secure Enclave reference are not all freely shareable, so an implementation that wraps one owns the synchronisation. The alternative is every call site holding a lock around an operation whose thread-safety only the implementation knows, which puts the decision in the one place that cannot make it correctly.
-
-### A locked Secret Service is a rung that fails, not a rung that is absent
-
-Never unlock a collection to reach a key. An unlock is an interactive prompt, and a prompt with nowhere to be drawn — a headless box, an ssh session, a login whose desktop has gone — **does not fail, it waits**, measured here as a process that never returns from its own startup. A key store opened during startup must not be able to do that: the window never appears and there is nothing on screen to read.
-
-**"Nowhere to be drawn" is a correction of "nobody to answer it", and DCR-143 makes it on 2026-09-20 because the original wording reached a conclusion wider than its own measurement.** Somebody *is* there — a person running a command is sitting at the terminal — and the reason they cannot answer is that `org.freedesktop.Secret.Service.Unlock` returns a prompt object which only a graphical prompter renders. Measured here: the `Unlock` call returns at once with `/org/freedesktop/secrets/prompt/u2`, and `gcr-prompter` is installed and not running, so it is the wait on that prompt's `Completed` signal that never ends. **The daemon's own stdin path is a different mechanism and it does not wait**: `gnome-keyring-daemon --unlock` reads the password from standard input, measured here returning immediately on an empty one. So the rule above holds for the D-Bus prompt and the paragraph must not be read as saying that no unlock anywhere can be answered.
-
-**What the rule is worth is unchanged, because the stdin path is not one this software may take.** Reading a login password on stdin makes every front end a thing that asks for it, which is the phishing surface [the KeyStore boundary](#the-keystore-boundary) exists to keep narrow, and it is a password for the session rather than for Tradr. **The path is named here so that the next person to notice it finds it already ruled on**, rather than finding a sentence that says it is impossible.
-
-So the rung is built without unlocking anything, and the distinction [descending the ladder](#descending-the-linux-ladder) already draws decides the rest. **A Secret Service that answers on the bus is present**, so the rung joins the ladder. **A collection that is locked has not said whether it holds this device's key**, so reading it is an error and the search stops, exactly as any other failed read does.
-
-Descending past it instead would be the worse answer, and it is the tempting one, because it keeps a headless machine working. It also mints a second Device Key over one that may be sitting in the locked collection, and that failure is silent while this one is a sentence the user can act on.
-
-### Why the kernel keyring is not a rung
-
-The ladder listed the kernel keyring between the Secret Service and the file until it was measured. **A kernel keyring has no backing store**: it is kernel memory, there is no file behind it anywhere, and `persistent_keyring_expiry` bounds even the persistent keyring at three days without surviving a reboot at all.
-
-That makes it **less durable than the rung below it**, which inverts the whole point of an ordered ladder. And the machine where it would be chosen is precisely the one that cannot afford it: the keyring is reached only when no Secret Service answers, which is a headless box, where a reboot would find the keyring empty, the file never written, and the ladder concluding that this device has no key. It would mint a second Device Key on every reboot, losing every link, and nothing would fail.
-
-What it would have bought does not pay for that. Against another process running as the same user — the only attacker a `0600` file in a `0700` directory does not already stop — a keyring is no defence either, since that process can read this one's memory.
-
-Linux therefore has two rungs, and a device with no Secret Service says plainly that its key is in a file.
-
-### Descending the Linux ladder
-
-That ladder is a **search on load, not only a preference on write**. A device that stored its key in a `0600` file because no Secret Service was running must find that same key the day one is running. Reading only the highest available rung would find it empty, and the device would generate a second Device Key and present to its own peers as a device none of them has ever seen.
-
-**A key found on a lower rung is not moved to a higher one.** Moving it means deleting it from the rung being vacated, and a move whose delete fails leaves the key readable from the weaker of the two while `backing()` names the stronger. That is the overstatement [the KeyStore boundary](#the-keystore-boundary) exists to prevent, arriving by a different route. `backing()` names the rung the key is actually on, and a device that once fell back says so for as long as that remains true.
-
-**A rung that is absent is skipped; a rung that is present and then fails stops the search -- but only where stopping protects something.** The two are separated when a rung is constructed rather than when it is read: a Secret Service that cannot be reached at all is never on the ladder, and one that is on it and then errors is not treated as an empty slot, because a read that failed and a slot that is empty are indistinguishable in the answer while only one of them may lead to generating a key. A headless box with no D-Bus session descends to the keyring and says so.
-
-**A failed rung therefore stops the search only when no lower rung answers, ruled 2026-09-20 by DCR-143.** The search continues past the failure; if a lower rung holds the key, that key is used, and if the ladder runs out with nothing found, the recorded failure is raised rather than a key being generated. **Nothing in the paragraph above is given up, because what stopping protects is the moment of minting and nothing else**: a device that adopts a key an earlier run wrote to a lower rung creates no second identity, whatever the locked collection above it holds. The case the rule was written for -- a locked collection that may hold this device's key, with nothing below it -- still refuses, and still refuses for the same reason.
-
-**It is a refinement of that decision rather than a reversal of it, and this sentence exists so a later reader can disagree with the classification.** No ADR is written because the safety property is the one already recorded: a locked rung is never minted over. What changes is the set of situations in which that property is at stake, which the original rule over-approximated.
-
-**What the over-approximation cost is a whole class of machine, measured on 2026-09-20.** A Linux host reached only over ssh starts `gnome-keyring-daemon` from PAM, so Secret Service answers on the bus and the rung joins the ladder; public-key authentication hands PAM no password, so the collection is never unlocked; and no prompter can run to unlock it later. **Present, and permanently locked, is the resting state of an ordinary Linux server** -- not an edge case -- and under the original rule `tradr-cli` could not open its Device Key there at all, although the key was sitting in the file rung one step below. The instance that found it had a `login.keyring` of 105 bytes last written ten months before the Device Key was created, so the collection the search stopped for provably held nothing.
-
-### The ladder is about availability, not at-rest security (DCR-178)
-
-**The file rung stays, in plaintext, and the ladder is not a security gradient. Ruled by the user on 2026-10-10.** What the ladder guarantees is that a device can always open its Device Key: with a keyring, without one, over ssh, on a headless box. It does not guarantee that a key is protected at rest, and nothing in Tradr may say or imply that it is.
-
-**Why the ladder cannot be read as a gradient.** Which rung a device lands on is decided by whether a Secret Service happened to be running the first time it started, and [a key is never promoted afterwards](#descending-the-linux-ladder), so nobody chose it. The top rung's protection is narrower than its position suggests: a login keyring with an empty password stores its items in plaintext, and while the session is unlocked any process running as the same user can read any secret in it. So the Secret Service rung protects against an offline reader of the disk, on a machine whose keyring has a password, and against nothing else.
-
-**What a key on the file rung is exposed to**: anyone who can read the user's files -- a stolen unencrypted disk, a backup, another process running as that user. Full-disk encryption is what covers the first two, and it is the operating system's to provide. The remedy after a suspected copy is [the one a stolen device has](#that-is-also-the-revocation-mechanism): revoke access at the provider, and enrol the device again with new keys.
-
-**A passphrase-encrypted file rung was considered and is not pursued.** It is the shape an ssh private key has and would protect a key at rest on every platform, headless included. It costs a prompt at every start, which a resident receiver and `tradr-cli receive` under a service manager cannot answer, and it reaches `SecretStore` in Layer 0. Hardware backing, in [the intended design](#key-storage) above, is the route to at-rest protection if one is ever built.
-
-**What Settings and `backing()` report is unchanged**: the storage method in use, named as it is. A device on the file rung says so; it is a statement of where the key is, not a warning that a better rung was missed.
-
-### One rung per device, and what else goes on it
-
-**A Link Secret goes on the rung the Device Key selected, and no second selection is made anywhere** (DCR-075). The ladder is a search on load, and what it searches for is a value some earlier run wrote. A Link Secret's slot is written moments after the search that would look for it, so there is nothing anywhere to find and the search returns its own documented fallback, the highest rung — which on a device that descended for its Device Key is not the rung that device's secrets are on. **Two rungs holding one device's secrets is two answers to a question Settings displays one answer to.**
-
-**What settles it is that a per-slot selection would have to be made at every call site.** [docs/11](11-account-linking.md#remove-and-the-order-the-two-halves-move-in)'s registry takes a secret store as an argument to each of `add`, `remove` and reading a secret back, so "search the ladder first" would be a rule three callers must remember — and DCR-070 gave those signatures their shape precisely so that nothing is left to a caller's memory. The rung is chosen once, where it is already chosen, and kept beside the `KeyStore` it opened rather than dropped after opening it.
-
-**So a Link Secret is exactly as durable as the Device Key beside it.** A key store emptied between two runs empties both, and what is then left is a Link record naming a slot with nothing in it — the state docs/11 already defines, where an empty slot says the secret was discarded and a wrong-length one says the key store returned something nothing here ever wrote.
-
-**The selection is by position and not by identity.** The search answers *which rung of this ladder*, and a caller that must keep the rung it was handed needs to name the same one among rungs it owns; comparing storage levels to find it again would be a second lookup that can disagree with the first. Nothing about the walk changes — the same rule decides, and the answer is reported in the one form both callers can use.
-
-### The KeyStore boundary
-
-A key inside StrongBox, a TPM, or the Secure Enclave **cannot be read out** — that is the entire point of those elements. So the shape of the `KeyStore` trait, not the choice of curve, is what first decides whether hardware backing is reachable at all. A trait that hands Layer 1 a private key can only ever be implemented in software, on every platform, and it fails silently because the code still works.
-
-`KeyStore` therefore exposes `sign`, `agree`, and `backing`, and no method returns key material. [ADR-0011](adr/0011-keystore-exposes-operations.md) has the trait and the consequences, of which two bind other choices: the Noise implementation must accept an external DH, and the TLS stack must accept an external signer.
-
-`backing()` returns whether the key is in hardware or software and why, and **Settings renders it**. Falling short of hardware backing on Linux is stated plainly rather than assumed; the same display covers a missing TPM, an old Keymint, and a headless box with no Secret Service.
-
-### Hardware backing and the curve
-
-Given that boundary, the curve decides how much of the promise each platform can keep — and only one curve keeps it. **Device Keys are P-256**, ECDSA for signing and ECDH for agreement, decided in [ADR-0012](adr/0012-p256-for-device-keys.md).
-
-| | Ed25519 + X25519 | P-256 |
-|---|---|---|
-| macOS Secure Enclave | No | Yes |
-| Windows TPM via CNG | Not generally | Yes |
-| Android StrongBox | Recent Keymint only | Yes |
-| Linux | Software either way | Software either way |
-
-The design previously specified Ed25519 and X25519, which forfeited hardware backing on three platforms out of four. **Both keys were affected, not only the signing key** — the Secure Enclave performs ECDH on P-256, so an X25519 static key for Noise was as unprotected there as an Ed25519 one.
-
-Two things had to hold before this could be decided, and both were measured rather than assumed:
-
-- `snow` supports P-256, through its `p256` feature and `DHChoice::P256`. A probe completed a full `Noise_IK_P256_ChaChaPoly_BLAKE2s` handshake
-- **A key `snow` never sees can still drive the handshake.** `Dh::privkey()`, the one method a hardware key cannot answer, is reached only from `Builder::generate_keypair`, which Tradr does not call. The static and ephemeral keys resolve to separate `Dh` instances, so the static key delegates to `KeyStore::agree` while the ephemeral key stays in software, where it belongs
-
-**Per-device curve agility is rejected.** Noise's pattern name fixes the DH for both parties, so mixed curves would force a negotiation round trip onto the BLE path and open a downgrade. One curve is in force per protocol version, which `Hello.min_version` and `Hello.max_version` already carry.
-
-Wire fields are therefore named for their role — `identity_pub` and `agreement_pub` — never for the algorithm behind them.
-
-**Both are 65-byte uncompressed SEC-1 points.** `snow` puts the agreement key on the wire in that form and offers no choice, and using the compressed 33-byte encoding for the identity key alone would put two encodings of the same curve in one message — 32 bytes saved against a standing invitation to pass one where the other belongs.
-
-Pinning the encoding is not cosmetic. The Attestation nonce is `BLAKE3(identity_pub || agreement_pub)`, so two implementations that disagree about how a point is encoded compute different nonces and **fail every verification against each other**, with nothing in the error to say why.
-
-#### What the `snow` resolver decides, measured 2026-09-07
-
-The bullet above says the static and ephemeral keys resolve to separate `Dh` instances. **Which instance is which is decided by call order and by nothing else**, so the rule is written here rather than left to be rediscovered: `Builder::build` calls `CryptoResolver::resolve_dh` exactly twice, the first answer becomes the static key and the second the ephemeral, and Tradr's resolver hands out the `KeyStore`-backed `Dh` on the first call only. A resolver that answered both calls the same way would still complete a handshake between two Tradr devices, because both sides would be equally wrong -- so this is a rule no functional test can be relied on to state, and it is stated here instead.
-
-Three consequences of the feature set follow, and all three were measured rather than read.
-
-- **`snow`'s `default-resolver` does not compile without `use-curve25519`**, whatever curve the pattern names. The `DHChoice` match in the default resolver has no wildcard arm, so a build carrying only `use-p256` fails on a curve this design rejected. The feature is enabled to satisfy the compiler; the pattern string fixes P-256 for both parties, and `DHChoice::Curve25519` is unreachable from a constant pattern.
-- **`use-getrandom` is deliberately left off, and that is what makes rule B7 mechanical here.** Without it `DefaultResolver::resolve_rng` returns `None` and a build refuses to produce a `HandshakeState` at all, so the injected `Rng` is not merely the preferred source of the ephemeral key -- it is the only source that exists. A promise a review has to keep becomes a link error.
-- **The handshake fits BLE's frame without fragmenting.** `Noise_XX_P256_ChaChaPoly_BLAKE2s` writes 65, 299 and 234 bytes, the last two carrying the 137-byte identity join, all inside the 512-byte `max_frame_size` [docs/04](04-protocol.md#framing) negotiates for BLE. Measured through this resolver on 2026-09-07, alongside the 162 and 81 bytes `Noise_IK` wrote before [ADR-0020](adr/0020-noise-xx-for-ble-gatt.md) replaced it. A transport-mode message carries at most 65535 bytes, so at most 65519 bytes of plaintext, and `snow` refuses one byte more.
-- **`XX` asks the resolver for nothing new, which is why the rule above is unchanged.** It transmits a static public key where `IK` only computed with one, and transmitting reads `Dh::pubkey`, which `IK` already called. `Builder::build` still resolves twice, static first.
-
-**A local failure and a peer's bad message must not arrive as the same error.** `Dh::dh` and `Random::try_fill_bytes` can only return `snow`'s own `Error::Dh` and `Error::Rng`, which carry nothing of the `KeyStoreError` or `RngError` underneath -- so a secure element that refused an operation and a peer that sent nonsense are indistinguishable at the point `snow` reports them. The implementation therefore records the underlying error where it happens and reports that in preference to the generic refusal. Losing it would be rule F6 in the one place the answer decides whether to retry or to tell the user their key store is broken.
-
-## Every signature carries a domain tag
-
-The identity key signs in six places, and until this was written down only one of them said what it was signing for.
-
-| What is signed | Where |
+| Tag | Use |
 |---|---|
-| `"tradr-keybind-v1" \|\| agreement_pub` | `KeyBinding.signature` |
-| The peer's `Hello.nonce` | `HelloAck.nonce_signature` |
-| The Brokr's challenge nonce | `BrokrRegister.challenge_signature` |
-| A revocation record | [docs/07](07-brokr.md#data-model) |
-| The self-signed certificate's TBS structure | The QUIC handshake |
-| TLS 1.3's `CertificateVerify` content | The QUIC handshake |
+| `tradr-keybind-v1` | agreement key binding |
+| `tradr-hello-v1` | handshake possession proof |
+| `tradr-brokr-v1` | Brokr challenge |
+| `tradr-revoke-v1` | revocation record |
+| `tradr-deferred-v1` | Deferred Delivery manifest |
+| `CertificateTbs` | requires prefix `0x30` (DER) |
+| `TlsCertificateVerify` | requires 64 × `0x20` + `TLS 1.3, ` |
 
-**Two of those are "sign these opaque bytes somebody handed me", and a Brokr chooses one of them.** That is a cross-protocol signature reuse attack, and it needs no cryptographic weakness:
+The last two do not prepend anything. Instead they **require** the message to start with those bytes, so no caller can obtain an untagged signature over bytes it chose.
 
-```
-1. A malicious Brokr opens a Tradr handshake with peer P, claiming to be device D
-2. P sends its Hello.nonce
-3. D registers with that Brokr, which is the Brokr's normal job
-4. The Brokr sends P's Hello.nonce back to D as the registration challenge
-5. D signs it, because a challenge is opaque bytes and this one looks like any other
-6. The Brokr replays that signature to P and completes the handshake as D
-```
+## Secure channels
 
-[ADR-0005](adr/0005-brokr-is-optional.md) states that a compromised Brokr cannot impersonate anyone. Without domain separation that is false, and the Brokr does not even have to be compromised to try it.
-
-**So every signature the identity key produces is over `tag || message`, where `tag` comes from a closed set:**
-
-```
-tradr-keybind-v1     binding the agreement key to the identity key
-tradr-hello-v1       proving key possession during a handshake
-tradr-brokr-v1       answering a Brokr's registration challenge
-tradr-revoke-v1      declaring a device revoked
-tradr-deferred-v1    signing a Deferred Delivery's manifest (ADR-0025, DCR-173)
-```
-
-The set is closed rather than a free string so that adding a context is a visible edit in one place, not something any call site can invent.
-
-### Two contexts admit no prefix, and the structure is checked rather than argued
-
-The QUIC handshake signs bytes whose shape somebody else fixed, so no tag can go in front of them. There are two such contexts, not one.
-
-- **The self-signed certificate's `TBSCertificate`.** X.509 fixes the signed structure, and a prefix would make the certificate unparseable.
-- **TLS 1.3's `CertificateVerify`.** RFC 8446 fixes the content: sixty-four `0x20` bytes, then `TLS 1.3, server CertificateVerify` or `TLS 1.3, client CertificateVerify`, then a `0x00`, then the transcript hash. `rustls` assembles that buffer itself and hands it to the signer unhashed, so what the identity key signs there is not this design's to choose. **This row was missing until now and it is the unavoidable one**: mutual TLS on the QUIC paths does not happen without it.
-
-Neither needs a tag, because each already begins with a byte no other context can produce:
-
-| What is signed | First byte |
+| Transport | Channel |
 |---|---|
-| Any of the four tagged messages | `0x74`, the `t` of `tradr-` |
-| `TBSCertificate` | `0x30`, DER's SEQUENCE |
-| `CertificateVerify` | `0x20`, the first of sixty-four spaces |
+| QUIC paths | TLS 1.3 (`TLS_AES_128_GCM_SHA256`, rustls), mutual, self-signed |
+| `ble-gatt` | `Noise_XX_P256_ChaChaPoly_BLAKE2s` ([ADR-0020](adr/0020-noise-xx-for-ble-gatt.md)) |
+| `relay` | `Noise_IK` (provisional, not built) |
 
-**That was prose, and prose is not an instrument.** `KeyStore::sign` takes a `DomainTag` from a closed set, and the set could not say "these bytes carry their own separation", so an implementation reaching the QUIC handshake had two ways out and both are worse than the attack: an escape hatch on the closed set, which hands any caller an untagged signature over bytes the caller chose, or signing outside `KeyStore` altogether, which forfeits hardware backing and with it [ADR-0011](adr/0011-keystore-exposes-operations.md).
+**QUIC certificate**: the SPKI is the identity key. Subject, issuer and serial are constants; validity never expires; there are no extensions. Identity lives only in the SPKI.
+- The **dialler** pins: with `Device(id)` it closes on a mismatch; with `Unpinned` it learns the id. These must never collapse into one code path, and a missing expectation is never replaced by a default.
+- The **listener** only checks that the certificate is a well-formed P-256 certificate. Whether the peer is welcome is decided by `Hello`.
 
-**So a `DomainTag` names a separation, and a separation is one of two things**: bytes prepended to the message before signing, or bytes the message must *already* begin with, where signing is refused when it does not. `CertificateTbs` and `TlsCertificateVerify` join the closed set as the second kind, requiring `0x30` and the sixty-four spaces followed by `TLS 1.3, ` respectively. The disjointness above stops being an argument and becomes a refusal: a caller handing `CertificateTbs` a message that begins with `tradr-` gets an error rather than a signature.
+**Noise**:
+- `snow` with `use-p256`. `use-curve25519` is enabled only to compile. `use-getrandom` is **off**, so the injected `Rng` is the only RNG.
+- The resolver gives the KeyStore-backed `Dh` on the **first** `resolve_dh` call (static) and software on the second (ephemeral).
+- Message sizes 65 / 299 / 234 B. Messages 2 and 3 carry the 137-byte identity join (`identity_pub`, KeyBinding signature, `not_after`). The covered agreement key is not sent; it is rebuilt from the Noise-authenticated static key.
+- A record's position in the stream is its nonce. A transmit lock spans encrypt+send; the session lock is never held across I/O. An authentication failure closes the channel as `AuthenticationFailed`.
+- Keep local errors (KeyStore, Rng) distinct from a peer's bad message.
+- XX reveals the responder's static key to an active prober. Gating message 1 on an ABK or Link Secret is deferred.
 
-**One tag covers both spellings of `CertificateVerify`.** The client and server context strings differ, but RFC 8446 already separates them from each other, and both are the same act — a device proving possession of the key in the certificate it just sent.
+## Trust Tiers
 
-**TLS chooses its own signature encoding, and that is not a contradiction of the next section.** `r || s` is what Tradr's own wire fields carry, for the reasons given there; a `CertificateVerify` and an X.509 signature field are DER by their own specifications. The conversion belongs to the Layer 3 adapter that implements `rustls`'s signer against `KeyStore`, which is the same place [ADR-0011](adr/0011-keystore-exposes-operations.md) already puts the external signer.
-
-### The token never chooses how it is verified
-
-Step 2 verifies the `id_token` against the profile's JWKS. Three things about that are decisions rather than details, and none was written down until now.
-
-**The accepted algorithms are a field of the Provider Profile, and the token's `alg` header is checked against that set, never used to select anything.** Google's profile lists `RS256` and nothing else.
-
-This is step 1's rule applied a second time. A verifier that reads `alg` and dispatches on it lets the token nominate its own verification method, and the two classic outcomes are well known:
-
-- **`alg: none`.** A token declaring it has no signature, verified by a verifier that believes it.
-- **Algorithm confusion.** A token declaring `HS256`, verified by passing the provider's RSA *public* key as an HMAC secret. The public key is public, so anyone can mint a token that passes.
-
-Both are unreachable when the algorithm comes from the profile and the header is only ever compared to it. **`none` is not a value any profile may contain.**
-
-**`aud` is a single string, and a token carrying an array is rejected.** RFC 7519 permits either, and the providers this design serves send one client id. Accepting an array would require a policy for which member counts, and every such policy is a place for a token to slip a value past a check that was written for the other shape. One accepted spelling means the comparison in step 3 has one meaning.
-
-**`kid` selects among the profile's keys and nothing else.** A provider publishes several and rotates them, so the header has to pick one; what it must not do is reach outside the set the profile's `jwks_uri` returned. An unknown `kid` is a rejection, not a lookup.
-
-**A cache miss may trigger at most one refetch, and refetches are rate limited.** Key rotation means an unknown `kid` is sometimes legitimate, so the cache is refreshed and the token retried once. Without a limit that is a denial-of-service primitive: a peer sending tokens with random `kid` values would drive one outbound fetch each, from every device it contacts. **Verification works offline against an existing cache**, which is what makes Tier 0 serverless, so a failed refetch degrades to rejecting that one token rather than to failing every verification.
-
-**The cache decides; the composition root fetches.** The limit is a property of the cache's own state rather than of the code calling it: asking the cache whether a refetch is warranted *is* the act of spending that budget, so a caller that asks twice is refused the second time however its loop happens to be written. Putting the rule anywhere else makes it a rule about callers, and there will be more than one caller. This also keeps verification synchronous and free of any HTTP client, and leaves the single `await` where the process already holds its I/O.
-
-**The floor between refetches is five minutes.** That bounds a peer sending random `kid` values to twelve outbound requests an hour from each device it reaches, while still picking up a legitimate rotation within one -- and providers publish a new key well before signing with it, so five minutes costs nothing against the rotation this exists to tolerate. A device whose first fetch fails is then unable to verify anything for five minutes, which is the same limit doing its job: the tokens it would have verified came from peers, and rejecting them is the safe direction.
-
-**The cache does not expire.** An old cache is a working cache, since offline verification is the property that keeps Tier 0 serverless, and a key does not become dangerous by ageing. A fetch that fails, or returns a document that does not parse, therefore leaves the existing keys exactly as they were: a refetch can only ever add to what a device can verify, never take it away.
-
-**A cache is bound to a `jwks_uri` when it is built.** A JWKS document names no issuer, so nothing in the bytes could catch a document from one provider being installed into another provider's cache. Binding the two at construction removes the chance to pair them wrongly rather than detecting it afterwards.
-
-#### The first document in a cache comes from this device's own sign-in
-
-**"Verification works offline against an existing cache" needs the cache to hold something before the first peer arrives, and until DCR-110 nothing put anything there.** The cache is built empty at startup and warmed by the first classification that misses -- which is a fetch, on a peer's arrival, over a network the peer arrived without. So a device that has gone offline rejects the first peer it meets after every start, and rejects it for the one reason Tier 0 says it never needs: the provider was unreachable. The property this whole section claims was true of the second connection onwards and never of the first, and every test of it warmed its own fixture by hand.
-
-**The fetch that fills it already happens and is not a peer's.** Sign-in retrieves the JWKS to verify this device's own `id_token`, over a network a sign-in requires by construction, and then parses it and drops it. Installing that document into the cache `PeerTrust` classifies against is the whole of the repair, and it costs no outbound request that was not already made. **It is also the only fetch a device makes that no peer chose**: every other one is a cache miss a peer's `kid` caused, which is why the refetch budget exists to bound it.
-
-**A document is installed against the `jwks_uri` it came from, and a mismatch refuses rather than replaces.** Binding the cache at construction stops a document reaching the wrong provider's cache when the *cache* is picked wrongly; it cannot see a caller that picked the wrong *document*, and sign-in selects its own Provider Profile independently of the one `PeerTrust` holds. Naming the source uri at the call and refusing when the two disagree is the same reasoning one step later, and it keeps a second selection from silently deciding what a first one already decided.
-
-**Nothing is written to disk, and that is a bound rather than an omission.** A cache surviving a restart would help only a device that could also *sign in* while offline, and even a [kept `id_token`](#a-kept-attestation-dcr-150) is re-verified at every start by a sign-in that warms this cache over the network -- so a device started offline has no account, and a classification with no account is refused before it ever reads a key. Persisting the JWKS is therefore the second half of persisting the sign-in and belongs with it, not here.
-
-### Who runs the seven steps
-
-**The sequence lives in `tradr-identity`, not in whatever crate binds the app to its shell.** Every piece of it -- profile selection, signature verification, the audience set, the nonce binding, staleness, the tier -- is code in that crate, and until now nothing joined them, so the join would have landed in the composition root by default. [ADR-0001](adr/0001-tauri-2-as-app-shell.md) records conditions under which the shell is dropped and Change Drill D9 budgets for swapping the crate that names it. **The order of these steps is security design and not wiring**, and leaving it in the crate D9 discards means whoever writes the next binding re-derives it from this document, correctly, under time pressure.
-
-**The fetch still stays outside, by the same device [DCR-022](../STATE.md) used for the cache.** Verification returns "this token names a `kid` I do not hold and the budget allows one fetch of *this* uri" instead of fetching; the caller fetches, installs, and calls again. So the sequence is synchronous and pure, `tradr-identity` names no HTTP client, and the single `await` remains in the composition root where the process already holds its I/O.
-
-**The profile is selected once and used for every step that depends on one.** Step 2 needs the profile to know which algorithms are permitted and which keys to trust; steps 3, 4 and 5 need it for the client id set and the nonce binding. Two independent selections is the failure this rules out: a signature checked under one provider's rules while another provider's `nonce_binding` and `client_ids` decide what the claims mean. Step 1's rule is that a token may not nominate its own verification rules, and **a token that gets the rules applied to it chosen twice has done exactly that**, whichever way each selection went.
-
-**Selecting the profile reads `iss` before any signature has been checked, and that is not a contradiction.** Verification does not alter the payload, so the `iss` read in step 1 is the `iss` the signature covers; if it were forged, the profile it selects carries keys that will not verify the token, and step 2 rejects it. What step 1 must never do is read anything *other* than `iss` -- a JWKS host, a `kid`, an `alg` -- to decide which rules apply.
-
-#### What runs on a stream that has no session
-
-**One stream in this protocol verifies an Attestation and must not run step 6, and [docs/11](11-account-linking.md#how-bobs-reply-reaches-alice-and-what-authorises-the-connection) is why**: an account being linked is by construction one step 6 refuses, so the check that makes linking worth having is the check that refuses the exchange establishing it. DCR-072 settles what runs instead, and the shape is a second entry point rather than a flag on the first.
-
-**A flag is rejected for the reason docs/11 already gives against `ephemeral_receive`, and for one this document can add.** A policy that still carries `own_account` and `linked_accounts` while being told to ignore them has two account fields read on one path and not on the other, and nothing in the type says which path is running. **The link policy carries no account fields at all**, so step 6 is not skipped there -- it is inexpressible. That is the difference between a sentence and an instrument, and it is the thing this repository has recorded six times in place of a rule someone must remember.
-
-**What it returns is the account, and that is the whole point of running steps 1 to 5 at all.** An ordinary verification answers "which tier"; a link verification answers "which account", because the account is what the Link record stores and what `linked_accounts` holds the next time step 6 runs. The two entry points return different things rather than the same thing under two names.
-
-**The key join moves inside it, and only here.** On the Hello path the join is check 2 of the exchange -- one hash, before any signature work, refusing before an `AttestationRequest` exists at all -- and a link stream has no `Hello` and no state machine, so the join has exactly one honest home left. **Taking the channel-authenticated `DeviceId` as an argument is what makes it unforgettable**: the function cannot be called without supplying the value the peer's key is compared against. It runs first, ahead of the signature work, exactly where check 2 runs.
-
-**Steps 1 to 5 are one implementation and not two.** DCR-025's argument is unchanged and now has a second caller to survive: the profile is selected once, from `iss` alone, and every step that depends on a profile runs against that same selection. Two entry points over one core is what keeps that true. **Two entry points each with their own copy would be the defect DCR-025 exists to prevent, reached by a different route** -- and it is the shape DF-27 and DF-29 already record twice in this workspace.
-
-### How a signature is encoded, and where its nonce comes from
-
-**64 bytes, `r || s`, each a 32-byte big-endian scalar. Never DER.**
-
-`bytes signature` in `proto/` said only "P-256 signature", and DER and raw `r || s` are both exactly that while being incompatible. The deciding reason is not taste:
-
-- **A Brokr verifies `BrokrRegister.challenge_signature`**, and a Brokr is TypeScript. `crypto.subtle.verify` with `ECDSA` takes raw `r || s` and nothing else, so DER would oblige every Brokr to carry an ASN.1 parser to undo an encoding the client chose for no reason.
-- **Fixed length makes a length check a real check.** A 64-byte field either is the right size or is rejected before any parsing happens. DER is variable-length, and its parsers are a well-supplied source of vulnerabilities.
-
-`s` is normalized to the lower half of the curve order. `(r, s)` and `(r, n - s)` both verify, so leaving it unnormalized means one signature has two valid spellings; nothing here treats a signature as an identifier today, and permitting that is still free to avoid.
-
-**The ECDSA nonce is derived per RFC 6979, from the private key and the message. It must not come from the `Rng` the KeyStore was given.**
-
-This is the sharpest edge in the whole design. Injecting randomness is what rule B7 asks for everywhere else, and doing it here is fatal: **two ECDSA signatures made under one nonce expose the private key** by elementary algebra, and a test `Rng` is deterministic by construction. An implementation that draws its nonce from the injected source is correct-looking, passes every functional test, and hands its Device Key to anyone who collects two signatures.
-
-RFC 6979 removes the failure mode rather than defending against it: there is no nonce source to get wrong, and signing needs no randomness at all.
-
-## Why there are two encryption layers
-
-| Transport | Secure channel |
-|---|---|
-| `direct-quic`, `holepunch-quic`, `wifi-direct` | QUIC's TLS 1.3 |
-| `ble-gatt` | Noise_XX ([ADR-0020](adr/0020-noise-xx-for-ble-gatt.md)) |
-| `relay` | Noise_IK, on a premise M8 has to check |
-
-QUIC already contains TLS 1.3, so stacking another encryption layer on top would be pure duplication. On QUIC paths TLS is used directly, with **a self-signed certificate whose public key is the Device Key, matched against the pinned value**. No certificate chain and no CA.
-
-- The certificate's `SubjectPublicKeyInfo` is the device's P-256 identity public key
-- Certificates are requested in both directions, giving mutual TLS
-- Verification asks not whether a chain validates but whether this public key equals the expected Device ID
-- **Only the dialling side pins, and the sentence above is written from its point of view.** A listener cannot pin: it is handed the peer's certificate and nothing else, because it does not know who is dialling it until they arrive. So the two directions do different work. **The dialling side** compares the certificate's public key against the Device ID it meant to reach, and closes on a mismatch. **The listening side** checks only that the certificate is a well-formed P-256 certificate, learns the Device ID from it, and defers every question of whether that device is welcome to the Attestation exchange in `Hello` — which is where it already was: [step 6](#what-a-verifier-does) compares `(iss, sub)` and assigns a Trust Tier, and that happens after a channel exists. Mutual TLS still proves current key possession in both directions, which is what it is for. What it does not do, and never did, is decide whether a peer is welcome
-- **The dialling side has one case with nothing to pin against, and it is not an exception to the rule above.** A Static Peer's first connection ([docs/03](03-discovery-and-transport.md#what-a-transport-is-told-about-the-peer-it-is-dialling)) is the single moment a dialler holds no Device ID, because that connection is what fills it in. `PeerExpectation::Unpinned` says so explicitly rather than leaving a caller to invent a Device ID to pass. The dialling verifier then does what the listening one does — accept a well-formed P-256 certificate, learn the Device ID from it, and prove current key possession — and the comparison moves to the caller that will store the result. **What must never happen is the two cases collapsing into one code path.** An expectation that is present and does not match is a refusal, and an absent one is the only case in which nothing is compared -- **not the only case that may be accepted**, which is a different sentence and the one this bullet said until an implementation copied it onto the trait and inverted the rule. So the variant is read, and a Device ID is never compared against a default value standing in for "none"
-- **The subject and issuer are a constant, identical on every device.** Putting the Device ID in the common name is the obvious move and it is wrong: it gives a device's identity a second place to live, and a verifier reading the wrong one is a defect that the most likely test — a device verifying itself, where both fields agree — cannot expose. The `SubjectPublicKeyInfo` is the only place identity appears, and a constant name is what keeps that literally true
-- **The validity window is fixed and never expires.** Nothing validates this certificate as a chain, so a window is a field nothing reads — and a narrow one is a field nothing reads until it silently begins refusing connections. A Device Key's lifetime is already governed by the staleness rule in [step 5](#what-a-verifier-does), against a different clock and a different mechanism. Two expiry dates that can disagree is worse than one that is never consulted, and it keeps certificate construction free of a `Clock`
-- **The serial number is a constant, for the reason the name is.** A serial derived from the Device ID hands identity the second home the constant subject was just chosen to deny, and a random one puts an `Rng` into a construction that decision otherwise keeps free of one. RFC 5280 requires serial numbers to be unique per issuer so that a chain validator can name one certificate among many; nothing here validates a chain, so nothing here reads it.
-- **The certificate carries no extensions.** It is a v3 certificate, because that is the version a TLS peer expects to parse, but every extension a CA would add — `basicConstraints`, `keyUsage`, a subject alternative name — is there to tell a chain validator something, and there is no chain validator. A subject alternative name would do worse than sit unread: it is the second place identity could live, which is what the constant subject exists to prevent.
-
-BLE and `relay` are raw byte streams where TLS does not fit — its handshake overhead is prohibitive over BLE, and on relay the WebSocket's TLS terminates at the Brokr. Those use **Noise**, and [ADR-0020](adr/0020-noise-xx-for-ble-gatt.md) is why the two do not use the same pattern.
-
-- **This bullet said the `IK` pattern's premise was met and it never was.** It read: the initiator already knows the responder's static public key, *which discovery has supplied along with the Device ID*. No source supplies one. mDNS carries an 8-byte fingerprint of the agreement key, a BLE advertisement carries no per-device identifier at all, a Static Peer carries a hostname, and nothing persists a peer's `PublicIdentity` — a `LinkRecord` stores an account, not keys. **The sentence was true of a design that had a peer key store, and this one has never had one**
-- **So `ble-gatt` is `Noise_XX`**: three messages rather than two, neither side needing the other's static key in advance, and both statics transmitted encrypted. It is what a `PeerExpectation::Unpinned` dial can actually perform, and every BLE dial is one
-- **`relay` keeps `IK` provisionally.** A Brokr rendezvous may genuinely hand a dialler the responder's key, which is the one place the premise could still be met, and M8 decides it against a Brokr that exists rather than now against none
-- On relay the Brokr sits between the endpoints and sees only Noise ciphertext
-
-#### Noise authenticates the agreement key, and `peer` must answer with a Device ID
-
-**These are two different keys and only the `KeyBinding` joins them.** A `DeviceId` is `BLAKE3(identity_pub)[0..16]`; a Noise static key is the agreement key. On a QUIC path the question does not arise, because the certificate's `SubjectPublicKeyInfo` *is* the identity key and the listening side reads the Device ID straight out of it. **There is no counterpart on a Noise path**, so a side that finished a handshake holds 65 bytes it cannot turn into the value `SecureChannel::peer` must return — and `peer` cannot fail.
-
-**The identity join therefore rides in the handshake payload**, 137 bytes in each of messages 2 and 3: `identity_pub` at 65, the `KeyBinding` signature at 64, and its `not_after` at 8. Each side runs [docs/04](04-protocol.md#what-each-side-checks-and-in-what-order)'s check 3 against the static key Noise has just authenticated — the covered key, then the signature, then expiry — and derives the Device ID from the identity key that check just vouched for.
-
-**The agreement key the binding covers is not transmitted.** The receiver reconstructs the binding over the static key Noise has just authenticated, so the covered-key comparison is true by construction and a peer replaying another device's identity and genuine signature is refused by the signature. Sending the covered key would let the peer choose what its own binding is checked against, which is the circularity the join exists to avoid.
-
-**It is the same check as `Hello`'s and it has one home.** `tradr-core` declares the port, `tradr-identity` implements it over the function `on_peer_hello` already calls, and the transport is constructed with it: `ci/layer-deps.sh` rule 4 forbids `tradr-transport` from naming `tradr-identity`, and the rule is right, because a P-256 signature check belongs beside the other five. **Checking `not_after` in both places is one date read twice against one `Clock`**, which is a different thing from the certificate's second expiry this document refuses two sections above.
-
-**What an active prober learns, and why the EID survives it.** `XX` reveals the responder's static agreement key in message 2, encrypted under an `ee` any prober can compute, and the identity join beside it. [docs/03](03-discovery-and-transport.md#2-ble--proximity-no-network-required-tier-0) says why no permanent identifier goes on the air and the threat it names is a *receiver* — shop receivers and passing phones, listening. A prober that connects and completes a handshake is not listening, and no pattern exists in which a dialler holding nothing learns nothing. Refusing message 1 unless it proves possession of an ABK or a Link Secret would close it, and [STATE.md](../STATE.md) carries it as deferred rather than built.
-
-#### A record's place in the sequence is its nonce, so encrypting and transmitting are one critical section
-
-**`snow` counts records per direction and that counter is the nonce**, so a receiver decrypts in arrival order and a record arriving out of the order it was encrypted in fails authentication. **That failure is indistinguishable from tampering**, which is what makes ordering a rule rather than an optimisation: nothing below the plane can tell a reordered record from a forged one, and this layer cannot either.
-
-**Both directions live in one `TransportState` and `snow` does not split it**, so one lock around the session is the arrangement that suggests itself and it is the wrong one. A reader holding it across a link read blocks every writer, and a writer holding it across a link send blocks every read -- which on a link with backpressure of its own is a stall nothing above can see. **So the lock that spans encrypting and transmitting is not the session's.** A transmit lock orders the pair, the session lock is taken inside it and released before the record reaches the link, and a reader takes the session lock alone and only once its record has arrived. Two locks, and the one both sides share is never held across a wait.
-
-**A record that fails to authenticate closes the channel**, exactly as a malformed length does one layer up. After it nothing has a known position in the sequence, so a reader that skipped it would hand the plane above a byte sequence with a hole in it -- which is the argument [docs/04](04-protocol.md#the-in-band-multiplexing-frame) already makes about an unassigned mux code, one layer down.
-
-**It is `AuthenticationFailed` and not `Closed`, and the difference is what a caller does next.** [docs/03](03-discovery-and-transport.md#what-a-transport-can-know-about-a-refusal-and-what-it-must-not-invent) gives that variant one guarantee -- the peer failed to authenticate and retrying will not change that -- while a mux refusal is an authenticated peer breaking a contract. Both shut the channel; only one says the bytes were not the peer's.
-
-**None of this is negotiated and none of it is BLE's.** The record limit is a construction parameter and the ordering rule is a property of the cipher state rather than of the link, so it holds for `relay`'s Noise_IK unchanged.
-
-**Both give the layer above identical guarantees**: mutually authenticated, forward secret, ordered, bidirectional. That invariant is expressed as a `SecureChannel` trait, and `tradr-core` never learns which one it is using.
-
-## Trust Tiers and their powers
-
-| | `SAME_ACCOUNT` | `LINKED` | `NEARBY_EPHEMERAL` |
+| | SAME_ACCOUNT | LINKED | NEARBY_EPHEMERAL (not built) |
 |---|---|---|---|
-| Receiving files | Auto-accepted by default | Confirmation by default | Always confirmed, plus a PIN check |
-| Browsing Shares | Those with `audience=account` | Those whose audience includes the link | No |
-| Writing to Shares | Where `mode=rw` | Where `mode=rw` and explicitly permitted | No |
-| Size limit per transfer | None | Configurable, unlimited by default | 100 MB |
-| Duration | Permanent | Until the link is removed | 10 minutes |
+| Receive | auto-accept | auto-accept | confirm + PIN |
+| Browse / write folder | yes | only if the link has `full_access` ([ADR-0024](adr/0024-one-folder-per-device-full-access.md)) | no |
 
-`NEARBY_EPHEMERAL` corresponds to Quick Share's "everyone" mode. It is **off by default**; the user turns it on for ten minutes at a time. Even then, the sender displays four digits the receiver must confirm, which surfaces a man-in-the-middle.
+## Threat model (summary)
 
-## Threat model
-
-### Adversaries considered
-
-| # | Adversary | Capability |
+| Adversary | Gets | Cannot |
 |---|---|---|
-| T1 | Another party on the same LAN | Observe packets, spoof mDNS, attempt connections to any device |
-| T2 | A passive observer on the path | Record all packets |
-| T3 | An active attacker on the path | Modify, inject, attempt man-in-the-middle |
-| T4 | A malicious or compromised Brokr | Every relayed byte, presence data, registered Device IDs |
-| T5 | A BLE receiver in proximity | Every advertisement |
-| T6 | A malicious linked peer | Holds a valid Attestation and acts as `LINKED` |
-| T7 | Someone holding the device physically | Disk contents, and the whole app once unlocked |
+| LAN party | Device ID, name (hostname), platform, caps; can spoof mDNS | pass Attestation |
+| Passive path | IPs, timing, sizes | content |
+| Active path | MITM on a TOFU first contact only (Static Peer) | complete a handshake without the key or KeyBinding |
+| Brokr | metadata, presence, ciphertext, DoS | read content, impersonate (never verifies Attestations; sees only `account_tag`) |
+| BLE listener | EIDs (rotate every 15 min); bootstrap presence if it knows `account_id` | track across windows |
+| Linked peer | everything in the folder it is allowed to access | other devices' folders |
+| Physical | keys in the file rung | — |
 
-### Responses
-
-**T1 — another party on the LAN**
-- Spoofing mDNS TXT records to claim a false identity is possible, but Attestation verification after connection always rejects it
-- Incoming connections receive no resources until `Hello` arrives. Per-connection memory limits and rate limits apply before the handshake
-- **Leaked**: Device ID, display name, platform, capability flags. Who is present on a LAN is not concealed — see [03](03-discovery-and-transport.md)
-- **The display name is the host's own hostname** (DCR-145), so what leaks is whatever the machine is already called by every other service on that LAN. That is the user's decision and not the design's: a name is only useful because a person can read it, and a name a person can read is a name an observer can read
-
-**T2 — passive observer**
-- All payload is encrypted. Part of the QUIC handshake is visible, but SNI is not used
-- **Leaked**: peer IP addresses, transfer timing, approximate sizes. Traffic analysis is not defended against; padding and cover traffic are out of scope
-
-**T3 — active attacker and man-in-the-middle**
-- Public-key pinning on QUIC, and Noise on BLE and relay, both prevent an intermediary without the key from completing a handshake. **On a `Noise_XX` dial that pins nothing there is no key to be without**, and what refuses the intermediary there is the identity join: a `KeyBinding` is a signature under the identity key, and an intermediary substituting its own static key cannot produce one over it
-- The first connection is trust on first use, so **a man-in-the-middle is possible on that first contact only**. Out-of-band fingerprint verification is what detects it
-- The Attestation nonce prevents stealing a legitimate device's Attestation and presenting it with attacker-controlled keys
-
-**T4 — malicious Brokr** — the case this design paid the most attention to
-- Only Noise ciphertext traverses a relay. A Brokr never sees plaintext
-- **A Brokr is designed to be unable to verify Attestations.** Verification always happens on a device against Google's JWKS. Compromising a Brokr therefore grants no impersonation. It can insert fake devices into presence listings, but those devices hold no Attestation and get rejected at connection time
-- The identifier a Brokr receives is `account_tag = BLAKE3(account_id || salt)`. Neither the issuer nor the `sub` is ever sent
-- **A Brokr can**: collect metadata about who communicated with whom and when, observe presence, deny service, and retain relayed ciphertext it cannot decrypt
-- **A Brokr cannot**: read content, impersonate anyone, or reach another party's Shares
-- Self-hosting means the Brokr's operator is usually the user. The separation still holds because a Brokr is the only component exposed to the internet, making it the most likely thing to be compromised
-
-**T5 — BLE receivers**
-- Broadcast EIDs rotate every 15 minutes and are untrackable without the matching secret
-- The bootstrap secret, `HKDF(account_id)`, falls to anyone who learns the pair. Routes to obtaining one are limited but not nonexistent. Exchanging an ABK closes the window by ending bootstrap advertising
-- BLE addresses themselves use resolvable private addresses. This depends partly on OS settings; on Linux, BlueZ `Privacy` must be enabled
-
-**T6 — malicious linked peer**
-- Sees only Shares whose audience includes them. Path boundary enforcement is covered in [06](06-shares-and-browsing.md)
-- Writable Shares carry limits on write volume and rate, against disk-filling
-- A link can be removed unilaterally at any time, taking effect locally at once
-- **Not mitigated**: a file once handed over cannot be recalled, and nothing stops the entire contents of a read-only Share being taken. That is what sharing means, so the response is a UI that makes the exposure obvious
-
-**T7 — physical possession**
-- Private keys sit in the OS key store and require device unlock, the Linux file fallback excepted
-- Biometric or PIN gating at app launch is available optionally
-- After a loss: revoke access at Google, revoke manually from another device, rotate the ABK. Speeds are in the table above
-
-### Explicitly not defended
-
-- **Traffic analysis.** Who communicated with whom, when, and roughly how much is not concealed
-- **Device presence on a LAN.** Visible over mDNS
-- **The receiving filesystem against a trusted peer.** Anyone given a writable Share can write anything within it. There is no ransomware-shaped countermeasure
-- **Side channels.** Timing and power analysis are out of scope
-- **A device already running malware.** No defence against an attacker who can execute code on the device
-
-## Algorithms
-
-| Purpose | Algorithm | Notes |
-|---|---|---|
-| Device identity and signing | ECDSA P-256 | [ADR-0012](adr/0012-p256-for-device-keys.md) |
-| Key agreement | ECDH P-256 | |
-| Noise pattern | `Noise_XX_P256_ChaChaPoly_BLAKE2s` on `ble-gatt`, `Noise_IK_P256_ChaChaPoly_BLAKE2s` on `relay` | via `snow`, `use-p256`. [ADR-0020](adr/0020-noise-xx-for-ble-gatt.md) is why they differ, and why `relay`'s is provisional |
-| QUIC encryption | TLS 1.3, `TLS_AES_128_GCM_SHA256` | via `rustls` |
-| Hashing for integrity and identifiers | BLAKE3 | |
-| KDF | `BLAKE3::derive_key` | The Link Secret (DCR-066), EIDs and the bootstrap secret ([ADR-0018](adr/0018-blake3-derive-key-for-eids.md)). **This row read `HKDF-SHA256` and contradicted [docs/11](11-account-linking.md#deriving-the-link-secret), which had already listed the EIDs as BLAKE3.** No HKDF and no SHA-2 remains anywhere in this design |
-| ID token signature | RS256, pinned by the Provider Profile | The token's `alg` header is compared against the profile, never used to select. See [above](#the-token-never-chooses-how-it-is-verified) |
-| Randomness | The OS CSPRNG via `getrandom` | |
-
-Post-quantum migration is deferred. Noise offers hybrid patterns such as `Noise_IKhfs`, and `rustls` is gaining X25519MLKEM768; once both are stable, an ADR will record the switch. Priority is low on the judgement that most transferred files do not need secrecy over the horizon that harvest-now-decrypt-later implies.
+Not defended: traffic analysis, LAN presence, a trusted peer writing junk, side channels, malware on the device.

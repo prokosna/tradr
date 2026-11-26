@@ -1,372 +1,103 @@
 # 02. Architecture
 
-## The three tiers
+## Tiers
 
-Tradr operates at three tiers. Each higher tier **adds to** the one below rather than replacing it.
+Each tier adds to the one below; none replaces it.
 
-```
-Tier 0 — Standalone           Requires: nothing
-  Discovery: mDNS on the LAN, BLE in proximity
-  Auth:      mutual exchange of Google Attestations,
-             verified against Google's public keys alone
-  Transport: direct-quic / ble-gatt / wifi-direct
-  > UC-1, 2, 3, 5 work completely
+| Tier | Requires | Discovery | Transport |
+|---|---|---|---|
+| 0 Standalone | nothing | mDNS (LAN), BLE (proximity) | direct-quic, ble-gatt |
+| 1 Pinned | a reachable peer address | + Static Peers | direct-quic over Tailscale / WireGuard / fixed IP |
+| 2 Brokered | a self-hosted Brokr | + Brokr | + Deferred Delivery ([13](13-deferred-delivery.md)) |
 
-Tier 1 — Pinned               Requires: a reachable address for the peer
-  Discovery: the above plus Static Peers the user registered
-  Transport: the above, now reaching across Tailscale, WireGuard,
-             ZeroTier, or a fixed IP via direct-quic
-  > UC-6 works on an overlay network with no added infrastructure
+Tier 1 exists because someone already on Tailscale needs no Brokr: reachability is solved, only the address is missing, and the user types it once.
 
-Tier 2 — Brokered             Requires: a deployed and registered Brokr
-  Discovery: the above plus the Brokr's presence registry
-  Transport: the above plus holepunch-quic and relay
-  > Discovery from anywhere; NAT traversal and relay available
-```
+A Brokr never talks to Google and never verifies anything. Every device fetches Google's JWKS itself, so compromising a Brokr impersonates nobody ([05](05-security.md)).
 
-Tier 1 exists as a separate tier because **anyone already running Tailscale has no use for a Brokr**. An overlay network has already solved reachability. The only thing left for Tradr to solve is learning the peer's address, and the user can supply that once by hand. Collapsing this tier into "deploy a Brokr to cross networks" would impose infrastructure on people whose infrastructure is already sufficient.
+## Languages
 
-## Components
+| Language | Owns | Why |
+|---|---|---|
+| Rust | network, disk, keys, crypto | mature crates (quinn, btleplug, bluer, snow, blake3); Tauri's native side is Rust; GB/s hashing |
+| Kotlin | Android-only OS APIs: share sheet, SAF, foreground service, `BluetoothLeAdvertiser`, Custom Tabs OAuth | unreachable from Rust |
+| TypeScript | all UI (React), the Brokr (Fastify) | UI never touches network or disk |
+
+Rule: hot paths, low-level OS APIs and secret keys → Rust. Android-only APIs → Kotlin. Everything else → TypeScript.
+
+## Layout
 
 ```
-+---------------------------- Device A ----------------------------+
-|  +------------------------------------------------------------+  |
-|  |  UI layer  (TypeScript / React)                             |  |
-|  |  Screens, drag and drop, progress, settings.                |  |
-|  |  Touches neither the network nor the disk                   |  |
-|  +---------------------------+--------------------------------+  |
-|            Tauri commands and events, types generated from proto  |
-|  +---------------------------+--------------------------------+  |
-|  |  Core layer  (Rust)                                         |  |
-|  |  +----------+-----------+----------+---------+-----------+  |  |
-|  |  |discovery | transport | identity |   vfs   |   core    |  |  |
-|  |  |mDNS/BLE/ |QUIC/BLE/  |Attestation|Share   |sessions/  |  |  |
-|  |  |static/   |relay/     |/Noise/   |boundary |chunking/  |  |  |
-|  |  |Brokr     |selection  |key store |posix|saf|resume     |  |  |
-|  |  +----------+-----------+----------+---------+-----------+  |  |
-|  +--------------+--------------------------+--------------------+  |
-|      OS native (Kotlin / WinRT / CoreBluetooth / BlueZ)           |
-+-----------------+--------------------------+---------------------+
-                  |                          |
-        BLE adv / GATT          QUIC over UDP (LAN / tailnet / punched)
-                  |                          |
-+-----------------+--------------------------+---------------------+
-|                            Device B                              |
-+------------------------------------------------------------------+
-                             \            /
-                              \          /   present only at Tier 2
-                        +- - - -+- - - - +- - - - +
-                          Brokr (optional)
-                        | presence / rendezvous / |
-                          relay. Verifies nothing
-                        +- - - - - - - - - - - - -+
-                                  \
-                                   \  JWKS fetch, done by every device itself
-                              +-----+------+
-                              |   Google   |
-                              | OIDC / JWKS|
-                              +------------+
+proto/tradr/v1/          wire schema (source of truth; prost for Rust, ts-proto for TS)
+apps/tradr/              Tauri 2 app (desktop + Android); src-tauri/gen/android holds Kotlin
+apps/tradr-cli/          CLI front end; binary `tradr-cli`; may not name tauri
+apps/brokr/              optional backend, TypeScript + Fastify
+packages/                pnpm workspace: ui, protocol, client-state, ...
+crates/
+  tradr-core             Layer 0/1: domain types, protocol state machines, all traits. No I/O
+  tradr-proto            protobuf codec. Only crate naming prost
+  tradr-identity         Attestation verify, Noise, key policy, links, HPKE
+  tradr-transport        Transport implementations (QUIC, BLE GATT)
+  tradr-discovery        mDNS, BLE advertise/scan, Static Peers
+  tradr-vfs              the only place file paths are assembled (posix, SAF)
+  tradr-integrity        bao verified streaming. Only crate naming bao
+  tradr-oidc             JWKS fetch, OAuth loopback + token exchange. Only crate naming an HTTP client
+  tradr-secrets          Linux key storage rungs (Secret Service, keyring, 0600 file). Only crate naming D-Bus
+  tradr-app              shell-free composition: send, receive, browse, sign-in, peers. May not name tauri
+  tauri-plugin-tradr     Tauri commands, lifecycle, Kotlin bridge. The only crate naming tauri
 ```
 
-Note that a Brokr never talks to Google. Attestation verification always happens on a device, fetching Google's JWKS directly. This keeps the Brokr outside the circle of trust, so compromising it grants no ability to impersonate anyone — see [05](05-security.md#threat-model).
+## Dependency rules (enforced by `ci/layer-deps.sh`)
 
-## Where the language boundaries fall, and why
+- `tradr-core` depends on nothing internal and declares every trait: `Transport`, `SecureChannel`, `Vfs`, `KeyStore`, `Clock`, `Rng`, `ContentVerifier`, `DiscoverySource`.
+- Implementation crates may depend only on `tradr-core` and `tradr-proto`. A third-party dependency they cannot otherwise reach becomes its own crate (that is why `tradr-oidc`, `tradr-secrets` and `tradr-integrity` exist).
+- `tradr-app` and `tauri-plugin-tradr` are the composition tier. Only `tauri-plugin-tradr` and `apps/tradr` may name `tauri`.
+- `apps/tradr` reaches implementation crates only through `tauri-plugin-tradr`; `apps/tradr-cli` only through `tradr-app`.
+- Each volatile library has one owner crate: prost→proto, bao→integrity, reqwest→oidc, D-Bus→secrets, tauri→plugin.
+- `tradr-discovery` does not know a Brokr exists. Optional tiers come in as extra registered implementations, never as conditionals.
 
-TypeScript is the default. Rust and Kotlin take over at these boundaries.
+## Two front ends, one device
 
-### Rust owns the network, the disk, and the keys
+The GUI and `tradr-cli` are two front ends over one installation. They share the application data directory (`com.tradr.app`, resolved in one function in `tradr-app`), so they share the Device Key and the kept Attestation. If a second front end opened its own key it would turn up at every peer as a stranger.
 
-BLE, mDNS, QUIC, file I/O, and cryptography live in Rust for three reasons.
+- The key-storage ladder is searched once, in `tradr-app`, and is passed in so it can be tested.
+- The sign-in flow lives in `tradr-app`: loopback listener on fixed port 21821, falling back to an ephemeral port. If no browser opens, it prints the URL on its own line, prints an `ssh -L 21821:localhost:21821` hint, and accepts the pasted redirect URL on stdin; whichever arrives first wins.
+- The kept Attestation (`attestation` file, 0600) is re-verified at start and reused while `iat` ≤ 21 days old ([05](05-security.md)).
+- The CLI reads OAuth client config from `TRADR_OAUTH_CLIENT_IDS` / `TRADR_OAUTH_CLIENT_SECRET`. The GUI bakes them in at build time.
+- If both front ends run at once, one device advertises twice. That is accepted.
 
-1. **Library maturity.** Node's BLE libraries — the `noble` lineage — have been unstably maintained for years, and their handling of platform differences is incomplete. Rust offers `btleplug`, `bluer`, `quinn`, `snow`, and `blake3`, all of them in production use.
-2. **Tauri's shape.** Tauri's native side is Rust to begin with, and its Android and iOS plugins call Kotlin and Swift from Rust. Writing this layer in TypeScript would mean carrying a Node sidecar process, which dissolves the single-codebase premise behind choosing Tauri.
-3. **The nature of transfer.** Pushing gigabytes at tens of megabytes per second while hashing every chunk makes GC pauses and buffer copies show up directly in the numbers.
+### CLI commands
 
-### Kotlin covers Android-specific OS integration only
+- `tradr-cli device`: prints this device.
+- `tradr-cli receive`: a foreground session, not a daemon. It signs in, binds QUIC (21820, else ephemeral) and advertises. It auto-accepts from `SameAccount` and `Linked` peers only and never prompts on stdin. It serves no link exchange. Failures print as `transfer from <id> failed during <phase>: <err>`.
+- `tradr-cli peers`: browses for a 5 s window and prints the peers it finds.
+- `tradr-cli send <peer> <file>...`: the peer is a key (exact match) or a name (exact match; ambiguous names are refused). It resolves files first, then discovery, then sign-in. It binds an ephemeral port only. Progress is printed as lines, not a bar.
 
-Limited to Android APIs Rust cannot reach, and placed on the Kotlin side of the Tauri plugin.
-
-- Receiving `ACTION_SEND` and `ACTION_SEND_MULTIPLE` from the share sheet
-- Storage Access Framework — acquiring and persisting tree URIs
-- The foreground service that keeps transfers running and shows progress
-- `BluetoothLeAdvertiser`, since no Rust crate covers Android's peripheral role
-- Wi-Fi Direct through `WifiP2pManager`
-- OAuth through Chrome Custom Tabs, because Google rejects WebViews
-
-### TypeScript covers the UI and the Brokr
-
-- All UI, in React. It never touches the network or the filesystem, working only through Tauri commands and events.
-- The entire Brokr, in Fastify. I/O is light there, and type sharing and iteration speed win outright. **Being an optional component, the choice here cannot affect how clients behave.**
-
-**The test that decides:** anything called tens of thousands of times per second, reaching a low-level OS API, or touching a secret key goes to Rust. Anything reachable only through an Android OS API goes to Kotlin. Everything else is TypeScript.
-
-## Monorepo layout
-
-```
-tradr/
-+-- proto/                      # Protocol definitions, the single source of truth
-|   \-- tradr/v1/*.proto         #   generated into Rust via prost and TS via ts-proto
-|
-+-- apps/
-|   +-- tradr/                  # Tauri 2 app, desktop and Android from one project
-|   |   +-- src/                #   UI entry point, React
-|   |   \-- src-tauri/          #   Rust entry point, command definitions, capabilities
-|   |       \-- gen/android/    #   Android project, Kotlin glue. Tauri generates it here
-|   +-- tradr-cli/              # The command-line front end. Desktop only, may not name tauri,
-|                               #   and builds a binary named tradr-cli rather than tradr
-|   \-- brokr/                  # The optional backend, TypeScript and Fastify
-|
-+-- packages/                   # TypeScript workspace, pnpm
-|   +-- ui/                     #   Screens and components, shared desktop and mobile
-|   +-- protocol/               #   Types generated from proto, plus hand-written helpers
-|   +-- brokr-client/           #   Typed client for the Brokr's REST and WebSocket API
-|   \-- client-state/           #   State machines for transfer and discovery as the UI sees them
-|
-\-- crates/                     # Rust workspace, Cargo
-    +-- tradr-core/             #   Transfer/Item/Chunk, resumption policy, the traits
-    +-- tradr-proto/            #   The protobuf codec, and the only crate naming prost
-    +-- tradr-identity/         #   Attestation issue and verify, Noise, key policy
-    +-- tradr-transport/        #   Five Transport implementations and path selection
-    +-- tradr-discovery/        #   mDNS, BLE advertise and scan, static pins, Brokr presence
-    +-- tradr-vfs/              #   Share Root boundary enforcement, posix and saf backends
-    +-- tradr-integrity/        #   Verified streaming against a content hash. The only crate naming bao
-    +-- tradr-oidc/             #   JWKS fetch, OAuth loopback and token exchange. Speaks HTTP
-    +-- tradr-secrets/          #   Where a Device Key is actually held. Speaks D-Bus and the keyring
-    +-- tradr-app/              #   The shell-free half of the composition root. Names no Tauri type
-    \-- tauri-plugin-tradr/     #   Exposes the above as Tauri commands; holds the Kotlin side
-```
-
-### Where the shell-free half lives
-
-`crates/tradr-app/` holds everything the application does that does not depend on which shell is showing it. **Which modules that is today is `ls crates/tradr-app/src/`, and it is deliberately not written here.** The sentence that stood in this place enumerated five, and DCR-118's extraction added six more across three Work Items without any of them reaching this paragraph -- so it read as a definition while being an inventory, and it was stale within a day of being written. **What does not go stale is the rule**: a module belongs here when nothing it decides depends on a shell, and `ci/layer-deps.sh` check 3 is what holds the crate to that, not this paragraph. **`apps/tradr/` is the Tauri shell and `crates/tradr-app/` is the application it shows**, which is the whole of the distinction between the two names.
-
-**It exists because a CLI was measured rather than argued about** ([docs/09](09-roadmap-and-risks.md)). Every function in `commands.rs` above the first `#[tauri::command]` names no Tauri type and ten of the plugin crate's modules mention Tauri not once, so the second front end is a move; **what the measurement did not check is whether a crate could hold them**. It could not: `ci/layer-deps.sh` lets an implementation crate depend only on `tradr-core` and `tradr-proto`, and this half reaches six internal crates. So DCR-118 makes the composition tier two crates rather than one, and check 4 exempts both.
-
-**`tradr-app` is not exempt from the `tauri` confinement, and that is the point of the split rather than a detail of it.** Change Drill D9 asks how far a move off Tauri reaches; the answer used to be a grep somebody ran once, which [CLAUDE.md](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) already records as the wrong instrument, since a doc comment explaining why a file is D9-safe defeats it. **A manifest that may not name `tauri` cannot be defeated that way**: the day someone reaches for a `tauri::State` inside this crate, the build fails before the gate does.
-
-**The split falls where `tradr-oidc`'s and `tradr-secrets`' did, and for the opposite reason.** Those two moved *out* of a crate because a dependency could not be reached through `tradr-core`; this one moves out because a dependency could not be reached at all -- `tauri` -- and confining what may reach it is what a second front end needs. The composition root keeps what a shell decides: the `#[tauri::command]` wrappers, the plugin lifecycle, the Kotlin side, and the state Tauri manages.
-
-### Two front ends, one device
-
-**A CLI beside the GUI is a second front end over one installation rather than a second installation, decided 2026-09-15 by DCR-124.** [CONTEXT.md](../CONTEXT.md) defines a Device as one installation holding one key pair and one Attestation, and Change Drill D9 asks what moving off Tauri costs: **a swap that changed the Device Key would not be a swap at all**, since the machine would arrive at every peer as a stranger and every Link would name a device that no longer answers, with nothing failing while it happened. So both front ends open one Device Key out of one application data directory.
-
-**What that settles first is where the rung is chosen.** [docs/05](05-security.md#one-rung-per-device-and-what-else-goes-on-it) says the storage ladder is searched once and the rung it answers with is kept beside the `KeyStore` it opened; that search has exactly one call site today and it sits in a file naming `tauri::AppHandle`. A second front end building its own ladder would be a second search, and the two answer differently the first time a Secret Service session is present for one process and absent for the other -- **two Device Keys on one machine, and no build, test or handshake failing to say so**. The search, the open, and what `backing()` is then allowed to report move into `tradr-app`, and **the ladder is passed in rather than built inside**: a rung is a D-Bus session on this platform, so a caller that cannot supply its own rungs cannot be tested at all.
-
-**The application data directory is the other half of one device, and it is resolved in one place.** Tauri answers `app_data_dir()` from the identifier in `tauri.conf.json`, which is `com.tradr.app` and resolves on this machine to `~/.local/share/com.tradr.app`. On Android that answer is the platform's and there is no second front end to disagree with it; on desktop both front ends read one function in `tradr-app` rather than two computations that happen to agree.
-
-**What it costs is recorded here rather than discovered later**: two front ends may run at once, and then one device advertises itself twice. The QUIC bind already falls back to an ephemeral port when the default is taken ([docs/03](03-discovery-and-transport.md)), and mDNS then shows one `DeviceId` under two instance names. Nothing arrives while `tradr receive` is not running (DCR-123), so the overlap is something a person chooses rather than the resting state.
-
-**What the second front end may name is one crate, and that is what decides where the receive composition lives, 2026-09-16 by DCR-126.** Check 4 became per-app so the CLI reaches implementation crates through `tradr-app`; **probed rather than read, `tradr-transport` and `tradr-discovery` added to `apps/tradr-cli/Cargo.toml` are refused by name**. The QUIC bind is in `tradr-transport`, the mDNS advertisement in `tradr-discovery`, the downloads root in `tradr-vfs`, and the traits `listen_for_transfers` is handed -- `KeyStore`, `Rng`, `Clock`, `ContentVerifier` -- in `tradr-core`, so a composition root assembling them itself would have to name four crates it may not. [docs/09](09-roadmap-and-risks.md#m8--usable-interface-unestimated) said phase 4 added a composition root and nothing to the crate, and **that is the same sentence DCR-124 already corrected once**: the gate decides where a thing can live, and reading a file list does not.
-
-**So the composition lives in `tradr-app` and the front end supplies what the crate cannot resolve**: the directory to receive into, and a callback per arrival. That callback is `execute_send_files_with_progress`'s progress callback arriving on the receiving side -- a Tauri build emits an event through it where a command prints a line -- and it is why `init_lifecycle` delegates to the same bind and the same advertisement rather than keeping a second copy of either. **A second copy is the failure this is cut to avoid**: the ephemeral-port fallback and the interface filter are decisions about a network rather than about a shell, and two of them drift the first time one is changed.
-
-**What that forbids is a second copy and not a seam inside the crate, and DCR-131 draws one 2026-09-18.** The decision -- which two addresses the QUIC bind tries -- stays in one function both front ends reach through the same composition; the mechanism binding a pair takes it as an argument, which is what lets a test drive the fallback over two ports it owns. **A pair supplied by the caller instead would have been the second copy arriving by the door this paragraph closes**, since both composition roots would then name 21820, so the argument stops at the seam and never reaches a front end.
-
-**One device is not one sign-in, and the sentence saying it was is corrected here, 2026-09-16 by DCR-127.** A Device is one installation holding one key pair and one Attestation, and the key pair is the half that is stored; the Attestation is not. `SignInState` is held in memory for the life of a process, and `handle_incoming_channel` reads the `id_token` out of it fresh on every connection and refuses the channel without one -- so **`tradr receive` composed over the tree as it stood would bind, advertise, accept a channel and then refuse every transfer on it**, naming the one thing a command-line front end had no way to do.
-
-**Sharing one would have to mean a token at rest, which is a larger question than this milestone asked.** An ID token expires in an hour, so a stored one is worth nothing by the time a second front end reads it, and a stored refresh token is a [docs/05](05-security.md#key-storage) design about what the `SecretStore` holds besides a Device Key -- nobody has written it, and the renewal measurement it would rest on has not been taken. **Each front end therefore signs in for itself, and `tradr receive` signs in as the first step of the session it holds**, which is what DCR-123 already decided the command is: a session a person opens, not a service a machine keeps. What it costs is a browser opening each time the command starts, and that is recorded here rather than discovered later.
-
-**A sign-in is kept on disk after all, decided 2026-09-23 by DCR-150, and the paragraph above was wrong about why it could not be.** It said a stored ID token is worth nothing within the hour, and [docs/05](05-security.md#handling-expiry) says the opposite: `exp` is ignored and a peer accepts an Attestation until its `iat` is thirty days old, which is what the verifier in this tree does. **What the person running it measured on 2026-09-23 is the cost of that sentence**: every `tradr-cli receive` and every `send` asked for a browser and an ssh forward, and every GUI start asked for a press. So the `id_token` a completed sign-in obtains is written to `attestation` in the one application data directory ([DCR-124](09-roadmap-and-risks.md)), and **both front ends share it**, since they share the Device Key it is bound to. At start each front end reads it and hands it to `finish_sign_in` unchanged -- the same checks a peer applies, against this device's own keys -- and uses it if it passes **and its `iat` is at most 21 days old**; otherwise it signs in as before and overwrites the file. What each half of that buys is in [docs/05](05-security.md#a-kept-attestation-dcr-150). The GUI resumes in the background after setup and tells the interface when it has, because a network fetch has no place blocking a window from opening.
-
-**The flow moves with the decision.** The desktop half is a loopback listener, an authorization url, a browser launch and a code exchange, and it names no Tauri type but the `spawn_blocking` it hands the blocking `accept` to -- so it goes into `tradr-app` beside `finish_sign_in`, and the shell keeps the Android bridge and the command wrapper. Both front ends then drive one flow rather than two that agree today.
-
-**The binary the CLI package builds is `tradr-cli`, and the name a person types is a packaging question rather than this one, decided 2026-09-16 by DCR-125.** The Tauri app's package is already named `tradr` and already builds a binary of that name, so a second `[[bin]]` called `tradr` shares one output path in the workspace target directory. **Cargo does not refuse that, which is why it is written down here**: it warns `output filename collision`, builds both, and leaves whichever linked last sitting there under the name `tradr` -- measured rather than assumed, and the 431 MB Tauri binary is what answered afterwards. A warning is not a gate, and a front end that is sometimes the other front end is the kind of defect no test names. So the target keeps its package's name, `cargo run -p tradr-cli -- device` is how it is driven from the workspace, and **the `tradr device` and `tradr receive` spellings this document and [docs/09](09-roadmap-and-risks.md) use are what an installed Tradr offers** -- one Linux package is M10's line, and installing this target under the name `tradr` is that package's job.
-
-**`apps/tradr-cli/` is where the second front end goes, and `ci/layer-deps.sh` is what makes that more than a directory name.** Check 3 exempted every manifest under `apps/` from the `tauri` confinement, on the reading that an app is the Tauri app; a CLI under that blanket would be Tauri-free only because nobody had reached for a Tauri type yet, which is the grep [CLAUDE.md](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) already records as the wrong instrument. The exemption narrows to `apps/tradr/`, so the second front end is refused `tauri` by the same manifest scan that holds `tradr-app` to it. Check 4 becomes per-app for the same reason: the Tauri app reaches implementation crates through `tauri-plugin-tradr` and the CLI reaches them through `tradr-app`, and neither may reach one directly.
-
-**Where the CLI's OAuth client comes from is the environment, decided 2026-09-17 by DCR-128, and it is the one thing phase 4 could not inherit.** The GUI's two values are baked into its artifact by `apps/tradr/src-tauri/build.rs` and read back with `option_env!`, because a launcher hands a GUI no environment to read. A command is invoked from a shell that has one, so `tradr-cli` reads `TRADR_OAUTH_CLIENT_IDS` and `TRADR_OAUTH_CLIENT_SECRET` at run time and carries no client id in its binary. See [docs/05](05-security.md#oauth-client-configuration) for why a second build script would have been worse than the duplication it resembles. **The type follows the decision**: `OAuthConfig` held `Option<&'static str>` because `option_env!` produces one, and a value read from the environment is owned, so both fields become `Option<String>` and the normalisation each front end was doing for itself -- an empty or whitespace-only value is no value -- becomes one constructor both call.
-
-**What `tradr receive` accepts is what the handshake already trusted, decided 2026-09-17 by DCR-129, and that is open decision 9 answered for this front end.** `AttestationPolicy` is built with `ephemeral_receive: false`, so an account that is neither this device's own nor a linked one leaves `classify_with_profile` as `Err(UntrustedAccount)` and the channel is refused before any offer is read -- **measured in the code rather than assumed**, which is what makes the next sentence safe. Only `SameAccount` and `Linked` peers reach a `TransferOffer`, and the command passes no item filter, which is the answer the GUI has always given rather than a new one.
-
-**A prompt on stdin is refused rather than postponed.** The listener loop owns the terminal, two transfers can arrive at once, and a question drawn across another transfer's output is a worse interface than no question. **The control a person has is the session itself** -- DCR-123 made this a command they start and end -- and that, not convenience, is what auto-accept rests on.
-
-**The command opens no invite, so it serves no link exchange.** `handle_incoming_channel` refuses a stream that opens with a `LinkReply` when it holds no link service, saying that no invite is open on this device, and `tradr receive` passes none. Linking is a QR code and a Fingerprint compared on two screens; a terminal adds nothing to it.
-
-**An arrival reaches the person through the loop rather than past it.** `listen_for_transfers` discards the paths each connection placed, and DCR-126 already recorded that a loop keeping them cannot be written outside `tradr-app`. So the loop gains the seam: it takes an arrival callback beside the item filter and the link service it already takes optionally, and calls it once per connection that placed at least one file. **An empty placement is not an arrival** -- a browse stream and a link exchange each return nothing placed, and a command printing a blank line for every directory a peer lists would be reporting the wrong event. The Tauri shell passes no callback today, and the event it would emit through one is an interface change rather than this one.
-
-**A failure says which peer and how far the connection got, decided 2026-09-24 by DCR-152, closing the buildable half of DF-104.** The loop printed every connection's failure as `transfer failed: {error}`, so on 2026-09-23 a line reading `transport error: the channel or stream is already closed` sat beside a transfer that succeeded and nothing could say which peer it came from or at which step it ended. **The peer is known the moment a channel is accepted** -- `SecureChannel::peer` is what the transport authenticated -- **and the step is known only inside `handle_incoming_channel`**, so the function reports both: its error becomes a `ChannelFailure` carrying the peer's Device ID, the phase reached and the `ListenerError` unchanged. The phases are the points at which a connection can stop: `before any stream` (the sign-in check and accepting the Control stream), `handshake` (the first frame and the Hello exchange), `offer` (reading the Offer and writing the Accept), `item k of n` (accepting that item's data stream and receiving it), and `link exchange`. The loop prints `transfer from <device id> failed during <phase>: <error>`, and that text is the failure's `Display`, so a test pins it rather than a terminal. **Nothing is reclassified**: a peer that opened a connection and closed it without a stream is still printed, because which of the possible causes produced the 2026-09-23 line is exactly what this is built to find out, and silencing one phase before that is known would be deciding the answer first.
-
-**A connection that ends before it asks for anything is a failure, decided 2026-09-24 by DCR-153, closing DF-105.** After the handshake the listener waits on two things at once -- an Offer on the Control stream and a second stream for browsing -- and the browse arm answered a failed accept with `Ok` and nothing placed. **A peer closing the connection makes both waits fail together**, and `tokio::select!` picks between two ready arms at random, so the same event was printed as a failure in the Offer phase on some runs and was silent on others. **Nothing this product sends handshakes and then closes**: a send writes an Offer and a browse opens its stream straight after the handshake, so a connection that does neither ended early, which is what a failure line exists to say. The browse arm's accept error is therefore returned as the Offer read's would be, `ListenerError::Transport` in the `offer` phase, and one event gets one answer. What DCR-152 said stays true of everything else: nothing past this one arm is reclassified.
-
-**A machine with no graphical session runs the CLI, and DCR-143 makes that true on 2026-09-20 rather than assuming it.** `tradr receive` is a session a person opens (DCR-123), and the person opening it over ssh had no way to open it at all: the Device Key would not load, and the sign-in aborted. **Neither failure was about the terminal being the wrong front end** -- one was the storage ladder over-approximating when it must refuse ([docs/05](05-security.md#descending-the-linux-ladder)), and the other is this paragraph.
-
-**The browser is opened where one exists and named where one does not.** `obtain_id_token_desktop` returned an error when `open::that` failed, and the error said to open the url manually -- which could not be done, because the function had already returned and the loopback listener it told the person to visit was dropped on the way out. **A message describing a recovery that the same line makes impossible is worse than no message.** So a browser that cannot be opened is not an error: the url is printed and the listener goes on waiting for the callback it was always waiting for.
-
-**The url stands on a line of its own and is printed once, decided 2026-09-22 by DCR-148.** The launcher's own failure names the command it ran, and that command carries the whole url -- so the first headless run printed about four hundred characters of `Launcher "xdg-open" "https://..." failed with ExitStatus(..)` before the copy a person could act on, on the same line. **The failure is still reported and the url is taken out of it**: every occurrence of the url in the launcher's text is replaced by a placeholder, which keeps the launcher's name and exit status and leaves exactly one copy of the url, alone on its line, where a terminal's selection finds it whole. The message is composed by one plain function rather than inline, because what it must guarantee -- one copy, on its own line -- is a property of a string and a test can read a string.
-
-**The loopback port stops being ephemeral, and that is what makes the remaining step possible.** A person whose browser is on another machine reaches the listener by forwarding the port -- `ssh -L 21821:localhost:21821 host` -- **and a port chosen freshly on every run cannot be forwarded before the run that chooses it**. So the bind takes the fixed port 21821 and falls back to an ephemeral one when it is taken, the shape [the QUIC bind](03-discovery-and-transport.md) already has and for the same reason. rclone fixes 53682 and documents the same `ssh -L`; the number here is 21820's neighbour so that one range covers both. **The command prints the forwarding line itself**, because a port the person must read out of one message and retype into another is a step that can be got wrong.
-
-**The Device Authorization Grant is the better interface and it is not adopted here, because it is unmeasured in the one place it must not be wrong.** It needs no forwarding at all -- a short url and a code, entered on any device -- and [docs/05](05-security.md) records what it would have to survive: [ADR-0003](adr/0003-google-attestation-as-trust-root.md) binds device keys by carrying `BLAKE3(device_public_keys)` in the `nonce`, and whether Google's device endpoint carries a `nonce` through to the `id_token` has not been tested. **It also needs a client registration of a type this deployment does not have.** The failure if it does not carry one is loud rather than silent -- step 4 of [docs/05](05-security.md)'s seven refuses the Attestation -- which is why it is a measurement worth taking and not a risk worth running blind.
-
-**The sending half is two commands rather than one, decided 2026-09-20 by DCR-139, and the second one exists because the first cannot guess.** `tradr peers` prints what discovery has found and `tradr send <peer> <file>...` dials one of them and transmits. M8's completion criterion asks that a person send without needing to know what a Static Peer is; it does not ask that they send without naming who to. **A `send` that discovered and chose would be choosing between the devices in the room**, and the one case where that is unambiguous -- exactly one peer answering -- is the case where reading the line above and pasting it costs nothing.
-
-**What `send` accepts as a peer is the string `peers` printed, matched exactly, and that is why it adds no matching rule at all.** `PeerInfo::key` is already the form `resolve_peer` takes -- the Device ID hex for an identified peer, the `ObservationId` for one that is not, and a hex string holds no `/` so the two never collide. **A unique-prefix match was the other answer and it buys convenience by inventing a policy**: two peers sharing their first four hex characters is a question about what to do then, and every answer to it is a rule this document would have to carry. Copy-paste out of the command above is what the criterion needs.
-
-**A name is accepted too, decided 2026-09-23 by DCR-149 at the request of the person using it**, because the name `peers` prints is what a person reads and a 32-character key is what they had to paste. **The key is tried first and matched exactly, as before; failing that, the argument is compared byte for byte with each peer's name**, and one match is the peer. **Two peers carrying the same name are refused, never chosen between**, and the refusal lists both keys, which is the one case where pasting a key is still needed -- and it is the case the paragraph above worried about, answered by refusing rather than by a policy. No case folding and no prefix: a name is a hostname a person already types exactly. A name that matches nothing yet is waited for across the discovery window like a key is.
-
-**Discovery is a window and not an instant, which is the one thing a command has to solve that a GUI does not.** `drain_peer_sources` takes what is already queued with a 5 ms timeout, and nothing is queued in the first milliseconds of a process that has just started browsing -- a GUI polls it every second forever and never notices. So both commands browse for a bounded window: `peers` prints what the window found, and `send` polls until the named peer resolves and gives up at the deadline **reporting the last refusal rather than a timeout**, since "no candidate can carry 21418 bytes" and "not found" are different problems and the person can only act on the difference. Five seconds, and it is a constant in `tradr-app`.
-
-**The window reaches the seam as an argument and stops there**, the shape DCR-131 already gave the bind pair for the same reason: a front end naming a number is the second copy, and a test that cannot shorten the window has to wait it out, which is [CLAUDE.md](../CLAUDE.md#d-tests) rule E3.
-
-**`send` binds an ephemeral port and never the default, and that is a distinction `bind_quic_transport` does not draw.** 21820 is the number a Static Peer's dialling side relies on ([docs/03](03-discovery-and-transport.md)), so a receiver tries it first; **a sender never listens on what it binds**, and a short-lived process that took the fixed port is a Static Peer's dial arriving at a socket on which nothing will ever call `accept`. That failure is silent on both sides, which is why the address is answered by the same file that answers the receiver's pair rather than by the command.
-
-**The order the command does things in is decided by what can still fail cheaply.** Files are resolved first, so a path that does not exist fails before a browser opens; the browse starts next, so the discovery window runs while the person is signing in; sign-in follows, because [DCR-127](09-roadmap-and-risks.md) gives each front end its own and an `id_token` the handshake will read fresh is the one thing `send` cannot proceed without. **Nothing is advertised**: an advertisement publishes a device that accepts no connection, and the sender is reachable on the connection it dialled.
-
-**Progress is three lines an item rather than a bar.** `execute_send_files_with_progress` fires its callback per chunk, and a bar over that has to know whether it is writing to a terminal, redraw on a width it did not ask for, and interleave with two items at once. `starting`, then `sent` or `failed`, and the paths the transfer placed at the end -- the same event the GUI draws a bar from, spent on the thing a pipe can also read.
-
-**Pasting the address the browser ended on replaces the forward as the way in, decided 2026-09-23 by DCR-151 at the request of the person using it.** A forward has to be set up from the machine with the browser before the run that needs it, on every run that signs in. **The browser already holds everything the listener was waiting for**: after sign-in it is redirected to `http://127.0.0.1:21821/callback?code=..&state=..`, and on a machine where nothing listens that page fails to load with the whole address still in the address bar. So when the browser cannot be opened, the command also reads one line from standard input, and **whichever arrives first wins** -- the pasted address or a callback through a forward, which keeps working for anyone who set one up. The pasted line goes through the same `parse_callback` the listener uses, so `state` is checked exactly as it is for a real callback; a whole address and a bare query are both accepted, since that parser already tolerates what precedes the `?`. **The GUI reads no standard input and passes no paste source**, so nothing changes there. The message named the paste first and the forward second; DCR-166 below reverses that.
-
-**The message is written for someone who has never seen it, and it ends on the step being waited for, decided 2026-09-28 by DCR-166 ruling DF-112.** The person using it chose to keep the pasted address over a device flow (DF-95 closed negative) and over a hosted code page, and asked for the prompt to read like a login that expects to be done this way rather than an error with a workaround attached. With a paste source it is exactly:
-
-```
-could not open a browser here (<why>)
-
-open this address in a browser on any device and sign in:
-
-<url>
-
-to have sign-in finish by itself, first run this on that device, where USER@HOST is this machine:
-ssh -L 21821:localhost:21821 USER@HOST
-
-otherwise that browser ends on a page that cannot load; copy its whole address and paste it here:
-```
-
-**The address and the forward each stand alone on a line**, between blank lines, so a terminal's selection copies either with nothing around it. **The paste instruction is the last line**, directly above where the pasted line is read, because it is the step the command is waiting on; the forward is offered before it as the alternative that needs no paste, reversing DCR-151's order of the two. `<why>` is the launcher's error with the address redacted, first, because it explains why a browser did not simply open and is otherwise noise. **Without a paste source**, which is the GUI, the last paragraph is absent and the forward's line reads `for sign-in to finish, first run this on that device, where USER@HOST is this machine:`, since the forward is then the only way in.
-
-### Where the talk to an identity provider lives
-
-`crates/tradr-oidc/` is the only crate that speaks HTTP and the only one naming an HTTP client. It holds the JWKS fetch, and from WI-M0-008 the OAuth loopback and token exchange as well.
-
-**Where it lives was forced rather than chosen.** [DCR-022](../STATE.md) put the JWKS cache's policy inside `tradr-identity` and the fetching outside it, and `ci/layer-deps.sh` lets an implementation crate depend only on `tradr-core` and `tradr-proto` -- so an HTTP client reachable from `tradr-identity` would have to live *inside* `tradr-identity`, the crate holding Attestation verification. `tauri-plugin-tradr` was the other candidate and is worse: Change Drill D9 swaps that crate out the day Tauri goes, and fetching a JWKS has nothing to do with a shell.
-
-### Where a Device Key is actually held
-
-`crates/tradr-secrets/` implements `SecretStore` and nothing else: the Secret Service over D-Bus, the kernel keyring, and a `0600` file, the three rungs [docs/05](05-security.md#key-storage) lists for Linux. It is the only crate naming a D-Bus client, checked the way `prost`, `tauri` and `reqwest` are.
-
-**The reason it is not in `tradr-identity` is the reason `tradr-oidc` is not either**, one paragraph above. A Secret Service client brings an executor and roughly ninety-six transitive crates, and `ci/layer-deps.sh` permits an implementation crate only `tradr-core` and `tradr-proto`, so a client reachable from `tradr-identity` would have to live *inside* the crate that verifies Attestations. The split falls where the earlier one did: **`tradr-identity` keeps the policy and `tradr-secrets` keeps the I/O.** `select_rung` and `SoftwareKeyStore` are pure and stay where they are; the composition root builds the ladder and hands it in, exactly as it hands in a fetched JWKS.
-
-**Only Linux has a ladder at all.** On Android, macOS and Windows the key is generated inside a secure element and never exists as bytes to store, so there is nothing for a `SecretStore` to hold. This crate is the answer to the one platform with no such element, which is why a cross-platform credential-store dependency would buy nothing the other three could use.
-
-**No Layer 1 trait wraps it.** Nothing in Layer 1 fetches anything: DCR-022 leaves the single `await` in the composition root, so a `JwksSource` trait would be a dispatch point with one implementation and no caller that needs to swap it. What such a trait would buy -- confinement, so that changing the client touches one place -- the crate boundary already buys, and buys checkably: `grep -rl reqwest crates/` must return `crates/tradr-oidc/` and nothing else. `tradr-oidc` therefore exposes plain `async fn`s, and [ADR-0013](adr/0013-layer-1-async-traits-return-boxed-futures.md)'s `BoxFuture` does not reach it.
-
-**`reqwest`, with `rustls-tls` and no default features.** rustls is already in the driver layer for QUIC, so sharing that stack costs nothing new, while `native-tls` would pull OpenSSL into the Linux and Android builds to perform one GET. A blocking client wrapped in `spawn_blocking` was the alternative and buys nothing here, since every caller is already async.
-
-### Where content verification lives
-
-`crates/tradr-integrity/` implements the `ContentVerifier` trait `tradr-core` declares, and nothing else: [ADR-0006](adr/0006-blake3-for-content-integrity.md)'s `bao` verified streaming, checking a piece against an `Item`'s `content_hash` at the absolute offset [docs/04](04-protocol.md#where-a-subdivided-piece-belongs) computes. It is the only crate that may name `bao`, checked the way `prost`, `tauri`, `reqwest` and the D-Bus client are.
-
-**The crate tree said `tradr-core` held integrity, and that was never reachable.** Verifying a piece needs BLAKE3 and the `bao` tree format; [invariant I4](../CLAUDE.md#8-invariants-that-must-not-break) lets `tradr-core` declare no dependency at all, and ADR-0006's fourth reason forbids the other way out -- **not assembling cryptographic primitives by hand is an important discipline**, and a hand-rolled Merkle path is exactly that. So the annotation described a home the rules had already closed.
-
-**The split falls where it fell twice before.** `tradr-core` keeps the policy: `ItemResumption` records that a piece verified, and the trait says what verifying means. `tradr-integrity` keeps the primitive. This is the `tradr-oidc` and `tradr-secrets` argument a third time, and it arrives the same way -- a dependency an implementation crate may not reach through `tradr-core` has to become a crate of its own.
-
-**A trait wraps it, where `tradr-oidc`'s does not.** The reason is that there is a second implementation and the composition root must not choose between them by editing itself: a receiver verifies incrementally as pieces arrive, and a whole-file check after an interrupted transfer resumes is the same question asked over a file already on disk. What that buys over a plain function is a test double, which is how `tradr-core`'s resumption tests state what a failed verification does without hashing anything.
-
-### Direction of dependency
-
-**Two directions are easy to confuse here, so both are drawn.** Calls travel one way; crate dependencies travel the other, which is what dependency inversion means and what CI enforces.
-
-Call flow, what invokes what at run time:
-
-```
-apps/tradr(UI) -> packages/ui -> packages/client-state -> packages/protocol
-                                              |
-                                       Tauri bridge
-                                              v
-       tauri-plugin-tradr -> tradr-core -> the Transport / Vfs / KeyStore traits
-                                                          |
-                          the implementations satisfying them at run time
-```
-
-Crate dependencies, what appears in each `Cargo.toml`:
-
-```
-                          tradr-core          <- depends on nothing internal
-                               ^                  declares the traits
-       +-----------+-----------+-----------+-----------+
-       |           |           |           |           |
-  tradr-transport  |     tradr-identity    |      tradr-proto
-              tradr-vfs             tradr-discovery      ^
-                                                         |
-       tradr-transport, tradr-identity and tradr-discovery
-       also depend on tradr-proto for the wire encoding
-
-       tradr-app          -> all six         <- the composition tier. tradr-app
-       tauri-plugin-tradr -> all six + tradr-app   holds what no shell decides
-                                                and may not name tauri at all;
-                                                tauri-plugin-tradr holds the
-                                                commands, the lifecycle and the
-                                                Kotlin side
-```
-
-### Where the protobuf codec lives
-
-`tradr-proto` is Layer 2. It converts between the domain types `tradr-core` owns and the wire messages in `proto/tradr/v1/`, and **it is the only crate that may name `prost` or any other protobuf library**. That is what makes Change Drill D5 — replacing protobuf with another format — an Adapter-layer change rather than a sweep.
-
-The check is mechanical, the same shape as D9's: `grep -rl prost crates/` must return `crates/tradr-proto/` and nothing else.
-
-`tradr-core` does not depend on it. Domain types have no encoding, which is rule B2 holding: the core must not know that protobuf exists.
-
-**Every arrow points at `tradr-core`, and none leaves it.** An implementation crate depends on the core to implement its traits; the core never names an implementation. `tradr-transport` does not depend on `tradr-identity` either — what it needs from keys arrives through `KeyStore`, which is what keeps Change Drill D3 confined to `transport/quic/`.
-
-The wiring happens in the composition tier, and only there. `tauri-plugin-tradr` is the only crate that knows a shell exists, which is why swapping the app shell (D9) reaches no further than it; `tradr-app` is the only other crate that may reach more than `tradr-core` and `tradr-proto`, and it may not name `tauri`.
-
-**Every Layer 1 trait is declared in `tradr-core` and nowhere else.** `Transport`, `SecureChannel`, `Vfs`, `KeyStore`, `Clock` and `Rng` all live there, along with the stream traits `SecureChannel` hands out; `tradr-transport` and `tradr-vfs` hold implementations of them and declare none of their own. Reading a trait's name in an implementation crate's directory listing is not a statement about where it is declared, and putting a declaration beside its implementations would collapse rule B3 quietly, since everything would still compile.
-
-`tradr-core` never calls I/O directly; it declares the `Transport` and `Vfs` traits and depends on nothing else. That makes the core logic — offer and accept, chunking, deciding where to resume, verification — testable with neither a real network nor a real filesystem. This is the most breakable and most test-hungry part of the design, so it is kept pure on purpose.
-
-`tradr-discovery` **does not know a Brokr exists**. It holds four implementations of a `DiscoverySource` trait, one of which happens to be `BrokrSource`. Unconfigured, that implementation simply is not registered. Likewise `tradr-transport` sees `relay` as one of five `Transport` implementations. Keeping the tier distinction confined to which implementations are registered stops it from leaking upward.
+The Device Authorization Grant is not used: nobody has checked that Google carries `nonce` through it.
 
 ## Process model
 
-### Desktop
-
-One resident process. Closing the window leaves it in the tray, still listening and still transferring.
-
-- **Main thread**: the Tauri event loop and the WebView
-- **Tokio runtime**: discovery, listening, transfer — independent of whether a window exists
-- Arrivals while the window is closed raise an OS notification whose actions accept or decline
-
-### Android
-
-- **App process**: the UI. Liable to be stopped once backgrounded
-- **Foreground service** of type `connectedDevice`, **resident once the app has been opened** ([ADR-0022](adr/0022-android-stays-resident-to-receive.md)): it keeps the process, and the listener in it, alive with a permanent notification whose Stop action ends both. Not started at boot
-- **Listening**: the resident process listens continuously and holds a Wi-Fi multicast lock so it stays discoverable with the screen off. **This paragraph used to say continuous listening costs too much battery and that an Android device with no Brokr cannot receive in the background**; the user overruled that on 2026-09-26, and the battery cost is a measurement owed rather than a reason
-  - Tier 2 adds FCM, so a Brokr can wake a device whose resident service was stopped
+- **Desktop**: one resident process. Closing the window leaves it in the tray, still listening.
+- **Android**: once the app has been opened, a `connectedDevice` foreground service keeps the listener alive and holds a multicast lock. Its notification has a Stop action. It is not started at boot ([ADR-0022](adr/0022-android-stays-resident-to-receive.md)).
 
 ## Where state lives
 
-| State | Location | Rationale |
-|---|---|---|
-| Device private keys | OS key store | Never on disk in the clear — see [05](05-security.md#key-storage) |
-| Google refresh token | OS key store | Used to renew the Attestation |
-| Current Attestation | `attestation` in app data, the token text alone, `0600` ([DCR-150](05-security.md#a-kept-attestation-dcr-150)) | Public information, shown to peers. Re-verified at every start |
-| Static Peers | `static-peers.json` in app data ([03](03-discovery-and-transport.md)) | Purely local |
-| Link records | `links.json` in app data ([11](11-account-linking.md)); the Link Secret itself is in the OS key store | Purely local |
-| ABK record | `account-broadcast-key.json` in app data, the generation and creation time; the key itself is in the OS key store | Purely local |
-| Share definitions | **Nowhere: no Share can be defined yet** (DF-109). `get_visible_shares` answers one constant entry for every peer | Purely local once they exist |
-| Local settings | **Nowhere**: nothing a person can change is kept outside the rows above | |
-| Known peers and pinned keys | **Known Devices records each met peer's keys for Deferred Delivery, and nothing refuses a connection on them** (DCR-188). Every connection re-runs [05](05-security.md)'s seven steps against the peer's Attestation | Trust lives in the provider's JWKS, cached in memory for the life of the process, and in the Link records |
-| In-flight transfer state | Partial files alone, their size read back on resume (DCR-154) | Survives a process restart |
-| ABK and Link Secrets | OS key store | Secrets used to recognize peers over BLE |
-| File contents | Never duplicated | Written straight to the destination, with no intermediate copy |
+| State | Location |
+|---|---|
+| Device private keys, ABK, Link Secrets | OS key store (Linux: [05](05-security.md) ladder) |
+| Kept Attestation | `attestation` in app data, 0600 |
+| Static Peers | `static-peers.json` |
+| Link records | `links.json` (secret in key store) |
+| ABK record | `account-broadcast-key.json` (key in key store) |
+| Known Devices | records each met peer's keys, for Deferred Delivery only. Refuses nothing |
+| Received history | app data (`received_history`) |
+| In-flight transfers | the partial files themselves; resume reads their size |
 
-**Share definitions deliberately never reach a Brokr.** Which directories someone exposes is itself sensitive, and a Brokr has no need to know. Peers learn about them over the protocol at connection time.
+There is no SQLite. Share definitions are not stored ([ADR-0024](adr/0024-one-folder-per-device-full-access.md): one folder per device).
 
-## Where trust actually lives
+## Trust
 
-**No crate in this workspace depends on SQLite, and the table above used to say five of its rows lived there, corrected 2026-09-24 by DCR-158.** Each row now names the store the code actually uses, or says that none exists; a row that describes design still unbuilt says so and names the Deferred entry carrying it, rather than being deleted.
+Trust lives on each device. Every connection runs [05](05-security.md)'s verification in full, against a JWKS cached in memory. There is no key pinning. A Device ID is a hash of the identity key, so a key cannot change under a known ID, and a reinstalled device is a new device.
 
-Working at Tier 0 means **trust lives on each device and nowhere else**. **Steps 2 and 3 below were the original design and are not built, ruled by the user on 2026-10-14 as DCR-188**: every connection runs step 1 in full, against a JWKS cached in memory and warmed by this device's own sign-in ([05](05-security.md#the-first-document-in-a-cache-comes-from-this-devices-own-sign-in)).
-
-**Why a pin would catch almost nothing.** A Device ID is the first 16 bytes of `BLAKE3(identity_pub)`, so an identity key cannot change under a known Device ID; a reinstalled device has a new Device ID and is a new device, not a changed one. What a pin could still notice is the agreement key replaced under the same identity key, and producing that takes the identity private key and the account together, which is the device itself. Per-connection verification already refuses everything else, so Known Devices records a changed key and goes on, and nothing asks the person.
-
-1. When devices A and B first meet, each verifies the other's Attestation. A matching provider signature, a matching `(iss, sub)` pair, and a `nonce` corresponding to the peer's public keys together establish that this is a device of the same account.
-2. Each then pins the other's Device Key locally.
-3. Later connections check against the pinned key. The Attestation is re-verified periodically to catch revocation, but everyday connections need no call to Google.
-
-**There is therefore no central roster.** No global truth exists about which devices belong to an account; each device merely holds the set it has met and verified. That simplifies the design and produces two consequences.
-
-- A device never met does not appear, even on the same account. The first meeting must happen on a shared LAN or in proximity. Deploying a Brokr removes this.
-- Revoking a device — after a loss — is a local operation. Revoking the app's access in Google settings stops that device renewing its Attestation, and every peer rejects it once the grace period passes, 30 days by default. That is the only global revocation mechanism, and it is slow. A manual per-device revocation UI covers urgent cases.
-
-These consequences are the price of Tier 0, not a defect in it. They are presented as the thing deploying a Brokr buys you.
+What follows from this:
+- There is no central roster. A device you have never met does not appear.
+- Revocation is slow: revoke the app in Google settings, and peers reject the device once its Attestation passes 30 days.

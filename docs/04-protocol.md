@@ -1,599 +1,158 @@
 # 04. Wire protocol
 
-`proto/tradr/v1/` is the single source of truth, generated into Rust with `prost` and TypeScript with `ts-proto`. No hand-written type definitions sit at the boundary.
-
-## Layering
+`proto/tradr/v1/` is the source of truth (prost for Rust, ts-proto for TS). Only `tradr-proto` names prost.
 
 ```
-+-------------------------------------------------------+
-|  Application: the Control, Browse, and Data planes     |
-+-------------------------------------------------------+
-|  Framing: [u32 len][u8 type][payload]                  |
-+-------------------------------------------------------+
-|  Secure channel:                                       |
-|    direct-quic / holepunch-quic / wifi-direct          |
-|                                 -> QUIC's TLS 1.3      |
-|    ble-gatt                     -> Noise_XX            |
-|    relay                        -> Noise_IK            |
-+-------------------------------------------------------+
-|  Transport: QUIC stream / GATT characteristic / WS     |
-+-------------------------------------------------------+
+Planes:   Control / Browse / Data
+Framing:  [u32 BE len][u8 type][protobuf payload]
+Channel:  QUIC TLS 1.3 (direct-quic, holepunch, wifi-direct) | Noise_XX (ble-gatt) | Noise_IK (relay)
 ```
-
-[05](05-security.md#why-there-are-two-encryption-layers) explains why there are two secure-channel families. From above, both present the same thing: a mutually authenticated, forward-secret, ordered, bidirectional byte stream.
-
-**This box put `wifi-direct` on Noise and docs/05's table put it on QUIC, and the two disagreed from M0 until [ADR-0020](adr/0020-noise-xx-for-ble-gatt.md) rewrote the row above it.** docs/05 is right: `wifi-direct` is a QUIC path over a Wi-Fi Direct link, so a second encryption layer there is the duplication that section exists to refuse. **Nothing was ever built from this box**, which is why nothing failed — and is exactly why a diagram that decides something must be read as one.
 
 ## Framing
 
+- `len` counts `type` + payload. The minimum is 1, and `0` is fatal.
+- `max_frame_size` is what a side will **receive**. Each side declares its own in `HelloAck`. Defaults: 1 MiB, or 512 bytes over BLE. Until `HelloAck` arrives, both directions use the channel's own value.
+- The length is checked against the bound **as soon as the 4 header bytes arrive**, before any allocation. An oversize or zero length is fatal to the stream: there is no resync.
+- **A reader reads exactly one frame**, never more (fixed-size buffered reads once swallowed the next exchange).
+- Framing carries the type byte verbatim. The planes interpret it.
+
+### In-band mux (ble-gatt, relay)
+
 ```
-+--------+--------+---------+
-| len:u32| type:u8| payload |
-+--------+--------+---------+
-   BE      msg     protobuf
+[u32 len][u8 0x60 StreamData | 0x61 StreamFin][u32 BE stream_id][payload]
 ```
 
-- `len` covers `type` and `payload` together, big-endian, and does not include its own four bytes. It is bounded by the `max_frame_size` negotiated in `Hello` — 1 MiB by default, 512 bytes over BLE. The smallest legal frame is `len == 1`: a type byte with an empty payload
-- `type` selects the message; `payload` is its protobuf encoding
-- On QUIC the control and data planes take separate streams. BLE and relay offer a single stream, so multiplexing is done in-band with a frame variant carrying a `stream_id`, whose shape is [below](#the-in-band-multiplexing-frame)
+- QUIC-style ids: bit 0 = opened by the dialler (0) or the listener (1); bit 1 = bidirectional (0) or unidirectional (1). Each side allocates ascending by 4, so stream 0 is the Control stream.
+- There is no open frame. The first frame on an id opens it **and every lower unopened id in that space**.
+- Limits: 128 × `max_frame_size` of undelivered bytes per stream; 64 streams pending accept.
+- All of the following are fatal to the channel and latch (there is no reset frame): a frame in the receiver's own id space for a stream it never opened; data on a unidirectional stream the receiver owns; anything after `StreamFin`; either limit exceeded; an unassigned `0x60-0x7f` code.
+- A stream is retired once both halves are finished and its handle is released. Per-space high-water marks tell a retired id apart from a new one.
+- `max_frame_size` bounds plane frames, not mux frames. A stream is a byte stream.
 
-### Which `max_frame_size` bounds which direction
+## Planes and type codes
 
-`max_frame_size` is what a side is willing to **receive**, never what it promises to send. Each side puts its own value in `HelloAck`, so the two are independent and routinely differ — a phone reachable over `ble-gatt` and a laptop over `direct-quic` is the ordinary case, not the exception.
-
-| Direction | Bound |
+| Plane | Streams |
 |---|---|
-| Encoding a frame to send | the peer's advertised `max_frame_size` |
-| Decoding a frame received | this side's own, the value it advertised |
+| Control | bidirectional stream 0, exactly one |
+| Browse | one bidirectional stream per request |
+| Data | one unidirectional stream per Item, 4 concurrent |
 
-A side advertises what its own `SecureChannel` reports and enforces exactly that on receive. **Before `HelloAck` arrives both bounds are the channel's own value**, which is what makes `Hello` itself framable: the handshake cannot negotiate the limit that carries the handshake.
-
-### A bad length ends the connection
-
-An announced `len` above the receive bound, or a `len` of zero, is **fatal to the stream and never skipped**. A length-prefixed stream has no second way to find a boundary: the bytes after a bad length are of unknown extent, so there is nothing to resynchronize on and every later frame would be read at a shifted offset. The reader reports the failure and the channel closes.
-
-That is a different thing from the forward compatibility below, and the two sit one layer apart. **Ignoring an unknown message type happens after a well-formed frame has been decoded** — its extent is known, so skipping it costs nothing. A malformed length is not a frame at all.
-
-### The length is never trusted for an allocation
-
-A peer announcing `len = 0xffffffff` must cost the receiver nothing. The bound is therefore checked **the moment the four header bytes are in hand**, before a single byte is reserved, and a reader never sizes a buffer from a value the peer sent. Its memory is the bytes it has actually received and no more.
-
-This is the whole of the framing layer's security surface, and it is where an untrusted stream's first four bytes are read.
-
-### A reader never reads past the frame it is decoding (DCR-162)
-
-**Every reader of a stream reads the four length bytes, then exactly the payload they announce, and nothing more**, decided 2026-09-26. A stream carries more than one exchange -- the Hello exchange, then the Offer, then the Accept -- and each is read by a different function holding its own decoder. **A reader that reads in fixed-size chunks takes the next exchange's first bytes with it and drops them when it returns**, and the next reader then waits for bytes that already arrived.
-
-That is what the handshake's reader did, with a 4096-byte buffer, and it was the only one. Whether it lost anything depended on timing alone: a sender writes its `HelloAck` and its `TransferOffer` back to back, and a receiver slow enough to find both in its socket when it reads the first lost the second. **Both sides then waited on each other until QUIC's idle timeout closed the connection**, reported on the receiver as `failed during offer` and on the sender as `failed to read accept frame`. It was seen on a phone in the background and with its screen locked, where the receiver is slowest, and it is the same line DF-62 recorded from hosted CI runners on loopback for two weeks and attributed to the runners.
-
-An exact read costs one more `read` call per frame and needs no state carried between readers, which is why it is the rule rather than a decoder handed from one phase to the next.
-
-### The framing layer does not know what a type byte means
-
-It carries the `u8` verbatim in both directions and holds no registry. Which code names which message is the planes' business, settled where the frame is already in hand — which is also where "unknown message types are ignored" is applied. Framing is byte-level, so [Change Drill D5](../CLAUDE.md#c-flexibility-against-external-change--the-change-drill) does not reach it: replacing protobuf changes what a payload contains, not how it is delimited.
-
-### The in-band multiplexing frame
-
-**The `stream_id` bullet above named a frame variant and never gave it a shape, and `ble-gatt` is the first path that cannot be built without one.** DCR-094.
-
-```
-+--------+--------+--------------+---------+
-| len:u32| type:u8| stream_id:u32| payload |
-+--------+--------+--------------+---------+
-   BE     0x60/61       BE          bytes
-```
-
-`len` counts `type`, `stream_id` and `payload` together, so the smallest legal mux frame is `len == 5`. Two codes are assigned and the remaining thirty in the range stay unassigned:
-
-| Code | Meaning |
+| Range | Codes |
 |---|---|
-| `0x60` | `StreamData` — `payload` is the stream's next bytes, and may be empty |
-| `0x61` | `StreamFin` — the sender has finished writing this stream. `payload` must be empty |
-
-**An unassigned code in this range is refused, never skipped**, which is the opposite of the rule one layer above. The multiplexer is what decides *which stream* bytes belong to, so a skipped mux frame is not an ignored message: it is a hole in some stream's byte sequence, and every later byte on that stream is delivered at a shifted offset to a plane that has no way to notice. That is the malformed-length argument applied one layer up.
-
-**`stream_id` is a fixed four bytes and not a varint.** A varint is a second length-shaped field in the one layer this document calls the whole security surface of framing, and four bytes out of a 512-byte record is under one percent.
-
-#### Stream numbering is QUIC's, and stream 0 falls out of it
-
-The two low bits of `stream_id` carry what a receiver would otherwise have to be told (RFC 9000, section 2.1):
-
-| Bit | 0 | 1 |
-|---|---|---|
-| `stream_id & 0x1` | opened by the **dialling** side | opened by the **listening** side |
-| `stream_id & 0x2` | **bidirectional** | **unidirectional** |
-
-Each side allocates only inside its own space, ascending by four. **Stream 0 is therefore the dialling side's first bidirectional stream, which is the Control stream this document already requires** — "bidirectional stream 0, always exactly one" stops being an assertion and becomes the first value the scheme produces. A `stream_id` whose owner bit names the receiver's own space is **refused and the channel closes**: without that rule a peer allocates in the space this side allocates from, and stream 0 is the first thing it would take.
-
-The scheme leaves 2^30 streams per side per direction. Exhausting one is an error at `open`, never a wrap: a wrapped identifier reopens a stream that has already been finished.
-
-#### A stream is opened by its first frame
-
-There is no open frame. **A stream exists the moment a frame carrying an identifier not yet seen arrives**, exactly as a QUIC stream does. An explicit open would carry nothing the first frame does not — the owner and the directionality are in the number, and the identifier is used once — while adding a duplicate open and an out-of-order open to the refusals.
-
-**What that costs is written down rather than discovered**: a side that opens a stream and then reads before writing has told the peer nothing, so the peer's `accept` does not return. Every exchange here has the opener write first, and the one inversion — the link stream's first frame, where the receiver reads before it writes — is on a stream the *dialler* opened and has already written to.
-
-**A frame also opens every lower unopened identifier in its own space, which is QUIC's rule and not an addition.** Allocation order and first-frame order are different orders: a side that opens four Data streams and writes to the last of them first has allocated ascending and transmitted out of order, and nothing on the wire says the earlier identifiers exist yet. Without implicit opening the receiver would have to either accept an arbitrary identifier at any time — which is what makes a retired one indistinguishable from a fresh one, [below](#what-retires-a-stream) — or refuse a first frame that arrives out of order, which would forbid the concurrency [ADR-0007](adr/0007-receiver-driven-chunk-pull.md)'s four Data streams are for. So a frame naming identifier *N* opens *N* and every unopened identifier below it in the same space, in ascending order, and each of them is a stream awaiting accept.
-
-**The cost is bounded by a rule that already exists.** Every identifier opened this way is awaiting accept, so a peer jumping ahead spends the 64 of them the [table below](#what-closes-a-multiplexed-channel-and-what-bounds-its-memory) allows and the sixty-fifth closes the channel. That is QUIC's `MAX_STREAMS` answering the same question, and it needs no new refusal.
-
-#### What closes a multiplexed channel, and what bounds its memory
-
-**The framing layer's memory is the bytes it has actually received; the multiplexer's is not, and that is a second allocation surface.** A stream nobody has read from yet holds what has arrived for it, and a stream nobody has accepted yet holds the fact that it exists. Both are peer-controlled, and neither is bounded by anything above.
-
-| Bound | Value | Exceeding it |
-|---|---|---|
-| Undelivered bytes held for one stream | 128 times the channel's own `max_frame_size` — 64 KiB over `ble-gatt` | Fatal to the channel |
-| Streams the peer has opened that nothing has accepted | 64 | Fatal to the channel |
-
-**The per-stream bound is a multiple of `max_frame_size` rather than a number of its own**, because the quantity a plane needs buffered to make progress is one whole frame; everything beyond that is only there to keep the link busy while a reader is slow. Tying it to the value the channel already reports means a transport with a different frame size gets a proportionate window without a second table to keep in step. **The stream bound is a count and not a size** for the same reason the framing layer checks a length before reserving anything: a stream awaiting accept costs its own window, so an unbounded count multiplies the first bound by an unbounded factor. Sixty-four is generous against the concurrency this protocol actually uses — the Data plane runs four unidirectional streams by default and the Browse plane one bidirectional stream per request.
-
-**There is no reset frame, so every violation below is fatal to the channel rather than to one stream.** Four of them:
-
-- a `stream_id` in the receiver's own space naming a stream the receiver never opened
-- a `StreamData` frame on a stream the receiver opened **unidirectionally**, which only it may write to
-- any frame on a stream after that stream's `StreamFin`
-- either bound above, exceeded
-
-**By the time a mux frame exists the peer is authenticated**, so none of these is a race a well-behaved implementation can lose: each is a peer that has broken the contract or a peer that is not the implementation it claims to be. A reset frame would buy a per-stream recovery path for a case where continuing means trusting the next frame from the same sender — and it would buy the state machine that goes with it. Closing is both cheaper and more honest.
-
-**A refusal is permanent, exactly as a malformed length is.** The channel records the first refusal and answers with it forever after, so nothing later reads a stream whose byte sequence has already been decided untrustworthy. That is `FrameDecoder`'s poisoning, one layer up and for the same reason.
-
-#### What retires a stream
-
-**The two bounds above are about concurrency and neither of them bounds a channel's whole life.** Undelivered bytes are what one stream holds and the count of 64 is what is awaiting accept, and a stream leaves that count the moment something accepts it. So a peer that opens a stream, has it accepted, finishes it and repeats satisfies both bounds throughout while the set of streams the channel remembers grows with every request. DCR-096.
-
-**A stream is retired when it is finished on the wire in both directions and released above.** Three conditions, and the last of them is not on the wire at all:
-
-| Condition | For a stream this side may not write to | For a stream the peer may not write to |
-|---|---|---|
-| The send half is closed | already true | `StreamFin` has been emitted |
-| The receive half is closed and drained | the peer's `StreamFin` has arrived and nothing buffered remains | already true |
-| The stream has been released above | the reader has let it go | the writer has let it go |
-
-**Releasing is the condition that cannot be inferred**, which is why it is stated rather than derived. A stream both sides have finished still owes its reader the end of the byte sequence, and a receiver that forgot the stream at the last `StreamFin` would answer that reader with "no such stream" instead of with the end of its input. So the transport layer's stream handles are what release it, and a channel that never lets go keeps what it is holding — which is a caller's own memory rather than a peer-controlled quantity.
-
-**Forgetting a stream is what makes a retired identifier indistinguishable from a fresh one, and a watermark is what keeps them apart.** With the identifier gone from the receiver's state, the next frame naming it reads as a stream the peer has just opened — so a refusal becomes an accepted open, which is worse than the leak it was meant to fix. **The identifiers below the highest one seen in a space are a prefix**, because a frame opens every lower identifier in its own space, so **one number per space says which identifiers have been used** and no set of them is kept:
-
-- a frame naming an identifier at or below its space's high-water mark that the receiver no longer holds is **a frame after that stream's `StreamFin`**, and closes the channel
-- a frame naming an identifier above the high-water mark of a space **the peer allocates from** opens it and every unopened identifier below it
-- a frame naming an identifier above the high-water mark of a space **the receiver allocates from** is the peer allocating where it may not, unchanged from the rule above
-
-Four spaces means four 32-bit numbers for the life of a channel, and the two the receiver allocates from are the allocator's own state rather than a second copy of it. **This adds no refusal**: every case above is one of the four this document already lists, and what the watermark decides is which of them a frame on a forgotten identifier is.
-
-#### `max_frame_size` bounds the plane's frames and not the mux's
-
-**These are two framings nested, and one number cannot bound both**: a 512-byte plane frame inside a mux frame makes the mux frame 521 bytes, so a `max_frame_size` that bounded the envelope would leave no legal plane frame able to travel inside it.
-
-A stream is a **byte** sequence, not a frame sequence. The multiplexer chops what a stream is given into mux frames of whatever the underlying link carries in one record, and the plane's decoder reassembles its own frames out of the bytes that come back — which is what a plane already does on QUIC, where `quinn` chose the record boundaries instead. So `max_frame_size` keeps its meaning unchanged: the largest **plane** frame a side will receive, 512 over `ble-gatt`. The mux frame's own bound is the link's record size, which the channel is constructed with and never negotiates.
-
-**A mux code never appears on a plane's stream**, and `classify` already refuses one there as belonging to no plane's range. The envelope and its contents travel one layer apart.
-
-## The three planes
-
-| Plane | Role | Streams |
-|---|---|---|
-| **Control** | Handshake, capability negotiation, offer and accept, progress and completion | Bidirectional stream 0, always exactly one |
-| **Browse** | Listing, stat, and reading or writing Share Roots | A bidirectional stream per request |
-| **Data** | Chunk payloads | A unidirectional stream per Item, four concurrent by default |
-
-## The type byte
-
-Every code is listed here and nowhere else, and the ranges are by plane.
-
-| Range | Plane | Assigned |
-|---|---|---|
-| `0x00` | — | **Never valid.** A zero byte is what padding, a truncated write and an uninitialised buffer all produce, so it is the one code that must never mean a message |
-| `0x01`-`0x1f` | Control | `0x01` `Hello`, `0x02` `HelloAck`, `0x03` `TransferOffer`, `0x04` `TransferAccept`, `0x05` `TransferReject`, `0x06` `TransferComplete`, `0x07` `TransferAbort`, `0x08` `PathChanged`, `0x09` `KeepAlive`, `0x0a` `ItemComplete`, `0x0b` `TransferProgress`, `0x0c` `LinkReply`, `0x0d` `LinkApprove`, `0x0e` `LinkDecline`, `0x10` `BroadcastKeyOffer` |
-| `0x20`-`0x3f` | Data | `0x20` `ChunkRequest`, `0x21` `ChunkRerequest`, `0x22` `ChunkData`, `0x23` `FlowControl` |
-| `0x40`-`0x5f` | Browse | `0x40` `ListDir`, `0x41` `DirListing`, `0x42` `Stat`, `0x43` `StatResult`, `0x44` `ReadFile`, `0x45` `ReadFileBegin`, `0x46` `WriteFile`, `0x47` `Mkdir`, `0x48` `Delete`, `0x49` `Rename`, `0x4a` `Ack`, `0x4b` `Watch`, `0x4c` `FsEvent`, `0x4d` `Refused` |
-| `0x60`-`0x7f` | — | The in-band multiplexing frame above, which `ble-gatt` and `relay` need and the QUIC paths never send: `0x60` `StreamData`, `0x61` `StreamFin`. It travels one layer below the planes, so it is never valid on a plane's stream, and an unassigned code in this range is refused rather than skipped |
-| `0x80`-`0xff` | — | Unassigned |
-
-`brokr.proto`'s messages carry no code. They travel on the Brokr's WebSocket, which is not a framed Tradr stream.
-
-### A code is assigned once and never reused
-
-Retiring a message retires its code with it, the way a removed protobuf field becomes `reserved`. A reused code is a peer of an older version decoding new bytes as the message it used to know, and protobuf's own tolerance makes that succeed quietly rather than fail.
-
-#### `0x0f` is left unassigned on purpose, and `BroadcastKeyOffer` took `0x10`
-
-**`0x0f` is this document's own worked example of an unassigned code**, in the two sections below on plane ownership and on what "ignored" covers, in `tradr-proto`'s `message_type.rs` doc comment, and in four test files. Assigning it would have rewritten the illustration of a rule rather than merely taken the next number. **Control's range has thirty-one codes still free**, so keeping one hole for the example costs a byte nobody is short of, and reclaiming it would cost six files -- which is the count a Change Drill exists to notice.
-
-It stays unassigned permanently, the way a retired code does, so nothing later has to re-derive why it was skipped.
-
-### A code names a plane, and the wrong plane is refused rather than ignored
-
-`0x40` `ListDir` arriving on the Control stream is not an unknown message; it is a known one on a stream that does not carry it. **The plane is where authorization lives** — a Browse request is checked against the requester's Trust Tier and the Share's audience before it acts — so accepting one wherever it arrives is how a request reaches the code that serves it without passing the code that guards it. The frame is refused and the stream closes.
-
-**A plane owns its whole range, not merely the codes assigned inside it.** `0x0f` is unassigned and sits in Control's range; on the Browse stream it is refused, not skipped. Reading ownership from the assignments instead would make the answer for a given code change as later versions fill the gaps in, so a device would have to know what a future version assigned in order to decide what to refuse today.
-
-### What "unknown message types are ignored" actually covers
-
-Only an **unassigned** code, and only within the receiving plane's own range. That is the forward compatibility the versioning section promises: a newer peer sending `0x0f` on the Control stream is skipped by an older one, whose extent is known because the frame decoded cleanly.
-
-Three things are outside it and none is skippable: `0x00`, a code belonging to another plane, and a malformed length. The first two are refusals; the third, per the Framing section, is not a frame at all.
-
-**The promise begins after the frame that decides what a stream is, and never at that frame itself.** A Control stream's first frame settles its whole shape -- a `Hello` opens a session, `0x0c` opens the link exchange below -- so an unassigned code in that position names no shape at all, and a receiver skipping it would be waiting for one it has just been told nothing about. It is refused, which is what the `Hello` position has always done, and the exception is written down here rather than left as the difference between this rule and the code that implements it. DCR-073.
-
-**How many unassigned frames a receiver will skip is bounded, decided 2026-10-03 by DCR-172 ruling DF-23: at most 16 in a row on one stream.** The 17th consecutive unassigned frame is a protocol violation and ends the stream as any other refusal does; an assigned frame in between resets the count. Forward compatibility needs a newer peer to send a few frames an older one does not know, never an unbounded run of them, and without a bound an authenticated peer could hold a transfer open forever by sending nothing else. The bound is per stream and per run so that a long transfer which interleaves an occasional extension frame is never cut off.
-
-### A Control stream may open with `LinkReply` instead of `Hello`
-
-**One stream in this protocol carries no session, and it is the one [docs/11](11-account-linking.md#how-bobs-reply-reaches-alice-and-what-authorises-the-connection) needs**: an account being linked is by construction not yet linked, so its Attestation fails step 6 and the ordinary handshake refuses the connection that would fix that. A stream opening with `0x0c` is that exchange and nothing else — no `Hello`, no `HelloAck`, no negotiated capabilities, and no Trust Tier computed or sent.
-
-**It is accepted only while an invite is open**, and refused outright otherwise, which is the whole of its authorisation. The three linking codes are the only ones it carries in either direction; anything else on it is refused the way a Browse code on the Control stream is, and the stream closes.
-
-#### Deciding which of the two a stream is
-
-**The receiver reads before it writes, and on this one frame only.** Everywhere else the exchange writes unprompted -- the dialling side sends its own `Hello` before it reads anything -- so a receiver that defers its first write until it has seen a frame cannot deadlock against a dialler that is already waiting to be read. The inversion is confined to that frame: once the branch is taken, both shapes run exactly as they are written, and the ordinary handshake is the same exchange with its first read already performed.
-
-**Nothing is skipped to reach that decision**, per the rule above, and refusing there is also what keeps this stream's exposure from being worse than the session's. An unassigned code costs a peer nothing to send and nothing bounds how many a receiver will skip; on a stream that has decided nothing yet, the peer holding the receiver open is any device that completed the transport handshake, before a single Attestation has been checked. That is one tier below the peer a skipped frame can occupy anywhere else in this protocol. DCR-073.
-
-**Both bounds on that stream stay the channel's own `max_frame_size` for its whole life**, since `HelloAck` is what would have replaced them and never arrives. That is the same rule the Hello exchange already runs under, applied to a stream that never leaves it.
-
-#### What ends a link stream, and why "when `serve` returns" was wrong
-
-**The inviter's last act is a write, and a write is not a delivery.** `LinkApprove` is the final frame of the exchange and nothing answers it, so the side that sends it has no later read to tell it the frame arrived. **Dropping the channel at that point destroys the frame**: quinn's own documentation says a connection whose handles have all been dropped "will be automatically closed with an `error_code` of 0", and that "closing the connection immediately abandons efforts to deliver data to the peer. Upon receiving CONNECTION_CLOSE the peer *may* drop any stream data not yet delivered to the application." The replier, parked on its read, is handed a closed connection instead of the approval it was promised.
-
-**So the inviter finishes its send stream and waits for the replier to close before it lets the channel go.** Two steps, and the second is the load-bearing one: `finish()` says no more frames are coming, and the read that follows returns only once the peer has seen the stream end, which is the acknowledgement this exchange otherwise lacks. **The transfer path has always done exactly this** -- it finishes the Control stream and then reads one byte it never uses -- and the link path was written as though a stream with no reply needed neither.
-
-**The state this produced is worse than a failed exchange, which is why it is a protocol rule rather than an implementation detail.** [docs/11](11-account-linking.md#removing-a-link) has the inviter record the Link *before* it sends `LinkApprove`, so that an approval never asserts a link that does not exist. A lost `LinkApprove` therefore leaves the Link stored on the inviter and absent on the replier, and the replier can never recover it: the two half secrets are ephemeral, so re-linking is the only repair, and it needs the inviter's stale record removed first. **One undelivered frame costs both sides the exchange and leaves the inviter holding a secret nobody else has.**
-
-**The replier's side needs no new rule.** It reads `LinkApprove`, records, and closes; the close is what releases the inviter. DCR-081.
-
-**The wait has a second correct outcome, and reporting it as a failure is DCR-141, 2026-09-20, closing DF-88.** The paragraph above says the read "returns only once the peer has seen the stream end"; a peer that has *already gone* makes it return at once with `TransportError::Closed` instead, **and that answers the same question**. The wait exists so nothing is dropped in flight to the peer; a peer that has closed its connection has nothing left in flight to it. So `Closed` from that read is the successful end of a transfer and is not reported, while every other error still is.
-
-**It reached the happy path because the wait's peer is a command that has finished.** On the transfer path the listener's last act is a write, so it performs the wait correctly -- and its peer is a front end whose `send` has returned, which drops the channel and closes the connection. **Every successful transfer therefore printed `listener: waiting for control stream close failed: the channel or stream is already closed`**, observed on the first real run on 2026-09-19 immediately before the arrival line. That is the cry-wolf failure DF-73 and DF-76 already record, arriving where it will be learned and ignored fastest.
-
-**No test could see it, and why is the finding worth more than the line.** `send_files_end_to_end_over_quic_loopback` holds the sender's channel alive across a `tokio::join!` with the listener, so the connection outlives the teardown and the read answers `Ok(0)` -- **the one shape no front end produces**. Restructured on 2026-09-20 to await the send, drop the channel, then await the listener, the same test prints the line and still passes every assertion. **So the test owes the teardown the order a real transfer takes**, which is the half of this that stops it recurring; [RECORD.md](../RECORD.md) already names tests standing where the bug cannot exist as this repository's recurring failure. **What a peer sends on the Control stream after a transfer stays unbounded and ignored**, which is this document's question rather than this decision's.
-
-**A front end that exits after a send closes its endpoint and waits for the close to leave, decided 2026-09-27 by DCR-163.** Dropping the channel only queues `CONNECTION_CLOSE`; quinn sends it from the endpoint's driver task, and a process that exits the moment `send` returns can take the driver with it before the packet leaves. The receiver then learns nothing, waits out QUIC's 30-second idle timeout, prints `listener: waiting for control stream close failed: the operation exceeded its deadline` -- and, because the listener serves one connection at a time (DF-43), holds every later sender behind it for those 30 seconds. Seen from `tradr-cli` to a phone on 2026-09-27; the GUI, whose process outlives the send, never showed it. **So a sending command closes its dialler's endpoint and waits for it to go idle, bounded at 2 seconds**, whether the send succeeded or failed. The bound is a wait for a packet to leave, not for a peer to answer, so a peer that has vanished cannot hold the command open.
-
-**What the three messages carry is settled in [docs/11](11-account-linking.md#what-the-three-linking-messages-carry), and `proto/tradr/v1/link.proto` is where they live.** They are Control-plane codes that belong to no session, which is why they are not in `control.proto` beside the messages a session exchanges. DCR-068.
-
-## Session flow
+| `0x00` | never valid |
+| `0x01-0x1f` Control | 01 Hello, 02 HelloAck, 03 TransferOffer, 04 TransferAccept, 05 TransferReject, 06 TransferComplete, 07 TransferAbort, 08 PathChanged, 09 KeepAlive, 0a ItemComplete, 0b TransferProgress, 0c LinkReply, 0d LinkApprove, 0e LinkDecline, 10 BroadcastKeyOffer. **`0x0f` is permanently unassigned** (it is the test example) |
+| `0x20-0x3f` Data | 20 ChunkRequest, 21 ChunkRerequest, 22 ChunkData, 23 FlowControl |
+| `0x40-0x5f` Browse | 40 ListDir, 41 DirListing, 42 Stat, 43 StatResult, 44 ReadFile, 45 ReadFileBegin, 46 WriteFile, 47 Mkdir, 48 Delete, 49 Rename, 4a Ack, 4b Watch, 4c FsEvent, 4d Refused |
+| `0x60-0x7f` | mux (above) |
+| `0x80-0xff` | unassigned |
+
+Rules:
+- A code is never reused once retired.
+- A code from another plane's range is **refused**, because authorization lives in the plane.
+- An **unassigned** code inside the receiving plane's own range is skipped (forward compatibility). At most **16 consecutive** are skipped per stream.
+- **The first frame on a Control stream is never skipped**: it must be `Hello` or `LinkReply`.
+- `brokr.proto` messages travel on the Brokr's own channel and carry no codes.
+
+### Link stream
+
+A Control stream opening with `LinkReply` (0x0c) is a linking exchange ([11](11-account-linking.md)). It has no Hello, carries only codes 0c, 0d and 0e, and is accepted only while an invite is open. The receiver reads before it writes on this first frame only.
+
+**Ending streams safely**: whichever side writes last must `finish()` and then wait for the peer to close before dropping the channel, because dropping can lose the frame. `Closed` from that wait counts as success. A CLI that exits after a send closes its endpoint and waits up to 2 s for idle. After a Browse stream, the listener waits up to 2 s for the peer to close.
+
+## Session
 
 ```
-Sender                                          Receiver
-  |                                                  |
-  |---- Hello (version, device_id, attestation) ---->|
-  |<--- Hello (version, device_id, attestation) -----|
-  |                                                  |
-  |      Each verifies the other's Attestation       |
-  |      and settles a Trust Tier (see 05)           |
-  |                                                  |
-  |---- HelloAck (capabilities, max_frame_size) ---->|
-  |<--- HelloAck ------------------------------------|
-  |                                                  |
-  |---- TransferOffer (transfer_id, items[]) ------->|
-  |                                                  |  +- same account and
-  |                                                  |  |  auto-accept on
-  |                                                  |  |    -> accept at once
-  |                                                  |  +- otherwise
-  |                                                  |  |    -> ask the user
-  |                                                  |  \- inspect existing partial
-  |                                                  |     files to decide resume
-  |<--- TransferAccept (accepted[], resume_offsets) -|
-  |                                                  |
-  |      A data stream opens per item from here      |
-  |                                                  |
-  |<--- ChunkRequest (item, from, count) ------------|  <- the receiver asks
-  |---- ChunkData x N ------------------------------>|
-  |<--- ChunkRequest --------------------------------|
-  |---- ChunkData x N ------------------------------>|
-  |                        :                         |
-  |<--- ItemComplete (item_id, verified: true) ------|
-  |                        :                         |
-  |<--- TransferComplete (transfer_id) --------------|
+Sender                                       Receiver
+Hello(versions, device_id, keys, attestation, nonce)  <->  Hello
+            each verifies the other → Trust Tier
+HelloAck(caps, max_frame_size, assigned_tier, sig over peer nonce)  <->  HelloAck
+TransferOffer(transfer_id, items[])   →
+                                      ←  TransferAccept(items accepted, resume_chunk)
+                                      ←  ChunkRequest(item, from, count=64)
+ChunkData × N                         →
+                                      ←  ItemComplete(item, verified)
+                                      ←  TransferComplete
 ```
 
-### Where a `transfer_id` comes from (DCR-157)
+- `transfer_id` is a UUIDv7 built from `Clock` (seconds × 1000) and `Rng`.
+- The receiver **pulls** ([ADR-0007](adr/0007-receiver-driven-chunk-pull.md)). The same mechanism gives flow control, resume, deduplication and out-of-order re-requests.
+- **The listener serves up to 8 connections concurrently.** Each gets **20 s from accept to a finished handshake** (Hello + HelloAck, or a LinkReply). Nothing is timed after that.
+- File placement uses `Vfs::rename_no_replace`; on `AlreadyExists` it takes the next collision name. `NativeVfs` holds a process-wide lock across check and rename.
 
-**The sender assigns it, as a UUIDv7 built from the `Clock` and the `Rng` it is handed, and from nothing else** -- [rule B6](../CLAUDE.md#b-clean-architecture) and rule B7 applied to the one identifier a sender invents. Its 48-bit timestamp field is `Clock::now()` in whole seconds, multiplied by 1000: `UnixTime` resolves to seconds, and RFC 9562 §6.1 lets an implementation fill `unix_ts_ms` from a coarser clock. **Uniqueness does not rest on the timestamp** -- the remaining 74 bits come from the `Rng` -- and nothing in this protocol orders two Transfers by their IDs, so the millisecond digits carried nothing a peer read. **The reason is that a test can now pin a Transfer ID exactly**, which it could not while the timestamp came from the operating system directly.
+### Hello checks (pure, no I/O), cheapest first
 
-### A receiver serves several connections at once (DCR-171)
+1. Version overlap: `negotiated = min(maxes)` must be ≥ `max(mins)`.
+2. Key join: `BLAKE3(identity_pub)[0..16] == channel-authenticated DeviceId`.
+3. `KeyBinding`: P-256 signature over `tradr-keybind-v1 || agreement_pub`, and `not_after` is in the future.
+4. Attestation: handed out to the caller (it may need a JWKS fetch). The returned Trust Tier is **ours to enforce**.
+5. Peer's `HelloAck`: a signature over `tradr-hello-v1 || our nonce` (16 fresh bytes from `Rng`); `negotiated_version` equals ours; `max_frame_size` ≥ 512.
 
-**Until 2026-10-02 the listener served one connection at a time, which was DF-43.** It accepted a channel and handled it to the end -- handshake, offer, every item, the wait for the peer's close -- before accepting the next. So a multi-gigabyte arrival from one device held every other device's send, every folder browse and every link exchange behind it, and a peer that stalled after its handshake held the device indefinitely. With four devices in daily use and a browse panel that opens one connection per operation, that stops being an edge case.
-
-**So the accept loop never waits on a connection.** Each accepted channel is handled concurrently with the others and with the next accept, **up to 8 at once**; at the limit, accepting waits until one finishes, so a flood of connections costs a bounded amount of memory rather than an unbounded one. A channel's failure is reported as it is today and touches no other channel. The bound is a count and not a timeout: a slow transfer is legitimate and is not cut off.
-
-**Concurrency is safe for everything a channel does except placing a file, and placing is made safe rather than serialised.** Partial files live under each transfer's own `.tradr-partial/<transfer_id>/`, and a link invite is consumed atomically by the service that holds it. **What two channels can genuinely race on is a name**: two transfers carrying `photo.jpg` both find the name free, and the second rename would replace the first file -- which the table under "Name collisions and sanitization" forbids. So placement uses a **rename that refuses an existing target** (`Vfs::rename_no_replace`, `VfsError::AlreadyExists`), and a refused placement takes the next collision name and tries again. `NativeVfs` makes the check and the rename one step by holding one lock for both, across every placement in the process; another program writing the same name at the same instant is outside it, as it always was. The Browse plane's `Rename`, `WriteFile` with `CREATE_NEW` or `RENAME_IF_EXISTS`, and the receive path all place this way; `OVERWRITE` alone replaces, because replacing is what it asks for.
-
-**A connection has 20 seconds from being accepted to finishing its handshake, decided 2026-10-03 by DCR-172.** Until then the peer is unauthenticated -- any device on the network can complete QUIC's own handshake with a key of its choosing -- and with a bound of 8 connections, eight such peers that open a connection, keep it alive and never send a `Hello` would stop the device receiving anything. So the time from `accept` to a verified `Hello` and the `HelloAck` exchange, or to a read `LinkReply`, is bounded; a channel that has not got there is closed and reported, and its slot is free. **After the handshake nothing is timed**: a slow transfer is legitimate, and a linking exchange waits on a person. 20 seconds covers an Attestation check that has to fetch the provider's keys on a slow network.
-
-### Why the receiver pulls
-
-Rather than the sender pushing unilaterally, the receiver asks for chunks with `ChunkRequest`.
-
-1. **Flow control follows the receiver's circumstances.** A slow disk, a low battery, competing transfers — the receiver can express all of it directly.
-2. **Resumption needs no special case.** Restarting after an interruption means asking from a later chunk index. There is no separate resume protocol.
-3. **Deduplication becomes possible.** Before asking, the receiver can check a chunk's hash and skip anything it already holds — from a partially received copy, or from the same content under a different name.
-4. **Out-of-order requests work.** Only the corrupted chunk needs re-requesting.
-
-The cost is one extra round trip, but `ChunkRequest` batches with `count` — 64 chunks, meaning 64 MiB, by default — so the round-trip frequency is effectively negligible.
-
-### What reading a `TransferOffer` may drop, and what it may not
-
-The same rule the Hello exchange follows, applied to the Offer: **a field that decides something refuses the offer; a field that only decorates it never does.** DCR-058.
-
-| Field | Wire | Native | On disagreement |
-|---|---|---|---|
-| `mime` | `string`, unbounded | **absent** | **Dropped, and not carried at all.** Nothing decides anything from it, and admitting an unbounded peer-supplied string into Layer 0 means inventing a length cap no requirement asks for. It is re-added when something reads it, with the cap its reader needs |
-| `mtime` | `int64` | **absent** | **Dropped**, for the same reason. A displayed timestamp is a decoration; the transfer does not consult it and the receiver stamps what it writes itself |
-| `chunk_size` | `uint32` | fixed at 1 MiB | **Refuse, and `0` is refused with the rest.** [Invariant I6](../CLAUDE.md#8-invariants-that-must-not-break) fixes the reference chunk regardless of transport, and `chunk_index` counts reference chunks. An offer naming another size is refused rather than reinterpreted, and proto3 gives an omitted `uint32` the value `0`, so reading `0` as "the default, 1 MiB" is exactly the reinterpretation this row forbids -- a sender that means 1 MiB writes 1 MiB. DCR-059 |
-| `origin`, and `TransferReject.reason` | `enum` | `Option`, `None` when unspecified or unknown | **Drop it and carry on.** Both decorate: `origin` labels how a send began and `reason` explains a refusal to a person, and neither decides what is written, where, or whether. Refusing an enum value this build has no word for would make a future `OFFER_ORIGIN_*` break every older receiver's transfer outright, which is the opposite of what the ignore rule buys everywhere else on this wire. **`HelloAck.assigned_tier` is the contrast and stays a refusal**: a tier decides every later request, so an unspecified one must never be read as a grant. DCR-059 |
-| `total_bytes` | `uint64` | must equal the sum of `items[].size` | **Refuse.** Two peer-supplied numbers that describe the same thing, and a receiver that trusts the first sizes its progress and its space check against a figure the second contradicts |
-| `sender_label` | `string` | a `DisplayName` | **Drop it and carry on**, exactly as `display_name` does in a `Hello`, and for the same reason: it is shown to a person and decides nothing |
-| `item_id`, `relative_path`, `size`, `content_hash`, `transfer_id` | sized or bounded | sized or bounded | **Refuse.** These decide what is written and where |
-
-**An `items` list that is empty, or that repeats an `item_id`, is refused.** An empty offer asks the receiver to accept nothing, and a repeated id makes `ItemComplete` and every `ChunkRequest` ambiguous about which item they name.
-
-**`ItemAcceptance.resume_chunk` is the only place a Resume Offset travels**, so it is refused when it is not below the item's chunk count -- a receiver claiming to hold more than was offered is describing a different file.
-
-**An offered item the `TransferAccept` does not name is declined**, and a `TransferAccept` naming only some of the offered items is well-formed. DCR-059. The alternative, requiring an explicit `ItemAcceptance` per offered item, makes a receiver that wants one file out of two hundred send a hundred and ninety-nine declines to say so. Silence costs the sender nothing, because it already holds the offer: the items it sends are the ones an acceptance named with `accepted` set, and every other item is reported to the user as declined rather than as failed.
-
-## The Hello exchange
-
-Both sides send `Hello` at once — neither is the client — so each runs the same four steps against the other. **No step performs I/O.** Verifying the peer's Attestation may need a JWKS fetch, so the exchange hands that out and consumes the result, the way [docs/05](05-security.md#who-runs-the-seven-steps)'s `JwksNeeded` already does.
-
-| Step | Given | Produces |
-|---|---|---|
-| 1 | our own facts, and an `Rng` | our `Hello`, carrying a fresh 16-byte nonce |
-| 2 | the peer's `Hello`, the `DeviceId` the channel authenticated, a `Clock` | a refusal, or a request to verify the peer's Attestation |
-| 3 | the resulting Trust Tier | our `HelloAck`, signed over the peer's nonce |
-| 4 | the peer's `HelloAck` | the settled session: their tier, the negotiated version, our send bound |
-
-### What each side checks, and in what order
-
-Cheapest first, so no signature work is spent on a peer that cannot be talked to at all.
-
-1. **Version overlap.** `negotiated = min(ours.max, theirs.max)`, refused when that is below `max(ours.min, theirs.min)`. An integer comparison, so it goes first.
-2. **The key join.** `BLAKE3(theirs.identity_pub)[0..16]` must equal the `DeviceId` the channel already authenticated. One hash, before any signature.
-3. **The `KeyBinding`.** A P-256 signature over `tradr-keybind-v1 || agreement_pub` against `identity_pub`, with `not_after` still in the future.
-4. **The Attestation**, handed out and never performed here. The Trust Tier that comes back is **ours**.
-5. **The peer's nonce signature**, in step 4: P-256 over `tradr-hello-v1 || our nonce` against their `identity_pub`. Over **our** nonce and never theirs — reflecting a peer's own nonce back proves nothing and would let a relay pass carrying no key at all.
-
-**Check 3 also runs one layer lower on a Noise path, and it is the same check against the same field.** A Noise handshake authenticates the agreement key, so a `ble-gatt` channel derives the Device ID `SecureChannel::peer` returns from an identity join carried in the handshake payload ([ADR-0020](adr/0020-noise-xx-for-ble-gatt.md)). **That does not make check 2 or check 3 redundant here**: `Hello` is transport-independent and a QUIC channel has run neither, so the exchange asks both regardless of what carried it. What it means is that a `ble-gatt` peer whose binding fails never reaches `Hello` at all.
-
-### Why the key join earns its place
-
-A channel authenticates a *Device Key*; a `Hello` claims an *account*. Without check 2 the exchange holds two different answers to "who is the peer" — the certificate's and the `Hello`'s — and every later decision has to remember which one it meant.
-
-Check 5 does eventually catch a mismatch, since a relay cannot produce a signature under a key it does not hold. **But it catches it in step 4, after a `HelloAck` granting a Trust Tier has already been sent.** Check 2 moves the refusal to the first cheap operation of the exchange, and makes the tier belong to the device the channel authenticated rather than to whichever device the `Hello` names.
-
-### What step 4 checks besides the signature
-
-Two fields of the peer's `HelloAck` are claims like any other, and both are checked.
-
-- **`negotiated_version` must equal the version we computed.** Negotiation is symmetric — `min` of the maxima against `max` of the minima, over ranges both sides already exchanged — so there is exactly one right answer and both sides have everything needed to reach it. A peer naming a different one is buggy or lying, and the failure it produces otherwise is the worst kind: both sides believe the handshake succeeded and then speak different versions at each other.
-- **`max_frame_size` must be at least 512.** That is the smallest value this protocol defines, the `ble-gatt` bound in the Framing section above. A peer advertising less has not negotiated a small session, it has negotiated an unusable one, and every later send would fail against a limit no legal frame fits inside.
-
-There is no upper bound to check. The peer's value bounds what **we** send, we never send more than we have, and a peer that advertises more than it can receive has only harmed itself.
-
-### What reading a `Hello` may drop, and what it may not
-
-The wire types and the native ones do not agree everywhere, and each disagreement has exactly one safe reading. **A field that decides something fails the handshake; a field that only decorates it never does.**
-
-| Field | Wire | Native | On disagreement |
-|---|---|---|---|
-| `capabilities` | `uint32` | 16 bits | **Narrow, keeping the low 16.** A capability this build cannot represent is one it does not have, which is the same answer it already gives for the reserved bits 7-15 |
-| `display_name` | max 64 bytes | max 32 bytes | **Drop it and carry on.** It is absent-able and purely cosmetic |
-| every key, nonce and version | sized or bounded | sized or bounded | **Refuse.** These decide who the peer is and what is spoken |
-
-**Dropping an over-long `display_name` rather than refusing is the load-bearing half of this.** A name is shown to a person and decides nothing; a peer whose name is four bytes too long for this build is still a peer this build must talk to, and refusing would make a cosmetic mismatch look exactly like an authentication failure. The narrowing of `capabilities` is the same argument in the other direction: unknown bits already mean "not offered", so losing bits 16-31 introduces no new answer.
-
-**Nothing here weakens a check.** A truncated key, a short nonce or a defaulted version range is refused by the native type's own constructor, and the conversion must let it — never pad, never truncate, never substitute a default for an absent message.
-
-### Three rules that are not checks
-
-- **The tier a side enforces is the one it computed.** `HelloAck.assigned_tier` arriving from the peer is what *they* granted *us*: display material, and never an input to our own grant. A peer claiming `TRUST_TIER_SAME_ACCOUNT` for itself is the whole of the attack this forbids.
-- **`Rejected` is an outcome, not an error.** The exchange completes, the `HelloAck` carries `TRUST_TIER_REJECTED`, and every later request is denied. It is not a transport failure and must not be retried as one.
-- **The nonce is exactly 16 bytes and fresh per connection**, drawn through the `Rng` trait. Reuse makes the peer's signature replayable against a later session.
-
-### A rejected peer's nonce is still signed
-
-The `HelloAck` sent with `TRUST_TIER_REJECTED` carries a real `nonce_signature`.
-
-Withholding it protects nothing. `tradr-hello-v1` exists precisely so that signing an attacker-chosen sixteen bytes is safe — that is what a domain tag is for — and `assigned_tier` in the same message already tells the peer the verdict, so there is nothing left to conceal. What withholding it would buy is a branch through a Critical Module that only hostile peers ever take, which is the branch least likely to be exercised and most likely to be wrong.
+- The peer's `assigned_tier` is display-only. `REJECTED` is an outcome, not an error, and its HelloAck is still signed.
+- Decoding tolerance:
+  - `capabilities` is narrowed to 16 bits.
+  - An over-long `display_name` / `sender_label` is dropped.
+  - Unknown `origin` / reject `reason` enums become `None`.
+  - Keys, nonces, versions, `item_id`, `relative_path`, `size`, `content_hash` and `transfer_id` are refused if invalid.
+  - `chunk_size` must be exactly 1 MiB (0 is refused).
+  - `total_bytes` must equal the sum of the item sizes.
+  - An empty `items` list or a duplicate `item_id` is refused.
+  - `resume_chunk` must be below the item's chunk count.
+  - `mime` and `mtime` are not carried.
+- Items that the Accept does not name are declined.
 
 ## Chunks and integrity
 
-### Chunk sizes
-
-| Transport | Chunk size |
-|---|---|
-| `direct-quic`, `holepunch-quic`, `wifi-direct` | 1 MiB |
-| `relay` | 256 KiB |
-| `ble-gatt` | 4 KiB |
-
-**Chunk boundaries never change when the path does.** 1 MiB is the reference; smaller transports subdivide it. That is what lets a file received partway over `relay` resume over `direct-quic`.
-
-### Where a subdivided piece belongs
-
-`chunk_index` always counts **reference** chunks, never transport-sized pieces, which is [invariant I6](../CLAUDE.md#8-invariants-that-must-not-break). A subdivided piece additionally carries `offset_in_chunk`, its offset within that reference chunk, and the two together give the absolute position:
-
-```
-absolute offset = chunk_index * 1 MiB + offset_in_chunk
-```
-
-A transport that does not subdivide sends `offset_in_chunk = 0`. Protobuf omits a zero-valued scalar, so **the field costs nothing on the QUIC paths** and a few bytes per frame only where subdivision actually happens.
-
-**Stream order is deliberately not used to carry this.** The pieces do arrive in order on a QUIC stream, and deriving the offset from arrival order would cost no bytes at all. Three things rule it out:
-
-1. **`ble-gatt` cannot promise it.** A GATT write without response is neither ordered nor acknowledged, and that is the mode worth having for throughput on a transport already limited to 20-100 KB/s.
-2. **The offset is an input to verification, not only to placement.** Each piece's `verify_path` checks it against `content_hash` at its absolute position, so a wrong offset fails verification rather than corrupting the file — which is the good outcome, reached the bad way: docs/04 then re-requests the chunk, fails again, and after three attempts blames the path. A misordering bug is diagnosed as a bad network.
-3. **It would be an unwritten invariant underneath a Critical Module.** Chunk resumption is what [CLAUDE.md](../CLAUDE.md#6-critical-modules-tests-come-first) calls the module whose failure collapses path selection. Three transport implementations would each have to preserve an ordering property nobody stated, and the check for whether they do would be a transfer that thrashes.
-
-Eight bytes at most per subdivided frame, and none on the default path, buys the removal of that assumption.
-
-### Why BLAKE3
-
-BLAKE3 is internally a Merkle tree, which yields two properties — see [ADR-0006](adr/0006-blake3-for-content-integrity.md):
-
-1. **One whole-file hash verifies any chunk.** No separate list of chunk hashes needs sending. Using `bao`-style verified streaming, chunks are checked as they arrive, so nothing gets discovered corrupt only at the end.
-2. **Hashing parallelizes.** Hashing a 1 GB file takes seconds under SHA-256 but stays under a second with BLAKE3 across several cores. Pre-send hashing never becomes something the user waits on.
-
-An `Item` carries `content_hash`, the 32-byte BLAKE3 root, and each `ChunkData` carries the tree path needed to verify it — the `bao` outboard.
-
-### What a piece carries in order to be verified
-
-**The bytes following a `ChunkData` header are a `bao` slice, not raw content**, covering `[chunk_index * 1 MiB + offset_in_chunk, content_len)`. `payload_len` counts the slice's bytes; the content length is what the decoder yields, and the receiver already knows it from the item's size and the piece's position.
-
-**The field that used to say otherwise is retired.** `ChunkData.verify_path` said "BLAKE3 tree path (bao outboard)" and left the byte layout for an implementation to invent; there was no interpretation of it that did not require rebuilding `bao`'s slice grammar by hand in order to interleave a separate path with a separate payload. **That is the assembly [ADR-0006](adr/0006-blake3-for-content-integrity.md)'s fourth reason exists to refuse**, one layer up from the primitive. A slice is already the shape `bao` extracts and already the shape it verifies, so carrying one invents nothing. Field 5 is reserved and never reused, for the reason a retired type code is.
-
-**The overhead is not the one [ADR-0006](adr/0006-blake3-for-content-integrity.md) quotes, and the ADR's figure is wrong.** Measured against `bao` 0.13.1: a slice covering a 1 MiB piece is 1,114,184 bytes against 1,048,576 of content -- **65,608 bytes, or 6.26%**, and the same on a 1 GiB item. A 4 KiB `ble-gatt` piece costs 840 bytes, **20.5%**. ADR-0006 says "a few hundred bytes per chunk, roughly 0.03%", which assumed `bao`'s chunk is the 1 MiB reference chunk. **It is 1024 bytes, BLAKE3's own chunk**, so a slice carries every interior parent of the range rather than a path to it -- three orders of magnitude more nodes.
-
-**The decision survives the correction, on a different argument than the one that was made for it.** A path to the subtree really would be a few hundred bytes, and using one means recomputing the 1 MiB subtree hash from its content and checking it against that path. `bao` exposes no such call; `blake3::guts` does. **That is assembling the primitive by hand, one level down from where DCR-055 refused to do it**, and ADR-0006's fourth reason applies to it exactly as written. Sending each item's whole outboard once instead saves nothing at all: for a 1 GiB item it is 67,108,808 bytes, the same 6.4%, paid up front rather than per piece.
-
-**So the cost is real and it is recorded rather than argued away.** 6.26% on the bulk transports is affordable. **20.5% on `ble-gatt` is not obviously affordable** on a transport docs/03 already limits to 20-100 KB/s, and it is the open question this section leaves for whoever cuts the BLE data path.
-
-### The sender streams a file and never holds it (DCR-164)
-
-**No sender reads a whole file into memory, decided 2026-09-27 ruling DF-119.** Until then the sender read every item wholly into a buffer twice -- once to compute the Content Hash for the Offer, and again to build the `bao` outboard and serve slices from it -- so a file of a few GB could not be sent from any device, and a phone ran out of memory well before that.
-
-- **One sequential pass per item, when the Offer is built**, reads the file in 1 MiB buffers and produces both the Content Hash and the `bao` outboard. It is the pass the Offer already needed; the second whole-file read goes away
-- **The outboard is spooled to an anonymous scratch file**, never held in memory: it is ~6.25% of the content ([ADR-0016](adr/0016-bao-verified-streaming-costs-6-percent.md)), which is 256 MiB for a 4 GiB video. The file is unlinked at creation where the platform allows it and deleted on close where it does not, so an interrupted process leaves nothing behind. It lives until that item's transfer ends
-- **A piece is served from a 1 MiB window**: the content of `[chunk_index * 1 MiB, + chunk length)` is read at its offset, and the slice is extracted from that window and the spooled outboard. A sender's memory per item in flight is one window and one slice, whatever the file's size
-- **The scratch file comes from `tradr-vfs`**, which is where [invariant I5](../CLAUDE.md#8-invariants-that-must-not-break) puts every file path. `NativeVfs` is constructed with a scratch directory the composition root chooses -- the OS temporary directory on the desktop and the app's cache directory on Android, where the OS temporary directory is not writable -- and hands out anonymous files from it
-- **A file whose size at serving differs from its size in the Offer fails that item** rather than serving a slice the receiver will refuse
-- **The receiver is unchanged**: it already verifies and writes piece by piece
-
-### A piece is verified before it is written
-
-**Verification precedes placement, and the order is the whole point of carrying `verify_path` per piece.** A receiver holds `content_hash` from the `Item` and nothing else it can trust; `chunk_index`, `offset_in_chunk` and `payload_len` all arrive from the peer. Checking the piece against `content_hash` at its absolute offset is what turns those three fields from instructions into claims -- so the check happens **before** the bytes reach the partial file, and a piece that fails is re-requested rather than written and corrected later.
-
-Written the other way round, the same code appears to work and defends nothing: the bytes land at a peer-chosen offset first, and the check that would have refused them runs afterwards on a file that already contains them.
-
-**The three fields are bounded before they are used, not after.** `chunk_index` must be below the item's chunk count, `offset_in_chunk` below the 1 MiB reference chunk, and `payload_len` no larger than what remains of the chunk from that offset. A receiver that computes an absolute offset from unchecked values has already lost: the arithmetic ranges over 2^64 and the refusal, wherever it eventually appears, arrives after something has been asked to hold that offset.
-
-**`ItemComplete.verified` is the receiver's finding about bytes it verified itself.** It is not a field the sender may act on as proof of anything, and a receiver that sets it without having verified has told the sender the transfer succeeded on the one channel the sender has no way to check.
-
-### Verification failure
-
-- A chunk fails: re-request that chunk alone. After three failures, suspect the path and rerun path selection
-- A whole file fails: return `ItemComplete { verified: false }`, discard the partial file, and start over. This happens only through a bug in the hash-tree code, or because the file changed on the sender mid-transfer
+- **1 MiB reference chunks regardless of transport (I6).** Smaller transports subdivide: absolute offset = `chunk_index × 1 MiB + offset_in_chunk`. Offsets are explicit, never inferred from arrival order.
+- `content_hash` = BLAKE3 root. The bytes after a `ChunkData` header are a **bao slice** ([ADR-0006](adr/0006-blake3-for-content-integrity.md), [ADR-0016](adr/0016-bao-verified-streaming-costs-6-percent.md)). Overhead is 6.26% per 1 MiB piece and 20.5% per 4 KiB BLE piece; the BLE figure is an open concern. Field 5 (`verify_path`) is reserved.
+- **Receiver order**: bound-check `chunk_index`, `offset_in_chunk` and `payload_len`, **then verify, then write**. A failed piece is re-requested; after 3 failures, suspect the path. A whole-file failure sends `ItemComplete{verified:false}` and discards the partial file.
+- **Sender streams**: one pass per item builds both the hash and the bao outboard. The outboard spools to an anonymous scratch file from `tradr-vfs` (the temp dir, or the Android cache dir). Pieces are served from a 1 MiB window. A file whose size changed since the Offer fails that item.
 
 ## Partial files
 
-Incoming files are written to `<destination>/.tradr-partial/<transfer_id>/<item_id>`. **This section used to say `<ordinal>`, a number the receiver assigns, and the code has never done that; DCR-154 made the text follow the code on 2026-09-24**, for the reason given after the next two paragraphs, which are kept because they are the argument the decision had to answer.
+- `<dest>/.tradr-partial/<transfer_id>/<item_id>`. Paths come only from the `tradr-vfs` constructors `partial_root_rel_path` and `partial_file_rel_path`.
+- `item_id` is 1-64 chars of `[a-z0-9_-]`. Windows reserved names are refused by `ItemId::new` (Critical Module).
+- Resume = the partial file's size ÷ 1 MiB (`derive_item_resumption`). There is no database.
+- When an item completes and verifies, it is renamed into place. When the transfer ends, the transfer directory is removed with `Vfs::remove`, which refuses a non-empty directory; that refusal is expected.
+- **Sweep**: at listener start (`run_listener`), a transfer directory whose own mtime and every entry's mtime are more than 7 days old is removed whole. Only names that parse as `TransferId` / `ItemId` are touched. The partial root is listed through `list_partial_root`, an inherent `NativeVfs` method that is **not on the `Vfs` trait**, so peers cannot reach it. `.tradr-partial` stays refused to `list` from peers.
 
-`item_id` is a string the sender picks. Using it as a path component would put an attacker-controlled value on the filesystem, and every defence against that — rejecting `..`, rejecting separators and control characters, handling Windows reserved names, catching two ids that differ only in case colliding on a case-insensitive filesystem — is a check that has to be right forever. **A receiver-assigned ordinal removes the class instead of defending against it.**
+## Filename sanitization (Critical Module: `RelPath`, `tradr-vfs`)
 
-An ordinal needs a mapping from ordinal back to `item_id` that outlives the process, since resumption happens in a later one, and this section placed it in SQLite. **No store exists** -- no crate in this workspace depends on SQLite -- and resumption is derived from the partial file itself: `derive_item_resumption` stats `.tradr-partial/<transfer_id>/<item_id>` and counts the whole chunks its size covers. **So the choice is between building a store to hold one mapping and naming the file by the key resumption already looks up**, and DCR-154 takes the second. **What it gives up is the class argument above**: the defence is a check rather than an absence. **What keeps that check small is the alphabet below**, which admits no `.`, no separator and no upper case, so traversal, separators and case-insensitive collisions cannot be written at all, and the one residue -- a Windows reserved device name -- is refused by `ItemId::new` in `tradr-core`, which is a Critical Module under filename sanitization. A path is still assembled only by `partial_file_rel_path` in `tradr-vfs` (invariant I5).
-
-`item_id` is still validated on arrival, because it is a map key and it reaches logs and the UI. It is constrained to an opaque token: **1 to 64 characters of lowercase ASCII letters, digits, `-` and `_`**. That is deliberately narrower than a filename needs to be, since it never has to be one.
-
-- On completion and successful verification, `rename` into place — atomic within one filesystem
-- Progress is the partial file's size, read by `derive_item_resumption` when an Offer arrives. **It used to say SQLite, and DCR-154 corrected it**: there is no database, so there is nothing for the file to diverge from
-- A transfer's partial directory untouched for seven days is swept when the receiver starts. **DCR-142 recorded on 2026-09-20 that nothing implemented this; DCR-154 designs it on 2026-09-24**, in the section below
-
-#### What happens to `.tradr-partial/<transfer_id>/` when the transfer ends (DCR-142)
-
-**The directory is removed when the transfer ends, and a directory that still holds something refuses to go.** `receive_file` creates it, renames each verified file out of it, and removed it only when an item failed -- so every **successful** transfer left an empty directory behind, one per transfer, in a dot-directory the person did not make. Observed on the first real run, 2026-09-19 (DF-89).
-
-**The refusal is the mechanism rather than a check written for the occasion.** [`Vfs::remove`](../crates/tradr-core/src/vfs.rs) removes a file or an *already empty* directory and answers `WrongKind` for one that is not, which `WI-M8-024` made true of both implementations and DCR-137 put on the commit path. So the removal needs no emptiness test of its own: **it succeeds exactly when nothing is left to resume and refuses exactly when something is**, and that refusal is the expected outcome rather than an error to report. **That answers DF-89's own objection** -- that the directory is what resumption reads, so deleting it is a decision about the resumption contract -- by making the contract the thing that decides.
-
-**It happens at the transfer's end and not at each item's.** One transfer carries several items and `receive_file` runs once per item, so it cannot know it is handling the last one; a removal there would delete and re-create the directory between items. The item loop is where a transfer ends, so the removal goes there.
-
-**The directory's path gets one constructor, beside the file's.** `partial_file_rel_path` has assembled `.tradr-partial/<transfer_id>/<item_id>` in `tradr-vfs` since it was written, which is where [invariant I5](../CLAUDE.md#8-invariants-that-must-not-break) says paths are assembled; the directory half has always been built inline at the one place that needed it, and a removal would have made that two. **The invariant did not catch it because one site is not yet a duplication** -- which is what an invariant about assembling paths in one place is for, and is why the constructor arrives with the second caller rather than after it.
-
-#### Sweeping what an interrupted transfer left (DCR-154)
-
-**The unit is one transfer's directory, and it goes whole or not at all.** A directory is `.tradr-partial/<transfer_id>/`, and removing one file out of it would leave a transfer that resumes some items and restarts others, which no sender asked for. It is swept when **its own modification time and every entry's** are more than seven days (604 800 seconds) before `Clock::now`. The directory's own time counts because a directory emptied by a crash has no entries to judge it by; the entries' times count because writing into a file does not touch its directory's time.
-
-**Only what this code would have made is touched.** A name under `.tradr-partial/` that does not parse as a `TransferId`, and does not display back to exactly itself, is left alone, and so is a transfer directory holding a name that is not an `ItemId` the same way, or holding a directory. Each path is rebuilt from the parsed value through the constructors in `tradr-vfs`, so the sweep assembles no path of its own (invariant I5): `.tradr-partial` itself gets a third constructor, `partial_root_rel_path`, which the other two now build on. Files are removed one by one with `Vfs::remove` and then the directory, which `Vfs::remove` refuses unless it is empty -- the rule DCR-142 already relies on. A `.tradr-partial` directory left empty is kept.
-
-**The partial root is listed by an operation outside the `Vfs` trait, decided 2026-09-24 by DCR-155 correcting DCR-154.** DCR-154 had the sweep list `.tradr-partial` through `Vfs::list`, and the Implementer stopped on it: boundary enforcement refuses that exact path as `DenyListed`, and a Critical Module test in `crates/tradr-vfs/tests/boundary_enforcement.rs` asserts the refusal, so the design could not be built without weakening a check that exists so a peer cannot see what is in flight. **The refusal is right and stays.** What the sweep needs is one listing of one directory that no peer should reach, so `tradr-vfs` gives each native implementation an inherent `list_partial_root(root)`: it lists `.tradr-partial` exactly as `list` would but without the partial-root deny pattern, answers `Ok` with no entries when the directory does not exist, and is not on the `Vfs` trait -- **the browse plane holds only `&impl Vfs`, so nothing a peer drives can call it**. `sweep_stale_partials` takes that listing as an argument rather than producing it, and everything below the partial root it reaches through `Vfs::list` and `Vfs::remove`.
-
-**Below the partial root, `list` filters its entries by the rule every other operation already uses, decided 2026-09-24 by DCR-156 correcting DCR-155.** DCR-155 said `Vfs::list` already admitted `.tradr-partial/<transfer_id>/` and what is in it, and half of that was false: the path was admitted, but each entry was then filtered through `is_denied`, whose `.tradr-partial` pattern matches anywhere in the path, so the listing came back empty. `stat`, `open_read`, `open_write` and `remove` have always checked `.tradr-partial/<transfer_id>/<item_id>` against `is_denied_for_write`, which exempts the staging area below its root, so **a listing was the one operation hiding what the others already reach**. The entry filter now uses that same rule. **What a peer can see does not widen in any way that matters**: `.tradr-partial` itself stays refused by `list` and hidden from its parent's listing, both pinned by tests in `crates/tradr-vfs/tests/partial_root.rs`, so enumerating transfers still needs a Transfer ID, which is 74 random bits and known only to the sender of that transfer. The Implementer of `WI-M8-045` made this change because the Supervisor's own tests required it, and did not report it; the ruling is recorded here rather than inferred from the diff.
-
-**It runs once, in `run_listener`, before the first connection is accepted.** Both front ends start receiving through `run_listener` after the receive root is registered, so one call covers the CLI and the GUI and a test can drive it, which a call in each composition root could not be (DF-102). Nothing is being received while it runs, so it cannot remove a transfer in progress. **A failure is printed and does not stop receiving**: a sweep is housekeeping, and a device that cannot receive because it could not tidy up has the priority backwards. A missing `.tradr-partial` is the ordinary case of a device that never had an interrupted transfer, which is why `list_partial_root` answers it with no entries rather than an error.
-
-## Name collisions and sanitization
-
-The receiver **never trusts an incoming `relative_path`**. It enforces:
-
-| Check | Action |
+| Input | Action |
 |---|---|
-| Absolute path, starting `/` or `C:\` | Reject |
-| Contains `..` | Reject |
-| Contains NUL or other control characters | Reject |
-| Contains a bidirectional override, embedding or isolate, or a line or paragraph separator | Reject |
-| Windows reserved names: `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9` | Append `_` |
-| A colon anywhere in a component, which on NTFS names an alternate data stream | Replace each with `_` |
-| Trailing dots or spaces, which break on Windows | Strip |
-| Path length beyond the OS limit | Reject |
-| Collides with an existing file | Number it as `name (2).ext`. Never overwrite, even when two transfers race for the name (DCR-171) |
-| Item is a symlink | Reject in v1, since the target may point outside the Share Root |
+| Absolute, `..`, NUL/control, bidi override/isolate, U+2028/9 | reject |
+| Windows reserved stem (`CON`, `COM1`, ...) | append `_` (on every platform) |
+| `:` in a component (NTFS ADS) | replace with `_`, before the reserved-name check (on every platform) |
+| Trailing dot or space | strip |
+| Too long | reject |
+| Name collision | `name (2).ext`, never overwrite |
+| Symlink | reject |
 
-This is the same attack surface as zip slip. The path is normalized before joining, and the joined result is re-checked to confirm it is prefixed by the destination's realpath.
+U+200E and U+200F are allowed. The joined path is re-checked against the destination's realpath. Sanitization is identical on every platform.
 
-### Why a colon is transformed rather than rejected, and on every platform
+## Browse plane
 
-**On NTFS, `report.pdf:evil.exe` is not a file called `report.pdf:evil.exe`.** It is an alternate data stream hanging off a file called `report.pdf`, and a directory listing shows only the latter. So a receiver that joins an incoming path containing a colon writes bytes the user never sees under a name they did not accept -- **which is the defect the bidirectional-override rule above exists to prevent**, arriving through a different character.
+Every request is authorized by the access decision at classification ([ADR-0024](adr/0024-one-folder-per-device-full-access.md): `SameAccount`, or `Linked` with `full_access`).
 
-**It is transformed and not rejected, because a colon is an ordinary character everywhere else.** `2026-08-22T10:00:00.log` is a filename a Linux or macOS sender produces without trying, and refusing it would make a real file untransferable in order to defend a platform it does not run on. The reserved-name rule above already settled this shape: a name that cannot be written as sent is rewritten so it can be, not turned away.
-
-**And it is transformed on every platform, which is the part worth stating rather than implying.** The sanitizer answers one name for one input, so a Share browsed from a phone and from a desktop shows the same names and a file does not change identity by arriving somewhere else. `CON` becomes `CON_` on Linux for the same reason, where nothing is reserved. **The cost is a colon becoming an underscore on a system that could have kept it**, and it is paid for a property that is worth more: what a receiver will write is decided by the path, never by which receiver it is.
-
-**The replacement runs before the reserved-name check**, so that check compares a colon-free component. **It is an ordering, not a defence, and the difference was measured rather than assumed**: neither order changes any answer, because a stem holding a colon is never a reserved name and replacing a colon with `_` never produces one, and `_` occupies the position the colon held so the stem and extension divide at the same index either way. Three hundred and ninety-six inputs crossing every reserved name with leading, interior and trailing colons give byte-identical results under both. **The order is fixed anyway, because a rule stated once is a rule two implementations cannot read differently** -- but nothing here is protecting the reserved-name check from a colon, and a sentence saying otherwise would be inviting a test that can never fail.
-
-### Why a filename may not reorder itself
-
-The receiver shows an incoming filename to the user, who accepts or declines on the strength of it. A name carrying `U+202E RIGHT-TO-LEFT OVERRIDE` renders in the opposite order from the bytes it contains:
-
-```
-bytes on the wire   report\u{202E}fdp.exe
-what the user sees  reportexe.pdf
-what gets written   an executable
-```
-
-Rejected: `U+202A` to `U+202E`, the overrides and embeddings; `U+2066` to `U+2069`, the isolates; and `U+2028` and `U+2029`, the line and paragraph separators, which also break any single-line rendering of a name and any log line carrying one. None has a use in a filename. **The same set is refused in a peer's name and address**, by the same predicate -- [docs/03](03-discovery-and-transport.md#a-name-a-person-reads-may-not-reorder-itself-dcr-146), DCR-146.
-
-**`U+200E` and `U+200F`, the directional marks, stay permitted.** They influence the direction of neutral characters and cannot reverse a run, so they do not produce the substitution above, and Arabic and Hebrew filenames legitimately carry them. Rejecting them would cost every RTL user something real to defend against nothing.
-
-These are not control characters — `char::is_control` is false for every one of them — so the row above does not cover them and a check written against it alone would let them through.
-
-## The Browse plane
-
-Remote operations on Share Roots. Every request carries a `share_id`, and the receiver checks the requester's Trust Tier against that Share's audience before acting.
-
-| Message | Response | Mode |
-|---|---|---|
-| `ListDir { share_id, path, cursor, limit }` | `DirListing { entries[], next_cursor }` | ro |
-| `Stat { share_id, path }` | `StatResult { entry }` | ro |
-| `ReadFile { share_id, path, offset, length }` | `ReadFileBegin` then raw bytes on the same stream | ro |
-| `WriteFile { share_id, path, content_hash, size }` | Received on a data stream | rw |
-| `Mkdir { share_id, path }` | `Ack` | rw |
-| `Delete { share_id, path, recursive }` | `Ack` | rw |
-| `Rename { share_id, from, to }` | `Ack` | rw |
-| `Watch { share_id, path }` | A stream of `FsEvent` | ro |
-| — | `Refused { request_id, reason }`, in place of any answer above | — |
-
-`ListDir` pages by cursor, since a directory of tens of thousands of entries will not fit one frame. Default page size is 500.
-
-**A request that cannot be served is answered with `Refused` and the stream then closes, decided 2026-09-29 by DCR-168 ruling DF-121.** Until then the only refusal was a stream ending without an answer, so a peer with no access, a name already taken and a path that no longer exists all looked the same, and the browsing side could only guess. `reason` is one of `NO_ACCESS`, `NOT_FOUND`, `ALREADY_EXISTS`, `WRONG_KIND` (a file where a directory was wanted, the reverse, or a directory that is not empty), `NOT_ALLOWED` (outside the folder, on the deny list, or a symlink or device) and `FAILED` (anything else on the serving side). **The reason says which rule refused, never a path or an operating-system message**, so it tells a peer nothing about the folder that the request itself did not. A stream that still ends with neither `Ack` nor `Refused` is reported as an unanswered request, not as a lack of access.
-
-**A `Refused` is the serving side's last write, so the listener waits for the peer to close before it lets the connection go, and the wait is bounded at 2 seconds.** Dropping the connection straight after the write can lose the frame, which is the link stream's finding above. **Unbounded, the same wait lets a peer that never closes hold the listener**, and while it serves one connection at a time (DF-43) that stops the device receiving anything -- measured on 2026-09-29, when a test whose peer keeps its Control stream open hung rather than failed. 2 seconds is DCR-163's bound for the same reason: it is a wait for a packet to leave, not for a peer to answer. The wait runs after every Browse stream, served or refused, since an orderly peer closes at once and costs nothing.
-
-`Watch` uses inotify, FSEvents, `ReadDirectoryChangesW`, or Android's `ContentObserver`, coalescing events with a 250 ms debounce.
+| Request | Response |
+|---|---|
+| `ListDir{path, cursor, limit=500}` | `DirListing{entries, next_cursor}` |
+| `Stat` | `StatResult` |
+| `ReadFile{path, offset, length}` | `ReadFileBegin` + raw bytes |
+| `WriteFile{path, size, mode}` | bytes follow, written under `.tradr-partial`, then renamed. Modes: `CREATE_NEW`, `RENAME_IF_EXISTS`, `OVERWRITE` |
+| `Mkdir`, `Delete{recursive}`, `Rename{from,to}` | `Ack` |
+| `Watch` | `FsEvent` stream (not built) |
+| any | `Refused{reason}`: `NO_ACCESS`, `NOT_FOUND`, `ALREADY_EXISTS`, `WRONG_KIND`, `NOT_ALLOWED`, `FAILED`. It never carries a path or an OS message |
 
 ## Versioning
 
-- `Hello` carries each side's supported version range; the highest common version wins
-- Protobuf fields are only ever added. Removals become `reserved`
-- Unknown message types are ignored, giving forward compatibility — but only in the narrow sense [The type byte](#what-unknown-message-types-are-ignored-actually-covers) defines: an unassigned code inside the receiving plane's own range. A code from another plane, `0x00`, and a bad length are each refused
-- A breaking change creates `proto/tradr/v2/`, dispatched by the `Hello` negotiation. The old version stays supported for at least a year
-
-## Protobuf definitions
-
-The definitions live in `proto/tradr/v1/`.
+- `Hello` carries version ranges, and the highest common version wins. Protobuf fields are only added; removed fields become `reserved`.
+- A breaking change creates `proto/tradr/v2/`, and the old version is kept for at least a year.
 
 | File | Contents |
 |---|---|
-| `common.proto` | `DeviceInfo`, `Attestation`, `FileEntry`, and other shared types |
-| `control.proto` | `Hello`, `HelloAck`, `TransferOffer`, `TransferAccept`, and so on |
-| `transfer.proto` | `ChunkRequest`, `ChunkData`, `ItemComplete`, and so on |
-| `browse.proto` | `ListDir`, `ReadFile`, `WriteFile`, and so on |
-| `brokr.proto` | Messages on the Brokr WebSocket, Tier 2 only |
+| `common.proto` | shared types |
+| `control.proto` | Hello, Offer, Accept, ... |
+| `transfer.proto` | chunks |
+| `browse.proto` | browse plane |
+| `link.proto` | LinkReply / Approve / Decline |
+| `brokr.proto` | Brokr API |

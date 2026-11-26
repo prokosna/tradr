@@ -1,6 +1,5 @@
 #!/bin/sh
-# DCR-036 local gate: runs full check suite on staged commits.
-# See .githooks/README.md for details and activation instructions.
+# Fast local gate: repository checks and formatting. Clippy and tests run at pre-push and in CI.
 set -u
 
 ROOT_DIR=$(git rev-parse --show-toplevel) || exit 1
@@ -10,8 +9,7 @@ if git diff --cached --quiet; then
 	exit 0
 fi
 
-# CLAUDE.md section 5: never commit directly to main. A detached HEAD
-# reports "HEAD" here, not "main", so it is not refused.
+# A detached HEAD reports "HEAD" here, not "main", so it is not refused.
 current_branch=$(git rev-parse --abbrev-ref HEAD 2> /dev/null)
 if [ "$current_branch" = "main" ]; then
 	echo "pre-commit: refusing to commit directly to main" >&2
@@ -29,8 +27,5 @@ run_stage() {
 
 run_stage "ci/run-all.sh" sh ci/run-all.sh
 run_stage "cargo fmt --check" cargo fmt --check
-run_stage "cargo clippy --workspace --all-targets -- -D warnings" cargo clippy --workspace --all-targets -- -D warnings
-run_stage "ci/windows-target.sh" sh ci/windows-target.sh
-run_stage "cargo test --workspace" cargo test --workspace
 
 exit 0

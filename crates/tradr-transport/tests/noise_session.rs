@@ -955,7 +955,7 @@ impl snow::resolvers::CryptoResolver for ReferenceResolver {
 
 // Builds a plain `snow` peer holding `scalar` in software. It shares no code
 // with the implementation under test beyond `snow` itself, so it disagrees
-// wherever a cryptographic parameter does -- the instrument RECORD.md names
+// wherever a cryptographic parameter does -- the instrument that catches
 // for a wrong `dh_len`, which no test between two copies of one side catches.
 fn reference_builder(scalar: &[u8; 32]) -> snow::Builder<'_> {
     let params: snow::params::NoiseParams = "Noise_XX_P256_ChaChaPoly_BLAKE2s"

@@ -1,241 +1,61 @@
 # 08. Platform integration
 
-## Desktop, common
+UI layout and flows are in [12](12-user-interface.md).
 
-### Residency and UI
+## Desktop
 
-> **The layout sketched below is superseded by [docs/12](12-user-interface.md) (DCR-169, 2026-09-30).** Residency in the tray and the drag-and-drop rules still hold.
-
-- Resident in the tray or menu bar. Closing the window leaves it listening
-- Two panes:
-
-```
-+----------------------------------------------------------------+
-|  Tradr                                        [settings] [-][x]|
-+----------------------+-----------------------------------------+
-| My devices           |                                         |
-|  * Pixel 8      LAN  |     +---------------------------+       |
-|  * ThinkPad     tail |     |                           |       |
-|  o Mac mini   (away) |     |     Drop here to send     |       |
-|                      |     |                           |       |
-| Linked               |     |      -> Pixel 8           |       |
-|  * Bob's Pixel   BLE |     |                           |       |
-|                      |     +---------------------------+       |
-| Nearby               |                                         |
-|  (ephemeral off)     |  -- or open a peer's share --           |
-|                      |  [dir] Scans (Pixel 8)      read-only   |
-| [+ add a device]     |  [dir] Downloads (ThinkPad) read-write  |
-+----------------------+-----------------------------------------+
-```
-
-- Each device carries a badge for its current path — `LAN`, `tail`, `BLE`, `relay`. Making "why is this slow" answerable matters
-- During a transfer: progress, speed, time remaining, and the active transport, updated in place when the path switches
-
-### Drag and drop, receiving
-
-Tauri 2's `onDragDropEvent` provides file paths. Behaviour depends on the drop target.
-
-| Drop target | Behaviour |
-|---|---|
-| A device tile | Send to that device |
-| The large drop zone | Send to the selected device |
-| A folder in the share browser | Write into that folder, `rw` only. A read-only target shows a reject cursor |
-| The tray icon, outside the window | Open the window and ask for a destination |
-
-Dropping a directory walks it recursively and enumerates every file into the `TransferOffer`. During the walk the UI shows "preparing N files, M GB" and offers cancellation.
-
-### Dragging out — pulling a peer's file into a file manager
-
-**A hard case, not built in v1** — see [09](09-roadmap-and-risks.md).
-
-The difficulty is that when the drag begins, no local file exists, and OS drag and drop wants a real path. Each platform has a deferred-delivery mechanism.
-
-| OS | Mechanism | Difficulty |
-|---|---|---|
-| macOS | `NSFilePromiseProvider` | Moderate. Works as intended |
-| Windows | `IDataObject` with `CFSTR_FILEDESCRIPTOR` and `CFSTR_FILECONTENTS` | High. Requires a COM implementation |
-| Linux, X11 and Wayland | XDND `text/uri-list` plus a temporary file | Moderate. Deferral is not really possible, so the file must be downloaded first |
-
-Tauri offers no drag-source API, so all three go straight to native code. **A download button covers it for now** and is functionally sufficient.
-
-### Shell integration, phase 3
-
-| OS | Integration |
-|---|---|
-| Windows | Explorer context menu via `IExplorerCommand`. Appearing in the Windows 11 menu needs a sparse package |
-| macOS | A Share Extension plus a Finder Quick Action |
-| Linux | `MimeType=` in the `.desktop` file for "Open with", plus Nautilus and Dolphin scripts |
-
-All three do the same job as Android's share sheet: start a send from the OS's own file-picking surface.
+- Resident in the tray. Closing the window leaves it listening.
+- Drag and drop (Tauri `onDragDropEvent`): drop on a device tile to send to it. A dropped directory is walked recursively.
+- Not built: dragging *out* of a peer folder into the file manager (needs native `NSFilePromiseProvider`, `IDataObject` or XDND; a Download button covers it), and shell integration (Explorer, Finder or Nautilus menus).
 
 ## Android
 
-### Receiving from the share sheet (UC-2)
+### Sending (share sheet and in-app picker)
 
-```xml
-<activity android:name=".ShareTargetActivity"
-          android:exported="true"
-          android:excludeFromRecents="true"
-          android:theme="@style/Theme.Tradr.Dialog">
-  <intent-filter>
-    <action android:name="android.intent.action.SEND" />
-    <category android:name="android.intent.category.DEFAULT" />
-    <data android:mimeType="*/*" />
-  </intent-filter>
-  <intent-filter>
-    <action android:name="android.intent.action.SEND_MULTIPLE" />
-    <category android:name="android.intent.category.DEFAULT" />
-    <data android:mimeType="*/*" />
-  </intent-filter>
-</activity>
-```
+- `ShareTargetActivity` (dialog theme) handles `SEND` and `SEND_MULTIPLE` for `*/*`.
+- **A `content://` URI is never handed to Rust.** While the Activity is alive, Kotlin opens a `ParcelFileDescriptor`, detaches it and passes the fd. Rust adopts it once as a single-file root in `tradr-vfs` ([ADR-0023](adr/0023-one-unsafe-call-adopts-an-android-descriptor.md)), identified by an opaque registry id.
+- A descriptor that cannot be read at an offset (`statSize < 0`, i.e. a pipe) is copied to `cache/shared_incoming/<unique>/<display name>`. Copies are swept on the next plugin start.
+- The filename comes from `COLUMN_DISPLAY_NAME`, not from the URI.
+- In-app **Select Files** uses the plugin command `pick_files_to_send` (`ACTION_OPEN_DOCUMENT`, multiple) and the same processing path, never `plugin-dialog` (which returns URIs).
+- Sharing Shortcuts (direct share targets) are designed but not built.
 
-On the Kotlin side:
+### Receiving
 
-1. Take the `content://` URIs from `Intent.EXTRA_STREAM`, singular or plural
-2. **Never hand the URI straight to Rust.** A `content://` URI's permission is bound to the Intent and expires when the Activity does. `takePersistableUriPermission` applies only to `ACTION_OPEN_DOCUMENT` and friends, never to an `ACTION_SEND` URI
-3. So, while the Activity lives, obtain a `ParcelFileDescriptor`, detach it, and pass the descriptor to Rust, **whatever the file's size** ([ADR-0023](adr/0023-one-unsafe-call-adopts-an-android-descriptor.md), which retired the rule that files under 50 MB were copied into the cache). Rust adopts it once, on arrival, as a single-file root in `tradr-vfs`
-   - **A descriptor that cannot be read at an offset** (`statSize < 0`, a pipe some cloud providers answer) is copied into the cache instead, and the cache copies are swept when the plugin next starts
-4. Take the filename from `DocumentsContract.Document.COLUMN_DISPLAY_NAME`; the tail of a URI is not necessarily a name
-5. Show the destination picker, or send immediately if one is already chosen
+- Files land in the **shared `Download` folder** (`<storage root>/Download`), written by path with no storage permission. This is also the folder the device serves.
+- A start-up probe (create a `.tradr-partial` file, write, rename, delete) checks that the folder works. If the probe fails (Android ≤ 10, odd vendors), the app-specific `Android/data/.../Download` is used instead. The Received card always names the folder.
+- Limitations: other apps' files in Download are invisible to Tradr, so a name already used by another app makes the placement fail instead of getting a ` (1)` suffix (unmeasured). `MANAGE_EXTERNAL_STORAGE` is never requested.
+- **Open / Share** on a Received row: Rust resolves the location ([ADR-0026](adr/0026-one-operation-hands-the-os-a-received-files-location.md)). Kotlin builds a `content://` URI through `com.tradr.plugin.TradrFileProvider` (a subclass, so it does not clash with Tauri's FileProvider; authority `<appId>.tradr.files`; paths limited to shared Download and the app's external files dir), then fires `ACTION_VIEW` or `ACTION_SEND` with a read grant.
 
-**The cache copy keeps the file's own name, decided 2026-09-26 by DCR-159.** Each copy goes in a directory of its own under the cache, `shared_incoming/<unique>/<display name>`, with only `/` and NUL in the display name replaced by `_`. The sender offers a file under the last component of the path it is handed, so the earlier layout, one flat directory holding `share_<millis>_<name>` with every character outside `[A-Za-z0-9._-]` replaced, reached the receiver as a prefixed and mangled name: a PDF named in Japanese arrived as underscores. Sanitizing for the receiver's filesystem is `tradr-vfs`'s job on the receiving side ([04](04-protocol.md#name-collisions-and-sanitization)), not this copy's.
+### Foreground service ([ADR-0022](adr/0022-android-stays-resident-to-receive.md))
 
-**A dialog-themed Activity** keeps the share sheet from opening the whole app, showing only a small destination picker.
-
-### Files picked inside the app (DCR-159)
-
-**Select Files on Android goes through the plugin, not through `@tauri-apps/plugin-dialog`, decided 2026-09-26.** The dialog plugin answers `content://` URIs on Android, and a URI handed to the send path is read as a relative path and refused -- measured on a device, where every file picked in the app failed with `relative path has an empty component`. **The rule is the share sheet's, for the same reason**: a URI is not a path, and Rust is never handed one.
-
-- A plugin command `pick_files_to_send` launches `ACTION_OPEN_DOCUMENT` with `EXTRA_ALLOW_MULTIPLE`, the shape `pick_share_root` already has for `ACTION_OPEN_DOCUMENT_TREE`
-- Each URI the picker answers is processed exactly as a share-sheet URI is, by the same function, so the two surfaces cannot drift
-- It answers the same payload the share intent carries. On a platform where the command does not apply it answers "not here", and the front end uses the dialog plugin, whose answers are paths there
-- **An entry that arrives as a descriptor is staged by the opaque id the plugin's registry gave it** ([ADR-0023](adr/0023-one-unsafe-call-adopts-an-android-descriptor.md)); this bullet said such an entry was refused naming the 50 MB limit, which was DCR-159's holding answer while nothing read a descriptor
-
-### Putting destinations directly in the share sheet
-
-Android 11+ Sharing Shortcuts place "Send to Pixel 8" and "Send to ThinkPad" at the top of the share sheet, removing one tap.
-
-```kotlin
-// Publish discovered devices as sharing shortcuts
-ShortcutManagerCompat.pushDynamicShortcut(context,
-  ShortcutInfoCompat.Builder(context, "peer:$deviceId")
-    .setShortLabel(peer.displayName)
-    .setIcon(IconCompat.createWithResource(context, iconFor(peer.platform)))
-    .setCategories(setOf("com.tradr.category.SEND"))
-    .setLongLived(true)
-    .setIntent(Intent(context, ShareTargetActivity::class.java)
-      .setAction(Intent.ACTION_SEND)
-      .putExtra(EXTRA_TARGET_DEVICE, deviceId))
-    .build())
-```
-
-- `shortcuts.xml` declares a `<share-target>` bound to that category
-- Updated as devices appear and vanish, throttled to roughly once a minute since `pushDynamicShortcut` is rate limited
-- Four or five entries at most, most recently used first
-
-Android 14+ also allows custom actions through `ChooserAction`, but Sharing Shortcuts suffice for v1.
-
-### Where received files land
-
-**Received files land in the shared `Download` folder itself, ruled by the user on 2026-10-11 as DCR-182 and DCR-183.** That is the folder a file manager shows as Download, on the device's primary shared storage. It is also the one folder this device serves ([ADR-0024](adr/0024-one-folder-per-device-full-access.md)), which is what every desktop already does with its own Downloads.
-
-**DCR-182 put them in a `Tradr` folder inside it, which was this document's earlier choice and not the person's words; asked, they said the folder itself (DCR-183).** No subfolder is created. Files an earlier build placed in Download/Tradr stay there, and show as a folder named Tradr inside the folder this device serves.
-
-**What was built before this ruling was the app-specific directory**, the one `getExternalFilesDir(DIRECTORY_DOWNLOADS)` answers and Tauri's `download_dir()` returns on Android. It sits under `Android/data`, which file managers hide from Android 11 on, which the media scanner does not index, and which is deleted with the app. A person who looked in Download found nothing, and asked.
-
-**It is written by path and not through `MediaStore`'s insert API.** From Android 11 an app may create, rename and delete its own files under the shared `Download` by ordinary path with no permission, and the storage layer registers them with `MediaStore` as they are written. That keeps the folder an ordinary directory under `NativeVfs`, which is what ADR-0024 rests on: partial files, the no-replace rename and the Browse plane all work on it unchanged. `MANAGE_EXTERNAL_STORAGE` is still not requested, and no storage permission is added.
-
-**The shared path is derived, not asked for.** The app-specific directory is `<storage root>/Android/data/<package>/files/Download`; the shared one is `<storage root>/Download`, taken from the same storage root.
-
-**The folder is probed at every start, and a device where the probe fails keeps the app-specific directory.** The probe does what a transfer does: create a file under a `.tradr-partial` name, write to it, rename it, delete it. It makes the directory only if the device has none. Android 10 and earlier refuse it without a permission this design does not request, and a vendor's storage layer is not something this repository can measure, so the answer is taken from the device and not assumed. Either way [the Received card names the folder](12-user-interface.md#receiving), so where files went is never a guess.
-
-**What this does not do, stated so nobody expects it:**
-
-- **Another device opening this one sees what Android shows this app by path, not everything in Download.** With no storage permission that is the files Tradr itself placed, and folders; another app's downloads are not listed, cannot be fetched, and cannot be renamed or deleted from afar. Unmeasured on a device, and a vendor's storage layer may differ.
-- **A name another app already holds in Download is invisible to the collision check**, so placing a file under it is refused by Android instead of being given a ` (1)` suffix. Unmeasured; if a device run shows it, the fix is to treat that refusal as a taken name.
-- Files received before the change stay in the app-specific directory. They are not moved, and they are no longer in the folder this device serves.
-- After a reinstall the files of the previous install are no longer this app's, and Android hides another owner's non-media files in `Download` from it. They stay on the device and in the file manager; Tradr no longer lists or serves them.
-- Choosing another folder with `ACTION_OPEN_DOCUMENT_TREE` is not built (DF-110).
-
-### Opening and sharing a received file
-
-**Open and Share on a Received row are two intents carrying one `content://` URI, built by a `FileProvider` the plugin declares (DCR-186).** Rust resolves the row to a location ([ADR-0026](adr/0026-one-operation-hands-the-os-a-received-files-location.md)) and passes it to Kotlin, which never receives a path from the front end.
-
-- **The provider is the plugin's own subclass, `com.tradr.plugin.TradrFileProvider`, and not the stock `androidx.core.content.FileProvider` class.** The application manifest Tauri generates already declares the stock class under its own authority, and two `<provider>` elements naming one class do not merge: the first build of this in CI failed at the manifest merger. A subclass with an empty body is a different component, so both stand.
-- The provider's authority is the application id followed by `.tradr.files`. It is not exported and grants per URI. Its paths resource names two places and no others: the shared `Download` folder on external storage, and the app's own external files directory, which is where files land on a device that failed [the probe](#where-received-files-land).
-- **Open** is `ACTION_VIEW` and **Share** is `ACTION_SEND` through the system chooser, each with `FLAG_GRANT_READ_URI_PERMISSION` and the MIME type the file's extension maps to, or `*/*` when it maps to none.
-- A file outside the two places makes `FileProvider` refuse, and that refusal is shown as the failure it is. No application able to open the type is reported as "No app on this device can open this file."
-- **A `FileProvider` reads the file as this app**, which works because the app created it. It does not go through `MediaStore`, so it is the same code for both places.
-- **Unmeasured**: nothing in this repository runs Kotlin. CI compiles it; whether the intents resolve on a device is the device run's to say.
-
-### Share Roots and SAF
-
-- The user picks a directory through `ACTION_OPEN_DOCUMENT_TREE`, followed by `takePersistableUriPermission`
-- `MANAGE_EXTERNAL_STORAGE`, all-files access, is **not used**. Play Store review demands strong justification for it, and it is excessive for what users are agreeing to
-- SAF incurs a Binder IPC per level. Caching the directory tree, invalidated by a `ContentObserver`, is the design; **no production `SafBridge` exists yet, so nothing is cached** (DF-110)
-
-### Foreground service
-
-**Resident once the app has been opened, decided 2026-09-26 by [ADR-0022](adr/0022-android-stays-resident-to-receive.md).** This section specified a `dataSync` service started only during a transfer; it was never built, and Android 15's six-hour daily cap on `dataSync` would have stopped a resident one silently.
-
-```xml
-<service android:name="com.tradr.plugin.ReceiveService"
-         android:foregroundServiceType="connectedDevice"
-         android:exported="false" />
-```
-
-- Started by the plugin when it loads, with the Activity in the foreground. Never at boot
-- A permanent notification, "Ready to receive", with one action, Stop, which stops the service and ends the process
-- Holds a `WifiManager.MulticastLock` while running and releases it on stop, so mDNS is answered with the screen off
-- Permissions: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `CHANGE_WIFI_MULTICAST_STATE`; `FOREGROUND_SERVICE_DATA_SYNC` goes
-- **It runs no listener of its own.** The Rust listener already running in the process is what receives; the service only keeps the process alive
-- A per-transfer progress notification is not part of this and stays unbuilt
+- `ReceiveService`, `foregroundServiceType="connectedDevice"`. It is started when the plugin loads with the Activity in the foreground, never at boot.
+- It shows a permanent "Ready to receive" notification with a Stop action, which ends the process.
+- It holds a `MulticastLock`. It runs no listener of its own: it only keeps the process, and the Rust listener inside it, alive.
+- Battery cost: **unmeasured**.
 
 ### Permissions
 
-| Permission | API | Why | If refused |
-|---|---|---|---|
-| `BLUETOOTH_SCAN`, `neverForLocation` | 31+ | BLE discovery | BLE discovery off; LAN still works |
-| `BLUETOOTH_ADVERTISE` | 31+ | Being findable over BLE | Others cannot find you; you can still find them |
-| `BLUETOOTH_CONNECT` | 31+ | GATT connections | BLE transfer off |
-| `NEARBY_WIFI_DEVICES` | 33+ | Wi-Fi Direct | Wi-Fi Direct off |
-| `ACCESS_FINE_LOCATION` | up to 30 | BLE scanning on older APIs | As above |
-| `POST_NOTIFICATIONS` | 33+ | Progress and arrival notifications | Works without notifications, worse experience |
-| `FOREGROUND_SERVICE_DATA_SYNC` | 34+ | Continuing a transfer | Transfers only while the app is open |
-| `INTERNET`, `ACCESS_NETWORK_STATE` | - | LAN and Brokr | - |
+Requested individually, the first time a feature needs them. Refusing one disables only that feature.
 
-**`neverForLocation` is mandatory.** Without it, BLE scanning requires location permission, which raises users' resistance sharply. Tradr does not infer location from BLE, so the declaration is accurate.
-
-Permissions are requested **individually, when first needed**, never in a batch at launch. Refusal disables only the affected capability; the app keeps working.
-
-### Battery
-
-- No continuous BLE scanning. Scans happen on screen-on and at an interval, 15 minutes by default and configurable
-- Nothing runs during Doze. At Tier 2, FCM does the waking
-- `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` is **not requested**; only a path to the setting is offered
-- On a metered link, detected via `ConnectivityManager.isActiveNetworkMetered`, relay is not used unless explicitly permitted
-
-### Authentication
-
-- OAuth through Chrome Custom Tabs with AppAuth. **WebViews are not used**, since Google rejects them
-- Redirect on a custom scheme, `com.tradr.app:/oauth2redirect`
-- The refresh token is encrypted with an Android Keystore key and stored in EncryptedSharedPreferences
-
-## iOS constraints, for the future
-
-Not being built, but worth confirming that **the current design does not exclude iOS**. These constraints will bite when iOS is added, and the protocol design already satisfies them.
-
-| Constraint | Effect | How the design accommodates it |
+| Permission | API | For |
 |---|---|---|
-| Local network access needs explicit permission via `NSLocalNetworkUsageDescription` | A prompt on first use; refusal blocks mDNS and direct connections | BLE and a Brokr still work when refused |
-| Bonjour service types must be listed in `Info.plist` under `NSBonjourServices` | Service types cannot change at runtime | The service type is fixed at `_tradr._udp` |
-| Background BLE advertising moves to the overflow area and is largely invisible to non-Apple scanners | iOS devices cannot be discovered while backgrounded | Discovery composes several channels and never depends on BLE alone |
-| No Wi-Fi Direct equivalent; AWDL is private, leaving Multipeer Connectivity | `wifi-direct` is unavailable | `wifi-direct` was defined as Android-only from the start |
-| No arbitrary background execution | Continuous listening is impossible | The same FCM/APNs wake-up model as Android |
-| The filesystem is confined to the app sandbox | Arbitrary directories cannot be Share Roots | The `Vfs` trait abstracts this; a `FilesAppVfs` using security-scoped bookmarks slots in |
-| The Secure Enclave supports P-256 only | None — Device Keys are P-256 | [ADR-0012](adr/0012-p256-for-device-keys.md) chose the curve so macOS and iOS both keep hardware backing |
+| `BLUETOOTH_SCAN` (`neverForLocation`), `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT` | 31+ | BLE |
+| `BLUETOOTH`, `BLUETOOTH_ADMIN`, `ACCESS_FINE_LOCATION` | ≤ 30 | BLE on old APIs |
+| `POST_NOTIFICATIONS` | 33+ | notifications |
+| `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `CHANGE_WIFI_MULTICAST_STATE` | — | resident receive |
+| `INTERNET`, `ACCESS_NETWORK_STATE` | — | network |
 
-A `ShareViewController` provides the equivalent of `ACTION_SEND`, so UC-2 holds on iOS too.
+### Sign-in
 
-**Whether Tauri's iOS support is good enough gets re-evaluated when iOS work begins.** It is newer than the Android support and there is not enough evidence yet. In the worst case, iOS is written natively in Swift with the Rust core linked as a static library — keeping `tradr-core` free of I/O exists partly to preserve that escape route.
+Credential Manager with the Google ID option ([05](05-security.md#oauth-client-configuration)). Requires Play Services. There are no WebViews and no custom-scheme redirects.
+
+## iOS (future)
+
+The design leaves room for iOS:
+- `_tradr._udp` is fixed, so it can be listed in `NSBonjourServices`.
+- BLE is never the only discovery channel.
+- `wifi-direct` is Android-only.
+- `Vfs` can host a security-scoped bookmark implementation.
+- P-256 works in the Secure Enclave.
+
+If Tauri's iOS support is not good enough, a native Swift shell can link the I/O-free core.
