@@ -73,13 +73,17 @@ impl OAuthConfig {
     }
 }
 
-/// Builds this build's `ProviderProfile` from runtime OAuth configuration,
-/// selecting the platform at compile time.
+/// Which OAuth client registration a build for `target_os` authenticates as.
+pub fn platform_for(target_os: &str) -> Platform {
+    match target_os {
+        "android" => Platform::Android,
+        _ => Platform::Desktop,
+    }
+}
+
+/// Builds this build's `ProviderProfile` from runtime OAuth configuration.
 pub fn provider_profile(oauth: &OAuthConfig) -> Result<ProviderProfile, String> {
-    #[cfg(target_os = "android")]
-    let platform = Platform::Android;
-    #[cfg(not(target_os = "android"))]
-    let platform = Platform::Desktop;
+    let platform = platform_for(std::env::consts::OS);
 
     let client = oauth_client(
         platform,
