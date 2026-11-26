@@ -62,28 +62,7 @@ Format: `0x01` version byte, then a protobuf body, base64url without padding. Th
 - `remove`: the secret is removed first (an idempotent `SecretStore::remove`), then the record. A rollback failure is reported alongside the original error.
 - Reading a secret: an empty slot means empty (a half-finished removal). The wrong length is a malformed error.
 
-Removing a link is unilateral and takes effect locally at once: the peer's EIDs stop matching and its connections are refused. Files already sent stay with the peer.
-
-## Account Broadcast Key (ABK)
-
-32 random bytes (`Rng`, never derived) shared by all devices of one account, used for BLE EIDs.
-
-Record `account-broadcast-key.json`: `account_iss`, `account_sub`, `generation` (≥ 1, required), `created_at` (unix secs). The bytes live in the key store slot `account-broadcast-key`.
-
-- A record bound to a different account is **refused**. Use `clear` explicitly to reset.
-- Reads: no record means no ABK. A record whose slot is empty, wrong-length bytes, or `generation` 0 or missing are all **errors**.
-- Rotation: fresh bytes, `generation + 1`. Write the secret first, then the record. A failed rotation **restores the previous bytes**.
-
-### Exchange (`BroadcastKeyOffer`, 0x10)
-
-- Sent and read **only on channels this device classified `SAME_ACCOUNT`** (its own verdict, never the peer's `assigned_tier`).
-- Both sides offer. A device with no ABK draws one but does not persist it before comparing.
-- **Order** (one named function, a total order, so it converges): higher `generation` > earlier `created_at` > lexicographically smaller bytes.
-- At most one write per exchange. Outcomes: Kept, Generated, Adopted.
-- Refused: a length other than 32, `generation` 0, `created_at` ≤ epoch. Future timestamps are accepted.
-- A lying same-account device can win the order. That is accepted; revocation is handled through staleness.
-
-`AccountBroadcastKey` and `LinkSecret` are Layer 0 types in `tradr-core`. `tradr-identity` and `tradr-discovery` never depend on each other; the composition root converts between them.
+Removing a link is unilateral and takes effect locally at once: the peer's connections are refused. Files already sent stay with the peer.
 
 ## Not built
 

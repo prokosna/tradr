@@ -5,29 +5,16 @@
 ```
 Planes:   Control / Browse / Data
 Framing:  [u32 BE len][u8 type][protobuf payload]
-Channel:  QUIC TLS 1.3 (direct-quic, holepunch, wifi-direct) | Noise_XX (ble-gatt) | Noise_IK (relay)
+Channel:  QUIC TLS 1.3 (direct-quic; also holepunch and wifi-direct if built)
 ```
 
 ## Framing
 
 - `len` counts `type` + payload. The minimum is 1, and `0` is fatal.
-- `max_frame_size` is what a side will **receive**. Each side declares its own in `HelloAck`. Defaults: 1 MiB, or 512 bytes over BLE. Until `HelloAck` arrives, both directions use the channel's own value.
+- `max_frame_size` is what a side will **receive**. Each side declares its own in `HelloAck`. Default: 1 MiB; the minimum a peer may declare is 512 bytes. Until `HelloAck` arrives, both directions use the channel's own value.
 - The length is checked against the bound **as soon as the 4 header bytes arrive**, before any allocation. An oversize or zero length is fatal to the stream: there is no resync.
 - **A reader reads exactly one frame**, never more (fixed-size buffered reads once swallowed the next exchange).
 - Framing carries the type byte verbatim. The planes interpret it.
-
-### In-band mux (ble-gatt, relay)
-
-```
-[u32 len][u8 0x60 StreamData | 0x61 StreamFin][u32 BE stream_id][payload]
-```
-
-- QUIC-style ids: bit 0 = opened by the dialler (0) or the listener (1); bit 1 = bidirectional (0) or unidirectional (1). Each side allocates ascending by 4, so stream 0 is the Control stream.
-- There is no open frame. The first frame on an id opens it **and every lower unopened id in that space**.
-- Limits: 128 × `max_frame_size` of undelivered bytes per stream; 64 streams pending accept.
-- All of the following are fatal to the channel and latch (there is no reset frame): a frame in the receiver's own id space for a stream it never opened; data on a unidirectional stream the receiver owns; anything after `StreamFin`; either limit exceeded; an unassigned `0x60-0x7f` code.
-- A stream is retired once both halves are finished and its handle is released. Per-space high-water marks tell a retired id apart from a new one.
-- `max_frame_size` bounds plane frames, not mux frames. A stream is a byte stream.
 
 ## Planes and type codes
 
@@ -40,10 +27,10 @@ Channel:  QUIC TLS 1.3 (direct-quic, holepunch, wifi-direct) | Noise_XX (ble-gat
 | Range | Codes |
 |---|---|
 | `0x00` | never valid |
-| `0x01-0x1f` Control | 01 Hello, 02 HelloAck, 03 TransferOffer, 04 TransferAccept, 05 TransferReject, 06 TransferComplete, 07 TransferAbort, 08 PathChanged, 09 KeepAlive, 0a ItemComplete, 0b TransferProgress, 0c LinkReply, 0d LinkApprove, 0e LinkDecline, 10 BroadcastKeyOffer. **`0x0f` is permanently unassigned** (it is the test example) |
+| `0x01-0x1f` Control | 01 Hello, 02 HelloAck, 03 TransferOffer, 04 TransferAccept, 05 TransferReject, 06 TransferComplete, 07 TransferAbort, 08 PathChanged, 09 KeepAlive, 0a ItemComplete, 0b TransferProgress, 0c LinkReply, 0d LinkApprove, 0e LinkDecline. **`0x0f` is permanently unassigned** (it is the test example); **`0x10` is retired** (was BroadcastKeyOffer, ADR-0028) |
 | `0x20-0x3f` Data | 20 ChunkRequest, 21 ChunkRerequest, 22 ChunkData, 23 FlowControl |
 | `0x40-0x5f` Browse | 40 ListDir, 41 DirListing, 42 Stat, 43 StatResult, 44 ReadFile, 45 ReadFileBegin, 46 WriteFile, 47 Mkdir, 48 Delete, 49 Rename, 4a Ack, 4b Watch, 4c FsEvent, 4d Refused |
-| `0x60-0x7f` | mux (above) |
+| `0x60-0x7f` | retired (was the in-band mux, ADR-0028); refused |
 | `0x80-0xff` | unassigned |
 
 Rules:
@@ -103,7 +90,7 @@ ChunkData × N                         →
 ## Chunks and integrity
 
 - **1 MiB reference chunks regardless of transport (I6).** Smaller transports subdivide: absolute offset = `chunk_index × 1 MiB + offset_in_chunk`. Offsets are explicit, never inferred from arrival order.
-- `content_hash` = BLAKE3 root. The bytes after a `ChunkData` header are a **bao slice** ([ADR-0006](adr/0006-blake3-for-content-integrity.md), [ADR-0016](adr/0016-bao-verified-streaming-costs-6-percent.md)). Overhead is 6.26% per 1 MiB piece and 20.5% per 4 KiB BLE piece; the BLE figure is an open concern. Field 5 (`verify_path`) is reserved.
+- `content_hash` = BLAKE3 root. The bytes after a `ChunkData` header are a **bao slice** ([ADR-0006](adr/0006-blake3-for-content-integrity.md), [ADR-0016](adr/0016-bao-verified-streaming-costs-6-percent.md)). Overhead is 6.26% per 1 MiB piece. Field 5 (`verify_path`) is reserved.
 - **Receiver order**: bound-check `chunk_index`, `offset_in_chunk` and `payload_len`, **then verify, then write**. A failed piece is re-requested; after 3 failures, suspect the path. A whole-file failure sends `ItemComplete{verified:false}` and discards the partial file.
 - **Sender streams**: one pass per item builds both the hash and the bao outboard. The outboard spools to an anonymous scratch file from `tradr-vfs` (the temp dir, or the Android cache dir). Pieces are served from a 1 MiB window. A file whose size changed since the Offer fails that item.
 

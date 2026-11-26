@@ -55,7 +55,7 @@ impl fmt::Display for Plane {
 /// in a different file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MessageType {
-    // Control: 0x01-0x1f, 15 assigned.
+    // Control: 0x01-0x1f, 14 assigned; 0x10 retired with ADR-0028.
     Hello,
     HelloAck,
     TransferOffer,
@@ -70,7 +70,6 @@ pub enum MessageType {
     LinkReply,
     LinkApprove,
     LinkDecline,
-    BroadcastKeyOffer,
     // Data: 0x20-0x3f, 4 assigned.
     ChunkRequest,
     ChunkRerequest,
@@ -112,7 +111,6 @@ impl MessageType {
         Self::LinkReply,
         Self::LinkApprove,
         Self::LinkDecline,
-        Self::BroadcastKeyOffer,
         Self::ChunkRequest,
         Self::ChunkRerequest,
         Self::ChunkData,
@@ -150,7 +148,6 @@ impl MessageType {
             Self::LinkReply => 0x0c,
             Self::LinkApprove => 0x0d,
             Self::LinkDecline => 0x0e,
-            Self::BroadcastKeyOffer => 0x10,
             Self::ChunkRequest => 0x20,
             Self::ChunkRerequest => 0x21,
             Self::ChunkData => 0x22,
@@ -188,8 +185,7 @@ impl MessageType {
             | Self::TransferProgress
             | Self::LinkReply
             | Self::LinkApprove
-            | Self::LinkDecline
-            | Self::BroadcastKeyOffer => Plane::Control,
+            | Self::LinkDecline => Plane::Control,
             Self::ChunkRequest | Self::ChunkRerequest | Self::ChunkData | Self::FlowControl => {
                 Plane::Data
             }
@@ -231,9 +227,8 @@ pub enum Refusal {
     /// is the plane owning the *range*, not the message: `0x0f` is
     /// unassigned and still belongs to Control.
     WrongPlane { range_owner: Plane },
-    /// `0x60`-`0x7f`, reserved for the in-band multiplexing variant no
-    /// QUIC path sends, and `0x80`-`0xff`, unassigned. The only codes in
-    /// no plane's range.
+    /// `0x60`-`0x7f`, retired with the in-band multiplexing frame, and
+    /// `0x80`-`0xff`, unassigned. The only codes in no plane's range.
     OutsideEveryPlane,
 }
 

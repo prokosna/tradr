@@ -508,7 +508,7 @@ fn capabilities_contains_reflects_set_and_unset_bits() {
 
     assert!(caps.contains(Capabilities::DIRECT_QUIC));
     assert!(caps.contains(Capabilities::RELAY));
-    assert!(!caps.contains(Capabilities::BLE_GATT));
+    assert!(!caps.contains(Capabilities::WIFI_DIRECT));
 }
 
 #[test]
@@ -517,7 +517,6 @@ fn capabilities_default_contains_no_named_bit() {
 
     assert!(!caps.contains(Capabilities::DIRECT_QUIC));
     assert!(!caps.contains(Capabilities::WIFI_DIRECT));
-    assert!(!caps.contains(Capabilities::BLE_GATT));
     assert!(!caps.contains(Capabilities::RELAY));
     assert!(!caps.contains(Capabilities::ACCEPTS_BROWSING));
     assert!(!caps.contains(Capabilities::WRITABLE_SHARE));
@@ -531,8 +530,9 @@ fn capabilities_contains_requires_every_bit_not_any() {
 
     let both =
         Capabilities::from_bits(Capabilities::DIRECT_QUIC.bits() | Capabilities::RELAY.bits());
-    let only_one_shared =
-        Capabilities::from_bits(Capabilities::DIRECT_QUIC.bits() | Capabilities::BLE_GATT.bits());
+    let only_one_shared = Capabilities::from_bits(
+        Capabilities::DIRECT_QUIC.bits() | Capabilities::WIFI_DIRECT.bits(),
+    );
 
     assert!(caps.contains(both));
     assert!(

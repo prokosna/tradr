@@ -8,7 +8,6 @@ pub mod v1 {
     include!(concat!(env!("OUT_DIR"), "/tradr.v1.rs"));
 }
 
-pub mod broadcast_key;
 pub mod browse;
 pub mod control;
 pub mod data;
@@ -17,7 +16,6 @@ pub mod hello;
 pub mod invite;
 pub mod link;
 pub mod message_type;
-pub mod mux;
 
 pub use control::{
     OfferFrameError, OfferWireError, decode_transfer_accept_frame, decode_transfer_offer_frame,

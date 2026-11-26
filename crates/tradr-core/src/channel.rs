@@ -1,8 +1,7 @@
 //! Layer 1's secure-channel abstraction (docs/03, docs/04). No transport
-//! implementation lives here: `direct-quic`, `relay`, `ble-gatt` and any
-//! later transport belong to Layer 3. Encryption and multiplexing already
-//! happened by the time a `SecureChannel` exists (QUIC's own TLS 1.3, or
-//! Noise_IK around a raw stream), and nothing above this layer is told which.
+//! implementation lives here: `direct-quic` and any later transport belong
+//! to Layer 3. Encryption and multiplexing already happened by the time a
+//! `SecureChannel` exists, and nothing above this layer is told how.
 
 use std::fmt;
 use std::time::Duration;
@@ -95,9 +94,8 @@ type BiStreams = (Box<dyn SendStream>, Box<dyn RecvStream>);
 
 /// A mutually authenticated, forward-secret, multiplexed channel to one
 /// peer (docs/03's "A transport delivers an already-secure channel"). QUIC
-/// paths get this from TLS 1.3 against the pinned Device Key; `relay` and
-/// `ble-gatt` wrap a raw stream in Noise_IK, multiplexing in-band with a
-/// `stream_id` frame. Layer 1 asks for a stream and gets one either way.
+/// paths get this from TLS 1.3 against the pinned Device Key; a transport
+/// without native streams must supply its own. Layer 1 asks for a stream.
 pub trait SecureChannel: Send + Sync {
     /// The device at the other end. Mutual authentication has already
     /// happened by the time a channel exists, so this cannot fail: it

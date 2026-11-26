@@ -1,6 +1,6 @@
 # ADR-0019: A 128-bit service UUID for the BLE advertisement, and what the 31 bytes actually hold
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0028](0028-ble-removed.md)
 - **Date**: 2026-09-05
 - **Supersedes**: the advertisement payload block of [docs/03](../03-discovery-and-transport.md#2-ble--proximity-no-network-required-tier-0). No earlier ADR decided it, so none is rewritten
 

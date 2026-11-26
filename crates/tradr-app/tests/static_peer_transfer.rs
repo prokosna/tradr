@@ -24,7 +24,6 @@ use tradr_identity::{OsRng, SoftwareKeyStore, SystemClock};
 use tradr_integrity::BaoVerifier;
 use tradr_secrets::FileStore;
 use tradr_transport::quic::QuicTransport;
-use tradr_transport::selection::TransferSize;
 use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
@@ -173,14 +172,8 @@ async fn run_test() {
         .id()
         .to_string();
 
-    let resolved = resolve_peer(
-        &peer_id,
-        &list,
-        &registry,
-        &sender_transports,
-        TransferSize::Bytes(0),
-    )
-    .expect("resolve static peer");
+    let resolved =
+        resolve_peer(&peer_id, &list, &registry, &sender_transports).expect("resolve static peer");
     assert_eq!(resolved.expectation, PeerExpectation::Unpinned);
 
     let registry_mutex = tokio::sync::Mutex::new(registry);
@@ -266,14 +259,8 @@ async fn resolve_peer_uses_the_registrys_pin_before_the_peer_list_sees_it() {
         .expect("pin the static peer entry");
 
     let transports = quic_only_set(&registry_dir.path().join("dial"));
-    let resolved = resolve_peer(
-        &peer_id,
-        &list,
-        &registry,
-        &transports,
-        TransferSize::Bytes(0),
-    )
-    .expect("resolve static peer");
+    let resolved =
+        resolve_peer(&peer_id, &list, &registry, &transports).expect("resolve static peer");
     assert_eq!(resolved.expectation, PeerExpectation::Device(pinned_device));
     assert_eq!(
         resolved.pin_target, None,

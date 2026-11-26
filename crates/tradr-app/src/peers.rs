@@ -16,7 +16,6 @@ use tradr_discovery::{
     MDNS_SOURCE_ID, MdnsSource, STATIC_PEER_SOURCE_ID, StaticPeerId, StaticPeerRegistry,
     StaticPeerSource,
 };
-use tradr_transport::selection::{TransferSize, prefilter};
 use tradr_transport::set::TransportSet;
 
 /// Discovered peer representation for the frontend.
@@ -110,34 +109,19 @@ pub struct ResolvedPeer {
     pub pin_target: Option<StaticPeerId>,
 }
 
-// Paths unable to carry the transfer are dropped before scoring because dialling
-// them cannot complete it. Phase 3's race is not built and one dial stands in for
-// it; the score has no RTT term because nothing has been dialled yet (docs/03).
+// Phase 3's race is not built and one dial stands in for it; the score has no
+// RTT term because nothing has been dialled yet (docs/03).
 pub fn pick_candidate(
     peer: &Peer,
     peer_id: &str,
     transports: &TransportSet,
-    size: TransferSize,
 ) -> Result<Candidate, String> {
     let candidates = peer.candidates();
     if candidates.is_empty() {
         return Err(format!("no candidate address found for peer {peer_id}"));
     }
-    let filtered = prefilter(&candidates, size);
-    if filtered.is_empty() {
-        return Err(match size {
-            TransferSize::Bytes(n) => {
-                format!("no candidate for peer {peer_id} can carry a transfer of {n} bytes")
-            }
-            TransferSize::Unknown => {
-                format!(
-                    "no candidate for peer {peer_id} can carry a transfer whose size is not yet known"
-                )
-            }
-        });
-    }
     transports
-        .best_candidate(&filtered)
+        .best_candidate(&candidates)
         .ok_or_else(|| format!("no candidate for peer {peer_id} that this device can dial"))
 }
 
@@ -151,14 +135,13 @@ pub fn resolve_peer(
     list: &PeerList,
     registry: &StaticPeerRegistry,
     transports: &TransportSet,
-    size: TransferSize,
 ) -> Result<ResolvedPeer, String> {
     for peer in list.peers() {
         if let Some(device_id) = peer.device_id() {
             if device_id.to_string() != peer_id {
                 continue;
             }
-            let candidate = pick_candidate(&peer, peer_id, transports, size)?;
+            let candidate = pick_candidate(&peer, peer_id, transports)?;
             return Ok(ResolvedPeer {
                 candidate,
                 expectation: PeerExpectation::Device(device_id),
@@ -181,19 +164,12 @@ pub fn resolve_peer(
             let expectation = registry
                 .expectation(&static_id)
                 .ok_or_else(|| format!("no static peer entry for {peer_id}"))?;
-            let candidate = pick_candidate(&peer, peer_id, transports, size)?;
+            let candidate = pick_candidate(&peer, peer_id, transports)?;
             let pin_target = matches!(expectation, PeerExpectation::Unpinned).then_some(static_id);
             return Ok(ResolvedPeer {
                 candidate,
                 expectation,
                 pin_target,
-            });
-        } else if source == tradr_discovery::BLE_SOURCE_ID {
-            let candidate = pick_candidate(&peer, peer_id, transports, size)?;
-            return Ok(ResolvedPeer {
-                candidate,
-                expectation: PeerExpectation::Unpinned,
-                pin_target: None,
             });
         } else {
             return Err(format!("peer {peer_id} has not yet been identified"));

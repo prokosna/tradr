@@ -33,9 +33,6 @@ Every device exposes one folder, its receive folder, read-write to the same acco
 ### UC-4: Send to another person
 Link their Google account once, which requires approval from both sides. Their devices then appear in your destination list and UC-1 applies unchanged. Folder access is granted per link.
 
-### UC-5: Hand something over with no network
-With no Wi-Fi anywhere, devices still find each other over Bluetooth and can pass text, URLs, and small files. Larger files queue up as waiting for a network.
-
 ### UC-6: Reach a machine on another network (optional setup)
 Sending from a laptop away from home to the desktop at home has two answers.
 
@@ -46,14 +43,14 @@ Sending from a laptop away from home to the desktop at home has two answers.
 
 **Tradr is complete without a backend.** This is a central constraint rather than something to add later, so it is settled up front.
 
-- Discovery runs on mDNS for the LAN and BLE for proximity. Neither needs a central index.
+- Discovery runs on mDNS for the LAN and on pinned addresses for overlay networks. Neither needs a central index.
 - Devices authenticate each other with a Google-signed Attestation (see [05](05-security.md)). Verification needs only Google's public keys; Tradr operates no authentication service.
 - Transfers go device to device.
 - Accounts are linked by handing over a QR code or an invite blob.
 
 A **Brokr** is an optional, self-hosted layer on top. Built today: Deferred Delivery (hold an end-to-end-encrypted transfer for an offline device). Designed but not built: cross-network presence, NAT rendezvous, ciphertext relay.
 
-**A Brokr going down changes nothing about LAN and proximity behaviour.** The CI job `no-brokr` verifies this.
+**A Brokr going down changes nothing about LAN behaviour.** The CI job `no-brokr` verifies this.
 
 ## Scope
 
@@ -62,9 +59,9 @@ A **Brokr** is an optional, self-hosted layer on top. Built today: Deferred Deli
 | OS | Standing | Notes |
 |---|---|---|
 | Linux (x86_64, aarch64) | First class | The primary development environment. Assumes BlueZ and D-Bus. |
-| Windows 11 | First class | Windows 10 is best-effort; its BLE stack is unreliable. |
+| Windows 11 | First class | Windows 10 is best-effort. |
 | macOS 13+ | First class | Apple Silicon and Intel. |
-| Android 10+ | First class | API 29 and up. Absorbs the differences in BLE and SAF behaviour. |
+| Android 10+ | First class | API 29 and up. Absorbs the differences in SAF behaviour. |
 | iOS | **Future** | Not built now, but the protocol and permission model are shaped to satisfy iOS constraints — see [08](08-platform-integration.md). |
 
 A Brokr must run as a single Linux container, published for x86_64 and aarch64.
@@ -72,7 +69,7 @@ A Brokr must run as a single Linux container, published for x86_64 and aarch64.
 ### In scope
 
 - Google sign-in and the device-to-device authentication built on it
-- Discovery among same-account and linked-account devices over mDNS, BLE, static pins, and a Brokr
+- Discovery among same-account and linked-account devices over mDNS and static pins
 - File and directory transfer, resumable and integrity-checked
 - Exposing and remotely browsing one folder per device
 - Automatic path selection
@@ -99,7 +96,7 @@ Decisions to **not** do something. A request to revisit any of these gets an ADR
 | 1 GB over the same LAN | Under 30 seconds, meaning 35 MB/s or better |
 | 1 GB over Tailscale | At least 80% of the path's available bandwidth |
 | Actions to complete a send | One drag and drop, same account |
-| Time to discover a device | Under 2 seconds on the same LAN, under 10 seconds over BLE |
+| Time to discover a device | Under 2 seconds on the same LAN |
 | Resuming an interrupted transfer | Automatic, retransmitting only the lost chunks |
 | **Feature coverage with no Brokr** | UC-1, UC-2, UC-3, and UC-5 all fully working |
 | **Behaviour when a Brokr goes down** | Every Tier 0 and Tier 1 feature continues undegraded |

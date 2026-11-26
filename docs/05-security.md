@@ -56,7 +56,7 @@ TRADR_OAUTH_CLIENT_SECRET  this platform's secret (Desktop has one; Android none
 
 ### Identity = `(iss, sub)` ([ADR-0010](adr/0010-identity-is-the-issuer-subject-pair.md))
 
-`account_id = iss || 0x00 || sub`. Email is display-only. Everything derived from account identity uses `account_id`: the Brokr `account_tag`, the bootstrap EID secret, and link records.
+`account_id = iss || 0x00 || sub`. Email is display-only. Everything derived from account identity uses `account_id`: the Brokr `account_tag`, and link records.
 
 ### What this defends
 
@@ -79,7 +79,7 @@ Defended: forged tokens, tokens minted with our public client ID (wrong `sub`), 
 - `backing()` must never overstate itself (Critical Module). Settings shows it.
 - **Linux ladder** (`tradr-secrets` for I/O, `tradr-identity` for policy): it is searched on load. An absent rung is skipped. A failed rung, such as a locked collection, stops the search **only if no lower rung holds the key**: never generate a key over a rung that failed. A key is never moved between rungs. Never unlock a collection (the D-Bus prompt blocks forever when headless). The kernel keyring is not a rung, because it does not survive a reboot.
 - The ladder guarantees availability, not at-rest security. The file rung is plaintext, and full-disk encryption is the OS's job.
-- Link Secrets and the ABK are stored on the rung the Device Key selected. The rung is chosen once, at open.
+- Link Secrets are stored on the rung the Device Key selected. The rung is chosen once, at open.
 - Key generation is a Critical Module: a predictable key is a derivable key.
 
 ### Signatures
@@ -105,20 +105,11 @@ The last two do not prepend anything. Instead they **require** the message to st
 | Transport | Channel |
 |---|---|
 | QUIC paths | TLS 1.3 (`TLS_AES_128_GCM_SHA256`, rustls), mutual, self-signed |
-| `ble-gatt` | `Noise_XX_P256_ChaChaPoly_BLAKE2s` ([ADR-0020](adr/0020-noise-xx-for-ble-gatt.md)) |
-| `relay` | `Noise_IK` (provisional, not built) |
+| `relay` | not built; would need an end-to-end channel (Noise was removed with BLE, ADR-0028) |
 
 **QUIC certificate**: the SPKI is the identity key. Subject, issuer and serial are constants; validity never expires; there are no extensions. Identity lives only in the SPKI.
 - The **dialler** pins: with `Device(id)` it closes on a mismatch; with `Unpinned` it learns the id. These must never collapse into one code path, and a missing expectation is never replaced by a default.
 - The **listener** only checks that the certificate is a well-formed P-256 certificate. Whether the peer is welcome is decided by `Hello`.
-
-**Noise**:
-- `snow` with `use-p256`. `use-curve25519` is enabled only to compile. `use-getrandom` is **off**, so the injected `Rng` is the only RNG.
-- The resolver gives the KeyStore-backed `Dh` on the **first** `resolve_dh` call (static) and software on the second (ephemeral).
-- Message sizes 65 / 299 / 234 B. Messages 2 and 3 carry the 137-byte identity join (`identity_pub`, KeyBinding signature, `not_after`). The covered agreement key is not sent; it is rebuilt from the Noise-authenticated static key.
-- A record's position in the stream is its nonce. A transmit lock spans encrypt+send; the session lock is never held across I/O. An authentication failure closes the channel as `AuthenticationFailed`.
-- Keep local errors (KeyStore, Rng) distinct from a peer's bad message.
-- XX reveals the responder's static key to an active prober. Gating message 1 on an ABK or Link Secret is deferred.
 
 ## Trust Tiers
 
@@ -135,7 +126,6 @@ The last two do not prepend anything. Instead they **require** the message to st
 | Passive path | IPs, timing, sizes | content |
 | Active path | MITM on a TOFU first contact only (Static Peer) | complete a handshake without the key or KeyBinding |
 | Brokr | metadata, presence, ciphertext, DoS | read content, impersonate (never verifies Attestations; sees only `account_tag`) |
-| BLE listener | EIDs (rotate every 15 min); bootstrap presence if it knows `account_id` | track across windows |
 | Linked peer | everything in the folder it is allowed to access | other devices' folders |
 | Physical | keys in the file rung | — |
 

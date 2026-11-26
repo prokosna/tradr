@@ -81,7 +81,7 @@ pub enum RejectReason {
     UserDeclined,
     /// The receiver lacks sufficient storage space.
     NoSpace,
-    /// The transfer exceeds transport or policy limits (e.g. over BLE).
+    /// The transfer exceeds transport or policy limits.
     TooLarge,
     /// The sender or transfer is not trusted.
     NotTrusted,

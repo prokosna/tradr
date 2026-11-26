@@ -38,14 +38,14 @@ The main session may implement directly. Delegate to the `implementer` subagent 
 Layer 0  Domain    tradr-core types: DeviceId, ChunkIndex, RelPath, ItemId, …   std only
 Layer 1  UseCase   tradr-core logic + all traits (Transport, Vfs, KeyStore, Clock, Rng, ContentVerifier, …)
 Layer 2  Adapter   tradr-proto (codec), tradr-app, tauri-plugin-tradr, UI state
-Layer 3  Driver    quinn, btleplug/bluer, mdns-sd, rustls, reqwest, Kotlin, React
+Layer 3  Driver    quinn, mdns-sd, rustls, reqwest, Kotlin, React
 ```
 
 - `tradr-core` has no dependencies and does no I/O (I4). Implementation crates depend only on `tradr-core` and `tradr-proto`. Only `tradr-app` and `tauri-plugin-tradr` compose. Enforced by `ci/layer-deps.sh`.
 - One owner per volatile library: `prost`→tradr-proto, `tauri`→tauri-plugin-tradr + apps/tradr, `reqwest`→tradr-oidc + `tradr-app/src/brokr/http.rs`, `bao`→tradr-integrity, D-Bus→tradr-secrets. `unsafe` only in `tauri-plugin-tradr/src/android_fd.rs`.
 - Time comes only through `Clock` and randomness only through `Rng`, never `SystemTime::now()` or a direct RNG. The exception is ECDSA nonces, which follow RFC 6979 and never use `Rng`.
 - Ports expose operations, never raw resources: `KeyStore` signs and agrees but never returns key bytes; `Vfs` operates on `(root, RelPath)` and never returns a path.
-- Optional features (Brokr, BLE halves) are extra registered implementations, never conditionals.
+- Optional features (Brokr) are extra registered implementations, never conditionals.
 
 **Change budget** (what a swap may touch): replace QUIC crate → `tradr-transport` QUIC module; replace protobuf → `tradr-proto`; leave Tauri → `apps/tradr` + `tauri-plugin-tradr` only (the CLI proves this); new transport → one impl + registration + weight + reserved capability bit, **no `tradr-core` trait change**; rewrite Brokr → zero client changes (`BrokrApi` port).
 
@@ -94,13 +94,13 @@ Most of these are checked by `ci/run-all.sh`.
 |---|---|
 | [01](docs/01-overview.md) | problem, use cases, non-goals |
 | [02](docs/02-architecture.md) | tiers, crates, front ends, state locations |
-| [03](docs/03-discovery-and-transport.md) | mDNS, BLE, Static Peers, transports, path selection |
+| [03](docs/03-discovery-and-transport.md) | mDNS, Static Peers, transports, path selection |
 | [04](docs/04-protocol.md) | framing, type codes, session, chunks, partial files |
 | [05](docs/05-security.md) | Attestation, OAuth config, keys, channels, threat model |
 | [06](docs/06-shares-and-browsing.md) | one-folder access, boundary enforcement |
 | [07](docs/07-brokr.md) / [13](docs/13-deferred-delivery.md) | Brokr principles / Deferred Delivery as built |
 | [08](docs/08-platform-integration.md) | desktop and Android specifics |
 | [09](docs/09-roadmap-and-risks.md) | milestones, releases, risks |
-| [11](docs/11-account-linking.md) | Links, ABK |
+| [11](docs/11-account-linking.md) | Links |
 | [12](docs/12-user-interface.md) | UI flows and wording |
 | [adr/](docs/adr/README.md) | decisions |

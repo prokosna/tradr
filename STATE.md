@@ -18,7 +18,6 @@ None are tracked. The user runs the builds daily and reports problems as they ap
 
 ## Open decisions (the user's)
 
-- **14: BLE.** M7 code exists and has never been run on two radios, and the user's devices don't use BLE. Leave it as is, exercise it, or retire it?
 - Same-account and linked auto-accept: does it need a size or extension threshold?
 
 ## Backlog
@@ -41,9 +40,7 @@ Tech debt:
 - Secret Service prompt wait is unbounded. `SharedSecret` is not zeroized. `KeyStore` is synchronous (it would block on Android Keystore).
 - Android Rust code (`cfg(target_os="android")`) is not on the commit path: run `cargo check --target aarch64-linux-android -p tauri-plugin-tradr`. Full Android clippy does not pass yet.
 - CI runners are unpinned `-latest`.
-- Several tests survive mutation of the line they guard: BLE TTL/slot constants, the rung choice in `open_identity`, the platform arm in `provider_profile`, link-reply pin expectation, and others. See the old STATE.md's Deferred table.
-- Noise_XX lets an active BLE prober learn the responder's static key. Gating message 1 is deferred to the security review.
-- The 20.5% bao overhead on 4 KiB BLE pieces.
+- Several tests survive mutation of the line they guard: the rung choice in `open_identity`, the platform arm in `provider_profile`, the link-reply pin expectation, and others. See `git show ad37cc7:STATE.md`, Deferred table.
 
 ## Notes for the next session
 

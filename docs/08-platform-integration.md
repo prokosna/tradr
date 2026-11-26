@@ -39,8 +39,6 @@ Requested individually, the first time a feature needs them. Refusing one disabl
 
 | Permission | API | For |
 |---|---|---|
-| `BLUETOOTH_SCAN` (`neverForLocation`), `BLUETOOTH_ADVERTISE`, `BLUETOOTH_CONNECT` | 31+ | BLE |
-| `BLUETOOTH`, `BLUETOOTH_ADMIN`, `ACCESS_FINE_LOCATION` | ≤ 30 | BLE on old APIs |
 | `POST_NOTIFICATIONS` | 33+ | notifications |
 | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `CHANGE_WIFI_MULTICAST_STATE` | — | resident receive |
 | `INTERNET`, `ACCESS_NETWORK_STATE` | — | network |
@@ -53,7 +51,6 @@ Credential Manager with the Google ID option ([05](05-security.md#oauth-client-c
 
 The design leaves room for iOS:
 - `_tradr._udp` is fixed, so it can be listed in `NSBonjourServices`.
-- BLE is never the only discovery channel.
 - `wifi-direct` is Android-only.
 - `Vfs` can host a security-scoped bookmark implementation.
 - P-256 works in the Secure Enclave.

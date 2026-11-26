@@ -1,6 +1,6 @@
 //! Layer 1's discovery abstraction (docs/03, "Discovery", "What a
 //! Discovery Source reports", "The peer list", and "Capability flags").
-//! No source implementation lives here: mDNS, BLE, Static Peer and the
+//! No source implementation lives here: mDNS, Static Peer and the
 //! Brokr presence registry belong to `tradr-discovery`. `PeerList` merging
 //! is pure -- no clock, socket, or executor -- so it sits here, not there.
 
@@ -255,8 +255,7 @@ impl Capabilities {
     pub const DIRECT_QUIC: Self = Self(1 << 0);
     /// Bit 1: supports `wifi-direct`.
     pub const WIFI_DIRECT: Self = Self(1 << 1);
-    /// Bit 2: supports `ble-gatt` payloads.
-    pub const BLE_GATT: Self = Self(1 << 2);
+    // Bit 2 was `ble-gatt` (ADR-0028) and is never reassigned.
     /// Bit 3: supports `relay`, meaning a Brokr is registered.
     pub const RELAY: Self = Self(1 << 3);
     /// Bit 4: accepts Share browsing.
@@ -304,8 +303,8 @@ impl PeerObservation {
     /// Builds a `PeerObservation` from its id and candidates, canonicalising
     /// `candidates` by sorting on `(transport, address)` and deduplicating
     /// so that two observations built from the same candidates in a
-    /// different order are equal. An empty list is valid: a BLE scanner
-    /// sees a peer before it has any address for it.
+    /// different order are equal. An empty list is valid: a source may
+    /// see a peer before it has any address for it.
     pub fn new(id: ObservationId, mut candidates: Vec<Candidate>) -> Self {
         candidates.sort_by(|a, b| (a.transport(), a.address()).cmp(&(b.transport(), b.address())));
         candidates.dedup();
@@ -399,8 +398,8 @@ impl fmt::Display for DiscoveryError {
 
 impl std::error::Error for DiscoveryError {}
 
-/// One way peers are found: mDNS, BLE, Static Peer, or a Brokr's presence
-/// registry (docs/03, "Discovery"). Four run at once and merge into one
+/// One way peers are found: mDNS, Static Peer, or a Brokr's presence
+/// registry (docs/03, "Discovery"). Several run at once and merge into one
 /// `PeerList`, so this must be dyn compatible -- `next_event` returns
 /// `BoxFuture` rather than being an `async fn` (ADR-0013).
 pub trait DiscoverySource: Send {

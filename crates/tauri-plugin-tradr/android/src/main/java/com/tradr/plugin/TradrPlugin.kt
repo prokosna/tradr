@@ -17,7 +17,6 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.provider.Settings
-import android.util.Base64
 import android.util.Log
 import android.webkit.MimeTypeMap
 import android.webkit.WebView
@@ -97,33 +96,6 @@ class ShowIncomingTransferNotificationArgs {
 }
 
 @InvokeArg
-class StartBleAdvertisingArgs {
-    var serviceData: String? = null
-}
-
-@InvokeArg
-class StartBleScanArgs {
-    var channel: Channel? = null
-    var selftest: Boolean = false
-}
-
-@InvokeArg
-class StartBleGattServerArgs {
-    var channel: Channel? = null
-}
-
-@InvokeArg
-class SendBleGattBytesArgs {
-    var handle: String? = null
-    var data: String? = null
-}
-
-@InvokeArg
-class CloseBleGattLinkArgs {
-    var handle: String? = null
-}
-
-@InvokeArg
 class ReceivedFileArgs {
     var path: String = ""
 }
@@ -136,11 +108,7 @@ class ReceivedFileArgs {
 // WI-M2-007 adds notification accept and decline actions.
 @TauriPlugin(
     permissions = [
-        Permission(strings = ["android.permission.BLUETOOTH_SCAN"], alias = "bluetoothScan"),
-        Permission(strings = ["android.permission.BLUETOOTH_ADVERTISE"], alias = "bluetoothAdvertise"),
-        Permission(strings = ["android.permission.BLUETOOTH_CONNECT"], alias = "bluetoothConnect"),
         Permission(strings = ["android.permission.NEARBY_WIFI_DEVICES"], alias = "nearbyWifiDevices"),
-        Permission(strings = ["android.permission.ACCESS_FINE_LOCATION"], alias = "fineLocation"),
         Permission(strings = ["android.permission.POST_NOTIFICATIONS"], alias = "postNotifications"),
         Permission(strings = ["android.permission.FOREGROUND_SERVICE_DATA_SYNC"], alias = "foregroundServiceDataSync")
     ]
@@ -207,11 +175,7 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
         }
 
         val allPermissions = listOf(
-            "bluetoothScan" to "android.permission.BLUETOOTH_SCAN",
-            "bluetoothAdvertise" to "android.permission.BLUETOOTH_ADVERTISE",
-            "bluetoothConnect" to "android.permission.BLUETOOTH_CONNECT",
             "nearbyWifiDevices" to "android.permission.NEARBY_WIFI_DEVICES",
-            "fineLocation" to "android.permission.ACCESS_FINE_LOCATION",
             "postNotifications" to "android.permission.POST_NOTIFICATIONS",
             "foregroundServiceDataSync" to "android.permission.FOREGROUND_SERVICE_DATA_SYNC"
         )
@@ -243,124 +207,7 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
 
     // Holds the channel Rust opens once at startup so share intents can be forwarded.
     private var shareChannel: Channel? = null
-    private val bleRadio = BleRadio(activity)
-    private val bleGattServer = BleGattServer(activity)
     private val credentialSignIn = CredentialSignIn(activity)
-
-    @Command
-    fun startBleAdvertising(invoke: Invoke) {
-        val serviceData = try {
-            val args = invoke.parseArgs(StartBleAdvertisingArgs::class.java)
-            args.serviceData
-        } catch (_: Exception) {
-            null
-        }
-        if (serviceData == null) {
-            invoke.reject("serviceData argument is required")
-            return
-        }
-        val bytes = try {
-            Base64.decode(serviceData, Base64.NO_WRAP)
-        } catch (_: Exception) {
-            invoke.reject("serviceData is not valid base64")
-            return
-        }
-        if (bytes.size != BleRadio.SERVICE_DATA_LEN) {
-            invoke.reject("serviceData must decode to exactly ${BleRadio.SERVICE_DATA_LEN} bytes, got ${bytes.size}")
-            return
-        }
-        bleRadio.startAdvertising(bytes, invoke)
-    }
-
-    @Command
-    fun stopBleAdvertising(invoke: Invoke) {
-        bleRadio.stopAdvertising(invoke)
-    }
-
-    @Command
-    fun startBleScan(invoke: Invoke) {
-        val args = try {
-            invoke.parseArgs(StartBleScanArgs::class.java)
-        } catch (_: Exception) {
-            null
-        }
-        val channel = args?.channel
-        if (channel == null) {
-            invoke.reject("channel argument is required")
-            return
-        }
-        bleRadio.startScan(channel, invoke, args.selftest)
-    }
-
-    @Command
-    fun stopBleScan(invoke: Invoke) {
-        bleRadio.stopScan(invoke)
-    }
-
-    @Command
-    fun startBleGattServer(invoke: Invoke) {
-        val args = try {
-            invoke.parseArgs(StartBleGattServerArgs::class.java)
-        } catch (e: Exception) {
-            Logger.error("TradrPlugin: failed to parse startBleGattServer args", e)
-            null
-        }
-        val channel = args?.channel
-        if (channel == null) {
-            invoke.reject("channel argument is required")
-            return
-        }
-        bleGattServer.startServer(channel, invoke)
-    }
-
-    @Command
-    fun stopBleGattServer(invoke: Invoke) {
-        bleGattServer.stopServer(invoke)
-    }
-
-    @Command
-    fun sendBleGattBytes(invoke: Invoke) {
-        val args = try {
-            invoke.parseArgs(SendBleGattBytesArgs::class.java)
-        } catch (e: Exception) {
-            Logger.error("TradrPlugin: failed to parse sendBleGattBytes args", e)
-            null
-        }
-        val handle = args?.handle
-        if (handle == null) {
-            invoke.reject("handle argument is required")
-            return
-        }
-        val data = args.data
-        if (data == null) {
-            invoke.reject("data argument is required")
-            return
-        }
-        val bytes = try {
-            Base64.decode(data, Base64.NO_WRAP)
-        } catch (e: Exception) {
-            Logger.error("TradrPlugin: invalid base64 in sendBleGattBytes", e)
-            invoke.reject("data is not valid base64")
-            return
-        }
-        bleGattServer.send(handle, bytes, invoke)
-    }
-
-    @Command
-    fun closeBleGattLink(invoke: Invoke) {
-        val args = try {
-            invoke.parseArgs(CloseBleGattLinkArgs::class.java)
-        } catch (e: Exception) {
-            Logger.error("TradrPlugin: failed to parse closeBleGattLink args", e)
-            null
-        }
-        val handle = args?.handle
-        if (handle == null) {
-            invoke.reject("handle argument is required")
-            return
-        }
-        bleGattServer.closeLink(handle, invoke)
-    }
 
     // Launches the platform document tree picker for selecting a directory share root.
     @Command

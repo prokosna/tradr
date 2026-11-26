@@ -5,7 +5,7 @@ package tradr.v1;
 message DeviceInfo {
   bytes  device_id       = 1;  // BLAKE3(identity_pub)[0..16]
   bytes  identity_pub    = 2;  // 65 bytes, uncompressed SEC-1. Signing and identity
-  bytes  agreement_pub   = 3;  // 65 bytes, uncompressed SEC-1. Noise static key
+  bytes  agreement_pub   = 3;  // 65 bytes, uncompressed SEC-1. ECDH agreement key
   string display_name    = 4;  // User-chosen name, max 64 bytes
   Platform platform      = 5;
   uint32 capabilities    = 6;  // Bitmask, see docs/03
@@ -72,7 +72,7 @@ enum ErrorCode {
   ERROR_CODE_READ_ONLY         = 5;  // Write against a read-only Share
   ERROR_CODE_NO_SPACE          = 6;
   ERROR_CODE_INTEGRITY_FAILED  = 7;  // Hash mismatch
-  ERROR_CODE_TOO_LARGE         = 8;  // Exceeds a transport limit such as BLE
+  ERROR_CODE_TOO_LARGE         = 8;  // Exceeds a transport or policy limit
   ERROR_CODE_RATE_LIMITED      = 9;
   ERROR_CODE_VERSION_MISMATCH  = 10;
   ERROR_CODE_INTERNAL          = 11;

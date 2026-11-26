@@ -6,21 +6,24 @@ use tauri_plugin_tradr::desktop;
 #[test]
 fn deserialize_permission_response_from_json() {
     let json = r#"{
-        "bluetoothScan": "granted",
-        "bluetoothAdvertise": "prompt",
-        "postNotifications": "denied",
+        "postNotifications": "granted",
+        "nearbyWifiDevices": "prompt",
+        "otherPermission": "denied",
         "foregroundServiceDataSync": "prompt-with-rationale"
     }"#;
 
     let parsed: PermissionResponse =
         serde_json::from_str(json).expect("permission response deserializes");
-    assert_eq!(parsed.get("bluetoothScan"), Some(&PermissionState::Granted));
     assert_eq!(
-        parsed.get("bluetoothAdvertise"),
+        parsed.get("postNotifications"),
+        Some(&PermissionState::Granted)
+    );
+    assert_eq!(
+        parsed.get("nearbyWifiDevices"),
         Some(&PermissionState::Prompt)
     );
     assert_eq!(
-        parsed.get("postNotifications"),
+        parsed.get("otherPermission"),
         Some(&PermissionState::Denied)
     );
     assert_eq!(
@@ -33,8 +36,8 @@ fn deserialize_permission_response_from_json() {
 fn serialize_round_trip_request_permissions_args() {
     let args = RequestPermissionsArgs {
         permissions: Some(vec![
-            "bluetoothScan".to_string(),
-            "bluetoothConnect".to_string(),
+            "postNotifications".to_string(),
+            "nearbyWifiDevices".to_string(),
         ]),
     };
 
@@ -46,12 +49,21 @@ fn serialize_round_trip_request_permissions_args() {
 
 #[tokio::test]
 async fn desktop_request_permissions_returns_granted_for_named_permissions() {
-    let requested = vec!["bluetoothScan".to_string(), "fineLocation".to_string()];
+    let requested = vec![
+        "postNotifications".to_string(),
+        "foregroundServiceDataSync".to_string(),
+    ];
     let res = desktop::request_permissions(Some(requested))
         .await
         .expect("desktop request permissions succeeds");
-    assert_eq!(res.get("bluetoothScan"), Some(&PermissionState::Granted));
-    assert_eq!(res.get("fineLocation"), Some(&PermissionState::Granted));
+    assert_eq!(
+        res.get("postNotifications"),
+        Some(&PermissionState::Granted)
+    );
+    assert_eq!(
+        res.get("foregroundServiceDataSync"),
+        Some(&PermissionState::Granted)
+    );
     assert_eq!(res.len(), 2);
 }
 

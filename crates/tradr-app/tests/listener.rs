@@ -1584,7 +1584,7 @@ async fn listen_for_transfers_reads_capabilities_fresh_per_connection() {
         drop(peer_recv_1);
         drop(sender_chan_1);
 
-        capabilities.declare(Capabilities::BLE_GATT);
+        capabilities.declare(Capabilities::ACCEPTS_BROWSING);
 
         incoming_tx
             .send(Box::new(listener_chan_2))
@@ -1609,7 +1609,7 @@ async fn listen_for_transfers_reads_capabilities_fresh_per_connection() {
             .await
             .expect("read reply frame 2");
         let listener_hello_2 = decode_hello_frame(&reply_frame_2).expect("decode hello 2");
-        assert_eq!(listener_hello_2.capabilities().bits(), 0b101);
+        assert_eq!(listener_hello_2.capabilities().bits(), 0b10001);
         drop(peer_send_2);
         drop(peer_recv_2);
         drop(sender_chan_2);
