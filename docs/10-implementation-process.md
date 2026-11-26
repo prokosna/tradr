@@ -10,8 +10,8 @@ This document exists so that **an agent with no context can take over as Supervi
 
 | Role | Model | Responsibility | Forbidden |
 |---|---|---|---|
-| **Supervisor** | High-capability / Reasoning (e.g. Gemini Pro, Claude Opus, GPT-4o/o1) | Writing work orders, reviewing, updating `STATE.md`, ruling on design changes, writing Critical Module tests, committing | Writing ordinary implementation code |
-| **Implementer** | Fast / Efficient (e.g. Gemini Flash, Claude Sonnet/Haiku, GPT-4o-mini) | Implementing the assigned Work Item | Changing the design, editing `docs/`, editing `STATE.md` / `AGENTS.md` / `CLAUDE.md`, committing |
+| **Supervisor** | Claude Opus, in the Claude Code session | Writing work orders, reviewing, updating `STATE.md`, ruling on design changes, writing Critical Module tests, committing | Writing ordinary implementation code |
+| **Implementer** | Claude Sonnet, or Claude Haiku for a mechanically simple Work Item, as the `implementer` subagent | Implementing the assigned Work Item | Changing the design, editing `docs/`, editing `STATE.md` / `AGENTS.md` / `CLAUDE.md`, committing |
 
 Write access to `docs/` and `STATE.md` is confined to the Supervisor so that design documents cannot quietly change to suit an implementation. **Design belongs to the instruction side, not the implementation side.**
 
@@ -294,15 +294,13 @@ Rules are in [CLAUDE.md](../CLAUDE.md) §5. The two that carry design weight:
 +---------------------------------------------------------+
 ```
 
-## Dispatching a Work Item, and what the harness can and cannot promise
+## Dispatching a Work Item
 
-**A Work Order can be handed to an out-of-session Implementer, and the only sanctioned way to do it is `ci/dispatch-implementer.sh`.** It exists because three disciplines this process records as things to remember are things that get forgotten one at a time: a cut-off that the agent writes into its own log while still exiting `0`, a print timeout shorter than the gates the Work Order carries, and the rule that the Implementer never commits -- which nothing in the session can observe, because the run is a plain subprocess. The script mechanizes all three. `ci/README.md` carries what each one does.
+**The Implementer runs as Claude Code's `implementer` subagent ([`.claude/agents/implementer.md`](../.claude/agents/implementer.md)), decided 2026-11-26 by DCR-193.** The Supervisor starts it with the Agent tool and hands it the Work Order. Its model is Sonnet unless the Supervisor passes `model: haiku` for that dispatch, which it does **only when the Work Item is mechanically simple**: a rename, a constant, test data, or any change whose Definition of Done leaves no design choice open. A Critical Module, concurrency, or a change across layers stays on Sonnet, and a Work Item that goes to `REVISE` twice on Haiku is re-dispatched on Sonnet.
 
-**What no harness can promise is that the report is true, and the rule that covers it is older than the script**: a gate is green when the Supervisor has run it, never when a report says so. A run that ends mid-report therefore costs nothing that was not already owed -- it leaves a tree and no claims about it, and every gate then gets run by the Supervisor.
+**What no dispatch can promise is that the report is true, and the rule that covers it is unchanged**: a gate is green when the Supervisor has run it, never when a report says so. A report that ends early or says nothing therefore costs nothing that was not already owed: the Supervisor reads `git status` and the diff and runs every gate.
 
-**What it must promise is that silence is visible, decided 2026-09-18 by DCR-133.** A run whose agent went idle waiting on a command it had put in the background ends with the harness terminating that task, and until this ruling the script answered such a run exactly as it answers a complete one: exit `0`, no new commit, nothing said. **Two runs that mean opposite things were indistinguishable from outside** -- one left an empty tree and one left a finished Work Item -- and what told them apart was a `git status` nothing obliged anyone to run.
-
-**So the script names the run and does not refuse it.** Refusing would discard a tree that may be complete, which is the expensive half of a cheap problem; what is actually missing is the report, and the paragraph above already prices that. But it **exits non-zero**, as the cut-off path does, because the exit status is what a Supervisor reads to decide whether there is a report to trust, and a run that said nothing must not answer "success". **The message says which of the two cases it is**, because the next action differs: an untouched tree is a re-dispatch, and a changed one is a review.
+**The Implementer never commits, and the Supervisor checks that rather than trusting it**: before review, `git log` must show no commit after the one the dispatch started from. A commit there is a `REVISE` against the Implementer.
 
 ## What CI protects
 

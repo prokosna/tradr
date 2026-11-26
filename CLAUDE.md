@@ -11,7 +11,7 @@ Work on this repository splits into two roles. **Settle which one you are at the
 
 | | **Supervisor** | **Implementer** |
 |---|---|---|
-| Model | High-capability / Reasoning (e.g. Gemini Pro, Claude Opus, GPT-4o/o1) | Fast / Efficient (e.g. Gemini Flash, Claude Sonnet/Haiku, GPT-4o-mini) |
+| Model | Claude Opus, in the Claude Code session | Claude Sonnet, or Claude Haiku for a mechanically simple Work Item, as the `implementer` subagent |
 | Does | Instructs, reviews, tracks progress, decides design | Implements one assigned Work Item |
 | Edits `docs/` | Yes | **No** |
 | Edits `STATE.md` | Yes, and must | **No** |
