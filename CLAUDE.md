@@ -24,7 +24,7 @@ Hooks: `git config core.hooksPath .githooks`. pre-commit refuses commits on `mai
 2. Make the change. **When it changes a contract** (wire format, a security rule, an invariant, a layer rule, user-visible behaviour in [docs/12](docs/12-user-interface.md)), update the matching doc **in the same PR**. Otherwise don't touch docs.
 3. A decision that is hard to reverse or constrains many modules → a short ADR (`docs/adr/NNNN-*.md`: Status, Date, Context, Decision, Consequences). Never rewrite an accepted ADR; supersede it.
 4. Gates green → commit (imperative English summary ≤ 72 chars, `type(scope): …`, types `feat fix refactor test docs ci chore`) → push → PR → merge when CI is green. Several commits per PR is fine.
-5. Update `STATE.md` in the same PR if what's in flight, what's owed on devices, or an open decision changed. Keep it short.
+5. Update `STATE.md` in the same PR if what's in flight, an open decision or the backlog changed. Keep it short.
 
 There are no DCR numbers, Work Order files or review records. Older code comments citing `DCR-NNN` refer to history in git (`git log --grep DCR-NNN`).
 
@@ -86,7 +86,7 @@ Most of these are checked by `ci/run-all.sh`.
 - No `unwrap`/`expect` unless failure is impossible. No secrets or tokens in logs.
 - Tests: no `sleep` and no wall-clock waits (use tokio's paused clock). No ordering dependence. `tradr-core` tests use no real network or filesystem. A test triggers the event it asserts on.
 - No dependencies beyond what the task needs; pin exact versions.
-- **Done includes the real runtime**: a user-visible change is checked where it runs (the preview harness in [docs/12](docs/12-user-interface.md), then the device). Unmeasured device behaviour is recorded as owed in STATE.md, not claimed.
+- **Done includes the real runtime**: a user-visible change is checked where it runs (the preview harness in [docs/12](docs/12-user-interface.md), then the device). Don't claim device behaviour you haven't seen; the user reports device problems.
 
 ## Docs map
 

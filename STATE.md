@@ -12,17 +12,9 @@ latest_release: v0.1.4 (draft, 2026-10-17)
 
 Nothing is in progress in code. The last landed work: dial deadline 3 s (#369), mDNS recheck + Refresh (v0.1.3), and the release pipeline (v0.1.1+).
 
-## Owed on devices (only the user can run these)
+## Device checks
 
-- Install v0.1.4 from the draft Release on all four devices. Register the release keystore SHA-1 for `com.tradr.app` in the Google console first, or the release APK cannot sign in. The R8-minified APK has never run.
-- macOS: the ad-hoc-signed `.app` should offer "Open Anyway" rather than reporting "damaged".
-- Phone Wi-Fi off, then send: "no answer within 3 seconds", and the tile goes offline within about 10 s. Refresh does the same without a send.
-- Large files from the phone (multi-GB): phone memory stays flat, the hash matches, no leftover `shared_incoming` copy. A cloud-provider pipe file uses the copy path, and the copy is swept on restart.
-- Folder ops on another device: upload, mkdir, rename, delete, and refusal wording. A linked account is refused until `full_access` is ticked.
-- Deferred Delivery end to end: start a Brokr, register two devices, send to one that is off, then turn it on and see the file arrive.
-- Android resident service: Stop action; overnight battery cost.
-- Headless `tradr-cli send` over ssh: is the sign-in message clear?
-- Confirm the Android status-bar inset (DF-8).
+None are tracked. The user runs the builds daily and reports problems as they appear (decided 2026-11-27). Only one setup step remains: the release APK cannot sign in until its keystore SHA-1 is registered for `com.tradr.app` in the Google console.
 
 ## Open decisions (the user's)
 
