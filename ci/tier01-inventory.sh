@@ -1,6 +1,6 @@
 #!/bin/sh
 # Mechanizes Invariant I1 (ADR-0005) inventory validation.
-# See ci/README.md and docs/10-implementation-process.md.
+# See ci/README.md.
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)

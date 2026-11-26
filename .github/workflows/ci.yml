@@ -24,7 +24,7 @@ jobs:
   # Mechanizes the thirteen checks in ci/*.sh: comment language and length,
   # doc visibility, the excuse-phrase grep, the invoke()/COMMANDS cross
   # check, the layer-dependency scan, the plugin-permissions three-list
-  # cross check, STATE.md/git-history agreement, hooks-executable,
+  # cross check, hooks-executable,
   # the frontend gate, discarded results, empty catch blocks, and
   # frontend console calls.
   checks:
@@ -32,12 +32,7 @@ jobs:
     # A hung test otherwise holds a merge for GitHub's six-hour default.
     timeout-minutes: 45
     steps:
-      # ci/state-sync.sh greps `git log` for every DCR-N recorded in
-      # STATE.md; actions/checkout's default fetch-depth of 1 would leave
-      # every one of them looking absent from history.
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:

@@ -27,11 +27,11 @@ A file being worked on at the desktop needs to reach an Android phone. Drag it o
 ### UC-2: Send from Android through the share sheet
 Pick a file in the Android file manager or gallery, tap Share, choose Tradr, pick a destination. On Android 14 and later, recent destination devices appear directly in the share sheet itself.
 
-### UC-3: Browse a peer's directory
-Register `~/Documents/scan` on the desktop as a Share Root, and everything beneath it becomes listable, viewable, and downloadable from Android. Set it to `rw` and files can be written back.
+### UC-3: Open another device's folder
+Every device exposes one folder, its receive folder, read-write to the same account's devices ([ADR-0024](adr/0024-one-folder-per-device-full-access.md)). List, download, upload, rename, delete.
 
 ### UC-4: Send to another person
-Link their Google account once, which requires approval from both sides. Their devices then appear in your destination list and UC-1 applies unchanged. Share Roots can be exposed per person.
+Link their Google account once, which requires approval from both sides. Their devices then appear in your destination list and UC-1 applies unchanged. Folder access is granted per link.
 
 ### UC-5: Hand something over with no network
 With no Wi-Fi anywhere, devices still find each other over Bluetooth and can pass text, URLs, and small files. Larger files queue up as waiting for a network.
@@ -40,7 +40,7 @@ With no Wi-Fi anywhere, devices still find each other over Bluetooth and can pas
 Sending from a laptop away from home to the desktop at home has two answers.
 
 - **Running an overlay network already**: register the peer as a Static Peer and nothing else is needed. Tradr adds no infrastructure and rides the tailnet's existing reachability.
-- **Not running one**: deploy a Brokr and register it from both devices. NAT hole punching is attempted first, and only when that fails does ciphertext get relayed.
+- **Not running one**: not supported yet. A self-hosted Brokr currently provides only Deferred Delivery to offline devices ([13](13-deferred-delivery.md)); NAT traversal and relay are future design ([07](07-brokr.md)).
 
 ## Serverless by construction
 
@@ -51,13 +51,9 @@ Sending from a laptop away from home to the desktop at home has two answers.
 - Transfers go device to device.
 - Accounts are linked by handing over a QR code or an invite blob.
 
-A **Brokr** is an optional layer on top, adding exactly three things.
+A **Brokr** is an optional, self-hosted layer on top. Built today: Deferred Delivery (hold an end-to-end-encrypted transfer for an offline device). Designed but not built: cross-network presence, NAT rendezvous, ciphertext relay.
 
-1. Discovery across networks, by aggregating presence
-2. Rendezvous for NAT traversal, by exchanging address candidates
-3. Relay when nothing connects directly, forwarding ciphertext only
-
-**A Brokr going down changes nothing about LAN and proximity behaviour.** CI verifies this continuously — see [09](09-roadmap-and-risks.md).
+**A Brokr going down changes nothing about LAN and proximity behaviour.** The CI job `no-brokr` verifies this.
 
 ## Scope
 
@@ -78,7 +74,7 @@ A Brokr must run as a single Linux container, published for x86_64 and aarch64.
 - Google sign-in and the device-to-device authentication built on it
 - Discovery among same-account and linked-account devices over mDNS, BLE, static pins, and a Brokr
 - File and directory transfer, resumable and integrity-checked
-- Exposing and remotely browsing Share Roots
+- Exposing and remotely browsing one folder per device
 - Automatic path selection
 - End-to-end encryption, so that even relayed bytes stay opaque to the Brokr
 - Self-hosting a Brokr from one container and one configuration file
@@ -87,7 +83,7 @@ A Brokr must run as a single Linux container, published for x86_64 and aarch64.
 
 Decisions to **not** do something. A request to revisit any of these gets an ADR.
 
-- **Two-way sync.** No continuous synchronization in the manner of Dropbox or Syncthing. That drags in conflict resolution, deletion propagation, and partial sync — a problem set fundamentally at odds with handing a file over. Browsing a Share Root is read-through, not sync.
+- **Two-way sync.** No continuous synchronization in the manner of Dropbox or Syncthing. That drags in conflict resolution, deletion propagation, and partial sync — a problem set fundamentally at odds with handing a file over. Browsing a folder is read-through, not sync.
 - **A hosted service operated by us.** A Brokr is designed for self-hosting only. Multi-tenant billing, abuse handling, and SLAs constitute a different product.
 - **Durable storage on a Brokr.** Relay is a transient buffer, deleted on TTL expiry or on receipt.
 - **Content inspection or transformation on a Brokr.** No thumbnailing, no virus scanning, no full-text search. None of it survives contact with end-to-end encryption.

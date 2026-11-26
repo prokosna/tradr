@@ -31,29 +31,29 @@ Send files between your own devices — or devices belonging to someone you have
 | 03 | [Discovery and transport](docs/03-discovery-and-transport.md) | mDNS, BLE, static peers, Brokr, path selection |
 | 04 | [Wire protocol](docs/04-protocol.md) | Framing, messages, chunked transfer |
 | 05 | [Security and identity](docs/05-security.md) | Attestation, key handling, threat model |
-| 06 | [Shares and linking](docs/06-shares-and-browsing.md) | Share roots, permissions, cross-account links |
-| 07 | [Brokr (optional)](docs/07-brokr.md) | API, data model, relay, self-hosting |
+| 06 | [Folder access](docs/06-shares-and-browsing.md) | One folder per device, boundary enforcement |
+| 07 | [Brokr (optional)](docs/07-brokr.md) | Principles and future design |
 | 08 | [Platform integration](docs/08-platform-integration.md) | Drag and drop, Android share sheet, iOS constraints |
 | 09 | [Roadmap and risks](docs/09-roadmap-and-risks.md) | Milestones, open questions |
-| 10 | [Implementation process](docs/10-implementation-process.md) | Roles, work orders, review, design changes |
+| 11 | [Account linking](docs/11-account-linking.md) | Links, Account Broadcast Key |
+| 12 | [User interface](docs/12-user-interface.md) | Flows and wording |
+| 13 | [Deferred Delivery](docs/13-deferred-delivery.md) | Sending to offline devices via a Brokr |
 
 Decisions are recorded in [docs/adr/](docs/adr/).
 
 ## Development & Agent Workflow
 
-This repository is developed primarily through an experimental **Supervised Agentic Workflow** (see [ADR-0009](docs/adr/0009-supervised-implementation-loop.md)). If you are exploring the codebase or wish to contribute, please be aware of the following structure:
+This repository is developed mostly by AI agents under the rules in [CLAUDE.md](CLAUDE.md) (also `AGENTS.md`); see [ADR-0027](docs/adr/0027-lightweight-process-code-is-the-record.md).
 
 | File | Contents |
 |---|---|
-| **[AGENTS.md](AGENTS.md)** | **Working rules and system prompts for the AI agents** |
-| **[STATE.md](STATE.md)** | **Current progress, active milestone, and the next three actions** |
-| [CONTEXT.md](CONTEXT.md) | Domain vocabulary. The single source of truth for terms |
-
-Implementation is typically executed by a fast, efficient LLM model (the Implementer) and reviewed by a high-capability reasoning model (the Supervisor). Progress and design state live entirely in `STATE.md` and `docs/` so that an agent with no continuous memory can take over supervision at any moment by reading the repository.
+| **[CLAUDE.md](CLAUDE.md)** | Working rules, commands, invariants, Critical Modules |
+| **[STATE.md](STATE.md)** | What is in flight, what is owed on devices, backlog |
+| [CONTEXT.md](CONTEXT.md) | Domain vocabulary |
 
 ### Contributing (Humans and Agents)
 
-If you are cloning this repository to contribute, you must enable the local `pre-commit` hook. This enforces the strict CI gates locally before any commit is created:
+If you are cloning this repository to contribute, enable the local hooks (fast checks on commit, clippy and tests on push):
 
 ```bash
 git config core.hooksPath .githooks

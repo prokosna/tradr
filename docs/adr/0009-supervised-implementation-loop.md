@@ -1,6 +1,6 @@
 # ADR-0009: A cheap model implements, an expensive one reviews
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0027](0027-lightweight-process-code-is-the-record.md)
 - **Date**: 2026-08-22
 
 ## Context
