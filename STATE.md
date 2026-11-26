@@ -31,13 +31,9 @@ Product:
 - Hardware-backed keys (Keystore, Secure Enclave, TPM). Blocked on `backing()` being one value for two keys.
 
 Tech debt:
-- `keep_alive_preserves_idle_connection_past_timeout` once hung CI for an hour; it needs a bound.
 - `tauri-plugin-opener` is pinned to `=2.5.5` until a deliberate Tauri 2.12 upgrade.
-- The atomic-write registry helper is copied in several places (tradr-identity, tradr-app). Unify it.
-- `is_virtual_interface` misses one tailnet interface prefix, so tailnet addresses get published as mDNS candidates.
 - Listener failure lines: the cause of the stray "channel already closed" is still unconfirmed.
 - Secret Service prompt wait is unbounded. `SharedSecret` is not zeroized. `KeyStore` is synchronous (it would block on Android Keystore).
-- Android Rust code (`cfg(target_os="android")`) is not on the commit path: run `cargo check --target aarch64-linux-android -p tauri-plugin-tradr`. Full Android clippy does not pass yet.
 - CI runners are unpinned `-latest`.
 - Several tests survive mutation of the line they guard: the rung choice in `open_identity`, the platform arm in `provider_profile`, the link-reply pin expectation, and others. See `git show ad37cc7:STATE.md`, Deferred table.
 

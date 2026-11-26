@@ -69,9 +69,17 @@ fn setup_desktop(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+// The mobile entry point returns nothing, so the error is reported here.
+#[cfg(mobile)]
+#[tauri::mobile_entry_point]
+fn mobile_main() {
+    if let Err(err) = run() {
+        eprintln!("tradr: failed to run: {err}");
+    }
+}
+
 pub fn run() -> tauri::Result<()> {
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_tradr::init(
             non_empty(option_env!("TRADR_OAUTH_CLIENT_IDS")),
@@ -79,8 +87,8 @@ pub fn run() -> tauri::Result<()> {
         ));
 
     #[cfg(desktop)]
-    {
-        builder = builder
+    let builder = {
+        builder
             .plugin(tauri_plugin_updater::Builder::new().build())
             .setup(|app| {
                 setup_desktop(app)?;
@@ -93,8 +101,8 @@ pub fn run() -> tauri::Result<()> {
                         eprintln!("window: failed to hide on close request: {err}");
                     }
                 }
-            });
-    }
+            })
+    };
 
     builder.run(tauri::generate_context!())
 }

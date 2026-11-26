@@ -311,6 +311,15 @@ jobs:
           export NDK_HOME="$ANDROID_HOME/ndk/${{ env.ANDROID_NDK_VERSION }}"
           cargo tauri android build --debug -t aarch64
 
+      # Host clippy never sees cfg(target_os = "android") code.
+      - name: cargo clippy (android target)
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/${{ env.ANDROID_NDK_VERSION }}"
+          export PATH="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          export CC_aarch64_linux_android=aarch64-linux-android24-clang
+          export AR_aarch64_linux_android=llvm-ar
+          cargo clippy --target aarch64-linux-android --workspace --exclude tradr-cli -- -D warnings
+
   # android-release-toolchain: the real evidence for ADR-0001's third
   # withdrawal condition, "the Tauri 2 Android build passes reliably in
   # CI" -- four ABIs, release profile, matching what a release actually
