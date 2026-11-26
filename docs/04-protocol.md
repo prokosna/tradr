@@ -1,6 +1,6 @@
 # 04. Wire protocol
 
-`proto/tradr/v1/` is the source of truth (prost for Rust, ts-proto for TS). Only `tradr-proto` names prost.
+`proto/tradr/v1/` is the source of truth (prost, in `tradr-proto`). Only `tradr-proto` names prost.
 
 ```
 Planes:   Control / Browse / Data

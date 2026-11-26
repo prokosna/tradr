@@ -1,6 +1,6 @@
 #!/bin/sh
 # Mechanizes CLAUDE.md rule F6: refuses console calls in frontend
-# sources under apps/*/src/ and packages/*/src/.
+# sources under apps/*/src/.
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -9,9 +9,9 @@ cd "$ROOT_DIR" || exit 1
 
 status=0
 
-files=$(find apps packages -type f \
+files=$(find apps -type f \
 	\( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' \) \
-	\( -path 'apps/*/src/*' -o -path 'packages/*/src/*' \) \
+	-path 'apps/*/src/*' \
 	-not -path '*/node_modules/*' \
 	-not -path '*/dist/*' \
 	-not -path '*/gen/*' \

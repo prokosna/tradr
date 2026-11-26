@@ -10,8 +10,6 @@
 		"includes": [
 			"**",
 			"!.claude",
-			"!packages/protocol/src/gen",
-			"!packages/*/dist",
 			"!crates/tauri-plugin-tradr/permissions/schemas/schema.json"
 		]
 	},
