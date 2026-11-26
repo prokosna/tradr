@@ -56,7 +56,7 @@ This is what `async-trait` expands to. Writing the expansion by hand costs a few
 
 1. **It is the only shape that supports racing.** Phase 3 of path selection is the design's core mechanism, and it cannot be written against a trait that has no vtable.
 
-2. **The cost is one allocation per call, at connection granularity.** `connect` runs once per candidate per attempt. Even on the data path the unit is a 1 MiB chunk ([invariant I6](../../CLAUDE.md#8-invariants-that-must-not-break)), so a boxed future per chunk is one allocation per megabyte. This is not a hot path in any measurable sense, and if that ever stops being true the fix is confined to the trait and its implementations.
+2. **The cost is one allocation per call, at connection granularity.** `connect` runs once per candidate per attempt. Even on the data path the unit is a 1 MiB chunk ([invariant I6](../../CLAUDE.md)), so a boxed future per chunk is one allocation per megabyte. This is not a hot path in any measurable sense, and if that ever stops being true the fix is confined to the trait and its implementations.
 
 3. **It keeps `tradr-core` at zero dependencies.** The alternative is adding `async-trait` to the one crate whose emptiness is a checked invariant, and weakening `layer-deps.sh` to permit it. A check with an exception is a check people learn to argue with.
 

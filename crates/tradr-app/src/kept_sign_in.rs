@@ -1,4 +1,4 @@
-//! Keeps and loads this device's own ID token on disk across runs (DCR-150).
+//! Keeps and loads this device's own ID token on disk across runs.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 
-/// How long a kept ID token may be reused before interactive sign-in is required (DCR-150).
+/// How long a kept ID token may be reused before interactive sign-in is required.
 pub const SIGN_IN_REUSE_LIMIT_SECS: u64 = 21 * 24 * 60 * 60;
 
-/// Loads the kept ID token from disk, ignoring empty or missing files (DCR-150).
+/// Loads the kept ID token from disk, ignoring empty or missing files.
 pub fn load_kept_token(path: &Path) -> Result<Option<String>, String> {
     match std::fs::read_to_string(path) {
         Ok(content) => {
@@ -28,7 +28,7 @@ pub fn load_kept_token(path: &Path) -> Result<Option<String>, String> {
     }
 }
 
-/// Writes the ID token to a temporary sibling file and renames it over the target path (DCR-150).
+/// Writes the ID token to a temporary sibling file and renames it over the target path.
 pub fn keep_token(path: &Path, id_token: &str) -> Result<(), String> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)

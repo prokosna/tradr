@@ -1,4 +1,4 @@
-//! Sending session and peer discovery compositions for desktop front ends (docs/02, DCR-139).
+//! Sending session and peer discovery compositions for desktop front ends (docs/02).
 
 use std::path::Path;
 use std::sync::Arc;

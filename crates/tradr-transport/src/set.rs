@@ -1,4 +1,4 @@
-//! Keyed set of available transports for candidate dispatch (docs/03, DCR-108).
+//! Keyed set of available transports for candidate dispatch (docs/03).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

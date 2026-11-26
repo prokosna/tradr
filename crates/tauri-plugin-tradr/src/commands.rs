@@ -65,7 +65,7 @@ pub async fn get_peers(
     Ok(list.peers().iter().map(peer_info).collect())
 }
 
-/// Drains peer sources and asks every mDNS peer whether it is still present (DCR-191).
+/// Drains peer sources and asks every mDNS peer whether it is still present.
 #[tauri::command]
 pub async fn refresh_peers(
     identity_state: State<'_, IdentityState>,

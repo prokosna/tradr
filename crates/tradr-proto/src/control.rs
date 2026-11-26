@@ -1,5 +1,5 @@
 //! Converts between wire `control.proto` Offer messages and native Layer 0
-//! types in `tradr-core` (docs/04-protocol.md, DCR-058, DCR-059). Reshapes
+//! types in `tradr-core` (docs/04-protocol.md). Reshapes
 //! and validates wire fields without deciding business logic.
 
 use prost::Message;

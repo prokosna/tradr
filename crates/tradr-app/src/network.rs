@@ -1,4 +1,4 @@
-//! QUIC transport binding and mDNS advertisement shared across front ends (docs/03, DCR-126).
+//! QUIC transport binding and mDNS advertisement shared across front ends (docs/03).
 //! Provides the fallback QUIC bind on port 21820 and device advertisement
 //! registration for mDNS discovery.
 
@@ -138,7 +138,7 @@ pub fn display_name_from_hostname(raw: &str) -> Option<DisplayName> {
     DisplayName::new(truncate_to_display_name_len(label)).ok()
 }
 
-/// Derives a display name from an OS device name without splitting at dots (DCR-160).
+/// Derives a display name from an OS device name without splitting at dots.
 pub fn display_name_from_device_name(raw: &str) -> Option<DisplayName> {
     if raw.eq_ignore_ascii_case("localhost") {
         return None;

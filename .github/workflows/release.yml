@@ -248,7 +248,7 @@ jobs:
     defaults:
       run:
         shell: bash
-    # Android never receives the OAuth secret at all (DCR-030).
+    # Android never receives the OAuth secret at all.
     env:
       TRADR_OAUTH_CLIENT_IDS: ${{ secrets.TRADR_OAUTH_CLIENT_IDS }}
     steps:

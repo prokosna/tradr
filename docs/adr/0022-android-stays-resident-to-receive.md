@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-09-26
-- **Supersedes**: [docs/02](../02-architecture.md#android)'s "continuous listening costs too much battery" for Tier 0 and 1, and [docs/08](../08-platform-integration.md#foreground-service)'s "started only during a transfer, never resident"
+- **Supersedes**: [docs/02](../02-architecture.md)'s "continuous listening costs too much battery" for Tier 0 and 1, and [docs/08](../08-platform-integration.md)'s "started only during a transfer, never resident"
 
 ## Context
 

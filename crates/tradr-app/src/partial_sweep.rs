@@ -1,4 +1,4 @@
-//! Sweeping stale partial transfer directories (docs/04-protocol.md, DCR-154).
+//! Sweeping stale partial transfer directories (docs/04-protocol.md).
 
 use tradr_core::{DirEntry, EntryKind, ItemId, RootId, TransferId, UnixTime, Vfs, VfsError};
 use tradr_vfs::{partial_dir_rel_path, partial_file_rel_path};

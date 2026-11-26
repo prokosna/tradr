@@ -304,7 +304,7 @@ pub enum Backing {
 /// asked for (docs/05-security.md, "Key storage"). `backing()` must
 /// report this: a Secret Service that is merely unreachable and a
 /// `0600` file are different sentences, though both are software. Two
-/// rungs, not three (DCR-033).
+/// rungs, not three.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageLevel {
     /// The platform's Secret Service, reached over D-Bus.

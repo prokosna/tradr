@@ -1,10 +1,10 @@
-//! Shared download folder resolution and verification for Android (docs/08, DCR-182, DCR-183).
+//! Shared download folder resolution and verification for Android (docs/08).
 
 use std::path::{Path, PathBuf};
 
 use tauri::State;
 
-/// Derives the shared download directory from the app-specific path on primary storage (docs/08, DCR-182, DCR-183).
+/// Derives the shared download directory from the app-specific path on primary storage (docs/08).
 pub fn shared_download_dir(app_specific: &Path) -> Option<PathBuf> {
     let components: Vec<_> = app_specific.components().collect();
     for (i, window) in components.windows(2).enumerate() {
@@ -26,7 +26,7 @@ pub fn shared_download_dir(app_specific: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Verifies filesystem write, rename, and delete permissions on the target directory (docs/08, DCR-182).
+/// Verifies filesystem write, rename, and delete permissions on the target directory (docs/08).
 pub fn probe_receive_dir(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let partial = dir.join(".tradr-probe.tradr-partial");
@@ -37,7 +37,7 @@ pub fn probe_receive_dir(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Chooses the shared download folder if writable, falling back to app-specific storage (docs/08, DCR-182).
+/// Chooses the shared download folder if writable, falling back to app-specific storage (docs/08).
 pub fn choose_receive_dir(app_specific: PathBuf) -> PathBuf {
     if let Some(shared) = shared_download_dir(&app_specific) {
         match probe_receive_dir(&shared) {
@@ -52,11 +52,11 @@ pub fn choose_receive_dir(app_specific: PathBuf) -> PathBuf {
     }
 }
 
-/// Holds the active folder for received files in Tauri state (docs/08, DCR-182).
+/// Holds the active folder for received files in Tauri state (docs/08).
 #[derive(Debug, Clone)]
 pub struct ReceiveFolder(pub PathBuf);
 
-/// Returns the path of the folder saving received files to display in the UI (docs/08, DCR-182).
+/// Returns the path of the folder saving received files to display in the UI (docs/08).
 #[tauri::command]
 pub fn receive_folder(folder: State<'_, ReceiveFolder>) -> String {
     folder.0.to_string_lossy().into_owned()

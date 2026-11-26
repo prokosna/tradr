@@ -1,4 +1,4 @@
-//! Supervisor-authored tests for `list_partial_root` (DCR-155, docs/04).
+//! Supervisor-authored tests for `list_partial_root` (docs/04).
 //! Critical Module: boundary enforcement in tradr-vfs. The operation skips
 //! one deny pattern, so these pin that it skips nothing else.
 

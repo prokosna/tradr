@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-09-27
-- **Supersedes**: [docs/08](../08-platform-integration.md#receiving-from-the-share-sheet-uc-2)'s rule that a shared file under 50 MB is copied into the app cache, and the workspace-wide `#![forbid(unsafe_code)]` for exactly one file
+- **Supersedes**: [docs/08](../08-platform-integration.md)'s rule that a shared file under 50 MB is copied into the app cache, and the workspace-wide `#![forbid(unsafe_code)]` for exactly one file
 
 ## Context
 
@@ -23,11 +23,11 @@ The safe alternative, reopening `/proc/self/fd/N`, re-runs the path permission c
 
 **Every picked or shared file is handed over as a descriptor, whatever its size**, so there are no cache copies to delete. **The exception is a descriptor that cannot be read at an offset** -- a cloud provider may answer a pipe -- which Kotlin detects (`statSize < 0`) and copies into the cache as before; those copies are swept when the plugin next starts, since a staged file does not survive a restart.
 
-**An adopted file becomes a single-file root in `tradr-vfs`**, registered under the name the platform gave it, so the send path, the Offer and [invariant I5](../../CLAUDE.md#8-invariants-that-must-not-break) are unchanged: the sender opens `(root, name)` as it opens any other file, and no path is assembled for it anywhere.
+**An adopted file becomes a single-file root in `tradr-vfs`**, registered under the name the platform gave it, so the send path, the Offer and [invariant I5](../../CLAUDE.md) are unchanged: the sender opens `(root, name)` as it opens any other file, and no path is assembled for it anywhere.
 
 ## Consequences
 
-- **A file of any size can be sent from a phone without being copied**, once [DCR-164](../04-protocol.md#the-sender-streams-a-file-and-never-holds-it-dcr-164) has made the sender stream
+- **A file of any size can be sent from a phone without being copied**, once [DCR-164](../04-protocol.md) has made the sender stream
 - The workspace has one `unsafe` call, in the one crate D9 already expects to swap, and a check that keeps it one
 - A descriptor held in the registry keeps its file open until the send it was staged for succeeds or the process ends
 

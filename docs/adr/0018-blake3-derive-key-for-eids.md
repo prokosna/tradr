@@ -2,14 +2,14 @@
 
 - **Status**: Superseded by [ADR-0028](0028-ble-removed.md)
 - **Date**: 2026-09-05
-- **Supersedes**: the KDF row of [docs/05](../05-security.md#algorithms)'s Algorithms table, the closing line of [ADR-0006](0006-blake3-for-content-integrity.md), and the `bootstrap_secret` line of [ADR-0010](0010-identity-is-the-issuer-subject-pair.md). Neither ADR is rewritten; both keep the text they were accepted with
+- **Supersedes**: the KDF row of [docs/05](../05-security.md)'s Algorithms table, the closing line of [ADR-0006](0006-blake3-for-content-integrity.md), and the `bootstrap_secret` line of [ADR-0010](0010-identity-is-the-issuer-subject-pair.md). Neither ADR is rewritten; both keep the text they were accepted with
 
 ## Context
 
-M7 is the first milestone that has to compute an EID. Reading [docs/03](../03-discovery-and-transport.md#2-ble--proximity-no-network-required-tier-0) against the rest of the document set before cutting a Work Item found that **the EID's key derivation is specified two ways, and both specifications are live**.
+M7 is the first milestone that has to compute an EID. Reading [docs/03](../03-discovery-and-transport.md) against the rest of the document set before cutting a Work Item found that **the EID's key derivation is specified two ways, and both specifications are live**.
 
-- [docs/05](../05-security.md#algorithms)'s Algorithms table: `| KDF | HKDF-SHA256 | EID derivation and similar |`
-- [docs/11](../11-account-linking.md#deriving-the-link-secret), settling the Link Secret under DCR-066: "Every other derived value in this design is BLAKE3: the Device ID, the Content Hash, the Attestation nonce, the Agreement Key Tag, **the EIDs**."
+- [docs/05](../05-security.md)'s Algorithms table: `| KDF | HKDF-SHA256 | EID derivation and similar |`
+- [docs/11](../11-account-linking.md), settling the Link Secret under DCR-066: "Every other derived value in this design is BLAKE3: the Device ID, the Content Hash, the Attestation nonce, the Agreement Key Tag, **the EIDs**."
 
 One of those is false, and **the second one is load-bearing**: DCR-066 chose BLAKE3 for the Link Secret partly *because* the EIDs were already BLAKE3. If they are not, DCR-066's stated reason is wrong about the very list it appeals to.
 

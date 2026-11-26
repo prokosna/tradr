@@ -47,13 +47,13 @@ A verifier selects the profile by the token's `iss`, then runs the same eight st
 
 2. **Same-account trust must never cross issuers.** Comparing bare subjects would grant `TRUST_TIER_SAME_ACCOUNT` to an account at a different provider that happened to share a subject string. Requiring the pair to match makes that impossible by construction rather than by care.
 
-3. **A second provider is not a URL swap.** Providers differ in ways the profile has to carry. `nonce_binding` exists because at least one major provider is documented to place a **hash** of the supplied nonce in the token rather than the value itself, which would fail step 5 outright. `renewal` exists because the 24-hour silent renewal in [docs/05](../05-security.md#handling-expiry) assumes refresh tokens with a `prompt=none` path, and not every provider offers one on the same terms. Discovering these through a profile field is cheaper than discovering them through a rewrite.
+3. **A second provider is not a URL swap.** Providers differ in ways the profile has to carry. `nonce_binding` exists because at least one major provider is documented to place a **hash** of the supplied nonce in the token rather than the value itself, which would fail step 5 outright. `renewal` exists because the 24-hour silent renewal in [docs/05](../05-security.md) assumes refresh tokens with a `prompt=none` path, and not every provider offers one on the same terms. Discovering these through a profile field is cheaper than discovering them through a rewrite.
 
 4. **It costs nothing to the single-provider case.** Google remains the only profile shipped. The pair simply makes the assumption explicit instead of implicit.
 
 ## Consequences
 
-- **The `aud` set becomes per-profile**, not global. The reasoning in [docs/05](../05-security.md#why-step-4-compares-against-a-set) applies within a provider.
+- **The `aud` set becomes per-profile**, not global. The reasoning in [docs/05](../05-security.md) applies within a provider.
 - **A linked account records its issuer.** A link is to `(iss, sub)`, so the same person at two providers is two links, which is correct — they are two identities and the device cannot know they are the same person.
 - **The Change Drill's D2 keeps its budget of two files**: one profile registration, one place that enumerates profiles. Nothing else may learn a provider's name.
 - **`iss` must be compared exactly, never inferred from the JWKS host.** A provider with per-tenant issuer strings therefore needs one profile per tenant, or an issuer pattern in the profile. This is recorded rather than solved, since no such provider is planned.

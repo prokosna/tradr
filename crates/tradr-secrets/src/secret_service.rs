@@ -2,7 +2,7 @@
 //! (docs/05-security.md, "Key storage"): a D-Bus session-scoped
 //! collection, looked up by attribute rather than by label. Never
 //! unlocks anything -- a locked collection is read as a failed
-//! operation (DCR-034, "A locked Secret Service is a rung that fails").
+//! operation ("A locked Secret Service is a rung that fails").
 
 use std::collections::HashMap;
 
@@ -43,7 +43,7 @@ pub struct SecretServiceStore {
 
 impl SecretServiceStore {
     /// Connects to the session bus and confirms a Secret Service answers
-    /// on it by reaching a collection, without unlocking it (DCR-034).
+    /// on it by reaching a collection, without unlocking it.
     /// Fails only when nothing answers at all: no session bus, or no
     /// Secret Service on it. A locked collection is still reached, so a
     /// lock never fails `open` -- only `store` and `load` see it.
@@ -62,7 +62,7 @@ impl SecretServiceStore {
     }
 
     // A locked collection has not said whether it holds this device's
-    // key (DCR-034), so this reports the lock as a failed read rather
+    // key, so this reports the lock as a failed read rather
     // than unlocking it or treating it as an empty one.
     fn ensure_unlocked(collection: &Collection<'_>) -> Result<(), SecretStoreError> {
         if collection.is_locked().map_err(backend_err)? {

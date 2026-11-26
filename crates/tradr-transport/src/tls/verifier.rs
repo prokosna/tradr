@@ -2,7 +2,7 @@
 //! layers" describes. The dialling side compares the peer's certificate
 //! against the `DeviceId` it expected, or against nothing when it has no
 //! expectation yet; the listening side never has one and defers welcome
-//! to the Attestation exchange (DCR-040).
+//! to the Attestation exchange.
 
 use std::fmt;
 
@@ -110,7 +110,7 @@ impl ServerCertVerifier for ExpectedDeviceServerCertVerifier {
     }
 }
 
-/// The listening side (DCR-040). It has no expectation to compare
+/// The listening side. It has no expectation to compare
 /// against, since it does not know who is dialling until they arrive;
 /// whether that device is welcome is the Attestation exchange's question.
 pub(crate) struct AnyDeviceClientCertVerifier {
@@ -155,7 +155,7 @@ impl ClientCertVerifier for AnyDeviceClientCertVerifier {
             return Err(Error::InvalidCertificate(CertificateError::BadEncoding));
         }
         // No DeviceId is needed here, only that the certificate is a
-        // well-formed P-256 device certificate (DCR-040): any device is
+        // well-formed P-256 device certificate: any device is
         // welcome at this layer.
         identity_point(end_entity.as_ref())
             .map_err(|_| Error::InvalidCertificate(CertificateError::BadEncoding))?;

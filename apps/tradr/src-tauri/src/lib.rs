@@ -4,7 +4,7 @@
 //! inside its own setup hook, since this file is only the composition root.
 
 // Empty and absent both mean unconfigured, never distinguished: build.rs
-// (DCR-030) emits an empty value when `.tradr-deployment.env` is absent
+// emits an empty value when `.tradr-deployment.env` is absent
 // so a fresh clone still builds, and omits the secret entirely on Android
 // so `option_env!` reads it as absent rather than failing the build.
 fn non_empty(value: Option<&'static str>) -> Option<&'static str> {
@@ -102,7 +102,7 @@ pub fn run() -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     // The only thing that will notice if build.rs stops plumbing
-    // TRADR_OAUTH_CLIENT_IDS from the environment into the build (DCR-030).
+    // TRADR_OAUTH_CLIENT_IDS from the environment into the build.
     // Vacuously passes when the variable is unset, which keeps a fresh
     // clone's `cargo test` green.
     #[test]

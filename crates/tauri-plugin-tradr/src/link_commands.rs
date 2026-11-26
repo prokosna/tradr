@@ -144,7 +144,7 @@ pub fn invite_preview(
 }
 
 /// Previews a pasted invite blob before anything is dialled or sent
-/// (docs/11, DCR-077): the inviter's Fingerprint to read aloud, and
+/// (docs/11): the inviter's Fingerprint to read aloud, and
 /// whether the window has already closed. Takes no `State` and touches no
 /// window -- nothing here may be opened, stored or sent.
 #[tauri::command]

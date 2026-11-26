@@ -1,5 +1,5 @@
 //! `id_token` signature verification: docs/05 "The token never chooses how
-//! it is verified" (DCR-020, DCR-021), step 2 of docs/05's seven steps.
+//! it is verified", step 2 of docs/05's seven steps.
 //! The accepted algorithm comes from the caller's `ProviderProfile`, never
 //! from the token's own `alg` header, compared before the signature is
 //! read at all. No I/O: fetching or caching a JWKS is the caller's job.
@@ -221,7 +221,7 @@ fn parse_claims(payload: &Value) -> Result<VerifiedClaims, TokenError> {
 }
 
 // Reads a string claim. `aud` given as a JSON array also fails here, since
-// `as_str` returns `None` for any non-string value (DCR-021).
+// `as_str` returns `None` for any non-string value.
 fn require_str(payload: &Value, name: &str) -> Result<String, TokenError> {
     payload
         .get(name)

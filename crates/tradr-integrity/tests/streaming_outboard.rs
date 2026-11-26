@@ -1,5 +1,5 @@
 //! Supervisor-authored tests for the streaming sender's half of `bao`
-//! (CLAUDE.md section 6, docs/04 "The sender streams a file", DCR-164).
+//! (CLAUDE.md section 6, docs/04 "The sender streams a file").
 //! The standard is byte equality with the whole-buffer `outboard` and
 //! `slice`, which the verifier's own suite already pins.
 

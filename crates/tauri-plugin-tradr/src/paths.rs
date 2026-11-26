@@ -1,4 +1,4 @@
-//! Platform-specific app data directory resolution (DCR-124).
+//! Platform-specific app data directory resolution.
 //! The split is here rather than in tradr-app because desktop must resolve
 //! the directory the way the CLI does, ignoring AppHandle so both front ends
 //! share one device, while Android's answer is the platform's.

@@ -1,4 +1,4 @@
-//! Supervisor-authored tests for `Vfs::rename_no_replace` (DCR-171).
+//! Supervisor-authored tests for `Vfs::rename_no_replace`.
 //! Critical Module: boundary enforcement in tradr-vfs. Placement must never
 //! replace a file, even when two of this process's placements race for a name.
 

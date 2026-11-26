@@ -163,7 +163,7 @@ jobs:
           tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
 
       # No TRADR_OAUTH_CLIENT_IDS / TRADR_OAUTH_CLIENT_SECRET here:
-      # build.rs (DCR-030) emits empty values when both are absent, and a
+      # build.rs emits empty values when both are absent, and a
       # green build must not depend on repository secrets.
       - name: cargo tauri build
         working-directory: apps/tradr/src-tauri
@@ -300,7 +300,7 @@ jobs:
         with:
           tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
 
-      # Android never receives the OAuth secret at all (DCR-030); the
+      # Android never receives the OAuth secret at all; the
       # client ID list is also left unset here, matching the desktop job.
       # --debug -t aarch64: proves the toolchain compiles, links and
       # assembles. It does not stand in for the release, four-ABI build
@@ -378,7 +378,7 @@ jobs:
         with:
           tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
 
-      # Android never receives the OAuth secret at all (DCR-030); the
+      # Android never receives the OAuth secret at all; the
       # client ID list is also left unset here, matching the desktop job.
       - name: cargo tauri android build (release, four ABIs)
         working-directory: apps/tradr/src-tauri

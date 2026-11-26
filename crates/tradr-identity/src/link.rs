@@ -18,7 +18,7 @@ use tradr_core::{
 use crate::attestation::AccountId;
 
 /// The context string `derive_link_secret` hands to `BLAKE3::derive_key`
-/// (DCR-066). A compile-time constant rather than a negotiated salt,
+///. A compile-time constant rather than a negotiated salt,
 /// which is what carries the domain separation a salt would otherwise
 /// carry here.
 const LINK_SECRET_CONTEXT: &str = "tradr-link-v1";
@@ -28,7 +28,7 @@ const LINK_SECRET_CONTEXT: &str = "tradr-link-v1";
 const FINGERPRINT_TAG: &[u8] = b"tradr-fp-v1";
 
 /// Derives the 32-byte Link Secret both sides of a link compute alike:
-/// `BLAKE3::derive_key("tradr-link-v1", half_A || half_B)` (DCR-066). The
+/// `BLAKE3::derive_key("tradr-link-v1", half_A || half_B)`. The
 /// order is by role -- the inviter's half first, the replier's second --
 /// and must never be sorted or normalised: doing so would let one side
 /// try both orders against a target.
@@ -357,7 +357,7 @@ impl LinkRegistry {
     /// Registers `link`, storing `secret` under the slot `link_id` names.
     /// Refuses an already-held account or `link_id`, or a `secret` not
     /// derived from `link`'s own `link_id`. Stores the secret before the
-    /// record (docs/11, DCR-070), rolling it back if the record then
+    /// record (docs/11), rolling it back if the record then
     /// fails to write.
     pub fn add(
         &mut self,

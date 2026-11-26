@@ -2,7 +2,7 @@
 //! implementation (CLAUDE.md section 6). Verification itself is tested in
 //! `tradr-identity` and the exchange in `tests/link_exchange.rs`; what is
 //! new here is the join the composition root makes -- which `DeviceId`
-//! reaches the verifier, and what the invite window survives (DCR-076).
+//! reaches the verifier, and what the invite window survives.
 
 use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -336,7 +336,7 @@ impl ProposalSink for SilentSink {
 
 // Announces and then does nothing, which is a person putting the phone
 // down mid-comparison. The only thing that ends the wait is the invite's
-// own deadline (DCR-075).
+// own deadline.
 struct UnansweringSink;
 
 impl ProposalSink for UnansweringSink {

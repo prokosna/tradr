@@ -2,7 +2,7 @@
 //! A `relative_path` arrives from the peer, so it is attacker-controlled. See
 //! CLAUDE.md section 6, docs/06 "Resolution" step 2, and docs/04 "Name
 //! collisions and sanitization". `RelPath` carries the rejecting rules only;
-//! every transforming rule belongs to `tradr-vfs`, and so does NFC (DCR-012).
+//! every transforming rule belongs to `tradr-vfs`, and so does NFC.
 
 use tradr_core::RelPath;
 

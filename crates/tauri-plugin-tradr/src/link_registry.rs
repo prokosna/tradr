@@ -1,5 +1,5 @@
 //! Hands docs/05 step 6 the account list `AttestationPolicy::linked_accounts`
-//! needs (DCR-074). Read off `tradr_identity::LinkRegistry` at each
+//! needs. Read off `tradr_identity::LinkRegistry` at each
 //! classification and never captured once, so removing a Link takes
 //! effect from the very next call. `PeerTrustState` is the precedent: a
 //! `Result` built once at startup, reported through every later use.
@@ -14,7 +14,7 @@ use tradr_identity::{AccountId, LinkRegistry};
 /// state so a failed load reports the error on every use rather than
 /// being silently read as empty, which would withdraw `TrustTier::Linked`
 /// from every peer. A plain `std::sync::Mutex`, not `tokio::sync::Mutex`:
-/// the link exchange's `record` closure is synchronous (DCR-076).
+/// the link exchange's `record` closure is synchronous.
 pub struct LinkRegistryState(Result<Arc<Mutex<LinkRegistry>>, String>);
 
 impl LinkRegistryState {

@@ -248,7 +248,7 @@ async fn read_frame(
     Ok(frame)
 }
 
-// Bounding consecutive unassigned frames defends against stream holding without breaking forward compatibility (DCR-172).
+// Bounding consecutive unassigned frames defends against stream holding without breaking forward compatibility.
 pub(crate) const MAX_CONSECUTIVE_IGNORABLE_FRAMES: u32 = 16;
 
 const MAX_PLACEMENT_ATTEMPTS: usize = 32;

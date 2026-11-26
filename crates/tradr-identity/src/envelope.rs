@@ -1,4 +1,4 @@
-//! Deferred Delivery envelope serialization, sealing, and opening (docs/13, ADR-0025, DCR-173).
+//! Deferred Delivery envelope serialization, sealing, and opening (docs/13, ADR-0025).
 
 use std::fmt;
 use std::mem;

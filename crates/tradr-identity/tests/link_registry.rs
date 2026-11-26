@@ -363,7 +363,7 @@ fn removing_a_link_this_registry_does_not_hold_is_refused_and_changes_nothing() 
     assert_eq!(vault.removes(), 0);
 }
 
-// --- The Link Secret, and the order the two halves move in (DCR-070) ---
+// --- The Link Secret, and the order the two halves move in ---
 
 #[test]
 fn adding_a_link_stores_its_secret_under_the_slot_the_link_id_names() {

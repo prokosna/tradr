@@ -104,7 +104,7 @@ struct Inner {
     pending: Option<Parked>,
 }
 
-/// This device's invite window (docs/11, DCR-076): the invite currently
+/// This device's invite window (docs/11): the invite currently
 /// offered, single-use, and the one decision from a person it may be
 /// waiting on at a time. One `std::sync::Mutex` over both slots: showing
 /// a fresh invite must never discard a proposal someone is still reading,
@@ -130,7 +130,7 @@ impl LinkInviteState {
     }
 
     /// Opens `invite`, replacing whatever was open. Refused while a
-    /// decision from a person is still parked (docs/11, DCR-076):
+    /// decision from a person is still parked (docs/11):
     /// answering it, one way or the other, is what frees this window to
     /// be opened again.
     pub fn open(&self, invite: Invite) -> Result<(), InviteWindowError> {

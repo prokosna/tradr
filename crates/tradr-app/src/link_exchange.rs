@@ -182,7 +182,7 @@ pub struct ReplierParams<'a> {
 // The whole-second budget between `now` and `deadline`, saturating at
 // zero rather than going negative once `now` is past it. No floor and no
 // padding: what `tokio::time::timeout` waits on is exactly what a clock
-// reading `now` finds left of `deadline` (DCR-075).
+// reading `now` finds left of `deadline`.
 fn budget_secs(deadline: UnixTime, now: UnixTime) -> Duration {
     Duration::from_secs(deadline.elapsed_since(now).unwrap_or(0))
 }
@@ -293,7 +293,7 @@ where
     };
     // The wait on a person is bounded at the invite's own expiry, and no
     // second number: a phone left face down otherwise holds this stream
-    // and the single-use window open forever (DCR-075).
+    // and the single-use window open forever.
     let budget = budget_secs(invite.expires_at(), clock.now());
     let decision = match tokio::time::timeout(budget, decide(proposal)).await {
         Ok(decision) => decision,
@@ -451,7 +451,7 @@ where
     // that is not LinkApprove or LinkDecline -- Classification::Ignorable
     // included, since the three linking codes are the only ones this
     // stream carries (docs/04). The read stops after the inviter's own
-    // wait, by the same skew allowance step 1 already took (DCR-075).
+    // wait, by the same skew allowance step 1 already took.
     let deadline = UnixTime::from_secs(
         invite
             .expires_at()

@@ -39,7 +39,7 @@ use crate::transfer::{
 };
 
 const BROWSE_CLOSE_WAIT_LIMIT: Duration = Duration::from_secs(2);
-// An unauthenticated peer may not hold a connection slot indefinitely (DCR-172).
+// An unauthenticated peer may not hold a connection slot indefinitely.
 const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(20);
 
 /// Serves a Control stream that opened with a `LinkReply` (docs/04). A
@@ -476,7 +476,7 @@ where
             // docs/04: the receiver reads before it writes, and only on this one
             // frame, to decide whether this stream is an ordinary session or the
             // no-session link exchange. Nothing is skipped to reach that decision
-            // (DCR-073): an unassigned code here names no shape at all.
+            //: an unassigned code here names no shape at all.
             let first_frame = read_frame(control_recv.as_mut(), channel.max_frame_size()).await?;
 
             match classify(first_frame.type_code(), Plane::Control) {
@@ -766,7 +766,7 @@ where
     .map_err(|failure| failure.error)
 }
 
-// Bounds concurrent channel memory and resources (docs/04, DCR-171).
+// Bounds concurrent channel memory and resources (docs/04).
 const MAX_CONCURRENT_CHANNELS: usize = 8;
 
 /// Continuously accepts incoming channels from `incoming` and processes transfers.
@@ -795,7 +795,7 @@ where
         match outcome {
             Ok(placed) => {
                 if let Some(cb) = on_arrival {
-                    // A browse stream and a link exchange each place nothing, so an empty placement is not an arrival (DCR-129).
+                    // A browse stream and a link exchange each place nothing, so an empty placement is not an arrival.
                     if !placed.is_empty() {
                         cb(peer, &placed);
                     }

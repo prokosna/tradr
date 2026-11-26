@@ -92,7 +92,7 @@ function LinkReplier({ onLinked }: { onLinked: () => void }) {
 	const handleBlobChange = useCallback(
 		(e: ChangeEvent<HTMLTextAreaElement>) => {
 			setBlobText(e.target.value);
-			// The preview must never stand beside changed text (docs/11, DCR-078).
+			// The preview must never stand beside changed text (docs/11).
 			setState((prev) => (prev.status === "idle" ? prev : { status: "idle" }));
 		},
 		[],

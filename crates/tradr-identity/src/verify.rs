@@ -1,4 +1,4 @@
-//! The join: docs/05 "Who runs the seven steps" (DCR-025). Selects a
+//! The join: docs/05 "Who runs the seven steps". Selects a
 //! Provider Profile once and runs every step that depends on one -- the
 //! `id_token` signature check and the classification that follows --
 //! against that same value, rather than letting each pick its own. No
@@ -98,7 +98,7 @@ pub fn verify_attestation(
 /// with the token's verified claims, or the `JwksNeeded` signal step 2's
 /// refetch budget allowed. Shared between `verify_attestation` and
 /// `verify_link_attestation` so profile selection and signature
-/// verification stay one implementation rather than two (DCR-025).
+/// verification stay one implementation rather than two.
 enum EarlyOutcome<'a> {
     Claims {
         profile: &'a ProviderProfile,
@@ -216,10 +216,10 @@ impl std::error::Error for LinkVerifyError {
 }
 
 /// Runs docs/05's steps 1 to 5 plus the key join against `token`, and never
-/// step 6 (docs/05, "What runs on a stream that has no session"; DCR-072).
+/// step 6 (docs/05, "What runs on a stream that has no session").
 /// `policy` carries no account field, so step 6 is inexpressible here. The
 /// key join runs first, against `authenticated`, mirroring
-/// `hello::AwaitingPeerHello::on_peer_hello`'s check 2. No I/O (DCR-022).
+/// `hello::AwaitingPeerHello::on_peer_hello`'s check 2. No I/O.
 pub fn verify_link_attestation(
     policy: &LinkPolicy,
     cache: &mut JwksCache,

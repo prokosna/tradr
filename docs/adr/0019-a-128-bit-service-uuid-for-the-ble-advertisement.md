@@ -2,7 +2,7 @@
 
 - **Status**: Superseded by [ADR-0028](0028-ble-removed.md)
 - **Date**: 2026-09-05
-- **Supersedes**: the advertisement payload block of [docs/03](../03-discovery-and-transport.md#2-ble--proximity-no-network-required-tier-0). No earlier ADR decided it, so none is rewritten
+- **Supersedes**: the advertisement payload block of [docs/03](../03-discovery-and-transport.md). No earlier ADR decided it, so none is rewritten
 
 ## Context
 

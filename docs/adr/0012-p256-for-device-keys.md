@@ -48,4 +48,4 @@ The Noise suite becomes `Noise_IK_P256_ChaChaPoly_BLAKE2s`.
 - **Per-device curve agility is rejected.** Noise's pattern name fixes the DH for both parties, so mixed curves would force a negotiation round trip onto the BLE path and open a downgrade. One curve per protocol version instead.
 - **ECDSA is more failure-prone than Ed25519 when implemented in software**, since a repeated or biased signing nonce leaks the private key. On platforms with a secure element the nonce never leaves it. On Linux, where the key is software anyway, the `p256` crate's RFC 6979 deterministic signing removes the failure mode.
 - **`snow` gains the `use-p256` feature**, and the custom `CryptoResolver` becomes a required piece of `tradr-identity` rather than an optional refinement.
-- The post-quantum note in [docs/05](../05-security.md#algorithms) still applies; the hybrid patterns it mentions are orthogonal to this choice.
+- The post-quantum note in [docs/05](../05-security.md) still applies; the hybrid patterns it mentions are orthogonal to this choice.

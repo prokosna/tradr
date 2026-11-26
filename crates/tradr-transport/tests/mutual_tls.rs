@@ -93,7 +93,7 @@ fn device(seed: u8) -> Arc<TestKeyStore> {
 }
 
 // The name a QUIC dialler has to supply and this design never reads:
-// identity lives in the SubjectPublicKeyInfo (DCR-038), so the verifier
+// identity lives in the SubjectPublicKeyInfo, so the verifier
 // ignores it and nothing may depend on its value.
 const UNUSED_SERVER_NAME: &str = "tradr.invalid";
 
