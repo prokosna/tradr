@@ -58,6 +58,3 @@ Thumbs.db
 # Claude Code local overrides
 .claude/settings.local.json
 work_order*.md
-
-# ci/dispatch-implementer.sh writes its run log into the working tree.
-.dispatch-*.log
