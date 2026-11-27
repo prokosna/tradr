@@ -28,12 +28,11 @@ Product:
 - A download into its own folder writes straight to its final name instead of going through `.tradr-partial`.
 - QR scanning inside the app (`WI-M6-009`). Drag-out and shell integration. Sharing Shortcuts.
 - 24 h silent Attestation renewal (desktop refresh token; Android unmeasured).
-- Hardware-backed keys (Keystore, Secure Enclave, TPM). Blocked on `backing()` being one value for two keys.
+- Hardware-backed keys (Keystore, Secure Enclave, TPM). Blocked on `backing()` being one value for two keys, and `KeyStore` would need to become async (a Keystore sign is an IPC).
 
 Tech debt:
-- Listener failure lines: the cause of the stray "channel already closed" is still unconfirmed.
-- Secret Service prompt wait is unbounded. `SharedSecret` is not zeroized. `KeyStore` is synchronous (it would block on Android Keystore).
-- Several tests survive mutation of the line they guard: the rung choice in `open_identity`, the platform arm in `provider_profile`, the link-reply pin expectation, and others. See `git show ad37cc7:STATE.md`, Deferred table.
+- Listener failure lines: the cause of the stray "channel already closed" is unconfirmed. Paste the `transfer from <id> failed during <phase>` line when it next appears.
+- Tests that still survive mutation of the line they guard: see `git show ad37cc7:STATE.md` (Deferred). The link-reply pin, OAuth platform choice and key-rung choice are now covered.
 
 ## Notes for the next session
 

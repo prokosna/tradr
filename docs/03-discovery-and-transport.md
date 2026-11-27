@@ -24,6 +24,7 @@ BLE was removed ([ADR-0028](adr/0028-ble-removed.md)). Discovery is mDNS and Sta
 ### 1. mDNS (Tier 0)
 
 - `_tradr._udp.local`, instance name = 8 random hex chars. Library: `mdns-sd`. Android needs a `MulticastLock`.
+- Container bridges and overlay tunnels (`veth`, `br-`, `docker`, `vnet`, `virbr`, `tailscale`, `wg`, `zt`, `utun`) are excluded, so their addresses never become LAN candidates. Overlay peers are Static Peers.
 - TXT: `v` protocol major, `id` Device ID (base64url, no padding, 22 chars), `pk` Agreement Key Tag (first 8 bytes of `BLAKE3(agreement_pub)`, 11 chars), `n` display name (≤ 32 bytes UTF-8), `p` platform (`linux|win|mac|android`), `c` capability bitmask.
 - An unknown `v` is **not** dropped; versions are negotiated in `Hello`. A malformed record is skipped and the source keeps running.
 - The Device ID is visible on the LAN. That is accepted.
