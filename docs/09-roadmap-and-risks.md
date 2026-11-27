@@ -13,7 +13,7 @@ Deployment: **private**, meaning one person's four devices (Android, Windows, Li
 | M4 | Windows and macOS builds, tray | done 2026-08-30 |
 | M5 | Static Peers over Tailscale | done 2026-08-31 |
 | M6 | Account linking: invite blob, QR display, Fingerprint | done 2026-09-05 |
-| M7 | BLE: EIDs, advertise/scan, Noise_XX over GATT | code done 2026-09-14; **never run on two radios** |
+| M7 | BLE | built 2026-09-14, never used, **removed 2026-11-27** ([ADR-0028](adr/0028-ble-removed.md)) |
 | M8 | Usable UI ([12](12-user-interface.md)) + CLI | in use; feature-complete for a self-beta |
 | M9 | Brokr, cut down to Deferred Delivery ([13](13-deferred-delivery.md)) | built; device run owed |
 | M10 | Finishing: internal security review, i18n (ja/en), exhaustive resume tests | todo |
@@ -41,21 +41,18 @@ A pushed tag `vX.Y.Z` makes `.github/workflows/release.yml` build a **draft** Gi
 
 | # | Risk | Response |
 |---|---|---|
-| R1 | BLE is unproven on real radios (M7 was never run) | Decision 14: whether BLE is worth exercising at all |
 | R6 | Transfers break on a path switch | 1 MiB reference chunks (I6); resume is a Critical Module |
 | R8 | A Brokr dependency creeps into Tier 0/1 | `no-brokr` CI job (I1) |
 | — | Android battery cost of the resident service | measure |
-| — | 20.5% bao overhead on BLE pieces | decide before BLE carries data in earnest |
 
 ## Open questions
 
-- **Decision 14**: does BLE ship at M7's priority? The user's devices don't use it. Undecided, and carried.
 - Same-account auto-accept: is a size or extension threshold needed?
 - Clipboard send: an explicit action only, if ever.
 - Write limits on the served folder.
-- Post-quantum: write an ADR once rustls ML-KEM and hybrid Noise are both stable.
+- Post-quantum: write an ADR once rustls ML-KEM is stable.
 
-Decided: one Google account per device (v1). The Received list is kept until the user clears it.
+Decided: one Google account per device (v1). BLE removed (ADR-0028). The Received list is kept until the user clears it.
 
 ## Fragile places → their guard
 

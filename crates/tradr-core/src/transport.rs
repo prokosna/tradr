@@ -1,6 +1,6 @@
 //! Layer 1's transport abstraction (docs/03, "What the core knows about a
-//! transport"). No implementation lives here: `direct-quic`, `relay` and
-//! `ble-gatt` belong to Layer 3. Path selection races every candidate at
+//! transport"). No implementation lives here: `direct-quic` and any later
+//! transport belong to Layer 3. Path selection races every candidate at
 //! once (docs/03, "Path selection"), so `Transport` must be dyn compatible:
 //! `tradr-transport` holds a heterogeneous `Vec<Box<dyn Transport>>`.
 
@@ -108,7 +108,7 @@ pub enum PeerExpectation {
     /// exactly this `DeviceId`.
     Device(DeviceId),
     /// As `Device`, keyed by the full identity, and additionally the
-    /// agreement key `Noise_IK` needs before its first message.
+    /// agreement key the channel authenticated.
     Identity(PublicIdentity),
 }
 
@@ -138,7 +138,7 @@ pub trait Incoming: Send {
     fn accept(&mut self) -> BoxFuture<'_, Result<Box<dyn SecureChannel>, TransportError>>;
 }
 
-/// One way of reaching a peer: `direct-quic`, `relay`, `ble-gatt`, and any
+/// One way of reaching a peer: `direct-quic`, `relay`, and any
 /// later addition (Change Drill D10). Dyn compatible so path selection can
 /// hold a heterogeneous set and race every candidate at once, rather than
 /// picking one transport ahead of time (docs/03, "Path selection").

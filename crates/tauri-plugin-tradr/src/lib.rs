@@ -17,10 +17,6 @@ mod android;
 #[cfg(target_os = "android")]
 mod android_fd;
 mod attestation;
-pub mod ble_advertising;
-pub mod ble_android;
-pub mod ble_gatt_android;
-pub mod ble_source;
 pub mod brokr_commands;
 pub mod commands;
 pub mod desktop;
@@ -131,7 +127,7 @@ pub fn init<R: Runtime>(
             #[cfg(not(target_os = "android"))]
             let own_display_name = tradr_app::network::local_display_name();
 
-            let (_listener, ble_discovery, ble_advertising) = match lifecycle::init_lifecycle(
+            lifecycle::init_lifecycle(
                 app,
                 &identity_state,
                 sign_in_state.clone(),
@@ -139,10 +135,7 @@ pub fn init<R: Runtime>(
                 &link_registry_state,
                 link_invite_state.clone(),
                 own_display_name.clone(),
-            )? {
-                Some(handles) => (Some(handles.listener), handles.ble, handles.ble_advertising),
-                None => (None, None, None),
-            };
+            )?;
 
             let public_identity = identity_state.public_identity();
             let profile = provider_profile(&oauth_config);
@@ -166,72 +159,8 @@ pub fn init<R: Runtime>(
                 peer_trust,
             ));
 
-            #[cfg(target_os = "linux")]
-            if let Some(discovery) = ble_discovery {
-                ble_source::spawn_ble_discovery(
-                    discovery,
-                    Box::pin(async {
-                        tradr_discovery::BluerScanner::new()
-                            .await
-                            .map(|s| Box::new(s) as Box<dyn tradr_discovery::BleScanner>)
-                    }),
-                );
-            }
-            #[cfg(target_os = "linux")]
-            if let Some(advertising) = ble_advertising {
-                ble_advertising::spawn_ble_advertising(
-                    advertising,
-                    Box::pin(async {
-                        tradr_discovery::BluerAdvertiser::new()
-                            .await
-                            .map(|a| Box::new(a) as Box<dyn tradr_discovery::BleAdvertiser>)
-                    }),
-                );
-            }
-
-            #[cfg(not(any(target_os = "linux", target_os = "android")))]
-            if let Some(discovery) = ble_discovery {
-                ble_source::spawn_ble_discovery(
-                    discovery,
-                    Box::pin(async { Err(tradr_discovery::BleError::Unsupported) }),
-                );
-            }
-            #[cfg(not(any(target_os = "linux", target_os = "android")))]
-            if let Some(advertising) = ble_advertising {
-                ble_advertising::spawn_ble_advertising(
-                    advertising,
-                    Box::pin(async { Err(tradr_discovery::BleError::Unsupported) }),
-                );
-            }
-
             #[cfg(target_os = "android")]
             {
-                if let Some(discovery) = ble_discovery {
-                    let handle_for_scan = handle.clone();
-                    ble_source::spawn_ble_discovery(
-                        discovery,
-                        Box::pin(async move {
-                            ble_android::AndroidBleScanner::new(handle_for_scan, false)
-                                .await
-                                .map(|s| Box::new(s) as Box<dyn tradr_discovery::BleScanner>)
-                        }),
-                    );
-                }
-                if let Some(advertising) = ble_advertising {
-                    let handle_for_adv = handle.clone();
-                    ble_advertising::spawn_ble_advertising(
-                        advertising,
-                        Box::pin(async move {
-                            Ok(
-                                Box::new(ble_android::AndroidBleAdvertiser::new(handle_for_adv))
-                                    as Box<dyn tradr_discovery::BleAdvertiser>,
-                            )
-                        }),
-                    );
-                }
-                if let Some(listener) = _listener {
-                    lifecycle::spawn_ble_gatt_listener(handle.clone(), listener);
-                }
                 app.manage(android::AndroidPluginHandle(handle));
             }
             Ok(())

@@ -11,20 +11,17 @@ use tradr_core::{
     BoxFuture, Capabilities, Clock, DeviceId, DisplayName, Incoming, KeyBinding, KeyStore,
     PeerList, PublicIdentity, RelPath, RootId, Transport, TrustTier, VersionRange,
 };
-use tradr_discovery::{DeclaredCapabilities, MdnsRecheck, MdnsSource, StaticPeerRegistry};
+use tradr_discovery::{MdnsRecheck, MdnsSource, StaticPeerRegistry};
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
 use tradr_integrity::BaoVerifier;
 use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
-use crate::ble_advertising::{BleAdvertising, local_platform_code};
-use crate::ble_source::BleDiscovery;
 use crate::brokr_commands::{BrokrDeps, BrokrState};
 use crate::identity::IdentityState;
 use crate::link_registry::LinkRegistryState;
 use crate::peer_trust::PeerTrustState;
-use tradr_app::broadcast_secrets::DeviceBroadcastSecrets;
 use tradr_app::brokr::LinkView;
 use tradr_app::browse_access::BrowseAccess;
 use tradr_app::capabilities::LocalCapabilities;
@@ -41,17 +38,6 @@ use tradr_app::network::{
 use tradr_app::partial_sweep::sweep_stale_partials;
 use tradr_app::peer_trust::OwnAttestation;
 use tradr_app::sign_in::{SignInState, listener_peer_verifier};
-
-#[cfg(target_os = "android")]
-use crate::ble_gatt_android::{AcceptorPeripheral, AndroidGattAcceptor};
-#[cfg(target_os = "android")]
-use tauri::plugin::PluginHandle;
-#[cfg(any(target_os = "android", target_os = "linux"))]
-use tradr_identity::key_binding::ClockKeyBindingVerifier;
-#[cfg(any(target_os = "android", target_os = "linux"))]
-use tradr_transport::ble::BleGattTransport;
-#[cfg(target_os = "linux")]
-use tradr_transport::ble::BluerCentral;
 
 /// Returns the root identifier for the local downloads directory.
 pub fn downloads_root_id() -> RootId {
@@ -171,16 +157,6 @@ impl TransferListener {
     }
 }
 
-/// Handles to background lifecycle services started during initialization.
-pub struct LifecycleHandles {
-    /// The transfer listener running background protocols.
-    pub listener: Arc<TransferListener>,
-    /// The BLE discovery runner, if secrets and storage are available.
-    pub ble: Option<BleDiscovery>,
-    /// The BLE advertising runner, if secrets and storage are available.
-    pub ble_advertising: Option<BleAdvertising>,
-}
-
 /// Initializes the background network and storage services.
 pub fn init_lifecycle<R: Runtime>(
     app: &AppHandle<R>,
@@ -190,25 +166,24 @@ pub fn init_lifecycle<R: Runtime>(
     link_registry_state: &LinkRegistryState,
     link_invite_state: Arc<LinkInviteState>,
     own_display_name: Option<DisplayName>,
-) -> Result<Option<LifecycleHandles>, String> {
+) -> Result<(), String> {
     let key_store = match identity_state.key_store() {
         Ok(k) => k,
         Err(e) => {
             eprintln!("lifecycle: key store not available: {e}");
-            return Ok(None);
+            return Ok(());
         }
     };
     let public_identity = match identity_state.public_identity() {
         Ok(id) => id,
         Err(e) => {
             eprintln!("lifecycle: public identity not available: {e}");
-            return Ok(None);
+            return Ok(());
         }
     };
 
     let app_data_dir = crate::paths::app_data_dir(app)?;
     let static_peers_path = app_data_dir.join("static-peers.json");
-    let abk_path = app_data_dir.join("account-broadcast-key.json");
     // A malformed file is refused rather than replaced with an empty
     // registry, which would delete every pin the user holds (docs/03,
     // "Where the set is kept"). Swallowing it here, unlike the key
@@ -366,41 +341,7 @@ pub fn init_lifecycle<R: Runtime>(
     });
 
     let peer_list = Arc::new(tokio::sync::Mutex::new(PeerList::new()));
-    let (ble, ble_advertising) = match identity_state.secret_store() {
-        Ok(secret_store) => {
-            let broadcast_secrets = DeviceBroadcastSecrets::new(
-                sign_in_state.clone(),
-                link_registry_state.registry(),
-                secret_store.clone(),
-                abk_path.clone(),
-            );
-            let discovery = BleDiscovery::new(
-                Box::new(broadcast_secrets),
-                Box::new(SystemClock),
-                peer_list.clone(),
-            );
-            let adv_secrets = DeviceBroadcastSecrets::new(
-                sign_in_state.clone(),
-                link_registry_state.registry(),
-                secret_store,
-                abk_path,
-            );
-            let advertising = BleAdvertising::new(
-                Box::new(adv_secrets),
-                Box::new(SystemClock),
-                capabilities.clone() as Arc<dyn DeclaredCapabilities>,
-                local_platform_code(),
-            );
-            (Some(discovery), Some(advertising))
-        }
-        Err(e) => {
-            eprintln!("lifecycle: secret store not available: {e}");
-            (None, None)
-        }
-    };
-
-    let mut transports: Vec<Arc<dyn Transport>> = vec![transport.clone() as Arc<dyn Transport>];
-    transports.extend(ble_central_transport(&listener, &key_store));
+    let transports: Vec<Arc<dyn Transport>> = vec![transport.clone() as Arc<dyn Transport>];
 
     let transport_set = Arc::new(TransportSet::new(transports));
 
@@ -460,107 +401,5 @@ pub fn init_lifecycle<R: Runtime>(
     app.manage(brokr_state);
     app.manage(received_history);
 
-    Ok(Some(LifecycleHandles {
-        listener,
-        ble,
-        ble_advertising,
-    }))
-}
-
-#[cfg(target_os = "linux")]
-fn ble_central_transport(
-    listener: &TransferListener,
-    key_store: &Arc<dyn KeyStore>,
-) -> Option<Arc<dyn Transport>> {
-    match listener.key_binding() {
-        Ok(binding) => {
-            let central_result = tauri::async_runtime::block_on(async {
-                BluerCentral::open(
-                    key_store.clone(),
-                    Arc::new(OsRng),
-                    Arc::new(ClockKeyBindingVerifier::new(Arc::new(SystemClock))),
-                    binding,
-                    Arc::new(SystemClock),
-                )
-                .await
-            });
-            match central_result {
-                Ok(central) => {
-                    let ble_transport = BleGattTransport::new(
-                        Some(Arc::new(central) as Arc<dyn tradr_transport::ble::GattCentral>),
-                        None,
-                    );
-                    Some(Arc::new(ble_transport) as Arc<dyn Transport>)
-                }
-                Err(e) => {
-                    eprintln!("lifecycle: failed to open ble central: {e}");
-                    None
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("lifecycle: failed to create key binding for ble central: {e}");
-            None
-        }
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn ble_central_transport(
-    _listener: &TransferListener,
-    _key_store: &Arc<dyn KeyStore>,
-) -> Option<Arc<dyn Transport>> {
-    None
-}
-
-/// Spawns the background BLE GATT listener on Android (docs/03, DCR-104).
-#[cfg(target_os = "android")]
-pub fn spawn_ble_gatt_listener<R: Runtime>(
-    handle: PluginHandle<R>,
-    listener: Arc<TransferListener>,
-) {
-    tauri::async_runtime::spawn(async move {
-        let binding = match listener.key_binding() {
-            Ok(b) => b,
-            Err(e) => {
-                eprintln!("failed to create key binding for ble-gatt listener: {e}");
-                return;
-            }
-        };
-
-        let acceptor = match AndroidGattAcceptor::new(
-            handle,
-            listener.key_store(),
-            Arc::new(OsRng),
-            Arc::new(ClockKeyBindingVerifier::new(Arc::new(SystemClock))),
-            binding,
-            Arc::new(SystemClock),
-        )
-        .await
-        {
-            Ok(a) => Arc::new(a),
-            Err(e) => {
-                eprintln!("failed to start android gatt acceptor: {e}");
-                return;
-            }
-        };
-
-        let peripheral = Arc::new(AcceptorPeripheral::new(acceptor));
-        let transport = BleGattTransport::new(None, Some(peripheral));
-        let incoming = match transport.listen().await {
-            Ok(inc) => inc,
-            Err(e) => {
-                eprintln!("failed to listen on ble-gatt transport: {e}");
-                return;
-            }
-        };
-
-        listener.capabilities().declare(Capabilities::BLE_GATT);
-
-        if let Err(e) = listener.run(incoming).await {
-            eprintln!("ble-gatt listener loop exited with error: {e}");
-        }
-
-        listener.capabilities().withdraw(Capabilities::BLE_GATT);
-    });
+    Ok(())
 }

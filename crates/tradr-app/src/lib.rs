@@ -6,7 +6,6 @@
 pub mod adopted;
 mod atomic;
 pub mod attestation;
-pub mod broadcast_secrets;
 pub mod brokr;
 pub mod browse;
 pub mod browse_access;

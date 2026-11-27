@@ -1,6 +1,6 @@
 # ADR-0021: macOS is scan-only on BLE, because CoreBluetooth will not advertise Service Data
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0028](0028-ble-removed.md)
 - **Date**: 2026-09-12
 - **Supersedes**: the macOS advertising cell of [docs/03](../03-discovery-and-transport.md#2-ble--proximity-no-network-required-tier-0)'s per-platform table, which named `objc2` and `CBPeripheralManager`. [ADR-0019](0019-a-128-bit-service-uuid-for-the-ble-advertisement.md) is untouched — the advertisement's layout is unchanged and the three platforms that can carry it still do. [ADR-0002](0002-ble-for-discovery-and-small-payloads.md) is untouched in scope, but its Change Drill D4 retreat stops being a retreat on one platform
 

@@ -49,7 +49,7 @@ The **Refresh** button in the device-list header rechecks every device (shows "C
 |---|---|
 | Peer | Device |
 | Static Peer | "added by address" |
-| mDNS / BLE source | "on this network" / "nearby" |
+| mDNS source | "on this network" |
 | Share | "folder" |
 | Trust Tier | "your device" / "`<name>`'s device" |
 | Attestation, Device ID, backing | Settings → Advanced only |

@@ -1,6 +1,6 @@
 # ADR-0018: BLAKE3's `derive_key` for EIDs and the bootstrap secret
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0028](0028-ble-removed.md)
 - **Date**: 2026-09-05
 - **Supersedes**: the KDF row of [docs/05](../05-security.md#algorithms)'s Algorithms table, the closing line of [ADR-0006](0006-blake3-for-content-integrity.md), and the `bootstrap_secret` line of [ADR-0010](0010-identity-is-the-issuer-subject-pair.md). Neither ADR is rewritten; both keep the text they were accepted with
 

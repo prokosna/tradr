@@ -1,6 +1,6 @@
 # ADR-0020: `ble-gatt` uses `Noise_XX`, and the handshake payload carries the identity join
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0028](0028-ble-removed.md)
 - **Date**: 2026-09-07
 - **Supersedes**: the `Noise_IK` bullets of [docs/05](../05-security.md#why-there-are-two-encryption-layers), for `ble-gatt` only. No earlier ADR decided the pattern, so none is rewritten. [ADR-0002](0002-ble-for-discovery-and-small-payloads.md) is untouched: BLE still carries discovery, authentication and small payloads only
 

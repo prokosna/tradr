@@ -8,7 +8,6 @@ use mdns_sd::ServiceDaemon;
 use tradr_core::{Capabilities, DeviceId, PeerList, RootId, Transport};
 use tradr_discovery::{MdnsSource, StaticPeerRegistry, StaticPeerSource};
 use tradr_identity::{LinkRegistry, OsRng, SystemClock};
-use tradr_transport::selection::TransferSize;
 use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
@@ -101,7 +100,6 @@ impl PeerDiscovery {
         &mut self,
         peer_id: &str,
         transports: &TransportSet,
-        size: TransferSize,
         window: Duration,
     ) -> Result<ResolvedPeer, String> {
         let deadline = tokio::time::Instant::now() + window;
@@ -115,7 +113,7 @@ impl PeerDiscovery {
             };
             {
                 let registry = self.registry.lock().await;
-                match resolve_peer(target_peer_id, &self.peer_list, &registry, transports, size) {
+                match resolve_peer(target_peer_id, &self.peer_list, &registry, transports) {
                     Ok(resolved) => return Ok(resolved),
                     Err(e) => {
                         last_refusal = e;
@@ -176,7 +174,6 @@ pub async fn run_send(
     // RootId is unused because every canonical path is absolute, triggering the absolute split.
     let dummy_root = RootId::new(0);
     let items = resolve_send_items(&vfs, dummy_root, &canonical_files).await?;
-    let total: u64 = items.iter().map(|item| item.size_bytes).sum();
 
     let transport = bind_quic_dialler(identity.key_store())?;
     let transports = TransportSet::new(vec![transport.clone() as Arc<dyn Transport>]);
@@ -204,12 +201,7 @@ pub async fn run_send(
     .await?;
 
     let resolved = discovery
-        .await_peer(
-            peer_id,
-            &transports,
-            TransferSize::Bytes(total),
-            DISCOVERY_WINDOW,
-        )
+        .await_peer(peer_id, &transports, DISCOVERY_WINDOW)
         .await?;
 
     let channel = connect_and_pin(&transports, discovery.registry(), resolved).await?;

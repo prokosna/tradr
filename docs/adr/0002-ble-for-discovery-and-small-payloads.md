@@ -1,6 +1,6 @@
 # ADR-0002: BLE carries discovery, authentication, and small payloads only
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0028](0028-ble-removed.md)
 - **Date**: 2026-08-22
 
 ## Context

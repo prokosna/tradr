@@ -1,13 +1,10 @@
-//! Implementation of the KeyBindingVerifier port (docs/04-protocol.md, "What each
-//! side checks, and in what order"; docs/05-security.md; ADR-0020).
-
-use std::sync::Arc;
+//! Verifies the signature binding an agreement key to an identity key
+//! (docs/04, Hello check 3; Deferred Delivery envelopes).
 
 use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature as EcdsaSignature, VerifyingKey};
 use tradr_core::{
-    Clock, DeviceId, DomainTag, KeyBinding, KeyBindingRefused, KeyBindingVerifier, PublicKeyPoint,
-    Signature, UnixTime,
+    DeviceId, DomainTag, KeyBinding, KeyBindingRefused, PublicKeyPoint, Signature, UnixTime,
 };
 
 pub(crate) fn parse_verifying_key(
@@ -63,33 +60,4 @@ pub fn verify_key_binding(
 
     let digest: [u8; 32] = blake3::hash(identity_pub.as_bytes()).into();
     Ok(DeviceId::from_identity_digest(&digest))
-}
-
-/// A `KeyBindingVerifier` backed by a `Clock`.
-pub struct ClockKeyBindingVerifier {
-    clock: Arc<dyn Clock + Send + Sync>,
-}
-
-impl ClockKeyBindingVerifier {
-    /// Backs verification with `clock`, read per call so a binding that expires
-    /// mid-process stops verifying.
-    pub fn new(clock: Arc<dyn Clock + Send + Sync>) -> Self {
-        Self { clock }
-    }
-}
-
-impl KeyBindingVerifier for ClockKeyBindingVerifier {
-    fn device_id_for_agreement_key(
-        &self,
-        identity_pub: &PublicKeyPoint,
-        binding: &KeyBinding,
-        authenticated_agreement_pub: &PublicKeyPoint,
-    ) -> Result<DeviceId, KeyBindingRefused> {
-        verify_key_binding(
-            identity_pub,
-            binding,
-            authenticated_agreement_pub,
-            self.clock.now(),
-        )
-    }
 }

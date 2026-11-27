@@ -38,7 +38,6 @@ fn expected_classification(code: u8, arriving_on: Plane) -> Classification {
         (Plane::Control, 0x0c) => Some(MessageType::LinkReply),
         (Plane::Control, 0x0d) => Some(MessageType::LinkApprove),
         (Plane::Control, 0x0e) => Some(MessageType::LinkDecline),
-        (Plane::Control, 0x10) => Some(MessageType::BroadcastKeyOffer),
         (Plane::Data, 0x20) => Some(MessageType::ChunkRequest),
         (Plane::Data, 0x21) => Some(MessageType::ChunkRerequest),
         (Plane::Data, 0x22) => Some(MessageType::ChunkData),
@@ -263,7 +262,6 @@ fn all_matches_an_independently_enumerated_list_of_every_variant() {
         LinkReply,
         LinkApprove,
         LinkDecline,
-        BroadcastKeyOffer,
         ChunkRequest,
         ChunkRerequest,
         ChunkData,
@@ -297,7 +295,7 @@ fn all_matches_an_independently_enumerated_list_of_every_variant() {
     );
     assert_eq!(
         ground_truth_set.len(),
-        33,
-        "15 Control + 4 Data + 14 Browse"
+        32,
+        "14 Control + 4 Data + 14 Browse"
     );
 }

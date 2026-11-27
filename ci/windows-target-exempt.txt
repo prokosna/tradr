@@ -10,5 +10,4 @@
 # the escape hatch cannot be taken silently.
 #
 tradr-app | MSVC build of ring requires lib.exe not supplied on Linux host; compiled by windows CI job
-tauri-plugin-tradr | MSVC build of blake3 requires ml64.exe and ring requires lib.exe; compiled by windows CI job
 tradr-discovery | MSVC build of blake3 requires ml64.exe not supplied on Linux host; compiled by windows CI job

@@ -6,8 +6,6 @@
 //! `PeerList`'s pure merge (docs/03). Depends on nothing beyond `std`
 //! (rule B1, invariant I4): traits declare operations Layer 3 implements.
 
-mod ble_uuid;
-mod broadcast;
 mod browse;
 mod channel;
 mod chunk_index;
@@ -33,12 +31,6 @@ mod transport;
 mod trust_tier;
 mod vfs;
 
-pub use ble_uuid::{TRADR_BASE_UUID, tradr_uuid, tradr_uuid_le};
-pub use broadcast::{
-    ACCOUNT_BROADCAST_KEY_LEN, AccountBroadcastKey, BroadcastKeyError, BroadcastKeyOffer,
-    BroadcastKeyOfferError, CollisionOutcome, FIRST_KEY_GENERATION, next_generation,
-    resolve_collision,
-};
 pub use browse::{
     Ack, BrowseCodec, BrowseDomainError, BrowseMessage, Delete, DirListing, FsChange, FsChangeKind,
     FsEvent, ListDir, Mkdir, ReadFile, ReadFileBegin, RefusalReason, Refused, Rename, Stat,
@@ -72,7 +64,7 @@ pub use hello::{
     VersionRange, VersionRangeError, negotiate_version,
 };
 pub use item_id::{ITEM_ID_MAX_LEN, ItemId, ItemIdError};
-pub use key_binding::{KeyBindingRefused, KeyBindingVerifier};
+pub use key_binding::KeyBindingRefused;
 pub use key_store::{
     Backing, DomainTag, KeyStore, KeyStoreError, MissingSeparation, PUBLIC_KEY_POINT_LEN,
     PublicIdentity, PublicKeyPoint, PublicKeyPointError, SecretStore, SecretStoreError, Separation,

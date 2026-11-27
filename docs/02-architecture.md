@@ -6,7 +6,7 @@ Each tier adds to the one below; none replaces it.
 
 | Tier | Requires | Discovery | Transport |
 |---|---|---|---|
-| 0 Standalone | nothing | mDNS (LAN), BLE (proximity) | direct-quic, ble-gatt |
+| 0 Standalone | nothing | mDNS (LAN) | direct-quic |
 | 1 Pinned | a reachable peer address | + Static Peers | direct-quic over Tailscale / WireGuard / fixed IP |
 | 2 Brokered | a self-hosted Brokr | + Brokr | + Deferred Delivery ([13](13-deferred-delivery.md)) |
 
@@ -18,8 +18,8 @@ A Brokr never talks to Google and never verifies anything. Every device fetches 
 
 | Language | Owns | Why |
 |---|---|---|
-| Rust | network, disk, keys, crypto | mature crates (quinn, btleplug, bluer, snow, blake3); Tauri's native side is Rust; GB/s hashing |
-| Kotlin | Android-only OS APIs: share sheet, SAF, foreground service, `BluetoothLeAdvertiser`, Custom Tabs OAuth | unreachable from Rust |
+| Rust | network, disk, keys, crypto | mature crates (quinn, rustls, blake3); Tauri's native side is Rust; GB/s hashing |
+| Kotlin | Android-only OS APIs: share sheet, SAF, foreground service, Credential Manager sign-in | unreachable from Rust |
 | TypeScript | all UI (React, `apps/tradr/src`), the Brokr (Fastify) | UI never touches network or disk; it calls plugin commands with hand-written types (`types.ts`) |
 
 Rule: hot paths, low-level OS APIs and secret keys → Rust. Android-only APIs → Kotlin. Everything else → TypeScript.
@@ -36,9 +36,9 @@ packages/                pnpm workspace stubs (ui, client-state, brokr-client ar
 crates/
   tradr-core             Layer 0/1: domain types, protocol state machines, all traits. No I/O
   tradr-proto            protobuf codec. Only crate naming prost
-  tradr-identity         Attestation verify, Noise, key policy, links, HPKE
-  tradr-transport        Transport implementations (QUIC, BLE GATT)
-  tradr-discovery        mDNS, BLE advertise/scan, Static Peers
+  tradr-identity         Attestation verify, key policy, links, HPKE
+  tradr-transport        Transport implementations (QUIC) and path scoring
+  tradr-discovery        mDNS, Static Peers
   tradr-vfs              the only place file paths are assembled (posix, SAF)
   tradr-integrity        bao verified streaming. Only crate naming bao
   tradr-oidc             JWKS fetch, OAuth loopback + token exchange. Only crate naming an HTTP client
@@ -84,11 +84,10 @@ The Device Authorization Grant is not used: nobody has checked that Google carri
 
 | State | Location |
 |---|---|
-| Device private keys, ABK, Link Secrets | OS key store (Linux: [05](05-security.md) ladder) |
+| Device private keys, Link Secrets | OS key store (Linux: [05](05-security.md) ladder) |
 | Kept Attestation | `attestation` in app data, 0600 |
 | Static Peers | `static-peers.json` |
 | Link records | `links.json` (secret in key store) |
-| ABK record | `account-broadcast-key.json` (key in key store) |
 | Known Devices | records each met peer's keys, for Deferred Delivery only. Refuses nothing |
 | Received history | app data (`received_history`) |
 | In-flight transfers | the partial files themselves; resume reads their size |

@@ -9,7 +9,7 @@ use tradr_core::{
 use tradr_transport::set::TransportSet;
 
 const DIRECT_QUIC: TransportId = TransportId::new("direct-quic");
-const BLE_GATT: TransportId = TransportId::new("ble-gatt");
+const RELAY: TransportId = TransportId::new("relay");
 const UNKNOWN_TRANSPORT: TransportId = TransportId::new("custom-transport");
 
 struct StubTransport {
@@ -59,42 +59,42 @@ fn dialler_answers_the_member_whose_id_equals_the_candidates_transport() {
 fn dialler_answers_none_for_a_candidate_naming_a_transport_the_set_does_not_hold() {
     let quic = Arc::new(StubTransport::new(DIRECT_QUIC, "quic"));
     let set = TransportSet::new(vec![quic]);
-    let candidate = Candidate::new(BLE_GATT, "AA:BB:CC:DD:EE:FF").expect("candidate");
+    let candidate = Candidate::new(RELAY, "203.0.113.7:4433").expect("candidate");
     assert!(set.dialler(&candidate).is_none());
 }
 
 #[test]
-fn best_candidate_prefers_direct_quic_over_ble_gatt_when_the_set_holds_both() {
+fn best_candidate_prefers_direct_quic_over_relay_when_the_set_holds_both() {
     let quic = Arc::new(StubTransport::new(DIRECT_QUIC, "quic"));
-    let ble = Arc::new(StubTransport::new(BLE_GATT, "ble"));
-    let set = TransportSet::new(vec![quic, ble]);
+    let relay = Arc::new(StubTransport::new(RELAY, "relay"));
+    let set = TransportSet::new(vec![quic, relay]);
     let cand_quic = Candidate::new(DIRECT_QUIC, "127.0.0.1:21820").expect("candidate");
-    let cand_ble = Candidate::new(BLE_GATT, "AA:BB:CC:DD:EE:FF").expect("candidate");
+    let cand_relay = Candidate::new(RELAY, "203.0.113.7:4433").expect("candidate");
     let best = set
-        .best_candidate(&[cand_ble, cand_quic.clone()])
+        .best_candidate(&[cand_relay, cand_quic.clone()])
         .expect("best candidate");
     assert_eq!(best, cand_quic);
 }
 
 #[test]
-fn best_candidate_answers_the_ble_gatt_candidate_when_the_set_holds_no_direct_quic_transport_even_though_a_direct_quic_candidate_is_present()
+fn best_candidate_answers_the_relay_candidate_when_the_set_holds_no_direct_quic_transport_even_though_a_direct_quic_candidate_is_present()
  {
-    let ble = Arc::new(StubTransport::new(BLE_GATT, "ble"));
-    let set = TransportSet::new(vec![ble]);
+    let relay = Arc::new(StubTransport::new(RELAY, "relay"));
+    let set = TransportSet::new(vec![relay]);
     let cand_quic = Candidate::new(DIRECT_QUIC, "127.0.0.1:21820").expect("candidate");
-    let cand_ble = Candidate::new(BLE_GATT, "AA:BB:CC:DD:EE:FF").expect("candidate");
+    let cand_relay = Candidate::new(RELAY, "203.0.113.7:4433").expect("candidate");
     let best = set
-        .best_candidate(&[cand_quic, cand_ble.clone()])
+        .best_candidate(&[cand_quic, cand_relay.clone()])
         .expect("best candidate");
-    assert_eq!(best, cand_ble);
+    assert_eq!(best, cand_relay);
 }
 
 #[test]
 fn best_candidate_answers_none_when_the_set_can_dial_none_of_the_candidates() {
     let quic = Arc::new(StubTransport::new(DIRECT_QUIC, "quic"));
     let set = TransportSet::new(vec![quic]);
-    let cand_ble = Candidate::new(BLE_GATT, "AA:BB:CC:DD:EE:FF").expect("candidate");
-    assert!(set.best_candidate(&[cand_ble]).is_none());
+    let cand_relay = Candidate::new(RELAY, "203.0.113.7:4433").expect("candidate");
+    assert!(set.best_candidate(&[cand_relay]).is_none());
 }
 
 #[test]

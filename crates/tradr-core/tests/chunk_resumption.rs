@@ -164,7 +164,7 @@ fn path_switch_resumption_from_ble_to_quic() {
     let total_bytes = 5 * REFERENCE_CHUNK_SIZE_BYTES;
     let mut item = ItemResumption::new(sample_item(), total_bytes);
 
-    // Chunk 0 fully received over 4 KiB BLE pieces.
+    // Chunk 0 fully received over 4 KiB subdivided pieces.
     let piece_size = 4096u32;
     let num_pieces = (REFERENCE_CHUNK_SIZE_BYTES as u32) / piece_size;
     for i in 0..num_pieces {
@@ -173,7 +173,7 @@ fn path_switch_resumption_from_ble_to_quic() {
     }
     item.mark_verified(ChunkIndex::new(0)).unwrap();
 
-    // Chunk 1 partially received over BLE (first 64 KiB).
+    // Chunk 1 partially received over a subdividing transport (first 64 KiB).
     for i in 0..16 {
         item.record_piece(ChunkIndex::new(1), i * piece_size, piece_size)
             .unwrap();
@@ -183,7 +183,7 @@ fn path_switch_resumption_from_ble_to_quic() {
     // Resumption requests from the first unverified chunk (chunk 1).
     assert_eq!(item.next_chunk_request(64), Some((ChunkIndex::new(1), 4)));
 
-    // QUIC sends full 1 MiB chunk for chunk 1, overwriting partial BLE ranges.
+    // QUIC sends full 1 MiB chunk for chunk 1, overwriting partial subdivided ranges.
     let complete = item
         .record_piece(ChunkIndex::new(1), 0, REFERENCE_CHUNK_SIZE_BYTES as u32)
         .unwrap();
@@ -213,7 +213,7 @@ fn path_switch_resumption_from_relay_to_ble() {
     item.record_piece(ChunkIndex::new(0), 256 * 1024, 256 * 1024)
         .unwrap();
 
-    // Transport switches to BLE: remainder received in 4 KiB pieces from 512 KiB to 1 MiB.
+    // Transport switches to a subdividing one: remainder received in 4 KiB pieces from 512 KiB to 1 MiB.
     let start_piece = (512 * 1024) / 4096;
     let end_piece = (1024 * 1024) / 4096;
     for i in start_piece..end_piece {

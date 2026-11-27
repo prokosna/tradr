@@ -4,18 +4,11 @@
 //! the *identity* key; this port is the only thing joining the two, and a
 //! join that accepts the wrong binding names the wrong device (ADR-0020).
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::Instant;
-
 use p256::ecdsa::signature::Signer;
 use p256::ecdsa::{Signature as P256Signature, SigningKey};
 use p256::elliptic_curve::sec1::ToEncodedPoint;
-use tradr_core::{
-    Clock, DeviceId, KeyBinding, KeyBindingRefused, KeyBindingVerifier, Monotonic, PublicKeyPoint,
-    Signature, UnixTime,
-};
-use tradr_identity::key_binding::{ClockKeyBindingVerifier, verify_key_binding};
+use tradr_core::{DeviceId, KeyBinding, KeyBindingRefused, PublicKeyPoint, Signature, UnixTime};
+use tradr_identity::key_binding::verify_key_binding;
 
 // ---- Fixtures ----------------------------------------------------------
 
@@ -84,28 +77,6 @@ fn keybind_signature(identity: &p256::SecretKey, covered: &PublicKeyPoint) -> Si
     let raw: P256Signature = signing.sign(&payload);
     let normalized = raw.normalize_s().unwrap_or(raw);
     Signature::from_bytes(normalized.to_bytes().to_vec())
-}
-
-struct FixedClock(AtomicI64);
-
-impl FixedClock {
-    fn at(secs: i64) -> Self {
-        Self(AtomicI64::new(secs))
-    }
-
-    fn advance_to(&self, secs: i64) {
-        self.0.store(secs, Ordering::SeqCst);
-    }
-}
-
-impl Clock for FixedClock {
-    fn now(&self) -> UnixTime {
-        UnixTime::from_secs(self.0.load(Ordering::SeqCst))
-    }
-
-    fn monotonic_now(&self) -> Monotonic {
-        Monotonic::from_instant(Instant::now())
-    }
 }
 
 const NOW: i64 = 1_800_000_000;
@@ -306,71 +277,3 @@ fn the_signature_is_verified_before_expiry_is_consulted() {
 }
 
 // ---- The port -----------------------------------------------------------
-
-#[test]
-fn the_port_reads_its_clock_at_the_moment_of_the_join() {
-    // One verifier, one clock, two calls. A verifier that read the time at
-    // construction would answer the same both times, and would go on
-    // accepting a binding that expired while the process ran.
-    let device = Device::new(3);
-    let binding = device.binding(NOW);
-    let clock = Arc::new(FixedClock::at(NOW));
-    let verifier = ClockKeyBindingVerifier::new(Arc::clone(&clock) as Arc<dyn Clock + Send + Sync>);
-
-    assert_eq!(
-        verifier
-            .device_id_for_agreement_key(&device.identity_pub(), &binding, &device.agreement_pub())
-            .expect("valid at not_after"),
-        device.device_id()
-    );
-
-    clock.advance_to(NOW + 1);
-    assert!(matches!(
-        verifier.device_id_for_agreement_key(
-            &device.identity_pub(),
-            &binding,
-            &device.agreement_pub()
-        ),
-        Err(KeyBindingRefused::Expired { .. })
-    ));
-}
-
-#[test]
-fn the_port_refuses_everything_the_function_refuses() {
-    let victim = Device::new(3);
-    let attacker = Device::new(9);
-    let verifier = ClockKeyBindingVerifier::new(Arc::new(FixedClock::at(NOW)));
-
-    assert_eq!(
-        verifier
-            .device_id_for_agreement_key(
-                &victim.identity_pub(),
-                &victim.binding(LATER),
-                &attacker.agreement_pub()
-            )
-            .expect_err("the port is not a second implementation"),
-        KeyBindingRefused::NotForThisAgreementKey
-    );
-}
-
-#[test]
-fn the_port_is_usable_behind_a_trait_object() {
-    // The transport is constructed with `Arc<dyn KeyBindingVerifier>`, which
-    // needs `Send + Sync`. This fails to compile rather than to assert.
-    let device = Device::new(3);
-    let verifier: Arc<dyn KeyBindingVerifier> =
-        Arc::new(ClockKeyBindingVerifier::new(Arc::new(FixedClock::at(NOW))));
-    let moved = Arc::clone(&verifier);
-    let joined = std::thread::spawn(move || {
-        moved.device_id_for_agreement_key(
-            &device.identity_pub(),
-            &device.binding(LATER),
-            &device.agreement_pub(),
-        )
-    })
-    .join()
-    .expect("the thread does not panic")
-    .expect("verifies");
-
-    assert_eq!(joined, Device::new(3).device_id());
-}

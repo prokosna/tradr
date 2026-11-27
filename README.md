@@ -7,14 +7,14 @@
 
 Cross-device file exchange for Linux, Windows, macOS, and Android. Quick Share, without the vendor lock-in.
 
-Send files between your own devices — or devices belonging to someone you have explicitly linked with — over LAN, proximity, or the open internet, end-to-end encrypted throughout.
+Send files between your own devices — or devices belonging to someone you have explicitly linked with — over the LAN or an overlay network such as Tailscale, end-to-end encrypted throughout.
 
 **Tradr runs with no server.** A [Brokr](docs/07-brokr.md) is an optional component you host yourself when you want to reach across networks.
 
 ## Three principles
 
 1. **Serverless by default.**
-   Devices find each other over mDNS and BLE and transfer directly. No backend is required for the product to work.
+   Devices find each other over mDNS (or a pinned address) and transfer directly. No backend is required for the product to work.
 
 2. **Google is the root of trust.**
    Embedding the device public key in the OIDC `nonce` turns Google's signed ID token into proof that this account holder controls this key. Devices authenticate each other using Google's public keys alone — Tradr operates no authentication service of its own.
@@ -28,14 +28,14 @@ Send files between your own devices — or devices belonging to someone you have
 |---|---|---|
 | 01 | [Overview](docs/01-overview.md) | Users, use cases, scope, non-goals |
 | 02 | [Architecture](docs/02-architecture.md) | Tiers, components, monorepo layout, language boundaries |
-| 03 | [Discovery and transport](docs/03-discovery-and-transport.md) | mDNS, BLE, static peers, Brokr, path selection |
+| 03 | [Discovery and transport](docs/03-discovery-and-transport.md) | mDNS, static peers, transports, path selection |
 | 04 | [Wire protocol](docs/04-protocol.md) | Framing, messages, chunked transfer |
 | 05 | [Security and identity](docs/05-security.md) | Attestation, key handling, threat model |
 | 06 | [Folder access](docs/06-shares-and-browsing.md) | One folder per device, boundary enforcement |
 | 07 | [Brokr (optional)](docs/07-brokr.md) | Principles and future design |
 | 08 | [Platform integration](docs/08-platform-integration.md) | Drag and drop, Android share sheet, iOS constraints |
 | 09 | [Roadmap and risks](docs/09-roadmap-and-risks.md) | Milestones, open questions |
-| 11 | [Account linking](docs/11-account-linking.md) | Links, Account Broadcast Key |
+| 11 | [Account linking](docs/11-account-linking.md) | Links |
 | 12 | [User interface](docs/12-user-interface.md) | Flows and wording |
 | 13 | [Deferred Delivery](docs/13-deferred-delivery.md) | Sending to offline devices via a Brokr |
 
@@ -103,8 +103,8 @@ Building all four therefore means four machines, or a CI matrix with one runner 
 
 - **App shell**: Tauri 2, targeting Linux, Windows, macOS, and Android from one project
 - **UI**: TypeScript and React
-- **Native layer**: Rust — BLE, mDNS, QUIC, cryptography, file I/O
-- **Android glue**: Kotlin — share sheet, SAF, foreground service, BLE advertising
+- **Native layer**: Rust — mDNS, QUIC, cryptography, file I/O
+- **Android glue**: Kotlin — share sheet, SAF, foreground service
 - **Brokr (optional)**: TypeScript on Node.js with Fastify, SQLite or PostgreSQL. One binary, one container
 - **Protocol**: Protocol Buffers in `proto/`, generated into Rust and TypeScript
 

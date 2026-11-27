@@ -753,7 +753,7 @@ fn a_hello_ack_advertising_less_than_the_minimum_frame_size_is_refused() {
             )
         },
     )
-    .expect_err("below the ble-gatt bound there is no usable session");
+    .expect_err("below the protocol minimum there is no usable session");
 
     assert!(matches!(refusal, HelloRefused::FrameSizeTooSmall { .. }));
 }

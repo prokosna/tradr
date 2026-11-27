@@ -405,8 +405,7 @@ pub trait KeyStore: Send + Sync {
     fn sign(&self, domain: DomainTag, message: &[u8]) -> Result<Signature, KeyStoreError>;
 
     /// Performs ECDH against a peer's agreement public key, returning the
-    /// raw shared secret for a KDF to consume. Covers Noise's static-key
-    /// Diffie-Hellman.
+    /// raw shared secret for a KDF to consume (HPKE for Deferred Delivery).
     fn agree(&self, peer_public: &PublicKeyPoint) -> Result<SharedSecret, KeyStoreError>;
 
     /// Reports whether the private keys are hardware-backed, and why not

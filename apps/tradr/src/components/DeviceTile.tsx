@@ -26,9 +26,6 @@ function formatDeviceSource(sources: string[]): string {
 	if (sources.includes("mdns")) {
 		return "on this network";
 	}
-	if (sources.includes("ble")) {
-		return "nearby";
-	}
 	return "added by address";
 }
 

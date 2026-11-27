@@ -14,8 +14,7 @@ use tradr_core::{
 };
 
 /// The smallest `max_frame_size` a peer's `HelloAck` may advertise
-/// (docs/04, "What step 4 checks besides the signature"): the `ble-gatt`
-/// bound, below which no legal frame fits.
+/// (docs/04, Hello checks): the protocol's smallest frame bound.
 pub const MIN_NEGOTIABLE_FRAME_SIZE: u32 = 512;
 
 /// Step 1: our own `Hello`, and the state needed to check the peer's.

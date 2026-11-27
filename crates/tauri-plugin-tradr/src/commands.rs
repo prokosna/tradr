@@ -12,7 +12,6 @@ use tradr_discovery::{
 };
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
-use tradr_transport::selection::TransferSize;
 use tradr_transport::set::TransportSet;
 use tradr_vfs::NativeVfs;
 
@@ -205,17 +204,10 @@ pub async fn send_files<R: tauri::Runtime>(
 
     let send_result =
         async {
-            let total_bytes: u64 = items.iter().map(|item| item.size_bytes).sum();
             let resolved = {
                 let list = peer_list.lock().await;
                 let registry = static_peer_registry.lock().await;
-                resolve_peer(
-                    &peer_id,
-                    &list,
-                    &registry,
-                    transports.as_ref(),
-                    TransferSize::Bytes(total_bytes),
-                )?
+                resolve_peer(&peer_id, &list, &registry, transports.as_ref())?
             };
             let channel =
                 match connect_and_pin(transports.as_ref(), static_peer_registry.inner(), resolved)
@@ -303,7 +295,6 @@ struct BrowseContext<'a> {
 async fn prepare_browse<'a>(
     ctx: &'a BrowseContext<'a>,
     peer_id: &str,
-    size: TransferSize,
     sign_in_action: &str,
 ) -> Result<
     (
@@ -324,7 +315,7 @@ async fn prepare_browse<'a>(
     let resolved = {
         let list = ctx.peer_list.lock().await;
         let registry = ctx.static_peer_registry.lock().await;
-        resolve_peer(peer_id, &list, &registry, ctx.transports, size)?
+        resolve_peer(peer_id, &list, &registry, ctx.transports)?
     };
     let channel = connect_and_pin(ctx.transports, ctx.static_peer_registry, resolved).await?;
 
@@ -386,13 +377,8 @@ pub async fn list_peer_directory(
         capabilities: &capabilities,
         known_devices: known_devices.inner().as_ref(),
     };
-    let (channel, auth, verify_attestation) = prepare_browse(
-        &ctx,
-        &peer_id,
-        TransferSize::Bytes(0),
-        "browsing a peer's share",
-    )
-    .await?;
+    let (channel, auth, verify_attestation) =
+        prepare_browse(&ctx, &peer_id, "browsing a peer's share").await?;
 
     let parsed_share_id: tradr_core::ShareId = share_id
         .parse()
@@ -457,13 +443,8 @@ pub async fn download_file<R: tauri::Runtime>(
         capabilities: &capabilities,
         known_devices: known_devices.inner().as_ref(),
     };
-    let (channel, auth, verify_attestation) = prepare_browse(
-        &ctx,
-        &peer_id,
-        TransferSize::Unknown,
-        "downloading from a peer's share",
-    )
-    .await?;
+    let (channel, auth, verify_attestation) =
+        prepare_browse(&ctx, &peer_id, "downloading from a peer's share").await?;
 
     let parsed_share_id: tradr_core::ShareId = share_id
         .parse()
@@ -567,7 +548,6 @@ pub async fn upload_to_peer<R: tauri::Runtime>(
         }
     };
 
-    let total_bytes: u64 = items.iter().map(|item| item.size_bytes).sum();
     let public_identity = identity_state.public_identity()?;
     let key_store = identity_state.key_store()?;
     let ctx = BrowseContext {
@@ -586,13 +566,8 @@ pub async fn upload_to_peer<R: tauri::Runtime>(
     };
 
     let upload_result = async {
-        let (channel, auth, verify_attestation) = prepare_browse(
-            &ctx,
-            &peer_id,
-            TransferSize::Bytes(total_bytes),
-            "browsing a peer's share",
-        )
-        .await?;
+        let (channel, auth, verify_attestation) =
+            prepare_browse(&ctx, &peer_id, "browsing a peer's share").await?;
 
         let parsed_share_id: tradr_core::ShareId = share_id
             .parse()
@@ -670,13 +645,8 @@ pub async fn make_peer_directory(
         capabilities: &capabilities,
         known_devices: known_devices.inner().as_ref(),
     };
-    let (channel, auth, verify_attestation) = prepare_browse(
-        &ctx,
-        &peer_id,
-        TransferSize::Bytes(0),
-        "browsing a peer's share",
-    )
-    .await?;
+    let (channel, auth, verify_attestation) =
+        prepare_browse(&ctx, &peer_id, "browsing a peer's share").await?;
 
     let parsed_share_id: tradr_core::ShareId = share_id
         .parse()
@@ -730,13 +700,8 @@ pub async fn delete_peer_entry(
         capabilities: &capabilities,
         known_devices: known_devices.inner().as_ref(),
     };
-    let (channel, auth, verify_attestation) = prepare_browse(
-        &ctx,
-        &peer_id,
-        TransferSize::Bytes(0),
-        "browsing a peer's share",
-    )
-    .await?;
+    let (channel, auth, verify_attestation) =
+        prepare_browse(&ctx, &peer_id, "browsing a peer's share").await?;
 
     let parsed_share_id: tradr_core::ShareId = share_id
         .parse()
@@ -791,13 +756,8 @@ pub async fn rename_peer_entry(
         capabilities: &capabilities,
         known_devices: known_devices.inner().as_ref(),
     };
-    let (channel, auth, verify_attestation) = prepare_browse(
-        &ctx,
-        &peer_id,
-        TransferSize::Bytes(0),
-        "browsing a peer's share",
-    )
-    .await?;
+    let (channel, auth, verify_attestation) =
+        prepare_browse(&ctx, &peer_id, "browsing a peer's share").await?;
 
     let parsed_share_id: tradr_core::ShareId = share_id
         .parse()

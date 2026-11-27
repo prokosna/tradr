@@ -5,7 +5,7 @@ Decisions and the reasoning behind them. To change a decision, write a new ADR a
 | # | Decision | Status |
 |---|---|---|
 | [0001](0001-tauri-2-as-app-shell.md) | Tauri 2 as the app shell | Accepted |
-| [0002](0002-ble-for-discovery-and-small-payloads.md) | BLE carries discovery, authentication, and small payloads only | Accepted |
+| [0002](0002-ble-for-discovery-and-small-payloads.md) | BLE carries discovery, authentication, and small payloads only | Superseded by [0028](0028-ble-removed.md) |
 | [0003](0003-google-attestation-as-trust-root.md) | An OIDC-nonce Attestation is the root of trust | Accepted |
 | [0004](0004-quic-as-the-bulk-transport.md) | QUIC carries bulk transfer | Accepted |
 | [0005](0005-brokr-is-optional.md) | The Brokr is an optional component | Accepted |
@@ -21,13 +21,14 @@ Decisions and the reasoning behind them. To change a decision, write a new ADR a
 | [0015](0015-tauri-2-is-retained-after-m0.md) | Tauri 2 is retained after M0's decision point | Accepted |
 | [0016](0016-bao-verified-streaming-costs-6-percent.md) | `bao` verified streaming costs 6%, not 0.03% | Accepted |
 | [0017](0017-nativevfs-for-windows.md) | NativeVfs for Windows | Accepted |
-| [0018](0018-blake3-derive-key-for-eids.md) | BLAKE3's `derive_key` for EIDs and the bootstrap secret | Accepted |
-| [0019](0019-a-128-bit-service-uuid-for-the-ble-advertisement.md) | A 128-bit service UUID for the BLE advertisement, and what the 31 bytes hold | Accepted |
-| [0020](0020-noise-xx-for-ble-gatt.md) | `ble-gatt` uses `Noise_XX`, and the handshake payload carries the identity join | Accepted |
-| [0021](0021-macos-is-scan-only-on-ble.md) | macOS is scan-only on BLE, because CoreBluetooth will not advertise Service Data | Accepted |
+| [0018](0018-blake3-derive-key-for-eids.md) | BLAKE3's `derive_key` for EIDs and the bootstrap secret | Superseded by [0028](0028-ble-removed.md) |
+| [0019](0019-a-128-bit-service-uuid-for-the-ble-advertisement.md) | A 128-bit service UUID for the BLE advertisement, and what the 31 bytes hold | Superseded by [0028](0028-ble-removed.md) |
+| [0020](0020-noise-xx-for-ble-gatt.md) | `ble-gatt` uses `Noise_XX`, and the handshake payload carries the identity join | Superseded by [0028](0028-ble-removed.md) |
+| [0021](0021-macos-is-scan-only-on-ble.md) | macOS is scan-only on BLE, because CoreBluetooth will not advertise Service Data | Superseded by [0028](0028-ble-removed.md) |
 | [0022](0022-android-stays-resident-to-receive.md) | Android stays resident to receive, once the app has been opened | Accepted |
 | [0023](0023-one-unsafe-call-adopts-an-android-descriptor.md) | One `unsafe` call adopts a file descriptor Android hands over | Accepted |
 | [0024](0024-one-folder-per-device-full-access.md) | A device exposes one folder, read-write, to its own account and to Links granted full access | Accepted |
 | [0025](0025-hpke-for-deferred-delivery.md) | HPKE to the recipient's agreement key carries a Deferred Delivery, and the sender signs it | Accepted |
 | [0026](0026-one-operation-hands-the-os-a-received-files-location.md) | One operation hands the operating system a received file's location, for Open and Share | Accepted |
 | [0027](0027-lightweight-process-code-is-the-record.md) | Lightweight process: the code is the record | Accepted |
+| [0028](0028-ble-removed.md) | BLE is removed | Accepted |

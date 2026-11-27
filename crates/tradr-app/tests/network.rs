@@ -51,8 +51,9 @@ fn device_txt_record_publishes_device_id_of_identity() {
 #[test]
 fn device_txt_record_publishes_exact_capabilities_with_multiple_bits() {
     let identity = common::identity(13);
-    let caps =
-        Capabilities::from_bits(Capabilities::DIRECT_QUIC.bits() | Capabilities::BLE_GATT.bits());
+    let caps = Capabilities::from_bits(
+        Capabilities::DIRECT_QUIC.bits() | Capabilities::ACCEPTS_BROWSING.bits(),
+    );
     assert!(caps.bits().count_ones() > 1);
 
     let record =

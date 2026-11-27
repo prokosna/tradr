@@ -12,14 +12,13 @@ use tradr_core::{
     PeerExpectation, PeerList, PeerObservation, SecureChannel, SourceId, Transport, TransportError,
     TransportId,
 };
-use tradr_discovery::{BLE_SOURCE_ID, MDNS_SOURCE_ID, StaticPeerRegistry};
-use tradr_transport::selection::{BLE_GATT_MAX_TRANSFER_BYTES, TransferSize};
+use tradr_discovery::{MDNS_SOURCE_ID, StaticPeerRegistry};
 use tradr_transport::set::TransportSet;
 
 const DIRECT_QUIC: TransportId = TransportId::new("direct-quic");
-const BLE_GATT: TransportId = TransportId::new("ble-gatt");
+const RELAY: TransportId = TransportId::new("relay");
 const UNKNOWN_TRANSPORT: TransportId = TransportId::new("custom-transport");
-const BLE_HANDLE: &str = "AA:BB:CC:DD:EE:FF";
+const RELAY_ADDRESS: &str = "203.0.113.7:4433";
 const QUIC_ADDRESS: &str = "192.168.1.42:21820";
 
 type DialLog = Arc<Mutex<Vec<(TransportId, String)>>>;
@@ -83,13 +82,6 @@ fn list_with(source: SourceId, observation: PeerObservation) -> PeerList {
     list
 }
 
-// What a BLE scanner produces: a handle, no Device ID, one `ble-gatt`
-// candidate.
-fn ble_observation(candidates: Vec<Candidate>) -> PeerObservation {
-    let key = ObservationKey::new(BLE_HANDLE).expect("valid observation key");
-    PeerObservation::new(ObservationId::new(BLE_SOURCE_ID, key), candidates)
-}
-
 // Phase 1 collects a peer's candidates from every source that reported
 // it, so one peer's set spans transport classes. This stands in for that
 // union, which no single source emits on its own.
@@ -98,8 +90,8 @@ fn identified_observation(device: DeviceId, candidates: Vec<Candidate>) -> PeerO
     PeerObservation::new(ObservationId::new(MDNS_SOURCE_ID, key), candidates).with_device_id(device)
 }
 
-fn ble_candidate() -> Candidate {
-    Candidate::new(BLE_GATT, BLE_HANDLE).expect("valid ble candidate")
+fn relay_candidate() -> Candidate {
+    Candidate::new(RELAY, RELAY_ADDRESS).expect("valid relay candidate")
 }
 
 fn quic_candidate() -> Candidate {
@@ -117,78 +109,25 @@ fn observation_id_of(list: &PeerList) -> String {
         .to_string()
 }
 
-// docs/03: every `ble-gatt` dial is `Unpinned`, and a BLE handle has no
-// Static Peer entry, so there is nothing for the connection to write back.
-#[test]
-fn a_ble_observation_resolves_to_unpinned_with_nothing_to_pin() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let registry = empty_registry(&dir);
-    let list = list_with(BLE_SOURCE_ID, ble_observation(vec![ble_candidate()]));
-    let (transports, _dials) = set_of(&[DIRECT_QUIC, BLE_GATT]);
-
-    let resolved = resolve_peer(
-        &observation_id_of(&list),
-        &list,
-        &registry,
-        &transports,
-        TransferSize::Bytes(0),
-    )
-    .expect("resolve the ble peer");
-
-    assert_eq!(resolved.expectation, PeerExpectation::Unpinned);
-    assert_eq!(resolved.pin_target, None);
-    assert_eq!(resolved.candidate.transport(), BLE_GATT);
-    assert_eq!(resolved.candidate.address(), BLE_HANDLE);
-}
-
-// A device with no `ble-gatt` half cannot reach a peer that offers only
-// one, and the refusal says so rather than naming the peer as absent.
-#[test]
-fn a_ble_observation_is_refused_when_this_device_holds_no_ble_transport() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let registry = empty_registry(&dir);
-    let list = list_with(BLE_SOURCE_ID, ble_observation(vec![ble_candidate()]));
-    let (transports, _dials) = set_of(&[DIRECT_QUIC]);
-
-    let err = resolve_peer(
-        &observation_id_of(&list),
-        &list,
-        &registry,
-        &transports,
-        TransferSize::Bytes(0),
-    )
-    .expect_err("a ble candidate with no ble transport cannot be dialled");
-
-    assert!(err.contains("this device can dial"), "{err}");
-}
-
 // The two refusals are different facts -- one about the peer, one about
-// this device -- and one message for both hides an absent radio.
+// this device -- and one message for both hides a missing transport.
 #[test]
 fn no_candidate_at_all_is_a_different_refusal_from_none_this_device_can_dial() {
     let dir = tempfile::tempdir().expect("tempdir");
     let registry = empty_registry(&dir);
     let (transports, _dials) = set_of(&[DIRECT_QUIC]);
+    let device = DeviceId::from_bytes(&[1u8; 16]).expect("valid device id");
 
-    let empty = list_with(BLE_SOURCE_ID, ble_observation(vec![]));
-    let no_candidate = resolve_peer(
-        &observation_id_of(&empty),
-        &empty,
-        &registry,
-        &transports,
-        TransferSize::Bytes(0),
-    )
-    .expect_err("a peer with no candidate cannot be dialled");
+    let empty = list_with(MDNS_SOURCE_ID, identified_observation(device, vec![]));
+    let no_candidate = resolve_peer(&device.to_string(), &empty, &registry, &transports)
+        .expect_err("a peer with no candidate cannot be dialled");
 
-    let undialable = list_with(BLE_SOURCE_ID, ble_observation(vec![ble_candidate()]));
-    let cannot_dial = resolve_peer(
-        &observation_id_of(&undialable),
-        &undialable,
-        &registry,
-        &transports,
-        TransferSize::Bytes(0),
-    )
-    .expect_err("a ble candidate with no ble transport cannot be dialled");
+    let undialable = list_with(
+        MDNS_SOURCE_ID,
+        identified_observation(device, vec![relay_candidate()]),
+    );
+    let cannot_dial = resolve_peer(&device.to_string(), &undialable, &registry, &transports)
+        .expect_err("a relay candidate with no relay transport cannot be dialled");
 
     assert_ne!(no_candidate, cannot_dial);
     assert!(
@@ -202,7 +141,7 @@ fn no_candidate_at_all_is_a_different_refusal_from_none_this_device_can_dial() {
 }
 
 // A source this branch has not been written for gets no default: dialling
-// it under `Unpinned` would decide a fourth source's policy in advance.
+// it under `Unpinned` would decide a new source's policy in advance.
 #[test]
 fn an_observation_from_another_source_is_still_refused_as_unidentified() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -211,40 +150,27 @@ fn an_observation_from_another_source_is_still_refused_as_unidentified() {
     let key = ObservationKey::new("some-brokr-key").expect("valid observation key");
     let observation = PeerObservation::new(ObservationId::new(source, key), vec![quic_candidate()]);
     let list = list_with(source, observation);
-    let (transports, _dials) = set_of(&[DIRECT_QUIC, BLE_GATT]);
+    let (transports, _dials) = set_of(&[DIRECT_QUIC, RELAY]);
 
-    let err = resolve_peer(
-        &observation_id_of(&list),
-        &list,
-        &registry,
-        &transports,
-        TransferSize::Bytes(0),
-    )
-    .expect_err("an unidentified observation from an unknown source is refused");
+    let err = resolve_peer(&observation_id_of(&list), &list, &registry, &transports)
+        .expect_err("an unidentified observation from an unknown source is refused");
 
     assert!(err.contains("has not yet been identified"), "{err}");
 }
 
-// `class_weight` orders the pick, and the peer list sorts `ble-gatt`
-// ahead of `direct-quic`, so taking the first candidate would take the
-// wrong one.
+// `class_weight` orders the pick, and the peer list sorts `relay` ahead
+// of nothing in particular, so the weight table and not list order decides.
 #[test]
 fn an_identified_peer_is_dialled_on_direct_quic_when_both_are_available() {
     let dir = tempfile::tempdir().expect("tempdir");
     let registry = empty_registry(&dir);
     let device = DeviceId::from_bytes(&[3u8; 16]).expect("valid device id");
-    let observation = identified_observation(device, vec![ble_candidate(), quic_candidate()]);
+    let observation = identified_observation(device, vec![relay_candidate(), quic_candidate()]);
     let list = list_with(MDNS_SOURCE_ID, observation);
-    let (transports, _dials) = set_of(&[DIRECT_QUIC, BLE_GATT]);
+    let (transports, _dials) = set_of(&[DIRECT_QUIC, RELAY]);
 
-    let resolved = resolve_peer(
-        &device.to_string(),
-        &list,
-        &registry,
-        &transports,
-        TransferSize::Bytes(0),
-    )
-    .expect("resolve the identified peer");
+    let resolved = resolve_peer(&device.to_string(), &list, &registry, &transports)
+        .expect("resolve the identified peer");
 
     assert_eq!(resolved.expectation, PeerExpectation::Device(device));
     assert_eq!(resolved.candidate.transport(), DIRECT_QUIC);
@@ -253,119 +179,38 @@ fn an_identified_peer_is_dialled_on_direct_quic_when_both_are_available() {
 // The same peer, on a device holding no QUIC transport, is reached over
 // the lower-weighted path rather than not at all.
 #[test]
-fn an_identified_peer_falls_to_ble_gatt_when_it_is_the_only_dialable_candidate() {
+fn an_identified_peer_falls_to_the_only_dialable_candidate() {
     let dir = tempfile::tempdir().expect("tempdir");
     let registry = empty_registry(&dir);
     let device = DeviceId::from_bytes(&[4u8; 16]).expect("valid device id");
-    let observation = identified_observation(device, vec![ble_candidate(), quic_candidate()]);
+    let observation = identified_observation(device, vec![relay_candidate(), quic_candidate()]);
     let list = list_with(MDNS_SOURCE_ID, observation);
-    let (transports, _dials) = set_of(&[BLE_GATT]);
+    let (transports, _dials) = set_of(&[RELAY]);
 
-    let resolved = resolve_peer(
-        &device.to_string(),
-        &list,
-        &registry,
-        &transports,
-        TransferSize::Bytes(0),
-    )
-    .expect("resolve the identified peer");
+    let resolved = resolve_peer(&device.to_string(), &list, &registry, &transports)
+        .expect("resolve the identified peer");
 
-    assert_eq!(resolved.candidate.transport(), BLE_GATT);
+    assert_eq!(resolved.candidate.transport(), RELAY);
 }
 
+// An unrecognised transport weighs zero but is still dialled when it is
+// the only candidate this device holds a transport for.
 #[test]
-fn ble_only_peer_prefilters_on_transfer_byte_limit() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let registry = empty_registry(&dir);
-    let list = list_with(BLE_SOURCE_ID, ble_observation(vec![ble_candidate()]));
-    let (transports, _dials) = set_of(&[DIRECT_QUIC, BLE_GATT]);
-
-    let resolved = resolve_peer(
-        &observation_id_of(&list),
-        &list,
-        &registry,
-        &transports,
-        TransferSize::Bytes(BLE_GATT_MAX_TRANSFER_BYTES),
-    )
-    .expect("ble candidate accepted at max transfer bytes limit");
-    assert_eq!(resolved.candidate.transport(), BLE_GATT);
-
-    let excess = BLE_GATT_MAX_TRANSFER_BYTES + 1;
-    let err = resolve_peer(
-        &observation_id_of(&list),
-        &list,
-        &registry,
-        &transports,
-        TransferSize::Bytes(excess),
-    )
-    .expect_err("ble candidate dropped when transfer size exceeds limit");
-    assert!(err.contains(&excess.to_string()), "{err}");
-}
-
-#[test]
-fn ble_only_peer_is_refused_when_transfer_size_is_unknown() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let registry = empty_registry(&dir);
-    let list = list_with(BLE_SOURCE_ID, ble_observation(vec![ble_candidate()]));
-    let (transports, _dials) = set_of(&[DIRECT_QUIC, BLE_GATT]);
-
-    let err = resolve_peer(
-        &observation_id_of(&list),
-        &list,
-        &registry,
-        &transports,
-        TransferSize::Unknown,
-    )
-    .expect_err("ble candidate dropped when transfer size is unknown");
-    assert!(err.contains("not yet known"), "{err}");
-}
-
-#[test]
-fn dual_candidate_peer_resolves_to_quic_when_ble_gatt_exceeds_byte_limit() {
+fn an_unrecognised_transport_is_dialled_when_it_is_the_only_option() {
     let dir = tempfile::tempdir().expect("tempdir");
     let registry = empty_registry(&dir);
     let device = DeviceId::from_bytes(&[5u8; 16]).expect("valid device id");
-    let observation = identified_observation(device, vec![ble_candidate(), quic_candidate()]);
-    let list = list_with(MDNS_SOURCE_ID, observation);
-    let (transports, _dials) = set_of(&[DIRECT_QUIC, BLE_GATT]);
-
-    let resolved = resolve_peer(
-        &device.to_string(),
-        &list,
-        &registry,
-        &transports,
-        TransferSize::Bytes(BLE_GATT_MAX_TRANSFER_BYTES + 1),
-    )
-    .expect("quic candidate selected when ble-gatt prefiltered out");
-
-    assert_eq!(resolved.candidate.transport(), DIRECT_QUIC);
-}
-
-// An unrecognised transport weighs less than ble-gatt, so scoring the
-// prefilter's output is the only way it wins over an oversized BLE path.
-#[test]
-fn the_prefilters_output_is_what_the_weight_table_scores() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let registry = empty_registry(&dir);
-    let device = DeviceId::from_bytes(&[6u8; 16]).expect("valid device id");
     let custom_candidate =
-        Candidate::new(UNKNOWN_TRANSPORT, "custom://host").expect("valid custom candidate");
+        Candidate::new(UNKNOWN_TRANSPORT, "custom:peer").expect("valid custom candidate");
     let observation =
-        identified_observation(device, vec![ble_candidate(), custom_candidate.clone()]);
+        identified_observation(device, vec![quic_candidate(), custom_candidate.clone()]);
     let list = list_with(MDNS_SOURCE_ID, observation);
-    let (transports, _dials) = set_of(&[BLE_GATT, UNKNOWN_TRANSPORT]);
+    let (transports, _dials) = set_of(&[UNKNOWN_TRANSPORT]);
 
-    let resolved = resolve_peer(
-        &device.to_string(),
-        &list,
-        &registry,
-        &transports,
-        TransferSize::Bytes(BLE_GATT_MAX_TRANSFER_BYTES + 1),
-    )
-    .expect("unrecognised transport selected when ble-gatt prefiltered out");
+    let resolved = resolve_peer(&device.to_string(), &list, &registry, &transports)
+        .expect("resolve the identified peer");
 
     assert_eq!(resolved.candidate, custom_candidate);
-    assert_ne!(resolved.candidate.transport(), BLE_GATT);
 }
 
 // The dispatch itself: the candidate reaches the transport that produced
@@ -374,9 +219,9 @@ fn the_prefilters_output_is_what_the_weight_table_scores() {
 async fn connect_and_pin_dials_the_transport_the_candidate_names() {
     let dir = tempfile::tempdir().expect("tempdir");
     let registry = tokio::sync::Mutex::new(empty_registry(&dir));
-    let (transports, dials) = set_of(&[DIRECT_QUIC, BLE_GATT]);
+    let (transports, dials) = set_of(&[DIRECT_QUIC, RELAY]);
     let resolved = ResolvedPeer {
-        candidate: ble_candidate(),
+        candidate: relay_candidate(),
         expectation: PeerExpectation::Unpinned,
         pin_target: None,
     };
@@ -387,12 +232,12 @@ async fn connect_and_pin_dials_the_transport_the_candidate_names() {
         Err(e) => e,
     };
 
-    assert!(err.contains(BLE_HANDLE), "{err}");
+    assert!(err.contains(RELAY_ADDRESS), "{err}");
     let dialled = dials
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone();
-    assert_eq!(dialled, vec![(BLE_GATT, BLE_HANDLE.to_string())]);
+    assert_eq!(dialled, vec![(RELAY, RELAY_ADDRESS.to_string())]);
 }
 
 // A candidate whose transport the set does not hold is refused before a
@@ -403,17 +248,17 @@ async fn connect_and_pin_refuses_a_candidate_no_transport_can_dial() {
     let registry = tokio::sync::Mutex::new(empty_registry(&dir));
     let (transports, dials) = set_of(&[DIRECT_QUIC]);
     let resolved = ResolvedPeer {
-        candidate: ble_candidate(),
+        candidate: relay_candidate(),
         expectation: PeerExpectation::Unpinned,
         pin_target: None,
     };
 
     let err = match connect_and_pin(&transports, &registry, resolved).await {
-        Ok(_) => panic!("no transport in the set can dial a ble-gatt candidate"),
+        Ok(_) => panic!("no transport in the set can dial a relay candidate"),
         Err(e) => e,
     };
 
-    assert!(err.contains("ble-gatt"), "{err}");
+    assert!(err.contains("relay"), "{err}");
     assert!(
         dials
             .lock()

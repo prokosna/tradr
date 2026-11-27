@@ -11,7 +11,6 @@ use tradr_discovery::{MdnsSource, STATIC_PEER_SOURCE_ID, StaticPeerRegistry};
 use tradr_identity::{OsRng, SoftwareKeyStore};
 use tradr_secrets::FileStore;
 use tradr_transport::quic::QuicTransport;
-use tradr_transport::selection::TransferSize;
 use tradr_transport::set::TransportSet;
 
 fn setup_key_store(dir: &std::path::Path) -> Arc<SoftwareKeyStore> {
@@ -51,12 +50,7 @@ async fn await_peer_resolves_a_static_peer_entry_inside_the_window() {
 
         let peer_id = format!("{STATIC_PEER_SOURCE_ID}/{static_id}");
         let resolved = discovery
-            .await_peer(
-                &peer_id,
-                &transports,
-                TransferSize::Bytes(0),
-                Duration::from_millis(200),
-            )
+            .await_peer(&peer_id, &transports, Duration::from_millis(200))
             .await
             .expect("await_peer must resolve static peer");
 
@@ -89,12 +83,7 @@ async fn await_peer_answers_not_found_when_selector_is_unreported() {
 
         let unknown_id = "nonexistent-peer-id";
         let result = discovery
-            .await_peer(
-                unknown_id,
-                &transports,
-                TransferSize::Bytes(0),
-                Duration::from_millis(50),
-            )
+            .await_peer(unknown_id, &transports, Duration::from_millis(50))
             .await;
 
         let err = result.expect_err("unknown selector must fail");
@@ -131,12 +120,7 @@ async fn await_peer_answers_candidate_refusal_when_candidate_cannot_be_dialed() 
 
         let peer_id = format!("{STATIC_PEER_SOURCE_ID}/{static_id}");
         let result = discovery
-            .await_peer(
-                &peer_id,
-                &empty_transports,
-                TransferSize::Bytes(0),
-                Duration::from_millis(50),
-            )
+            .await_peer(&peer_id, &empty_transports, Duration::from_millis(50))
             .await;
 
         let err = result.expect_err("undialable candidate must fail");

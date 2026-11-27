@@ -24,14 +24,12 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 | **Account ID** | `iss || 0x00 || sub`. The input to every value derived from account identity — never the bare `sub`. |
 | **Fingerprint** | A Device Key encoded as human-readable words, equivalent to a Signal safety number. Used for out-of-band verification. |
 | **Agreement Key Tag** | The first 8 bytes of `BLAKE3(agreement_pub)`, carried as mDNS TXT `pk`. A machine-comparable short hash, and **not** a Fingerprint — it is never shown to a person and never rendered as words. |
-| **Trust Tier** | How much a peer is trusted: `same-account`, `linked`, or `nearby-ephemeral`. |
+| **Trust Tier** | How much a peer is trusted: `same-account` or `linked` (`nearby-ephemeral` is designed, not built). |
 | **Link** | A mutually consented relationship between two Accounts. A one-sided invitation never establishes one. |
-| **Link Secret** | 32 bytes shared by both sides of a Link. Identifies linked peers over BLE and proves the link. Derived as `BLAKE3::derive_key("tradr-link-v1", half_A \|\| half_B)`. |
+| **Link Secret** | 32 bytes shared by both sides of a Link. Proves the link; its hash is the Brokr `link_tag`. Derived as `BLAKE3::derive_key("tradr-link-v1", half_A \|\| half_B)`. |
 | **Link ID** | The first 16 bytes of `BLAKE3(Link Secret)`, rendered as lowercase hex. A Link's identifier, and what a Share's Audience names. |
 | **Half Secret** | 16 random bytes one side of a prospective Link contributes. Neither side decides the Link Secret alone. |
 | **Invite** | One side's offer to link, carried by QR or as a base64 blob: the keys, Attestation and Half Secret of the device offering it, expiring five minutes out. The account it belongs to is inside the Attestation and is never a field of its own. It authorises exactly one inbound connection, for the linking exchange alone. A one-sided Invite establishes no Link. |
-| **Account Broadcast Key** (ABK) | 32 bytes shared by all devices of one Account. Identifies same-account peers over BLE. Handed over when devices first meet. |
-| **EID** (Ephemeral Identifier) | The rotating identifier broadcast over BLE. Derived from an ABK or Link Secret plus the current time, rotating every 15 minutes, so no permanent ID ever goes on the air. |
 
 ## Sharing
 
@@ -56,9 +54,9 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 
 | Term | Definition |
 |---|---|
-| **Transport** | What actually moves bytes: `direct-quic`, `wifi-direct`, `holepunch-quic`, `ble-gatt`, or `relay`. |
+| **Transport** | What actually moves bytes: `direct-quic` (built); `wifi-direct`, `holepunch-quic`, `relay` (designed). |
 | **Candidate** | One way a Peer might be reachable: an address paired with a Transport kind. |
-| **Discovery Source** | One way Peers are found: mDNS, BLE, Static Peer, or a Brokr's presence registry. Four run at once, and each reports what it can currently see rather than a list. |
+| **Discovery Source** | One way Peers are found: mDNS or Static Peer (a Brokr presence source is designed). They run at once, and each reports what it can currently see rather than a list. |
 | **Peer Observation** | What one Discovery Source currently knows about one Peer: its Candidates, its published name and capabilities, and its Device ID once that source knows it. |
 | **Peer List** | Every Peer Observation from every source, merged so that one Device ID seen by several sources is one Peer holding several Candidates. |
 | **Path Selection** | Racing every Candidate in parallel and taking the first and fastest to establish. Not a one-time decision — it is revisited mid-transfer. |
@@ -72,7 +70,7 @@ Calling it a Brokr rather than "the server" is deliberate. "Server" implies requ
 
 | Tier | Requires | Provides |
 |---|---|---|
-| **Tier 0 — Standalone** | Nothing | Discovery and transfer on the same LAN and in proximity. Share browsing. |
+| **Tier 0 — Standalone** | Nothing | Discovery and transfer on the same LAN. Folder browsing. |
 | **Tier 1 — Pinned** | A reachable address for the peer | Direct connections across overlay networks (Tailscale, WireGuard, ZeroTier) or fixed IPs. |
 | **Tier 2 — Brokered** | A deployed and registered Brokr | Discovery from anywhere, NAT traversal, relay, delivery to offline devices. |
 

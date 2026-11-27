@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 /// Seconds since the Unix epoch, 1970-01-01T00:00:00Z UTC.
 ///
 /// Kept distinct from `Monotonic` so wall-clock time (an Attestation's
-/// `iat`, the 15-minute EID windows) and duration measurement can never
+/// `iat`) and duration measurement can never
 /// be mixed up at a call site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UnixTime(i64);
@@ -83,8 +83,7 @@ impl Monotonic {
 /// Wall-clock and monotonic time, kept as two methods because the design
 /// needs both kinds and they must never be confused (rule B6).
 pub trait Clock {
-    /// The current wall-clock time, used for an Attestation's `iat` and
-    /// the 15-minute EID windows.
+    /// The current wall-clock time, used for an Attestation's `iat`.
     fn now(&self) -> UnixTime;
 
     /// The current monotonic reading, non-decreasing across calls on the

@@ -12,7 +12,6 @@ use tradr_core::{
 use tradr_discovery::{
     AGREEMENT_KEY_TAG_LEN, MdnsSource, Platform, SERVICE_TYPE, StaticPeerRegistry, TxtRecord,
 };
-use tradr_transport::selection::TransferSize;
 use tradr_transport::set::TransportSet;
 
 fn test_device_id(byte: u8) -> DeviceId {
@@ -213,12 +212,7 @@ async fn await_peer_given_ambiguous_name_returns_error_before_window_elapses() {
     let transports = TransportSet::new(vec![]);
     let start = std::time::Instant::now();
     let result = discovery
-        .await_peer(
-            "Ambiguous Name",
-            &transports,
-            TransferSize::Bytes(0),
-            Duration::from_secs(2),
-        )
+        .await_peer("Ambiguous Name", &transports, Duration::from_secs(2))
         .await;
     let elapsed = start.elapsed();
 
