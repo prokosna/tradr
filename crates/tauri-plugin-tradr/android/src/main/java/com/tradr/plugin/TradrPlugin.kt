@@ -329,6 +329,11 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
         credentialSignIn.signIn(invoke)
     }
 
+    @Command
+    fun silentSignIn(invoke: Invoke) {
+        credentialSignIn.signInSilently(invoke)
+    }
+
     // Direction 2, Kotlin initiates a call into Rust: acknowledge immediately, then
     // push the transformed nonce later, off this call's stack, through the channel
     // Rust handed us as an argument.

@@ -24,7 +24,6 @@ None are tracked. The user runs the builds daily and reports problems as they ap
 
 Product:
 - QR scanning inside the app (`WI-M6-009`). Drag-out and shell integration. Sharing Shortcuts.
-- Automatic Attestation renewal. A refresh token is useless (its ID token has no `nonce`, measured 2026-11-27). The candidate is re-running the authorization with the same nonce before day 21: desktop `prompt=none` in the browser, Android Credential Manager auto-select.
 - Hardware-backed keys (Keystore, Secure Enclave, TPM). Blocked on `backing()` being one value for two keys, and `KeyStore` would need to become async (a Keystore sign is an IPC).
 
 Tech debt:

@@ -143,6 +143,7 @@ pub fn init<R: Runtime>(
             let peer_trust = peer_trust_state.peer_trust();
             let sign_in_for_resume = sign_in_state.clone();
             let app_handle = app.clone();
+            let app_for_renewal = app.clone();
 
             app.manage(identity_state);
             app.manage(oauth_config);
@@ -152,13 +153,17 @@ pub fn init<R: Runtime>(
             app.manage(link_invite_state);
             app.manage(OwnDisplayName(own_display_name));
 
-            tauri::async_runtime::spawn(sign_in::resume_kept_sign_in(
-                app_handle,
-                sign_in_for_resume,
-                public_identity,
-                profile,
-                peer_trust,
-            ));
+            tauri::async_runtime::spawn(async move {
+                sign_in::resume_kept_sign_in(
+                    app_handle,
+                    sign_in_for_resume,
+                    public_identity,
+                    profile,
+                    peer_trust,
+                )
+                .await;
+                sign_in::keep_sign_in_fresh(app_for_renewal).await;
+            });
 
             #[cfg(target_os = "android")]
             {

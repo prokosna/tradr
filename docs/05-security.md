@@ -35,7 +35,8 @@ id_token = { iss, aud, sub, nonce, iat, exp }  signed by Google
 ### Expiry, the kept Attestation, revocation
 
 - The kept `attestation` file (0600, atomic write) is re-verified at every start through `finish_sign_in` against the current keys, and reused while `iat` ≤ 21 days old. It carries `sub` and email but grants nothing without the Device Key.
-- **A refresh token cannot renew an Attestation** (measured 2026-11-27 with the Desktop client): the ID token from a `refresh_token` grant carries **no `nonce`**, and its `iat` was the original one. Renewal therefore has to be a new authorization request carrying the same nonce (desktop `prompt=none` in the browser; Android Credential Manager). Not built; Android is unmeasured.
+- **A refresh token cannot renew an Attestation** (measured 2026-11-27): the ID token from a `refresh_token` grant carries no `nonce` and keeps the original `iat`.
+- **Automatic renewal** (GUI only): once the kept token is ≥ 14 days old, checked at start and every 6 h, the app re-runs authorization with the same nonce and no UI. On desktop it opens the browser with `prompt=none` and `login_hint=<sub>` (60 s cap, no stdin). On Android it uses Credential Manager with the saved-credential option only. The result goes through the same verification as a sign-in, **and is adopted only if it names the same account**. Any failure keeps the current token; the normal sign-in appears after day 21. Unmeasured on devices.
 - Revocation: revoke the app in Google settings. The device can no longer renew, and peers reject it after 30 days. There is no faster global mechanism at Tier 0.
 
 ### OAuth client configuration

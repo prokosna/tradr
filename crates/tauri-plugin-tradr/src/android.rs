@@ -262,14 +262,33 @@ pub async fn sign_in<R: Runtime>(
     server_client_id: &str,
     nonce: &str,
 ) -> Result<String, String> {
+    request_id_token(handle, "signIn", server_client_id, nonce).await
+}
+
+/// Asks the platform for an ID token without any screen: the saved credential
+/// only, so a refusal comes back as an error.
+pub async fn silent_sign_in<R: Runtime>(
+    handle: &PluginHandle<R>,
+    server_client_id: &str,
+    nonce: &str,
+) -> Result<String, String> {
+    request_id_token(handle, "silentSignIn", server_client_id, nonce).await
+}
+
+async fn request_id_token<R: Runtime>(
+    handle: &PluginHandle<R>,
+    command: &str,
+    server_client_id: &str,
+    nonce: &str,
+) -> Result<String, String> {
     let request = SignInRequest {
         server_client_id,
         nonce,
     };
     let response: SignInResponse = handle
-        .run_mobile_plugin_async("signIn", request)
+        .run_mobile_plugin_async(command, request)
         .await
-        .map_err(|e| format!("failed to invoke signIn: {e}"))?;
+        .map_err(|e| format!("failed to invoke {command}: {e}"))?;
 
     let option_class = response.option_class.as_deref().unwrap_or("<unknown>");
     println!("sign_in: option_class={option_class}");

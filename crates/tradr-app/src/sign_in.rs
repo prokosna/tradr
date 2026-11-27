@@ -20,7 +20,7 @@ use serde::Serialize;
 
 #[cfg(not(target_os = "android"))]
 use tradr_core::Rng;
-use tradr_core::{BoxFuture, Clock, DeviceId, PublicIdentity, TrustTier};
+use tradr_core::{BoxFuture, Clock, DeviceId, PublicIdentity, TrustTier, UnixTime};
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{
     AccountId, AttestationPolicy, LinkRegistry, Platform, ProviderProfile, classify_with_profile,
@@ -107,6 +107,7 @@ pub struct SignInOutcome {
 struct SignedIn {
     outcome: SignInOutcome,
     id_token: String,
+    iat: UnixTime,
 }
 
 /// The most recently completed sign-in, plus whether one is running right
@@ -149,8 +150,12 @@ impl SignInState {
             .map(|_| InProgressGuard(&self.in_progress))
     }
 
-    fn set_signed_in(&self, outcome: SignInOutcome, id_token: String) {
-        *self.recover() = Some(SignedIn { outcome, id_token });
+    fn set_signed_in(&self, outcome: SignInOutcome, id_token: String, iat: UnixTime) {
+        *self.recover() = Some(SignedIn {
+            outcome,
+            id_token,
+            iat,
+        });
     }
 
     // A poisoned mutex still holds a usable value; recovering it here
@@ -172,6 +177,11 @@ impl SignInState {
         self.recover()
             .as_ref()
             .map(|s| AccountId::new(&s.outcome.issuer, &s.outcome.subject))
+    }
+
+    /// When the current `id_token` was issued, for deciding on renewal.
+    pub fn iat(&self) -> Option<UnixTime> {
+        self.recover().as_ref().map(|s| s.iat)
     }
 
     /// The `id_token` the sign-in flow obtained -- this device's own
@@ -344,6 +354,121 @@ pub fn bind_callback_listener() -> Result<TcpListener, String> {
     bind_callback_with_fallback(default_addr, fallback_addr)
 }
 
+/// How long a silent renewal waits for the callback. With `prompt=none` the
+/// provider answers at once or never, so a person is never being waited on.
+#[cfg(not(target_os = "android"))]
+pub const RENEWAL_CALLBACK_TIMEOUT: Duration = Duration::from_secs(60);
+
+// Everything one loopback authorization attempt needs before the browser opens.
+#[cfg(not(target_os = "android"))]
+struct LoopbackFlow {
+    listener: TcpListener,
+    port: u16,
+    redirect_uri: String,
+    pkce: Pkce,
+    state: String,
+}
+
+#[cfg(not(target_os = "android"))]
+impl LoopbackFlow {
+    // Binds before the url is built, so the port is known first.
+    fn start() -> Result<Self, String> {
+        let listener = bind_callback_listener()?;
+        let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+        let pkce = Pkce::generate(&OsRng).map_err(|e| e.to_string())?;
+
+        let mut state_bytes = [0u8; STATE_ENTROPY_BYTES];
+        OsRng
+            .fill_bytes(&mut state_bytes)
+            .map_err(|e| e.to_string())?;
+        let state = state_bytes.iter().map(|b| format!("{b:02x}")).collect();
+
+        Ok(Self {
+            listener,
+            port,
+            redirect_uri: callback_redirect_uri(port),
+            pkce,
+            state,
+        })
+    }
+
+    fn authorization_url(&self, profile: &ProviderProfile, nonce: &str) -> Result<String, String> {
+        authorization_url(
+            &profile.authorization_uri,
+            &profile.client_id,
+            &self.redirect_uri,
+            "openid email",
+            nonce,
+            &self.state,
+            self.pkce.challenge(),
+        )
+        .map_err(|e| e.to_string())
+    }
+}
+
+/// Asks the provider for a fresh ID token with the same nonce without showing
+/// the user anything. `open` receives the authorization url; the callback must
+/// arrive within `timeout`. Any provider refusal (`login_required`,
+/// `consent_required`, ...) is an `Err` and no code is exchanged. Never reads
+/// standard input.
+#[cfg(not(target_os = "android"))]
+pub async fn obtain_id_token_silent_desktop(
+    profile: &ProviderProfile,
+    nonce: &str,
+    login_hint: &str,
+    open: impl FnOnce(&str) -> Result<(), String>,
+    timeout: Duration,
+) -> Result<String, String> {
+    let flow = LoopbackFlow::start()?;
+    let interactive_url = flow.authorization_url(profile, nonce)?;
+    let auth_url = tradr_oidc::silent_authorization_url(&interactive_url, login_hint)
+        .map_err(|e| e.to_string())?;
+
+    open(&auth_url)?;
+
+    let LoopbackFlow {
+        listener,
+        port,
+        redirect_uri,
+        pkce,
+        state,
+    } = flow;
+    let code = tokio::task::spawn_blocking(move || {
+        serve_one_callback_with_timeout(listener, port, state, timeout)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    exchange_code(
+        &profile.token_uri,
+        &profile.client_id,
+        profile.client_secret.as_deref(),
+        &redirect_uri,
+        &code,
+        pkce.verifier(),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Silent renewal as the desktop GUI runs it: opens the default browser on
+/// the `prompt=none` url and waits `RENEWAL_CALLBACK_TIMEOUT` for the answer.
+#[cfg(not(target_os = "android"))]
+pub async fn renew_id_token_desktop(
+    profile: &ProviderProfile,
+    nonce: &str,
+    login_hint: &str,
+) -> Result<String, String> {
+    obtain_id_token_silent_desktop(
+        profile,
+        nonce,
+        login_hint,
+        |url| open::that(url).map_err(|e| format!("could not open a browser: {e}")),
+        RENEWAL_CALLBACK_TIMEOUT,
+    )
+    .await
+}
+
 /// Returns the ID token obtained from the desktop sign-in flow,
 /// blocking on a person to authenticate in the browser.
 #[cfg(not(target_os = "android"))]
@@ -352,29 +477,15 @@ pub async fn obtain_id_token_desktop(
     nonce: &str,
     paste: Option<PasteSource>,
 ) -> Result<String, String> {
-    // Bind before building the url, so the port is known first.
-    let listener = bind_callback_listener()?;
-    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let redirect_uri = callback_redirect_uri(port);
-
-    let pkce = Pkce::generate(&OsRng).map_err(|e| e.to_string())?;
-
-    let mut state_bytes = [0u8; STATE_ENTROPY_BYTES];
-    OsRng
-        .fill_bytes(&mut state_bytes)
-        .map_err(|e| e.to_string())?;
-    let state_value: String = state_bytes.iter().map(|b| format!("{b:02x}")).collect();
-
-    let auth_url = authorization_url(
-        &profile.authorization_uri,
-        &profile.client_id,
-        &redirect_uri,
-        "openid email",
-        nonce,
-        &state_value,
-        pkce.challenge(),
-    )
-    .map_err(|e| e.to_string())?;
+    let flow = LoopbackFlow::start()?;
+    let auth_url = flow.authorization_url(profile, nonce)?;
+    let LoopbackFlow {
+        listener,
+        port,
+        redirect_uri,
+        pkce,
+        state: state_value,
+    } = flow;
 
     let code = match open::that(&auth_url) {
         Ok(()) => {
@@ -516,10 +627,36 @@ pub async fn finish_sign_in(
     let jwks_document = peer_trust.warm(&profile.jwks_uri).await?;
     let keys = parse_jwks(&jwks_document).map_err(|e| e.to_string())?;
 
-    let (_claims, outcome) =
+    let (claims, outcome) =
         verify_and_classify_token(profile, public_identity, &id_token, &keys, clock)?;
 
-    sign_in_state.set_signed_in(outcome.clone(), id_token);
+    sign_in_state.set_signed_in(outcome.clone(), id_token, claims.iat);
+
+    Ok(outcome)
+}
+
+/// Verifies a renewed ID token like `finish_sign_in`, and adopts it only when it
+/// names the account already signed in; a renewal never switches accounts.
+pub async fn finish_renewal(
+    profile: &ProviderProfile,
+    public_identity: &PublicIdentity,
+    id_token: String,
+    peer_trust: &PeerTrust,
+    sign_in_state: &SignInState,
+    current: &AccountId,
+    clock: &(dyn Clock + Sync),
+) -> Result<SignInOutcome, String> {
+    let jwks_document = peer_trust.warm(&profile.jwks_uri).await?;
+    let keys = parse_jwks(&jwks_document).map_err(|e| e.to_string())?;
+
+    let (claims, outcome) =
+        verify_and_classify_token(profile, public_identity, &id_token, &keys, clock)?;
+
+    if &AccountId::new(&claims.iss, &claims.sub) != current {
+        return Err("the renewed sign-in names a different account".to_string());
+    }
+
+    sign_in_state.set_signed_in(outcome.clone(), id_token, claims.iat);
 
     Ok(outcome)
 }
@@ -549,7 +686,7 @@ pub async fn resume_sign_in(
         ));
     }
 
-    sign_in_state.set_signed_in(outcome.clone(), id_token);
+    sign_in_state.set_signed_in(outcome.clone(), id_token, claims.iat);
 
     Ok(outcome)
 }
