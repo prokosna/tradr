@@ -48,6 +48,7 @@ const COMMANDS: &[&str] = &[
     "connect_brokr_link",
     "brokr_link",
     "list_known_devices",
+    "forget_known_device",
     "send_deferred",
     "list_deliveries",
 ];

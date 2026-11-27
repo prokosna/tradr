@@ -374,6 +374,32 @@ Denies the download_file command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-forget-known-device`
+
+</td>
+<td>
+
+Enables the forget_known_device command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-forget-known-device`
+
+</td>
+<td>
+
+Denies the forget_known_device command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-get-peers`
 
 </td>

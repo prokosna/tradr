@@ -17,6 +17,8 @@ Main path: **Send** (files → device), **Receive** (see what arrived), **Open a
 
 The **Refresh** button in the device-list header rechecks every device (shows "Checking…" for 10 s).
 
+**Forget a device**: an offline tile's **⋯** menu has **Forget device**, with an inline confirm ("Forget this device?"). It removes the Known Devices record only. Deliveries already handed to the Brokr are left alone, and the device reappears the next time it connects. Reachable tiles have no such menu.
+
 **Send, device first**: drop files on a tile (desktop). On Android, sharing to Tradr opens the app with the files already in the tray.
 
 **Receive**:
@@ -29,7 +31,7 @@ The **Refresh** button in the device-list header rechecks every device (shows "C
   - Android: Open and Share.
 - A missing file shows "This file is no longer where it was saved."
 - The card names the receive folder.
-- Not yet listed: files that another device writes into this device's folder.
+- Files another device writes into this device's folder are listed too, as "from <device>".
 
 **Open folder**: Open folder on the tile, or tap the tile when no files are waiting.
 - Breadcrumb starting at the device name.
@@ -67,7 +69,7 @@ Errors are one plain sentence, with the raw error in a smaller details line unde
 
 - Event `files-received`. `received_history` and `clear_received_history` back `received.json` in `tradr-app`, written atomically. Each row: id, relative path, sender DeviceId, name at the time, time, sent or downloaded. Failing to record a row never fails the transfer.
 - `received_actions`, plus `open_received`, `reveal_received` and `share_received`, each taking a row id (never a path; [ADR-0026](adr/0026-one-operation-hands-the-os-a-received-files-location.md)). The desktop uses `tauri-plugin-opener`'s Rust API, with no webview permission.
-- `receive_folder`, `refresh_peers`, `connect_brokr_link`, `brokr_link`.
+- `receive_folder`, `refresh_peers`, `connect_brokr_link`, `brokr_link`, `forget_known_device`.
 
 ## Checking UI work
 

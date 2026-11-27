@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use tradr_core::{
     Capabilities, Clock, DomainTag, KeyBinding, KeyStore, PublicIdentity, RecvStream,
     RefusalReason, RelPath, RootId, SecureChannel, SendStream, TransportError, TrustTier, UnixTime,
-    VersionRange, Vfs,
+    UploadPaths, VersionRange, Vfs, VfsError,
 };
 use tradr_identity::hello::AttestationRequest;
 use tradr_identity::{OsRng, SystemClock};
@@ -17,6 +17,7 @@ use tradr_vfs::NativeVfs;
 
 use crate::handshake::{HandshakeParams, perform_handshake};
 use crate::send::SendItem;
+use crate::upload_paths::PartialUploadPaths;
 
 /// Information about a share visible on a peer device.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -693,12 +694,76 @@ where
     let _read_file_begin = tradr_proto::browse::decode_read_file_begin_frame(&resp_frame)
         .map_err(|e| format!("failed to decode ReadFileBegin frame: {e}"))?;
 
-    let target_path = tradr_vfs::resolve_collision(vfs, root, &dest)
+    // Written under `.tradr-partial` and moved into place only when whole, so
+    // an interrupted download never leaves a partial file under a real name.
+    let (staging_dir, staging_file) = PartialUploadPaths
+        .staging()
+        .map_err(|e| format!("failed to choose a staging file: {e}"))?;
+    vfs.create_dir(root, &staging_dir)
         .await
-        .map_err(|e| format!("failed to resolve destination: {e}"))?;
+        .map_err(|e| format!("failed to create the staging directory: {e}"))?;
+    let received = receive_into(vfs, root, &staging_file, session.browse_recv.as_mut()).await;
+    let placed = match received {
+        Ok(()) => place_download(vfs, root, &staging_file, &dest).await,
+        Err(e) => Err(e),
+    };
+    if let Err(e) = remove_staging(vfs, root, &staging_dir, &staging_file).await {
+        eprintln!("download file: failed to remove the staging directory: {e}");
+    }
+    let (total_bytes_written, target_path) = placed?;
 
-    if let Some(idx) = target_path.as_str().rfind('/') {
-        let parent_str = &target_path.as_str()[..idx];
+    if let Err(e) = session.control_send.finish().await {
+        eprintln!("download file: closing the control stream failed: {e}");
+    }
+
+    Ok((total_bytes_written, target_path))
+}
+
+const MAX_PLACEMENT_ATTEMPTS: usize = 32;
+
+// Streams the rest of `recv` into `file`, returning only once it is synced.
+async fn receive_into(
+    vfs: &NativeVfs,
+    root: RootId,
+    file: &RelPath,
+    recv: &mut dyn tradr_core::RecvStream,
+) -> Result<(), String> {
+    let mut writer = vfs
+        .open_write(root, file)
+        .await
+        .map_err(|e| format!("failed to open staging file for write: {e}"))?;
+    let mut written = 0u64;
+    let mut read_buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = recv
+            .read(&mut read_buf)
+            .await
+            .map_err(|e| format!("error reading file stream: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        writer
+            .write_at(written, &read_buf[..n])
+            .await
+            .map_err(|e| format!("error writing to staging file: {e}"))?;
+        written += n as u64;
+    }
+    writer
+        .sync()
+        .await
+        .map_err(|e| format!("failed to sync staging file: {e}"))
+}
+
+// Moves the finished staging file to a free name beside `dest`, never over an
+// existing file, and returns its size and where it landed.
+async fn place_download(
+    vfs: &NativeVfs,
+    root: RootId,
+    staging_file: &RelPath,
+    dest: &RelPath,
+) -> Result<(u64, RelPath), String> {
+    if let Some(idx) = dest.as_str().rfind('/') {
+        let parent_str = &dest.as_str()[..idx];
         if !parent_str.is_empty() {
             let parent_rel = RelPath::new(parent_str)
                 .map_err(|e| format!("invalid parent directory '{parent_str}': {e}"))?;
@@ -707,41 +772,38 @@ where
                 .map_err(|e| format!("failed to create destination directory: {e}"))?;
         }
     }
-
-    let mut writer = vfs
-        .open_write(root, &target_path)
+    let size = vfs
+        .stat(root, staging_file)
         .await
-        .map_err(|e| format!("failed to open destination file for write: {e}"))?;
-
-    let mut total_bytes_written = 0u64;
-    let mut read_buf = vec![0u8; 64 * 1024];
-
-    loop {
-        let n = session
-            .browse_recv
-            .read(&mut read_buf)
+        .map_err(|e| format!("failed to read the staging file's size: {e}"))?
+        .size_bytes;
+    for _ in 0..MAX_PLACEMENT_ATTEMPTS {
+        let target = tradr_vfs::resolve_collision(vfs, root, dest)
             .await
-            .map_err(|e| format!("error reading file stream: {e}"))?;
-        if n == 0 {
-            break;
+            .map_err(|e| format!("failed to resolve destination: {e}"))?;
+        match vfs.rename_no_replace(root, staging_file, &target).await {
+            Ok(()) => return Ok((size, target)),
+            Err(VfsError::AlreadyExists) => continue,
+            Err(e) => return Err(format!("failed to move the download into place: {e}")),
         }
-        writer
-            .write_at(total_bytes_written, &read_buf[..n])
-            .await
-            .map_err(|e| format!("error writing to destination file: {e}"))?;
-        total_bytes_written += n as u64;
     }
+    Err("no free name was found for the download".to_string())
+}
 
-    writer
-        .sync()
-        .await
-        .map_err(|e| format!("failed to sync destination file: {e}"))?;
-
-    if let Err(e) = session.control_send.finish().await {
-        eprintln!("download file: closing the control stream failed: {e}");
+async fn remove_staging(
+    vfs: &NativeVfs,
+    root: RootId,
+    dir: &RelPath,
+    file: &RelPath,
+) -> Result<(), VfsError> {
+    match vfs.remove(root, file).await {
+        Ok(()) | Err(VfsError::NotFound) => {}
+        Err(e) => return Err(e),
     }
-
-    Ok((total_bytes_written, target_path))
+    match vfs.remove(root, dir).await {
+        Ok(()) | Err(VfsError::NotFound) => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(test)]

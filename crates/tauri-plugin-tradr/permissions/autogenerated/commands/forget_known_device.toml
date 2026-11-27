@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-forget-known-device"
+description = "Enables the forget_known_device command without any pre-configured scope."
+commands.allow = ["forget_known_device"]
+
+[[permission]]
+identifier = "deny-forget-known-device"
+description = "Denies the forget_known_device command without any pre-configured scope."
+commands.deny = ["forget_known_device"]

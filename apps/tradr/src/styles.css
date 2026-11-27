@@ -394,6 +394,7 @@ summary {
 
 .device-tile {
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: var(--space-2);
 	min-height: 56px;
@@ -826,6 +827,23 @@ button:disabled,
 
 .device-tile--not-tappable {
 	cursor: default;
+}
+
+.device-tile-menu {
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.device-tile-confirm {
+	flex-basis: 100%;
+	justify-content: flex-end;
+	align-items: center;
+	gap: var(--space-1);
+}
+
+.device-tile-error {
+	flex-basis: 100%;
 }
 
 .brokr-settings-row {

@@ -45,7 +45,7 @@ struct TestContext {
     max_frame_size: u32,
     _control_send: Box<dyn SendStream>,
     _control_recv: Box<dyn RecvStream>,
-    _server_task: tokio::task::JoinHandle<()>,
+    server_task: tokio::task::JoinHandle<Option<Vec<RelPath>>>,
 }
 
 async fn setup_harness() -> TestContext {
@@ -102,7 +102,7 @@ async fn setup_harness() -> TestContext {
             known_devices: None,
         };
 
-        let _res = handle_incoming_channel(
+        handle_incoming_channel(
             channel.as_ref(),
             rx_vfs_clone.as_ref(),
             params,
@@ -114,7 +114,8 @@ async fn setup_harness() -> TestContext {
             None,
             None,
         )
-        .await;
+        .await
+        .ok()
     });
 
     let candidate = Candidate::new(TransportId::new("direct-quic"), &rx_addr.to_string())
@@ -168,7 +169,7 @@ async fn setup_harness() -> TestContext {
         max_frame_size: negotiated_frame_bound,
         _control_send: control_send,
         _control_recv: control_recv,
-        _server_task: server_task,
+        server_task,
     }
 }
 
@@ -985,4 +986,51 @@ async fn after_refused_reading_browse_stream_reaches_end() {
         n, 0,
         "reading browse stream after refusal must reach 0 bytes"
     );
+}
+
+// A file a peer writes into this device's folder is reported as an arrival,
+// under the name it actually landed at.
+#[tokio::test]
+async fn a_peer_upload_is_reported_as_placed_under_its_final_name() {
+    let ctx = setup_harness().await;
+    std::fs::write(ctx.server_dir.path().join("doc.txt"), b"initial").expect("write original");
+
+    let (mut browse_send, mut browse_recv) = ctx.channel.open_bi().await.expect("open browse");
+    let data = b"uploaded";
+    let write_msg = BrowseMessage::WriteFile(WriteFile {
+        share_id: ctx.share_id,
+        path: RelPath::new("doc.txt").expect("relpath"),
+        size: data.len() as u64,
+        content_hash: ContentHash::from_bytes([0u8; 32]),
+        mode: WriteMode::RenameIfExists,
+    });
+    let frame = ctx
+        .codec
+        .encode_frame(&write_msg, ctx.max_frame_size)
+        .expect("encode frame");
+    browse_send.write_all(&frame).await.expect("send frame");
+    browse_send.write_all(data).await.expect("send data");
+    read_ack(browse_recv.as_mut(), &ctx.codec, ctx.max_frame_size)
+        .await
+        .expect("read ack");
+    browse_send.finish().await.expect("finish browse");
+
+    let TestContext {
+        channel,
+        server_task,
+        _control_send,
+        _control_recv,
+        ..
+    } = ctx;
+    drop(browse_send);
+    drop(browse_recv);
+    drop(_control_send);
+    drop(_control_recv);
+    drop(channel);
+
+    let placed = server_task
+        .await
+        .expect("server task joins")
+        .expect("the channel is served without failure");
+    assert_eq!(placed, vec![RelPath::new("doc (2).txt").expect("relpath")]);
 }

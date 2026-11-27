@@ -48,6 +48,15 @@ impl KnownDevicesStore {
         };
         guard.set_display_name(device_id, display_name)
     }
+
+    /// Removes a device from the registry. A device not known is a success.
+    pub fn forget(&self, device_id: &DeviceId) -> Result<bool, KnownDevicesError> {
+        let mut guard = match self.inner.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.forget(device_id)
+    }
 }
 
 impl KnownDeviceRecorder for KnownDevicesStore {

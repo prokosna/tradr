@@ -321,6 +321,7 @@ struct BrowseContext<'a> {
     root: RootId,
     max_frame_size: u32,
     uploads: &'a dyn UploadPaths,
+    placed: std::sync::Mutex<Vec<RelPath>>,
 }
 
 struct StreamBuffer {
@@ -365,6 +366,10 @@ fn refusal_for(err: VfsError) -> RefusalReason {
 }
 
 /// The Browse plane handler, reading requests from `recv` and writing responses to `send`.
+/// Returns the files a peer's `WriteFile` requests placed, so the caller can
+/// report them as arrivals, together with how the stream ended. A peer that
+/// closes the connection right after its `Ack` ends the stream in error, and
+/// what it placed is still placed.
 pub async fn handle_browse_stream<'a>(
     recv: &'a mut dyn RecvStream,
     send: &'a mut dyn SendStream,
@@ -373,16 +378,30 @@ pub async fn handle_browse_stream<'a>(
     root: crate::RootId,
     max_frame_size: u32,
     uploads: &'a dyn UploadPaths,
-) -> Result<(), crate::channel::TransportError> {
+) -> (Vec<RelPath>, Result<(), crate::channel::TransportError>) {
     let ctx = BrowseContext {
         codec,
         vfs,
         root,
         max_frame_size,
         uploads,
+        placed: std::sync::Mutex::new(Vec::new()),
     };
+    let ended = serve_browse(recv, send, &ctx).await;
+    let placed = ctx
+        .placed
+        .into_inner()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    (placed, ended)
+}
+
+async fn serve_browse(
+    recv: &mut dyn RecvStream,
+    send: &mut dyn SendStream,
+    ctx: &BrowseContext<'_>,
+) -> Result<(), crate::channel::TransportError> {
     let mut buffer = StreamBuffer {
-        buf: vec![0u8; max_frame_size as usize * 2],
+        buf: vec![0u8; ctx.max_frame_size as usize * 2],
         pos: 0,
     };
 
@@ -403,7 +422,7 @@ pub async fn handle_browse_stream<'a>(
                 Ok(Some((msg, consumed))) => {
                     buffer.buf.copy_within(consumed..buffer.pos, 0);
                     buffer.pos -= consumed;
-                    if let Err(failure) = handle_message(msg, recv, send, &ctx, &mut buffer).await {
+                    if let Err(failure) = handle_message(msg, recv, send, ctx, &mut buffer).await {
                         match failure {
                             BrowseFailure::Refused(reason) => {
                                 let resp = BrowseMessage::Refused(Refused {
@@ -602,18 +621,20 @@ async fn write_staged_content(
         .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
     drop(writer);
 
-    match staged.mode {
+    let placed_at = match staged.mode {
         WriteMode::CreateNew => {
             ctx.vfs
                 .rename_no_replace(ctx.root, staged.staging_file, &staged.target_path)
                 .await
                 .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
+            staged.target_path.clone()
         }
         WriteMode::Overwrite => {
             ctx.vfs
                 .rename(ctx.root, staged.staging_file, &staged.target_path)
                 .await
                 .map_err(|e| BrowseFailure::Refused(refusal_for(e)))?;
+            staged.target_path.clone()
         }
         WriteMode::RenameIfExists => {
             let mut target = staged.target_path.clone();
@@ -639,8 +660,13 @@ async fn write_staged_content(
                     Err(e) => return Err(BrowseFailure::Refused(refusal_for(e))),
                 }
             }
+            target
         }
-    }
+    };
+    ctx.placed
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .push(placed_at);
 
     ctx.vfs
         .remove(ctx.root, staged.staging_dir)

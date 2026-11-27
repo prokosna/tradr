@@ -366,6 +366,23 @@ impl KnownDevices {
         Ok(true)
     }
 
+    /// Removes a device and persists the result. Returns `false` when the
+    /// device was not known, which is not an error.
+    pub fn forget(&mut self, device_id: &DeviceId) -> Result<bool, KnownDevicesError> {
+        if !self.devices.iter().any(|d| &d.device_id == device_id) {
+            return Ok(false);
+        }
+        let prospective: Vec<KnownDevice> = self
+            .devices
+            .iter()
+            .filter(|d| &d.device_id != device_id)
+            .cloned()
+            .collect();
+        self.persist(&prospective)?;
+        self.devices = prospective;
+        Ok(true)
+    }
+
     // Writes `devices` to `self.path` via a temporary file renamed over the
     // destination, removing the temporary file if write or rename fails.
     fn persist(&self, devices: &[KnownDevice]) -> Result<(), KnownDevicesError> {

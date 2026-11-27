@@ -9,7 +9,7 @@
   - a `Linked` peer is allowed only if this device's Link record has `full_access`, a per-link toggle in Linking that grants one direction only;
   - anyone else is refused.
 - The listener refuses a Browse stream without that grant with `Refused{NO_ACCESS}`.
-- Operations and wire messages are listed in [04](04-protocol.md#browse-plane). Uploads land under `.tradr-partial` and are renamed into place. `content_hash` is not checked on upload or download yet.
+- Operations and wire messages are listed in [04](04-protocol.md#browse-plane). Uploads land under `.tradr-partial` and are renamed into place, and each is reported as an arrival (Received list). Downloads from a peer are staged the same way on this side. `content_hash` is not checked on upload or download yet.
 - The UI words each `Refused` reason for a person (for example "that name is already taken").
 
 ## Boundary enforcement (Critical Module, `tradr-vfs`; invariant I5)
