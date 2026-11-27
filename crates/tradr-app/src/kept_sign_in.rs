@@ -2,10 +2,23 @@
 
 use std::path::Path;
 
+use tradr_core::UnixTime;
+
 use crate::atomic::{Access, write_atomic_with};
 
 /// How long a kept ID token may be reused before interactive sign-in is required.
 pub const SIGN_IN_REUSE_LIMIT_SECS: u64 = 21 * 24 * 60 * 60;
+
+/// Age at which the kept ID token is renewed in the background, a week
+/// ahead of the reuse limit so a few failed attempts still leave time.
+pub const RENEWAL_AFTER_SECS: u64 = 14 * 24 * 60 * 60;
+
+/// Whether a token issued at `iat` is old enough to renew at `now`. A token
+/// dated in the future is not due: renewing it could not make it fresher.
+pub fn renewal_due(iat: UnixTime, now: UnixTime) -> bool {
+    now.elapsed_since(iat)
+        .is_ok_and(|age| age >= RENEWAL_AFTER_SECS)
+}
 
 /// Loads the kept ID token from disk, ignoring empty or missing files.
 pub fn load_kept_token(path: &Path) -> Result<Option<String>, String> {

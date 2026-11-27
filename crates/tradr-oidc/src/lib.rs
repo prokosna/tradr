@@ -373,6 +373,21 @@ pub fn authorization_url(
     Ok(url.to_string())
 }
 
+/// Turns an interactive authorization url into a silent renewal request:
+/// `prompt=none` makes the provider answer with an `error` callback instead
+/// of showing any page, and `login_hint` names the account that must answer.
+pub fn silent_authorization_url(
+    interactive_url: &str,
+    login_hint: &str,
+) -> Result<String, OidcError> {
+    let mut url =
+        reqwest::Url::parse(interactive_url).map_err(|e| OidcError::MalformedUri(e.to_string()))?;
+    url.query_pairs_mut()
+        .append_pair("prompt", "none")
+        .append_pair("login_hint", login_hint);
+    Ok(url.to_string())
+}
+
 /// A host that no query string parsed here is ever sent to -- it exists
 /// only so `reqwest::Url` has an authority to hang a query string off of.
 const CALLBACK_QUERY_BASE: &str = "http://callback.invalid/callback?";

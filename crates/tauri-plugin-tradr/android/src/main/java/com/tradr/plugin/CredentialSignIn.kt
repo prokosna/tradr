@@ -36,10 +36,23 @@ class CredentialSignIn(private val activity: Activity) {
             return
         }
 
-        requestGoogleId(args, invoke)
+        requestGoogleId(args, invoke, true)
     }
 
-    private fun requestGoogleId(args: SignInArgs, invoke: Invoke) {
+    // Background renewal: only the saved-credential option, never the explicit
+    // account picker, so a refusal surfaces as a failure instead of a screen.
+    fun signInSilently(invoke: Invoke) {
+        val args = try {
+            invoke.parseArgs(SignInArgs::class.java)
+        } catch (e: Exception) {
+            resolveFailure(invoke, "googleId", e.javaClass.name, e.message ?: "Failed to parse arguments")
+            return
+        }
+
+        requestGoogleId(args, invoke, false)
+    }
+
+    private fun requestGoogleId(args: SignInArgs, invoke: Invoke, fallBackToExplicit: Boolean) {
         val option = try {
             GetGoogleIdOption.Builder()
                 .setServerClientId(args.serverClientId)
@@ -52,9 +65,12 @@ class CredentialSignIn(private val activity: Activity) {
             return
         }
 
-        performCredentialRequest(invoke, option, "googleId") {
-            requestSignInWithGoogle(args, invoke)
+        val onRefused: (() -> Unit)? = if (fallBackToExplicit) {
+            { requestSignInWithGoogle(args, invoke) }
+        } else {
+            null
         }
+        performCredentialRequest(invoke, option, "googleId", onRefused)
     }
 
     private fun requestSignInWithGoogle(args: SignInArgs, invoke: Invoke) {

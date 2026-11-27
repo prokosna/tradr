@@ -7,7 +7,7 @@
 use std::cell::Cell;
 
 use tradr_core::{Rng, RngError};
-use tradr_oidc::{OidcError, Pkce, authorization_url};
+use tradr_oidc::{OidcError, Pkce, authorization_url, silent_authorization_url};
 
 /// RFC 7636 Appendix B, verbatim. The one pair of values in these tests
 /// that comes from outside this project.
@@ -264,4 +264,36 @@ fn an_authorization_uri_that_is_not_https_is_refused() {
     );
 
     assert!(matches!(outcome, Err(OidcError::NotHttps(_))));
+}
+
+// --- The silent renewal url ---
+
+fn query_of(url: &str) -> Vec<(String, String)> {
+    reqwest::Url::parse(url)
+        .expect("a parseable url")
+        .query_pairs()
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect()
+}
+
+#[test]
+fn the_interactive_url_never_carries_prompt_or_login_hint() {
+    let keys: Vec<String> = query_of(&built()).into_iter().map(|(k, _)| k).collect();
+
+    assert!(!keys.contains(&"prompt".to_string()));
+    assert!(!keys.contains(&"login_hint".to_string()));
+}
+
+#[test]
+fn the_silent_url_adds_prompt_none_and_the_hint_and_keeps_the_rest() {
+    let interactive = built();
+    let silent = silent_authorization_url(&interactive, "1234567890").expect("a silent url");
+    let pairs = query_of(&silent);
+
+    assert!(pairs.contains(&("prompt".to_string(), "none".to_string())));
+    assert!(pairs.contains(&("login_hint".to_string(), "1234567890".to_string())));
+    for pair in query_of(&interactive) {
+        assert!(pairs.contains(&pair), "{pair:?} lost from {silent}");
+    }
+    assert_eq!(pairs.len(), query_of(&interactive).len() + 2);
 }
