@@ -9,10 +9,6 @@ RUN corepack enable pnpm && corepack prepare pnpm@10.20.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/brokr/package.json apps/brokr/
 COPY apps/tradr/package.json apps/tradr/
-COPY packages/protocol/package.json packages/protocol/
-COPY packages/brokr-client/package.json packages/brokr-client/
-COPY packages/ui/package.json packages/ui/
-COPY packages/client-state/package.json packages/client-state/
 
 RUN pnpm install --filter @tradr/brokr... --frozen-lockfile
 
@@ -32,10 +28,6 @@ RUN corepack enable pnpm && corepack prepare pnpm@10.20.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/brokr/package.json apps/brokr/
 COPY apps/tradr/package.json apps/tradr/
-COPY packages/protocol/package.json packages/protocol/
-COPY packages/brokr-client/package.json packages/brokr-client/
-COPY packages/ui/package.json packages/ui/
-COPY packages/client-state/package.json packages/client-state/
 
 RUN pnpm install --filter @tradr/brokr... --prod --frozen-lockfile
 

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 //! Attestation issue and verify, key storage, links, HPKE envelopes.
 
+mod atomic;
 mod attestation;
 pub mod envelope;
 mod google;

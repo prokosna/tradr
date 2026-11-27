@@ -1,6 +1,6 @@
 //! Holds a Provider Profile's JWKS between verifications and decides when
 //! a device may go fetch a fresh document. docs/05 "The token never
-//! chooses how it is verified", the refetch-budget paragraphs (DCR-022).
+//! chooses how it is verified", the refetch-budget paragraphs.
 //! No I/O: the composition root fetches, this type only decides whether
 //! it may.
 

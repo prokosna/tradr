@@ -1,4 +1,4 @@
-//! Command-line interface front end for Tradr (DCR-124).
+//! Command-line interface front end for Tradr.
 
 use std::path::PathBuf;
 use std::sync::Arc;

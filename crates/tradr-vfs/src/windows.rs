@@ -459,7 +459,7 @@ impl WindowsVfs {
         roots.get(&root.value()).cloned().ok_or(VfsError::NotFound)
     }
 
-    /// Lists entries in the partial staging root directory (DCR-155).
+    /// Lists entries in the partial staging root directory.
     pub async fn list_partial_root(&self, root: RootId) -> Result<Vec<DirEntry>, VfsError> {
         let root_entry = self.get_root(root)?;
         let at = partial_root_rel_path();

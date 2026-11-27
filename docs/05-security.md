@@ -77,7 +77,7 @@ Defended: forged tokens, tokens minted with our public client ID (wrong `sub`), 
 | Linux | Secret Service, else a 0600 file | — |
 
 - `backing()` must never overstate itself (Critical Module). Settings shows it.
-- **Linux ladder** (`tradr-secrets` for I/O, `tradr-identity` for policy): it is searched on load. An absent rung is skipped. A failed rung, such as a locked collection, stops the search **only if no lower rung holds the key**: never generate a key over a rung that failed. A key is never moved between rungs. Never unlock a collection (the D-Bus prompt blocks forever when headless). The kernel keyring is not a rung, because it does not survive a reboot.
+- **Linux ladder** (`tradr-secrets` for I/O, `tradr-identity` for policy): it is searched on load. An absent rung is skipped. A failed rung, such as a locked collection, stops the search **only if no lower rung holds the key**: never generate a key over a rung that failed. A key is never moved between rungs. Never unlock a collection. A create or delete the daemon answers with a prompt is abandoned after 30 s and reported as a failure. The kernel keyring is not a rung, because it does not survive a reboot.
 - The ladder guarantees availability, not at-rest security. The file rung is plaintext, and full-disk encryption is the OS's job.
 - Link Secrets are stored on the rung the Device Key selected. The rung is chosen once, at open.
 - Key generation is a Critical Module: a predictable key is a derivable key.

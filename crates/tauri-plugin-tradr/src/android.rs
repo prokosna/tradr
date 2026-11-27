@@ -292,7 +292,7 @@ struct DeviceNameResponse {
     name: String,
 }
 
-/// Reads the device name configured in Android settings, falling back to the model (DCR-160).
+/// Reads the device name configured in Android settings, falling back to the model.
 pub fn device_name<R: Runtime>(handle: &PluginHandle<R>) -> Result<String, String> {
     let response: DeviceNameResponse = handle
         .run_mobile_plugin("deviceName", ())

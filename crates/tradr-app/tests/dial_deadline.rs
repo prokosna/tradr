@@ -1,4 +1,4 @@
-//! WI-M8-082: candidate dials give up after three seconds (docs/03, DCR-192).
+//! WI-M8-082: candidate dials give up after three seconds (docs/03).
 
 use std::sync::Arc;
 use std::time::Duration;

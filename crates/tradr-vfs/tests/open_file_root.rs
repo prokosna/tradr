@@ -1,5 +1,5 @@
 //! Supervisor-authored tests for a single-file root over an already-open
-//! file (CLAUDE.md section 6, ADR-0023, DCR-165). Boundary enforcement is
+//! file (CLAUDE.md section 6, ADR-0023). Boundary enforcement is
 //! the module: the root exposes exactly one name, for reading, and nothing
 //! a caller names can reach past it or change it.
 #![cfg(unix)]

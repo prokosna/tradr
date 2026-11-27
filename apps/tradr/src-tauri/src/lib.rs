@@ -4,7 +4,7 @@
 //! inside its own setup hook, since this file is only the composition root.
 
 // Empty and absent both mean unconfigured, never distinguished: build.rs
-// (DCR-030) emits an empty value when `.tradr-deployment.env` is absent
+// emits an empty value when `.tradr-deployment.env` is absent
 // so a fresh clone still builds, and omits the secret entirely on Android
 // so `option_env!` reads it as absent rather than failing the build.
 fn non_empty(value: Option<&'static str>) -> Option<&'static str> {
@@ -69,9 +69,17 @@ fn setup_desktop(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+// The mobile entry point returns nothing, so the error is reported here.
+#[cfg(mobile)]
+#[tauri::mobile_entry_point]
+fn mobile_main() {
+    if let Err(err) = run() {
+        eprintln!("tradr: failed to run: {err}");
+    }
+}
+
 pub fn run() -> tauri::Result<()> {
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_tradr::init(
             non_empty(option_env!("TRADR_OAUTH_CLIENT_IDS")),
@@ -79,8 +87,8 @@ pub fn run() -> tauri::Result<()> {
         ));
 
     #[cfg(desktop)]
-    {
-        builder = builder
+    let builder = {
+        builder
             .plugin(tauri_plugin_updater::Builder::new().build())
             .setup(|app| {
                 setup_desktop(app)?;
@@ -93,8 +101,8 @@ pub fn run() -> tauri::Result<()> {
                         eprintln!("window: failed to hide on close request: {err}");
                     }
                 }
-            });
-    }
+            })
+    };
 
     builder.run(tauri::generate_context!())
 }
@@ -102,7 +110,7 @@ pub fn run() -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     // The only thing that will notice if build.rs stops plumbing
-    // TRADR_OAUTH_CLIENT_IDS from the environment into the build (DCR-030).
+    // TRADR_OAUTH_CLIENT_IDS from the environment into the build.
     // Vacuously passes when the variable is unset, which keeps a fresh
     // clone's `cargo test` green.
     #[test]

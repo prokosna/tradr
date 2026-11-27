@@ -1,4 +1,4 @@
-//! Received files history recording and retrieval (docs/12, DCR-184).
+//! Received files history recording and retrieval (docs/12).
 
 use std::sync::Arc;
 

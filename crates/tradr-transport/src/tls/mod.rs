@@ -1,6 +1,6 @@
 //! `rustls` against `KeyStore`: the external signer and the pinning
 //! verifiers (docs/05-security.md, "Why there are two encryption
-//! layers"; DCR-040, DCR-041). Every private key operation crosses the
+//! layers"). Every private key operation crosses the
 //! `KeyStore` boundary; nothing here ever holds key material.
 
 use std::fmt;
@@ -120,7 +120,7 @@ pub fn server_config(key_store: Arc<dyn KeyStore>) -> Result<rustls::ServerConfi
 /// The `DeviceId` a peer's certificate names. The one place a `DeviceId`
 /// is derived from a certificate (WI-M1-002a): the dialling verifier
 /// calls this rather than deriving one of its own. The listening side
-/// needs no `DeviceId` at all (DCR-040), so it does not call it.
+/// needs no `DeviceId` at all, so it does not call it.
 pub fn peer_device_id(certificate: &CertificateDer<'_>) -> Result<DeviceId, TlsError> {
     let point =
         certificate::identity_point(certificate.as_ref()).map_err(from_certificate_error)?;

@@ -75,7 +75,7 @@ async fn read_exact(recv: &mut dyn RecvStream, mut buf: &mut [u8]) -> Result<(),
     Ok(())
 }
 
-// Length prefix is fed first to bound allocation before payload read (DCR-162).
+// Length prefix is fed first to bound allocation before payload read.
 async fn read_frame(
     recv_stream: &mut dyn RecvStream,
     decoder: &mut FrameDecoder,

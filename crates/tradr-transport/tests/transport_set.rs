@@ -1,4 +1,4 @@
-//! Unit tests for TransportSet candidate dispatch (docs/03, DCR-108).
+//! Unit tests for TransportSet candidate dispatch (docs/03).
 
 use std::sync::Arc;
 

@@ -1,11 +1,11 @@
 {
 	"files": [],
 	"references": [
-		{ "path": "packages/protocol" },
-		{ "path": "packages/brokr-client" },
-		{ "path": "packages/client-state" },
-		{ "path": "packages/ui" },
-		{ "path": "apps/tradr" },
-		{ "path": "apps/brokr" }
+		{
+			"path": "apps/tradr"
+		},
+		{
+			"path": "apps/brokr"
+		}
 	]
 }

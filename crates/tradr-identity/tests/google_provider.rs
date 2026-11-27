@@ -1,4 +1,4 @@
-//! Supervisor-authored tests for WI-M0-008f (DCR-029). One string names
+//! Supervisor-authored tests for WI-M0-008f. One string names
 //! every OAuth client in a deployment and is identical on every device;
 //! each build looks itself up in it. The failure this shape exists to
 //! catch is a list that omits a platform, which the old per-device

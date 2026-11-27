@@ -180,7 +180,7 @@ pub struct AwaitingVerification {
 
 impl AwaitingVerification {
     /// Step 3: signs the peer's nonce and produces our `HelloAck`, even
-    /// for `tier` of `Rejected` (DCR-051) -- the domain tag is what makes
+    /// for `tier` of `Rejected` -- the domain tag is what makes
     /// signing attacker-chosen bytes safe, and `assigned_tier` in the same
     /// message already tells the peer the verdict.
     pub fn on_verified(
@@ -281,7 +281,7 @@ impl Session {
     }
 
     /// The tier this side computed, never the peer's own claim about
-    /// itself (DCR-051).
+    /// itself.
     pub fn tier(&self) -> TrustTier {
         self.tier
     }
@@ -291,7 +291,7 @@ impl Session {
         self.negotiated_version
     }
 
-    /// The largest frame the peer will accept: our send bound (DCR-049).
+    /// The largest frame the peer will accept: our send bound.
     pub fn peer_max_frame_size(&self) -> u32 {
         self.peer_max_frame_size
     }
@@ -328,7 +328,7 @@ pub enum HelloRefused {
     /// verify.
     NonceSignatureInvalid,
     /// The peer's `HelloAck` names a `negotiated_version` other than the
-    /// one both sides had everything needed to compute (DCR-052).
+    /// one both sides had everything needed to compute.
     VersionDisagreement {
         /// The version this side negotiated.
         ours: u32,
@@ -336,7 +336,7 @@ pub enum HelloRefused {
         theirs: u32,
     },
     /// The peer's `HelloAck` advertises a `max_frame_size` below
-    /// `MIN_NEGOTIABLE_FRAME_SIZE` (DCR-052).
+    /// `MIN_NEGOTIABLE_FRAME_SIZE`.
     FrameSizeTooSmall {
         /// The value the peer advertised.
         advertised: u32,

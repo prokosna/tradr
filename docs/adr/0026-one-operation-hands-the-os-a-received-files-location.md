@@ -15,7 +15,7 @@ ADR-0014's rule exists because a path returned to a caller is validated at one m
 **The native Vfs implementations in `tradr-vfs` (Layer 3) gain one inherent method, `host_file_path(root, relative)`, and the `Vfs` trait gains nothing.**
 
 - It answers only for a **regular file** that the ordinary validated open reaches: it opens the target exactly as `open_read` does, so the deny list, the no-symlink descent and the boundary all apply, and it fails with the same errors. A directory, a symlink, a missing file and a root registered from an open descriptor (which has no location) are refused.
-- The path it answers is the root's own path joined with the validated components. It is assembled in `tradr-vfs`, so [invariant I5](../../CLAUDE.md#8-invariants-that-must-not-break) holds as written.
+- The path it answers is the root's own path joined with the validated components. It is assembled in `tradr-vfs`, so [invariant I5](../../CLAUDE.md) holds as written.
 - **It has exactly one caller: the plugin's commands that open, reveal or share a row of the Received list**, addressed by the row's number and never by a path the front end supplies. The path goes to the operating system and to nothing else. It is not returned to the front end, not logged, and never used by Tradr to open, read, write or delete anything.
 - It is boundary enforcement, so it is a Critical Module: the Supervisor writes its tests first.
 

@@ -304,7 +304,7 @@ impl fmt::Debug for PeerHello {
 /// What a peer sent back in its `HelloAck` (docs/04, "The Hello exchange"
 /// step 4). `visible_shares` is deliberately absent: Shares arrive in M3
 /// and no Layer 0 type describes one yet. `assigned_tier` is the tier
-/// **the sender granted the receiver** (DCR-051): arriving from a peer, it
+/// **the sender granted the receiver**: arriving from a peer, it
 /// is what *they* granted *us* -- display material, never an input to the tier we ourselves grant them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerHelloAck {

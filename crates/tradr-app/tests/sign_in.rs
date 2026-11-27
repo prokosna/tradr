@@ -490,3 +490,16 @@ fn code_from_pasted_refuses_invalid_inputs() {
     assert!(repeated_res.is_err());
     assert!(repeated_res.unwrap_err().contains("repeated"));
 }
+
+// An Android build must present the Web client to Credential Manager; a
+// wrong arm here fails every Android sign-in with nothing on the host to notice.
+#[test]
+fn only_an_android_build_authenticates_as_the_android_platform() {
+    use tradr_app::sign_in::platform_for;
+    use tradr_identity::Platform;
+
+    assert_eq!(platform_for("android"), Platform::Android);
+    for desktop in ["linux", "macos", "windows"] {
+        assert_eq!(platform_for(desktop), Platform::Desktop, "{desktop}");
+    }
+}

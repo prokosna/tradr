@@ -1,9 +1,0 @@
-version: v2
-plugins:
-  - local: protoc-gen-ts_proto
-    out: packages/protocol/src/gen
-    opt:
-      # packages/protocol is ESM; NodeNext resolution requires the extension.
-      - importSuffix=.js
-      # The Exact<DeepPartial<T>, I> generic form does not resolve under TypeScript 7.
-      - useExactTypes=false

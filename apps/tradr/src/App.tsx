@@ -72,7 +72,7 @@ interface SendJob extends ActiveSendInfo {
 	deviceId?: string;
 }
 
-// Matches mDNS's verify timeout before instances are evicted (docs/03, DCR-191).
+// Matches mDNS's verify timeout before instances are evicted (docs/03).
 const MDNS_VERIFY_TIMEOUT_MS = 10_000;
 
 export function App() {

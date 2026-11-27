@@ -24,5 +24,8 @@ run_stage() {
 run_stage "cargo clippy" cargo clippy --workspace --all-targets -- -D warnings
 run_stage "ci/windows-target.sh" sh ci/windows-target.sh
 run_stage "cargo test" cargo test --workspace
+if rustup target list --installed 2>/dev/null | grep -qx aarch64-linux-android; then
+	run_stage "cargo check (android)" cargo check --target aarch64-linux-android -p tauri-plugin-tradr
+fi
 
 exit 0

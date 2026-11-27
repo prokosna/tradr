@@ -4,9 +4,8 @@
 //! Deliveries when peers are offline.
 
 use std::fmt;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use tradr_core::{
@@ -16,9 +15,6 @@ use tradr_core::{
 
 /// The format version written to disk.
 const KNOWN_DEVICES_VERSION: u32 = 1;
-
-/// The maximum number of attempts to find an unused temporary file name.
-const MAX_TEMP_ATTEMPTS: usize = 10_000;
 
 /// A device previously encountered through a direct, verified handshake.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,14 +119,6 @@ pub enum KnownDevicesError {
     /// The record's trust tier is not allowed in this registry. Only
     /// `SameAccount` and `Linked` devices are ever stored.
     InvalidTier(TrustTier),
-    /// Persisting failed, and removing the temporary file left behind
-    /// also failed.
-    CleanupFailed {
-        /// The original error from the write or rename.
-        original: std::io::Error,
-        /// The error from attempting to remove the temporary file.
-        cleanup: std::io::Error,
-    },
     /// An I/O error reading or writing the registry file.
     Io(std::io::Error),
 }
@@ -148,10 +136,6 @@ impl fmt::Display for KnownDevicesError {
                 f,
                 "trust tier {tier:?} cannot be stored in known devices registry"
             ),
-            Self::CleanupFailed { original, cleanup } => write!(
-                f,
-                "{original}, and removing the temporary file left behind also failed: {cleanup}"
-            ),
             Self::Io(source) => write!(f, "known devices registry i/o error: {source}"),
         }
     }
@@ -161,7 +145,6 @@ impl std::error::Error for KnownDevicesError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(source) => Some(source),
-            Self::CleanupFailed { original, .. } => Some(original),
             Self::Malformed(_)
             | Self::UnknownVersion(_)
             | Self::MismatchedDeviceId { .. }
@@ -394,25 +377,7 @@ impl KnownDevices {
         let json = serde_json::to_vec_pretty(&file)
             .map_err(|source| KnownDevicesError::Malformed(source.to_string()))?;
 
-        let dir = match self.path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            Some(d) => d,
-            None => Path::new("."),
-        };
-        fs::create_dir_all(dir).map_err(KnownDevicesError::Io)?;
-
-        let (mut temp_file, temp_path) =
-            create_fresh_temp_file(dir).map_err(KnownDevicesError::Io)?;
-
-        use std::io::Write;
-        let written = temp_file
-            .write_all(&json)
-            .and_then(|()| temp_file.sync_all());
-        drop(temp_file);
-        if let Err(source) = written {
-            return Err(fail_and_cleanup(&temp_path, source));
-        }
-
-        fs::rename(&temp_path, &self.path).map_err(|source| fail_and_cleanup(&temp_path, source))
+        crate::atomic::write_atomic(&self.path, &json).map_err(KnownDevicesError::Io)
     }
 }
 
@@ -441,37 +406,4 @@ fn decode_hex_exact<const N: usize>(s: &str) -> Result<[u8; N], String> {
         *byte = u8::from_str_radix(pair, 16).map_err(|e| e.to_string())?;
     }
     Ok(out)
-}
-
-// Creates a fresh temporary file using `create_new` to avoid collisions.
-fn create_fresh_temp_file(dir: &Path) -> Result<(fs::File, PathBuf), std::io::Error> {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-
-    for _ in 0..MAX_TEMP_ATTEMPTS {
-        let unique = NEXT.fetch_add(1, Ordering::Relaxed);
-        let candidate = dir.join(format!(
-            ".tmp-known-devices-{}-{unique}",
-            std::process::id()
-        ));
-
-        let mut opts = OpenOptions::new();
-        opts.write(true).create_new(true);
-
-        match opts.open(&candidate) {
-            Ok(file) => return Ok((file, candidate)),
-            Err(source) if source.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(source) => return Err(source),
-        }
-    }
-    Err(std::io::Error::other(
-        "could not find a fresh temporary file name",
-    ))
-}
-
-// Removes a temporary file after a failed write or rename, preserving both errors.
-fn fail_and_cleanup(temp_path: &Path, original: std::io::Error) -> KnownDevicesError {
-    match fs::remove_file(temp_path) {
-        Ok(()) => KnownDevicesError::Io(original),
-        Err(cleanup) => KnownDevicesError::CleanupFailed { original, cleanup },
-    }
 }

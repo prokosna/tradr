@@ -4,7 +4,6 @@
 //! a Static Peer connection compares its proven key against, and handing
 //! back `Unpinned` for a pinned entry authenticates a hijacked address.
 
-use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::net::{IpAddr, SocketAddr};
@@ -487,26 +486,8 @@ impl StaticPeerRegistry {
         let json = serde_json::to_vec_pretty(&file)
             .expect("a StaticPeerFile serializes to json without error");
 
-        let dir = self.path.parent().filter(|dir| !dir.as_os_str().is_empty());
-        if let Some(dir) = dir {
-            fs::create_dir_all(dir).map_err(StaticPeerError::Io)?;
-        }
-
-        let temp_path = temp_path_for(&self.path);
-        fs::write(&temp_path, &json).map_err(StaticPeerError::Io)?;
-        fs::rename(&temp_path, &self.path).map_err(StaticPeerError::Io)
+        crate::atomic::write_atomic(&self.path, &json).map_err(StaticPeerError::Io)
     }
-}
-
-// A temporary path in the same directory as `path`, so the rename that
-// follows a successful write is same-filesystem and therefore atomic.
-fn temp_path_for(path: &Path) -> PathBuf {
-    let mut name = path
-        .file_name()
-        .map(OsStr::to_os_string)
-        .unwrap_or_default();
-    name.push(format!(".tmp-{}", std::process::id()));
-    path.with_file_name(name)
 }
 
 /// A Static Peer `DiscoverySource` over a `flume::Receiver<DiscoveryEvent>`

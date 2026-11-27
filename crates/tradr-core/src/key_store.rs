@@ -264,6 +264,16 @@ impl SharedSecret {
     }
 }
 
+// Overwrites the bytes when the secret goes out of scope. `black_box` keeps
+// the compiler from discarding a write to memory about to be freed; without
+// volatile writes or a dependency this is best effort, not a guarantee.
+impl Drop for SharedSecret {
+    fn drop(&mut self) {
+        self.0.fill(0);
+        std::hint::black_box(&self.0);
+    }
+}
+
 impl fmt::Debug for SharedSecret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("SharedSecret").field(&"<redacted>").finish()
@@ -304,7 +314,7 @@ pub enum Backing {
 /// asked for (docs/05-security.md, "Key storage"). `backing()` must
 /// report this: a Secret Service that is merely unreachable and a
 /// `0600` file are different sentences, though both are software. Two
-/// rungs, not three (DCR-033).
+/// rungs, not three.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageLevel {
     /// The platform's Secret Service, reached over D-Bus.

@@ -145,7 +145,7 @@ fn observation_from_resolved(resolved: &ResolvedService) -> Option<PeerObservati
 }
 
 // Formats a `ScopedIp` into an address `direct-quic`'s parser accepts
-// (docs/03, DCR-048): `ScopedIp`'s own `Display` renders a link-local scope
+// (docs/03): `ScopedIp`'s own `Display` renders a link-local scope
 // as an interface name off Windows, which that parser refuses, so the
 // numeric scope index is read instead. `None` for a variant this build
 // does not know, since it cannot be formatted safely.
@@ -215,7 +215,7 @@ mod tests {
     // `format_v6` is tested here, on primitives, rather than in
     // tests/mdns.rs: `mdns_sd::ScopedIpV6`'s fields are private and it has
     // no public constructor for a non-zero scope index, so the integration
-    // test crate cannot build one (docs/03, DCR-048).
+    // test crate cannot build one (docs/03).
     #[test]
     fn a_link_local_address_with_a_scope_gets_the_numeric_index_and_parses() {
         let addr: Ipv6Addr = "fe80::1".parse().expect("valid ipv6 literal");

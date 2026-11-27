@@ -21,14 +21,14 @@ use crate::tls::{self, TlsError};
 const TRANSPORT_ID: TransportId = TransportId::new("direct-quic");
 
 // The name a QUIC dialler has to supply and this design never reads:
-// identity lives in the SubjectPublicKeyInfo (DCR-038), so the verifier
+// identity lives in the SubjectPublicKeyInfo, so the verifier
 // this crate installs ignores it and nothing may depend on its value.
 const SERVER_NAME: &str = "tradr.invalid";
 
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
 const MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
-// Keeps both ends alive during slow outboard hashing before offer or accept (docs/03, DCR-176).
+// Keeps both ends alive during slow outboard hashing before offer or accept (docs/03).
 fn transport_config() -> Result<Arc<quinn::TransportConfig>, quinn::VarIntBoundsExceeded> {
     let mut config = quinn::TransportConfig::default();
     config.keep_alive_interval(Some(KEEP_ALIVE_INTERVAL));
@@ -68,7 +68,7 @@ impl std::error::Error for QuicTransportError {
 
 fn dual_stack_udp_socket(bind: SocketAddr) -> std::io::Result<std::net::UdpSocket> {
     let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
-    // IPV6_V6ONLY defaults disagree across platforms, so dual-stack is explicitly enabled here (docs/03, DCR-138).
+    // IPV6_V6ONLY defaults disagree across platforms, so dual-stack is explicitly enabled here (docs/03).
     socket.set_only_v6(false)?;
     socket.bind(&socket2::SockAddr::from(bind))?;
     Ok(socket.into())
@@ -130,7 +130,7 @@ impl QuicTransport {
         self.endpoint.local_addr()
     }
 
-    /// Flushes connection close before a process exits (DCR-163).
+    /// Flushes connection close before a process exits.
     pub async fn close_and_drain(&self, limit: std::time::Duration) -> bool {
         self.endpoint.close(0u32.into(), b"");
         tokio::time::timeout(limit, self.endpoint.wait_idle())
@@ -420,8 +420,16 @@ mod tests {
         .expect("handshake completed within timeout");
     }
 
+    // The paused clock auto-advances while real sockets wait, so this bound
+    // turns a lost packet into a failure instead of a hung CI job.
     #[tokio::test(start_paused = true)]
     async fn keep_alive_preserves_idle_connection_past_timeout() {
+        tokio::time::timeout(Duration::from_secs(600), keep_alive_scenario())
+            .await
+            .expect("the keep-alive scenario finishes within its bound");
+    }
+
+    async fn keep_alive_scenario() {
         let server_store = device(0x22);
         let server_bind: SocketAddr = "127.0.0.1:0".parse().expect("valid address literal");
         let server_transport = QuicTransport::new(server_store, server_bind).expect("server binds");

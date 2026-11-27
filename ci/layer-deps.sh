@@ -109,7 +109,7 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 		awk '/^[ \t]*"?reqwest(-[A-Za-z0-9_]+)?"?[ \t]*=/ { print FNR }' "$m" \
 			| while IFS= read -r ln; do
 				[ -n "$ln" ] || continue
-				echo "$m:$ln: only tradr-oidc and tradr-app may name reqwest (DCR-024, DCR-174)" >> "$TMP_HITS"
+				echo "$m:$ln: only tradr-oidc and tradr-app may name reqwest" >> "$TMP_HITS"
 			done
 	fi
 
@@ -167,12 +167,12 @@ printf '%s\n' "$manifests" | while IFS= read -r m; do
 	fi
 done
 
-# Check 3b, source half: inside tradr-app only the Brokr HTTP adapter names reqwest (DCR-174)
+# Check 3b, source half: inside tradr-app only the Brokr HTTP adapter names reqwest
 if [ -d crates/tradr-app/src ]; then
 	grep -rn --include='*.rs' 'reqwest' crates/tradr-app/src 2> /dev/null \
 		| while IFS=: read -r hit_path hit_line _; do
 			[ "$hit_path" != "crates/tradr-app/src/brokr/http.rs" ] || continue
-			echo "$hit_path:$hit_line: only crates/tradr-app/src/brokr/http.rs may name reqwest inside tradr-app (DCR-174)" >> "$TMP_HITS"
+			echo "$hit_path:$hit_line: only crates/tradr-app/src/brokr/http.rs may name reqwest inside tradr-app" >> "$TMP_HITS"
 		done
 fi
 

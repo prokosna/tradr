@@ -16,7 +16,6 @@ dist/
 /apps/tradr/gen/apple/
 
 # Generated from proto
-/packages/protocol/src/gen/
 /crates/*/src/gen/
 
 # Brokr runtime data

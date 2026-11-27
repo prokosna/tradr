@@ -754,7 +754,7 @@ impl PosixVfs {
         Ok(open_files.contains_key(&root.value()))
     }
 
-    /// Lists entries in the partial staging root directory (DCR-155).
+    /// Lists entries in the partial staging root directory.
     pub async fn list_partial_root(&self, root: RootId) -> Result<Vec<DirEntry>, VfsError> {
         if self.has_open_file(root)? {
             return Err(VfsError::WrongKind);

@@ -142,7 +142,7 @@ pub struct AttestationPolicy<'a> {
 }
 
 /// The policy a link stream verifies an Attestation under (docs/05, "What
-/// runs on a stream that has no session"; DCR-072). Carries the profiles
+/// runs on a stream that has no session"). Carries the profiles
 /// and the two freshness limits and nothing else -- no `own_account`, no
 /// `linked_accounts`, no `ephemeral_receive` -- so step 6 is inexpressible
 /// on it, not merely skipped.
@@ -286,7 +286,7 @@ pub fn classify_with_profile(
 /// `verify::verify_link_attestation` (docs/05, "What runs on a stream that
 /// has no session"). Takes the two freshness limits directly, since the two
 /// entry points carry different policy types and neither is read here
-/// (DCR-025).
+///.
 pub(crate) fn check_claims(
     profile: &ProviderProfile,
     claims: &VerifiedClaims,

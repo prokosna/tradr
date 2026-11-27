@@ -1,4 +1,4 @@
-//! Supervisor-authored tests for HPKE base mode (ADR-0025, DCR-173).
+//! Supervisor-authored tests for HPKE base mode (ADR-0025).
 //! Critical Module: opening a Deferred Delivery. The vectors are RFC 9180
 //! section A.5, DHKEM(P-256, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305.
 

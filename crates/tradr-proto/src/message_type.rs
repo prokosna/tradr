@@ -2,7 +2,7 @@
 //! plane a code belongs to, which codes that plane has assigned, and what
 //! a receiver does with a code it did not expect. `framing.rs` carries the
 //! byte verbatim and knows none of this; this module is the registry, and
-//! the two never import each other (DCR-049).
+//! the two never import each other.
 
 use core::fmt;
 

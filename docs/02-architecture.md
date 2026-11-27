@@ -27,12 +27,10 @@ Rule: hot paths, low-level OS APIs and secret keys â†’ Rust. Android-only APIs â
 ## Layout
 
 ```
-proto/tradr/v1/          wire schema (source of truth; prost for Rust, ts-proto for TS)
+proto/tradr/v1/          wire schema (source of truth; prost via tradr-proto's build.rs)
 apps/tradr/              Tauri 2 app (desktop + Android); src-tauri/gen/android holds Kotlin
 apps/tradr-cli/          CLI front end; binary `tradr-cli`; may not name tauri
 apps/brokr/              optional backend, TypeScript + Fastify
-packages/                pnpm workspace stubs (ui, client-state, brokr-client are empty; protocol holds
-                         ts-proto output that no app imports). The UI lives in apps/tradr/src
 crates/
   tradr-core             Layer 0/1: domain types, protocol state machines, all traits. No I/O
   tradr-proto            protobuf codec. Only crate naming prost

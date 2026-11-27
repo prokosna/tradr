@@ -1,4 +1,4 @@
-//! QUIC transport binding and mDNS advertisement shared across front ends (docs/03, DCR-126).
+//! QUIC transport binding and mDNS advertisement shared across front ends (docs/03).
 //! Provides the fallback QUIC bind on port 21820 and device advertisement
 //! registration for mDNS discovery.
 
@@ -73,12 +73,22 @@ pub fn bind_quic_dialler(key_store: Arc<dyn KeyStore>) -> Result<Arc<QuicTranspo
     Ok(Arc::new(transport))
 }
 
+// Container bridges and overlay tunnels: addresses on them are not reachable
+// from the LAN, and overlay peers are reached as Static Peers instead.
 fn is_virtual_interface(name: &str) -> bool {
-    name.starts_with("veth")
-        || name.starts_with("br-")
-        || name.starts_with("docker")
-        || name.starts_with("vnet")
-        || name.starts_with("virbr")
+    const PREFIXES: [&str; 9] = [
+        "veth",
+        "br-",
+        "docker",
+        "vnet",
+        "virbr",
+        "tailscale",
+        "wg",
+        "zt",
+        "utun",
+    ];
+    let lower = name.to_ascii_lowercase();
+    PREFIXES.iter().any(|p| lower.starts_with(p))
 }
 
 /// Starts an mDNS daemon and disables virtual interfaces.
@@ -138,7 +148,7 @@ pub fn display_name_from_hostname(raw: &str) -> Option<DisplayName> {
     DisplayName::new(truncate_to_display_name_len(label)).ok()
 }
 
-/// Derives a display name from an OS device name without splitting at dots (DCR-160).
+/// Derives a display name from an OS device name without splitting at dots.
 pub fn display_name_from_device_name(raw: &str) -> Option<DisplayName> {
     if raw.eq_ignore_ascii_case("localhost") {
         return None;
@@ -212,5 +222,32 @@ mod tests {
         assert!(!is_virtual_interface("lo"));
         assert!(!is_virtual_interface("tun0"));
         assert!(!is_virtual_interface("bridge0"));
+    }
+}
+
+#[cfg(test)]
+mod interface_tests {
+    use super::is_virtual_interface;
+
+    #[test]
+    fn overlay_and_container_interfaces_are_virtual() {
+        for name in [
+            "tailscale0",
+            "Tailscale",
+            "wg0",
+            "ztabcdef",
+            "utun3",
+            "veth1@if2",
+            "docker0",
+        ] {
+            assert!(is_virtual_interface(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn physical_interfaces_are_not_virtual() {
+        for name in ["enp196s0", "wlp195s0", "eth0", "en0", "Wi-Fi", "Ethernet"] {
+            assert!(!is_virtual_interface(name), "{name}");
+        }
     }
 }

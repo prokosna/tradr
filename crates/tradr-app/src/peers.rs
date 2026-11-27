@@ -179,7 +179,7 @@ pub fn resolve_peer(
     Err(format!("peer with id {peer_id} not found"))
 }
 
-/// Stand-in dial deadline before Phase 3 races (docs/03, DCR-192).
+/// Stand-in dial deadline before Phase 3 races (docs/03).
 pub const DIAL_DEADLINE: Duration = Duration::from_secs(3);
 
 /// Dials `resolved.candidate` under `resolved.expectation` and, when made
@@ -282,7 +282,7 @@ pub fn peer_info(peer: &Peer) -> PeerInfo {
 }
 
 /// Matches a selector against discovered peer keys and unique display names
-/// so callers can address peers by either identifier (docs/02, DCR-149).
+/// so callers can address peers by either identifier (docs/02).
 pub fn select_peer_key(selector: &str, list: &PeerList) -> Result<Option<String>, String> {
     let peers = list.peers();
     let infos: Vec<PeerInfo> = peers.iter().map(peer_info).collect();

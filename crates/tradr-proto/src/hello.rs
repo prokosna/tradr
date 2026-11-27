@@ -1,5 +1,5 @@
 //! Converts between wire `Hello`/`HelloAck` and native `PeerHello`/`PeerHelloAck`
-//! (docs/04, DCR-053). This module reshapes bytes and nothing else: no
+//! (docs/04). This module reshapes bytes and nothing else: no
 //! signature check, no hash, no `DeviceId` derivation. Deciding meaning
 //! belongs to `tradr-identity`, which never sees a generated wire type.
 
@@ -78,7 +78,7 @@ impl std::fmt::Display for HelloWireError {
 
 impl std::error::Error for HelloWireError {}
 
-/// Converts a wire `Hello` into a `PeerHello` (DCR-053). `capabilities` is
+/// Converts a wire `Hello` into a `PeerHello`. `capabilities` is
 /// narrowed to low 16 bits and invalid/long `display_name` is dropped.
 /// `attestation.issuer`/`issued_at` are discarded in favor of token claims.
 /// Keys, nonce and version ranges are strictly validated.

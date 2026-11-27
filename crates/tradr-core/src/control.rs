@@ -154,7 +154,7 @@ impl fmt::Display for OfferItemError {
 
 impl std::error::Error for OfferItemError {}
 
-/// A single item offered in a transfer (docs/04, DCR-058).
+/// A single item offered in a transfer (docs/04).
 ///
 /// `mime` and `mtime` are omitted per DCR-058: neither field participates in
 /// protocol decisions at Layer 0.

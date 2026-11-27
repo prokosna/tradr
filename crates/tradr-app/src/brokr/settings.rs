@@ -1,7 +1,5 @@
 use std::fmt;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use tradr_core::SecretStore;
@@ -11,7 +9,6 @@ use super::api::Session;
 const SETTINGS_FILE: &str = "brokr.json";
 const JOIN_TOKEN_SLOT: &str = "brokr-join-token";
 const SESSION_SLOT: &str = "brokr-session";
-const MAX_TEMP_ATTEMPTS: u32 = 100;
 
 /// Why reading or writing the Brokr settings failed. No variant carries a
 /// token.
@@ -74,30 +71,6 @@ fn secret(e: impl fmt::Display) -> SettingsError {
     SettingsError::Secret(e.to_string())
 }
 
-fn create_temp_sibling(path: &Path) -> Result<(std::fs::File, PathBuf), SettingsError> {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    for _ in 0..MAX_TEMP_ATTEMPTS {
-        let count = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let mut name = path
-            .file_name()
-            .map(|n| n.to_os_string())
-            .unwrap_or_default();
-        name.push(format!(".tmp-{}-{count}", std::process::id()));
-        let temp = path.with_file_name(name);
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)
-        {
-            Ok(file) => return Ok((file, temp)),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(io(e)),
-        }
-    }
-    Err(io("no fresh temporary file name was free"))
-}
-
 /// Reads the settings in `dir`, or `None` when none were saved.
 pub fn load_settings(dir: &Path) -> Result<Option<BrokrSettings>, SettingsError> {
     match std::fs::read(dir.join(SETTINGS_FILE)) {
@@ -115,16 +88,7 @@ pub fn save_settings(dir: &Path, settings: &BrokrSettings) -> Result<(), Setting
     std::fs::create_dir_all(dir).map_err(io)?;
     let path = dir.join(SETTINGS_FILE);
     let bytes = serde_json::to_vec(settings).map_err(io)?;
-    let (mut file, temp) = create_temp_sibling(&path)?;
-    let written = file.write_all(&bytes).and_then(|()| file.sync_all());
-    drop(file);
-    let result = written
-        .and_then(|()| std::fs::rename(&temp, &path))
-        .map_err(io);
-    if result.is_err() {
-        std::fs::remove_file(&temp).map_err(io)?;
-    }
-    result
+    crate::atomic::write_atomic(&path, &bytes).map_err(io)
 }
 
 /// Forgets the saved settings; none saved is a success.

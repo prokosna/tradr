@@ -16,7 +16,7 @@ The data flow during a transfer needs a direction.
 
 ## Reasoning
 
-1. **Resumption needs no special case.** Restarting after an interruption means requesting from a later chunk index. No dedicated resume protocol, no negotiation. **This is the main reason.** The entire path-selection design rests on transfers always being interruptible and resumable — see [03](../03-discovery-and-transport.md#phase-5-is-the-point) — and pull is the cheapest way to make that true.
+1. **Resumption needs no special case.** Restarting after an interruption means requesting from a later chunk index. No dedicated resume protocol, no negotiation. **This is the main reason.** The entire path-selection design rests on transfers always being interruptible and resumable — see [03](../03-discovery-and-transport.md) — and pull is the cheapest way to make that true.
 
 2. **Flow control follows the receiver's circumstances.** A slow disk, a low battery, bandwidth shared with another transfer — all expressible directly. Push would need separate flow-control messages.
 

@@ -45,7 +45,7 @@ trait KeyStore {
 
 3. **`backing()` prevents a quiet lie.** Hardware backing fails for ordinary reasons — no TPM, an old Keymint, no Secret Service on a headless Linux box. Making the result a value the UI must render forces the fallback into the open instead of leaving it to an assumption.
 
-4. **It localizes the algorithm question.** Which curve a platform can protect (see [docs/05](../05-security.md#hardware-backing-and-the-curve)) is a property of the implementation, not of the calling code. With an operation-shaped trait, changing the answer touches Layer 3 and the wire format, not the use cases.
+4. **It localizes the algorithm question.** Which curve a platform can protect (see [docs/05](../05-security.md)) is a property of the implementation, not of the calling code. With an operation-shaped trait, changing the answer touches Layer 3 and the wire format, not the use cases.
 
 ## Consequences
 

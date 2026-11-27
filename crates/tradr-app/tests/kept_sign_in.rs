@@ -1,4 +1,4 @@
-//! Tests for kept sign-in loading, keeping, and resumption (WI-M8-040, DCR-150).
+//! Tests for kept sign-in loading, keeping, and resumption (WI-M8-040).
 
 mod common;
 

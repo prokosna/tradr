@@ -1,4 +1,4 @@
-//! Supervisor-authored tests for `NativeVfs::host_file_path` (ADR-0026, DCR-186).
+//! Supervisor-authored tests for `NativeVfs::host_file_path` (ADR-0026).
 //! Critical Module: boundary enforcement in tradr-vfs. The method is the one
 //! place a location leaves this crate, so it must answer exactly where the
 //! validated open reaches and refuse everything that open refuses.

@@ -1,4 +1,4 @@
-//! Application directory paths shared across front ends (DCR-124).
+//! Application directory paths shared across front ends.
 
 use std::path::{Path, PathBuf};
 
@@ -20,7 +20,7 @@ pub fn device_keys_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("keys")
 }
 
-/// Where this device's own most recently obtained ID token is kept (DCR-150).
+/// Where this device's own most recently obtained ID token is kept.
 pub fn attestation_path(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("attestation")
 }

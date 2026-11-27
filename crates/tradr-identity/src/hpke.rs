@@ -1,4 +1,4 @@
-//! HPKE base mode implementation (RFC 9180, ADR-0025, DCR-173).
+//! HPKE base mode implementation (RFC 9180, ADR-0025).
 //!
 //! Suite: DHKEM(P-256, HKDF-SHA256), HKDF-SHA256, ChaCha20Poly1305.
 

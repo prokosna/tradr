@@ -37,7 +37,7 @@ A bespoke UDP protocol is avoided because congestion control is hard to get righ
 - **Unusable where UDP is blocked.** Corporate networks and some hotel Wi-Fi throttle UDP. Those fall back to `relay` over WebSocket and TLS.
 - **Some middleboxes drop QUIC.** Same fallback.
 - **Higher CPU cost than TCP**, running in user space rather than the kernel. Mitigated with GSO and GRO, but it will not match TCP. Measure at the 100 MB/s scale.
-- **Unusable on BLE and relay.** Those use Noise_IK, so there are two encryption layers. Abstracted behind a `SecureChannel` trait so nothing above notices — see [05](../05-security.md#why-there-are-two-encryption-layers).
+- **Unusable on BLE and relay.** Those use Noise_IK, so there are two encryption layers. Abstracted behind a `SecureChannel` trait so nothing above notices — see [05](../05-security.md).
 
 ## To verify
 

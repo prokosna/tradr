@@ -1,4 +1,4 @@
-//! Tests for the received history recording and known name resolution (docs/12, DCR-184).
+//! Tests for the received history recording and known name resolution (docs/12).
 
 use std::time::Instant;
 

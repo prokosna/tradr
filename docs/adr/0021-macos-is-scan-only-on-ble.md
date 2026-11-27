@@ -2,7 +2,7 @@
 
 - **Status**: Superseded by [ADR-0028](0028-ble-removed.md)
 - **Date**: 2026-09-12
-- **Supersedes**: the macOS advertising cell of [docs/03](../03-discovery-and-transport.md#2-ble--proximity-no-network-required-tier-0)'s per-platform table, which named `objc2` and `CBPeripheralManager`. [ADR-0019](0019-a-128-bit-service-uuid-for-the-ble-advertisement.md) is untouched — the advertisement's layout is unchanged and the three platforms that can carry it still do. [ADR-0002](0002-ble-for-discovery-and-small-payloads.md) is untouched in scope, but its Change Drill D4 retreat stops being a retreat on one platform
+- **Supersedes**: the macOS advertising cell of [docs/03](../03-discovery-and-transport.md)'s per-platform table, which named `objc2` and `CBPeripheralManager`. [ADR-0019](0019-a-128-bit-service-uuid-for-the-ble-advertisement.md) is untouched — the advertisement's layout is unchanged and the three platforms that can carry it still do. [ADR-0002](0002-ble-for-discovery-and-small-payloads.md) is untouched in scope, but its Change Drill D4 retreat stops being a retreat on one platform
 
 ## Context
 
@@ -23,7 +23,7 @@
 
 **`didStartAdvertising(error: nil)` carries no information.** An honoured key and a dropped one produce the identical callback, which is why this question always needed a second radio and could never be answered on one machine.
 
-**A scanner built to this design cannot be the instrument.** [docs/03](../03-discovery-and-transport.md#what-a-scanner-reports-and-what-blesource-does-with-it) filters on `setServiceData`, so a Tradr scanner cannot report an advertisement that lacks the very structure under measurement. Pointed at a Mac it would have reported silence, and silence has three causes here. The raw read is what separated them.
+**A scanner built to this design cannot be the instrument.** [docs/03](../03-discovery-and-transport.md) filters on `setServiceData`, so a Tradr scanner cannot report an advertisement that lacks the very structure under measurement. Pointed at a Mac it would have reported silence, and silence has three causes here. The raw read is what separated them.
 
 **One ambiguity survives and it does not reach the verdict.** Either CoreBluetooth drops the key by policy, or it declines to advertise when no service UUID list is offered. A 128-bit UUID list is eighteen bytes, a 128-bit Service Data structure is twenty-eight, and Flags are three: forty-nine against the thirty-one a legacy advertisement carries, on every platform. **The two cannot coexist in one advertisement**, so both surviving hypotheses put this design's advertisement beyond macOS, and disambiguating them would change nothing that follows.
 

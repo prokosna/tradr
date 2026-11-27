@@ -14,7 +14,7 @@ env:
   # (`features = []`); a mismatched CLI version is the thing most likely
   # to make `cargo tauri build`/`android build` behave differently here
   # than it did in local verification.
-  TAURI_CLI_VERSION: "2.11.4"
+  TAURI_CLI_VERSION: "2.12.6"
   # Named once so the SDK/NDK cache key and the sdkmanager install list
   # can never drift apart (WI-M0-015b).
   ANDROID_NDK_VERSION: "27.3.13750724"
@@ -28,7 +28,7 @@ jobs:
   # the frontend gate, discarded results, empty catch blocks, and
   # frontend console calls.
   checks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # A hung test otherwise holds a merge for GitHub's six-hour default.
     timeout-minutes: 45
     steps:
@@ -49,7 +49,7 @@ jobs:
   # workspace build. The workspace includes apps/tradr/src-tauri, so even
   # a plain `cargo build` links against the host WebKitGTK stack on Linux.
   rust:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
   # Enforces Invariant I1 (ADR-0005): Every Tier 0 and Tier 1 feature
   # must work completely standalone with no Brokr running or configured.
   no-brokr:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -127,7 +127,7 @@ jobs:
   # conditions on this platform and a build-health signal for the app
   # crate on its own host.
   desktop:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -163,7 +163,7 @@ jobs:
           tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
 
       # No TRADR_OAUTH_CLIENT_IDS / TRADR_OAUTH_CLIENT_SECRET here:
-      # build.rs (DCR-030) emits empty values when both are absent, and a
+      # build.rs emits empty values when both are absent, and a
       # green build must not depend on repository secrets.
       - name: cargo tauri build
         working-directory: apps/tradr/src-tauri
@@ -203,7 +203,7 @@ jobs:
         run: cargo tauri build --no-bundle
 
   windows:
-    runs-on: windows-latest
+    runs-on: windows-2025-vs2026
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -240,7 +240,7 @@ jobs:
   # is the real ADR-0001 evidence, and runs less often.
   android-debug-smoke:
     name: "android-debug-smoke (aarch64, debug only -- not the release toolchain check)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -300,7 +300,7 @@ jobs:
         with:
           tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
 
-      # Android never receives the OAuth secret at all (DCR-030); the
+      # Android never receives the OAuth secret at all; the
       # client ID list is also left unset here, matching the desktop job.
       # --debug -t aarch64: proves the toolchain compiles, links and
       # assembles. It does not stand in for the release, four-ABI build
@@ -311,13 +311,22 @@ jobs:
           export NDK_HOME="$ANDROID_HOME/ndk/${{ env.ANDROID_NDK_VERSION }}"
           cargo tauri android build --debug -t aarch64
 
+      # Host clippy never sees cfg(target_os = "android") code.
+      - name: cargo clippy (android target)
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/${{ env.ANDROID_NDK_VERSION }}"
+          export PATH="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+          export CC_aarch64_linux_android=aarch64-linux-android24-clang
+          export AR_aarch64_linux_android=llvm-ar
+          cargo clippy --target aarch64-linux-android --workspace --exclude tradr-cli -- -D warnings
+
   # android-release-toolchain: the real evidence for ADR-0001's third
   # withdrawal condition, "the Tauri 2 Android build passes reliably in
   # CI" -- four ABIs, release profile, matching what a release actually
   # ships. Triggered manually via workflow_dispatch to avoid 41-minute runs.
   android-release-toolchain:
     name: "android-release-toolchain (four ABIs, release -- ADR-0001's withdrawal-condition evidence)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 90
     if: github.event_name == 'workflow_dispatch'
     steps:
@@ -378,7 +387,7 @@ jobs:
         with:
           tool: tauri-cli@${{ env.TAURI_CLI_VERSION }}
 
-      # Android never receives the OAuth secret at all (DCR-030); the
+      # Android never receives the OAuth secret at all; the
       # client ID list is also left unset here, matching the desktop job.
       - name: cargo tauri android build (release, four ABIs)
         working-directory: apps/tradr/src-tauri

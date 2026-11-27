@@ -1,6 +1,6 @@
 //! Tests `tradr_proto::hello`'s conversions between the wire `Hello` /
 //! `HelloAck` and `tradr_core`'s native `PeerHello` / `PeerHelloAck`
-//! (docs/04-protocol.md, "The Hello exchange", DCR-053). Round trips first,
+//! (docs/04-protocol.md, "The Hello exchange"). Round trips first,
 //! then one hostile test per thing an untrusted peer can get wrong.
 
 use tradr_core::{Capabilities, DisplayName, PublicKeyPoint, TrustTier};

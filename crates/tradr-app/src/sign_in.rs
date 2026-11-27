@@ -43,7 +43,7 @@ use crate::peer_trust::{OwnAttestation, PeerTrust};
 const ENV_CLIENT_IDS: &str = "TRADR_OAUTH_CLIENT_IDS";
 const ENV_CLIENT_SECRET: &str = "TRADR_OAUTH_CLIENT_SECRET";
 
-/// This device's configured OAuth client (DCR-030). Both fields are
+/// This device's configured OAuth client. Both fields are
 /// `None` on a fresh clone: build.rs bakes an empty string when
 /// `.tradr-deployment.env` is absent, and the composition root maps that
 /// to `None` before managing this.
@@ -73,13 +73,17 @@ impl OAuthConfig {
     }
 }
 
-/// Builds this build's `ProviderProfile` from runtime OAuth configuration,
-/// selecting the platform at compile time (DCR-116).
+/// Which OAuth client registration a build for `target_os` authenticates as.
+pub fn platform_for(target_os: &str) -> Platform {
+    match target_os {
+        "android" => Platform::Android,
+        _ => Platform::Desktop,
+    }
+}
+
+/// Builds this build's `ProviderProfile` from runtime OAuth configuration.
 pub fn provider_profile(oauth: &OAuthConfig) -> Result<ProviderProfile, String> {
-    #[cfg(target_os = "android")]
-    let platform = Platform::Android;
-    #[cfg(not(target_os = "android"))]
-    let platform = Platform::Desktop;
+    let platform = platform_for(std::env::consts::OS);
 
     let client = oauth_client(
         platform,
@@ -520,7 +524,7 @@ pub async fn finish_sign_in(
     Ok(outcome)
 }
 
-/// Re-verifies a kept ID token against current device keys and bounds reuse to 21 days (DCR-150).
+/// Re-verifies a kept ID token against current device keys and bounds reuse to 21 days.
 pub async fn resume_sign_in(
     profile: &ProviderProfile,
     public_identity: &PublicIdentity,
@@ -550,7 +554,7 @@ pub async fn resume_sign_in(
     Ok(outcome)
 }
 
-/// Attempts to resume from a kept ID token on disk, falling back to interactive sign-in (DCR-150).
+/// Attempts to resume from a kept ID token on disk, falling back to interactive sign-in.
 #[cfg(not(target_os = "android"))]
 pub async fn sign_in_keeping(
     label: &str,

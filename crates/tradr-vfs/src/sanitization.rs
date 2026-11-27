@@ -18,7 +18,7 @@ pub enum PatternPart {
 
 /// docs/06-shares-and-browsing.md, "The default deny list": the patterns
 /// below are the whole list and nothing besides. A pattern with more than
-/// one part denies only that consecutive run of components (DCR-056).
+/// one part denies only that consecutive run of components.
 pub const DENY_PATTERNS: &[&[PatternPart]] = &[
     &[PatternPart::Exact(".tradr-partial")],
     &[PatternPart::Exact(".ssh")],

@@ -228,7 +228,7 @@ fn a_disconnected_sender_yields_closed() {
     assert_eq!(result, Err(DiscoveryError::Closed));
 }
 
-// --- Address formatting (docs/03, DCR-048) ---
+// --- Address formatting (docs/03) ---
 
 #[test]
 fn an_ipv4_address_formats_with_no_brackets() {

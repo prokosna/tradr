@@ -39,7 +39,7 @@ use tradr_app::sign_in::{OAuthConfig, SignInState, provider_profile};
 
 /// Builds the plugin. Its setup hook opens the Device Key store once and
 /// manages `client_ids`/`client_secret`, this build's OAuth configuration
-/// (DCR-030) -- `None` in either means a fresh clone. On Android it also
+/// -- `None` in either means a fresh clone. On Android it also
 /// demonstrates both ADR-0001 call directions with Kotlin; on every other
 /// target that part is a no-op, since there is no Kotlin side to call into.
 pub fn init<R: Runtime>(
