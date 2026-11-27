@@ -495,6 +495,7 @@ export const fixtureCommands: Record<
 	"plugin:tradr|clear_brokr": () => null,
 	"plugin:tradr|collect_brokr_now": () => null,
 	"plugin:tradr|list_known_devices": () => fixtureData.knownDevices,
+	"plugin:tradr|forget_known_device": () => undefined,
 	"plugin:tradr|send_deferred": (payload) => {
 		const args = payload as { deviceId?: string; files?: string[] } | undefined;
 		return {

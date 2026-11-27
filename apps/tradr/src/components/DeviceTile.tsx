@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { PeerInfo, TransferProgressPayload } from "../types.js";
 
 export type PeerSendStatus =
@@ -19,6 +20,7 @@ export interface DeviceTileProps {
 	sendState?: PeerSendStatus | undefined;
 	onTap: (peer: PeerInfo) => void;
 	onOpenFolder: (peerKey: string) => void;
+	onForget?: ((deviceId: string) => Promise<void>) | undefined;
 }
 
 function formatDeviceSource(sources: string[]): string {
@@ -37,7 +39,21 @@ export function DeviceTile({
 	sendState,
 	onTap,
 	onOpenFolder,
+	onForget,
 }: DeviceTileProps) {
+	const [menuOpen, setMenuOpen] = useState(false);
+	const [confirmingForget, setConfirmingForget] = useState(false);
+	const [forgetError, setForgetError] = useState<string | undefined>(undefined);
+	const canForget = Boolean(isOffline && onForget);
+
+	const handleConfirmForget = () => {
+		if (!onForget) return;
+		onForget(peer.key).catch((e: unknown) => {
+			setForgetError(String(e));
+			setConfirmingForget(false);
+		});
+	};
+
 	const name = peer.display_name || "Unnamed device";
 	const initial = (name[0] || "?").toUpperCase();
 	const sourceText = formatDeviceSource(peer.sources);
@@ -85,12 +101,13 @@ export function DeviceTile({
 		.join(" ");
 
 	return (
-		// biome-ignore lint/a11y/useSemanticElements: Tile contains an inner action button preventing nested button tags
+		// A tile that cannot be tapped is not a button at all; marking it a
+		// disabled one would disable the menu button inside it too.
+		// biome-ignore lint/a11y/noStaticElementInteractions: the handlers ignore taps on a tile that is not a button
 		<div
 			className={tileClasses}
-			role="button"
-			aria-disabled={!isTappable}
-			tabIndex={isTappable ? 0 : -1}
+			role={isTappable ? "button" : undefined}
+			tabIndex={isTappable ? 0 : undefined}
 			data-device-key={peer.key}
 			onClick={handleClick}
 			onKeyDown={handleKeyDown}
@@ -151,6 +168,67 @@ export function DeviceTile({
 			{hasWaitingFiles && (!isOffline || brokrConfigured) && (
 				<span className="device-tile-affordance">
 					{isOffline ? "Send later →" : "Send →"}
+				</span>
+			)}
+
+			{canForget &&
+				(confirmingForget ? (
+					// biome-ignore lint/a11y/noStaticElementInteractions: stops taps inside the confirmation from reaching the tile
+					// biome-ignore lint/a11y/useKeyWithClickEvents: the buttons inside handle the keyboard
+					<div
+						className="inline-form device-tile-confirm"
+						onClick={(e) => e.stopPropagation()}
+					>
+						<span className="small">Forget this device?</span>
+						<button
+							type="button"
+							className="btn btn--danger"
+							onClick={handleConfirmForget}
+						>
+							Forget
+						</button>
+						<button
+							type="button"
+							className="btn btn--ghost"
+							onClick={() => setConfirmingForget(false)}
+						>
+							Cancel
+						</button>
+					</div>
+				) : (
+					<div className="device-tile-menu">
+						<button
+							type="button"
+							className="btn btn--ghost"
+							aria-label="Device actions"
+							aria-expanded={menuOpen}
+							onClick={(e) => {
+								e.stopPropagation();
+								setMenuOpen(!menuOpen);
+							}}
+						>
+							⋯
+						</button>
+						{menuOpen && (
+							<button
+								type="button"
+								className="btn btn--ghost device-tile-menu-item"
+								onClick={(e) => {
+									e.stopPropagation();
+									setMenuOpen(false);
+									setForgetError(undefined);
+									setConfirmingForget(true);
+								}}
+							>
+								Forget device
+							</button>
+						)}
+					</div>
+				))}
+
+			{forgetError !== undefined && (
+				<span className="small error-text device-tile-error">
+					Couldn't forget this device. {forgetError}
 				</span>
 			)}
 

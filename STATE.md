@@ -23,9 +23,6 @@ None are tracked. The user runs the builds daily and reports problems as they ap
 ## Backlog
 
 Product:
-- Forget a known device (Windows still lists the replaced debug APK as offline).
-- A file written into this device's folder by another device adds no Received row.
-- A download into its own folder writes straight to its final name instead of going through `.tradr-partial`.
 - QR scanning inside the app (`WI-M6-009`). Drag-out and shell integration. Sharing Shortcuts.
 - 24 h silent Attestation renewal (desktop refresh token; Android unmeasured).
 - Hardware-backed keys (Keystore, Secure Enclave, TPM). Blocked on `backing()` being one value for two keys, and `KeyStore` would need to become async (a Keystore sign is an IPC).

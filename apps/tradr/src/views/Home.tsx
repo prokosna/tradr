@@ -37,6 +37,7 @@ export interface HomeProps {
 	onClearWaitingFiles: () => void;
 	onTileTap: (peer: PeerInfo) => void;
 	onOpenFolder: (peerKey: string) => void;
+	onForgetDevice: (deviceId: string) => Promise<void>;
 	isRefreshing: boolean;
 	refreshError: string | null;
 	onRefresh: () => void;
@@ -63,6 +64,7 @@ export function Home({
 	onClearWaitingFiles,
 	onTileTap,
 	onOpenFolder,
+	onForgetDevice,
 	isRefreshing,
 	refreshError,
 	onRefresh,
@@ -156,6 +158,7 @@ export function Home({
 									sendState={peerSendStates[device.device_id]}
 									onTap={onTileTap}
 									onOpenFolder={onOpenFolder}
+									onForget={onForgetDevice}
 								/>
 							);
 						})}

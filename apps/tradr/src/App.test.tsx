@@ -7,6 +7,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
@@ -1105,7 +1106,62 @@ describe("App component", () => {
 		);
 		expect(tabletTile).not.toBeNull();
 		expect(tabletTile?.textContent).toContain("Offline Tablet");
-		expect(tabletTile?.querySelector("button")).toBeNull();
+		expect(tabletTile?.textContent).not.toContain("Open folder");
+	});
+
+	it("forgets an offline device from its tile menu after a confirmation", async () => {
+		let known = [
+			...fixtureKnownDevices,
+			{
+				device_id: "dev-offline-tablet",
+				display_name: "Offline Tablet",
+				tier: "same-account",
+				last_seen: 1727000000,
+			},
+		];
+		customHandlers["plugin:tradr|list_known_devices"] = () => known;
+		customHandlers["plugin:tradr|forget_known_device"] = (payload) => {
+			const { deviceId } = payload as { deviceId: string };
+			known = known.filter((d) => d.device_id !== deviceId);
+			return undefined;
+		};
+
+		const { container } = render(<App />);
+		await screen.findByText("Offline Tablet");
+		const tile = container.querySelector(
+			'[data-device-key="dev-offline-tablet"]',
+		) as HTMLElement;
+
+		const menuButton = within(tile).getByLabelText("Device actions");
+		// An aria-disabled ancestor would disable the menu button for real browsers.
+		expect(menuButton.closest("[aria-disabled='true']")).toBeNull();
+		fireEvent.click(menuButton);
+		fireEvent.click(within(tile).getByText("Forget device"));
+		expect(
+			recordedCalls.some((c) => c.cmd === "plugin:tradr|forget_known_device"),
+		).toBe(false);
+		fireEvent.click(within(tile).getByText("Forget"));
+
+		await waitFor(() => {
+			expect(screen.queryByText("Offline Tablet")).toBeNull();
+		});
+		expect(
+			recordedCalls.filter((c) => c.cmd === "plugin:tradr|forget_known_device"),
+		).toEqual([
+			{
+				cmd: "plugin:tradr|forget_known_device",
+				payload: { deviceId: "dev-offline-tablet" },
+			},
+		]);
+	});
+
+	it("offers no forget menu on a reachable device", async () => {
+		const { container } = render(<App />);
+		await screen.findByText("Pixel 8");
+		const tile = container.querySelector(
+			'[data-device-key="dev-pixel-8"]',
+		) as HTMLElement;
+		expect(within(tile).queryByLabelText("Device actions")).toBeNull();
 	});
 
 	it("renders a known device that is also a peer only once as reachable", async () => {

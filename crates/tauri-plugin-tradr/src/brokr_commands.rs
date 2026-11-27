@@ -334,6 +334,22 @@ pub async fn list_known_devices(
     Ok(known_device_dtos(&snapshot, self_id))
 }
 
+/// Forgets a known device. Its next verified handshake records it again;
+/// deliveries already handed to the Brokr for it are left as they are.
+#[tauri::command]
+pub async fn forget_known_device(
+    device_id: String,
+    known_devices: State<'_, Arc<KnownDevicesStore>>,
+) -> Result<(), String> {
+    let id = device_id
+        .parse::<DeviceId>()
+        .map_err(|e| format!("invalid device id: {e}"))?;
+    known_devices
+        .forget(&id)
+        .map(|_| ())
+        .map_err(|e| format!("could not forget the device: {e}"))
+}
+
 /// Uploads an end-to-end encrypted envelope to the Brokr for an offline recipient.
 #[tauri::command]
 pub async fn send_deferred<R: tauri::Runtime>(

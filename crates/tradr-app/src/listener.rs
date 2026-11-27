@@ -646,6 +646,8 @@ where
                     stream_res = channel.accept_bi() => {
                         let (mut browse_send, mut browse_recv) =
                             stream_res.map_err(ListenerError::Transport)?;
+                        // Files a peer wrote here are arrivals like any transfer's.
+                        let mut uploaded = Vec::new();
                         if !params.browse_access.allowed(channel.peer()) {
                             eprintln!("listener: peer {} has no access", channel.peer());
                             let refused = tradr_core::Refused {
@@ -671,7 +673,7 @@ where
                         } else {
                             let codec = tradr_proto::browse::ProtoBrowseCodec::new(channel.max_frame_size());
                             let uploads = crate::upload_paths::PartialUploadPaths;
-                            if let Err(e) = tradr_core::handle_browse_stream(
+                            let (placed, ended) = tradr_core::handle_browse_stream(
                                 browse_recv.as_mut(),
                                 browse_send.as_mut(),
                                 &codec,
@@ -680,10 +682,11 @@ where
                                 channel.max_frame_size(),
                                 &uploads,
                             )
-                            .await
-                            {
+                            .await;
+                            if let Err(e) = ended {
                                 eprintln!("listener: handle browse stream failed: {e}");
                             }
+                            uploaded = placed;
                         }
                         drop(browse_recv);
                         drop(browse_send);
@@ -699,7 +702,7 @@ where
                         {
                             eprintln!("listener: peer did not close within the limit");
                         }
-                        Ok(Vec::new())
+                        Ok(uploaded)
                     }
                 }
             }

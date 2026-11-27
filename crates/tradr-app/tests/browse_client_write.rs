@@ -431,6 +431,19 @@ async fn download_file_and_collision_succeeds() {
         std::fs::read(&client_file1).expect("read client file1 untouched"),
         payload
     );
+
+    // Both downloads went through staging, and nothing of it is left behind.
+    let partial_root = harness.client_dir.path().join(".tradr-partial");
+    let leftovers = match std::fs::read_dir(&partial_root) {
+        Ok(entries) => entries.count(),
+        Err(_) => 0,
+    };
+    assert_eq!(
+        leftovers,
+        0,
+        "staging left entries in {}",
+        partial_root.display()
+    );
 }
 
 #[tokio::test]

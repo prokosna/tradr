@@ -297,6 +297,14 @@ export function App() {
 			});
 	}, []);
 
+	const handleForgetDevice = useCallback(
+		async (deviceId: string) => {
+			await invoke("plugin:tradr|forget_known_device", { deviceId });
+			refreshKnownDevices();
+		},
+		[refreshKnownDevices],
+	);
+
 	useEffect(() => {
 		refreshBrokrStatus();
 		refreshKnownDevices();
@@ -749,6 +757,7 @@ export function App() {
 						onClearWaitingFiles={handleClearWaitingFiles}
 						onTileTap={handleTileTap}
 						onOpenFolder={handleOpenFolder}
+						onForgetDevice={handleForgetDevice}
 						isRefreshing={isRefreshing}
 						refreshError={refreshError}
 						onRefresh={handleRefresh}

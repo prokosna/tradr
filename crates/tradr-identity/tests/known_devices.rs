@@ -485,3 +485,35 @@ fn set_display_name_unknown_device_returns_ok_false_and_writes_nothing() {
     assert!(!changed);
     assert!(!file_path.exists());
 }
+
+#[test]
+fn forget_removes_only_that_device_and_survives_a_reload() {
+    let dir = TestDir::new();
+    let path = dir.path().join("known_devices.json");
+    let mut registry = KnownDevices::load(&path).expect("load");
+    let kept = sample_device(1, TrustTier::SameAccount, 100);
+    let gone = sample_device(2, TrustTier::Linked, 200);
+    registry.record(kept.clone()).expect("record kept");
+    registry.record(gone.clone()).expect("record gone");
+
+    assert!(registry.forget(&gone.device_id()).expect("forget"));
+    assert!(registry.get(&gone.device_id()).is_none());
+
+    let reloaded = KnownDevices::load(&path).expect("reload");
+    assert!(reloaded.get(&gone.device_id()).is_none());
+    assert_eq!(
+        reloaded.get(&kept.device_id()).map(KnownDevice::device_id),
+        Some(kept.device_id())
+    );
+}
+
+#[test]
+fn forgetting_an_unknown_device_is_not_an_error_and_writes_nothing() {
+    let dir = TestDir::new();
+    let path = dir.path().join("known_devices.json");
+    let mut registry = KnownDevices::load(&path).expect("load");
+    let stranger = sample_device(9, TrustTier::SameAccount, 100);
+
+    assert!(!registry.forget(&stranger.device_id()).expect("forget"));
+    assert!(!path.exists(), "no file is written for a no-op");
+}
