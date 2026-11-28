@@ -3,14 +3,14 @@
 Short, current, and edited in the same PR as the change it describes. History lives in `git log` and PRs. The pre-2026-11-26 long-form record is at `git show ad37cc7:STATE.md` and `git show ad37cc7:RECORD.md`.
 
 ```yaml
-last_updated: 2026-11-26
+last_updated: 2026-11-28
 current_milestone: M8 (self-beta in use) / M9 built
-latest_release: v0.1.4 (draft, 2026-10-17)
+latest_release: v0.1.6 (draft, 2026-11-28)
 ```
 
 ## In flight
 
-Nothing is in progress in code. The last landed work: dial deadline 3 s (#369), mDNS recheck + Refresh (v0.1.3), and the release pipeline (v0.1.1+).
+Nothing is in progress in code. The last landed work: account choice on sign-in (#379) and the account-switch confirm (#380), in v0.1.6.
 
 ## Device checks
 
