@@ -868,6 +868,32 @@ Denies the receive_folder command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-receive-service-status`
+
+</td>
+<td>
+
+Enables the receive_service_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-receive-service-status`
+
+</td>
+<td>
+
+Denies the receive_service_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-received-actions`
 
 </td>

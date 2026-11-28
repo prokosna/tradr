@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use common::{
     AUD, CountingFetch, ISS, JWKS_URI, KID, NOW, OWN_SUB, STALENESS_LIMIT_SECS, clock_at, identity,
-    impostor_key, profile, published_key, token,
+    impostor_key, profile, published_key, token, token_with_email,
 };
 use tradr_app::peer_trust::PeerTrust;
 #[cfg(not(target_os = "android"))]
@@ -67,6 +67,31 @@ async fn a_completed_sign_in_records_the_account_its_token_names() {
 
     assert_eq!(state.own_account(), Some(own_account()));
     assert_eq!(state.id_token().as_deref(), Some(id_token.as_str()));
+}
+
+#[tokio::test]
+async fn a_completed_sign_in_reports_the_email_for_display() {
+    let device = this_device();
+    let state = SignInState::empty();
+    let trust = trust_over(CountingFetch::serving(&[published_key(KID)]));
+    let id_token = token_with_email(KID, OWN_SUB, AUD, &device, NOW, Some("me@example.com"));
+
+    let outcome = finish_sign_in(
+        &profile(),
+        &device,
+        id_token,
+        &trust,
+        &state,
+        &clock_at(NOW),
+    )
+    .await
+    .expect("a token this provider signed, bound to this device");
+
+    assert_eq!(outcome.email.as_deref(), Some("me@example.com"));
+    assert_eq!(
+        state.outcome().and_then(|o| o.email).as_deref(),
+        Some("me@example.com")
+    );
 }
 
 #[tokio::test]

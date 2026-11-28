@@ -31,6 +31,7 @@
 		"tradr:allow-pick-files-to-send",
 		"tradr:allow-request-permissions",
 		"tradr:allow-check-permissions",
+		"tradr:allow-receive-service-status",
 		"tradr:allow-show-incoming-transfer-notification",
 		"tradr:allow-open-link-invite",
 		"tradr:allow-reply-to-link-invite",

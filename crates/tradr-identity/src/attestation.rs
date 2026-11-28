@@ -116,6 +116,8 @@ pub struct VerifiedClaims {
     /// The Attestation nonce, encoded per the selected profile's
     /// `nonce_binding`.
     pub nonce: String,
+    /// The account's email, for display only: identity is `(iss, sub)`.
+    pub email: Option<String>,
 }
 
 /// The policy a device applies to a peer's Attestation.

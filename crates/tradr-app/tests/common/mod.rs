@@ -167,10 +167,25 @@ fn signed_token(header_json: &str, payload_json: &str) -> String {
 /// presenting it. Separating the bound identity from the presented one is
 /// what makes the replay test possible at all.
 pub fn token(kid: &str, sub: &str, aud: &str, bound_to: &PublicIdentity, iat: i64) -> String {
+    token_with_email(kid, sub, aud, bound_to, iat, None)
+}
+
+/// `token`, optionally carrying an `email` claim.
+pub fn token_with_email(
+    kid: &str,
+    sub: &str,
+    aud: &str,
+    bound_to: &PublicIdentity,
+    iat: i64,
+    email: Option<&str>,
+) -> String {
+    let email_claim = email.map_or(String::new(), |e| format!(r#","email":"{e}""#));
     let nonce = attestation_nonce(NonceBinding::Verbatim, bound_to);
     signed_token(
         &format!(r#"{{"alg":"RS256","typ":"JWT","kid":"{kid}"}}"#),
-        &format!(r#"{{"iss":"{ISS}","sub":"{sub}","aud":"{aud}","iat":{iat},"nonce":"{nonce}"}}"#),
+        &format!(
+            r#"{{"iss":"{ISS}","sub":"{sub}","aud":"{aud}","iat":{iat},"nonce":"{nonce}"{email_claim}}}"#
+        ),
     )
 }
 

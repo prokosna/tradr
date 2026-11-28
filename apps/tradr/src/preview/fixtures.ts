@@ -61,6 +61,7 @@ export const fixtureSignIn: SignInOutcome = {
 	issuer: "https://accounts.google.com",
 	subject: "109876543210987654321",
 	tier: "same-account",
+	email: "haruka@example.com",
 };
 
 export const fixturePeers: PeerInfo[] = [
@@ -432,6 +433,12 @@ export const fixtureCommands: Record<
 	"plugin:tradr|device_identity": () => fixtureData.identity,
 	"plugin:tradr|receive_folder": () => "/home/haruka/Downloads",
 	"plugin:tradr|sign_in_status": () => fixtureData.signIn,
+	"plugin:app|version": () => "0.1.6",
+	"plugin:tradr|receive_service_status": () => ({
+		running: false,
+		error:
+			"startForegroundService: ForegroundServiceStartNotAllowedException: preview",
+	}),
 	"plugin:tradr|sign_in": () =>
 		activeScenario === "account-switch"
 			? { kind: "confirm_switch", links: 1, known_devices: 3, brokr: true }

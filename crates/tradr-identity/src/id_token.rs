@@ -217,6 +217,11 @@ fn parse_claims(payload: &Value) -> Result<VerifiedClaims, TokenError> {
         aud: require_str(payload, "aud")?,
         iat: UnixTime::from_secs(require_i64(payload, "iat")?),
         nonce: require_str(payload, "nonce")?,
+        // Display-only, so a missing or odd value never refuses the token.
+        email: payload
+            .get("email")
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 

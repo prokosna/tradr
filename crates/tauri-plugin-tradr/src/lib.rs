@@ -73,6 +73,7 @@ pub fn init<R: Runtime>(
             commands::pick_files_to_send,
             commands::request_permissions,
             commands::check_permissions,
+            commands::receive_service_status,
             commands::show_incoming_transfer_notification,
             link_commands::open_link_invite,
             link_commands::reply_to_link_invite,

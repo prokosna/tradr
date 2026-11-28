@@ -1645,7 +1645,12 @@ describe("App component", () => {
 		it("confirms the switch and ends signed in", async () => {
 			customHandlers["plugin:tradr|confirm_account_switch"] = () => ({
 				kind: "signed_in",
-				outcome: { issuer: "iss", subject: "other", tier: "same-account" },
+				outcome: {
+					issuer: "iss",
+					subject: "other",
+					tier: "same-account",
+					email: null,
+				},
 			});
 			await askForSwitch();
 

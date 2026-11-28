@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-receive-service-status"
+description = "Enables the receive_service_status command without any pre-configured scope."
+commands.allow = ["receive_service_status"]
+
+[[permission]]
+identifier = "deny-receive-service-status"
+description = "Denies the receive_service_status command without any pre-configured scope."
+commands.deny = ["receive_service_status"]

@@ -29,6 +29,15 @@ export interface SignInOutcome {
 	issuer: string;
 	subject: string;
 	tier: string;
+	// Display-only; the account is (issuer, subject).
+	email: string | null;
+}
+
+// Mirrors the Rust struct crates/tauri-plugin-tradr/src/commands.rs
+// returns from `receive_service_status` (null on desktop).
+export interface ReceiveServiceStatus {
+	running: boolean;
+	error: string | null;
 }
 
 // Mirrors the Rust enum crates/tauri-plugin-tradr/src/sign_in.rs returns
