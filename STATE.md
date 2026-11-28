@@ -5,12 +5,12 @@ Short, current, and edited in the same PR as the change it describes. History li
 ```yaml
 last_updated: 2026-11-28
 current_milestone: M8 (self-beta in use) / M9 built
-latest_release: v0.1.6 (draft, 2026-11-28)
+latest_release: v0.1.7 (draft, 2026-11-28)
 ```
 
 ## In flight
 
-Nothing is in progress in code. The last landed work: account choice on sign-in (#379) and the account-switch confirm (#380), in v0.1.6.
+Nothing is in progress in code. The last landed work: Settings shows the version, the signed-in email and the receive service state (#382), in v0.1.7.
 
 ## Device checks
 
@@ -23,11 +23,12 @@ None are tracked. The user runs the builds daily and reports problems as they ap
 ## Backlog
 
 Product:
+- Android: resume receiving after an app update or reboot without opening the app (`MY_PACKAGE_REPLACED`/`BOOT_COMPLETED`, plus starting the Rust listener without the Activity). Supersedes ADR-0022's "never at boot"; needs an ADR.
 - QR scanning inside the app (`WI-M6-009`). Drag-out and shell integration. Sharing Shortcuts.
 - Hardware-backed keys (Keystore, Secure Enclave, TPM). Blocked on `backing()` being one value for two keys, and `KeyStore` would need to become async (a Keystore sign is an IPC).
 
 Tech debt:
-- Android receive service: on the user's Android 16 phone it never starts (no Active apps entry, even with notifications allowed); cause unknown. Settings → About this device now shows Android's refusal; read it from the next build.
+- Android receive service: once seen not running while the app was open (cause unknown); gone after v0.1.7. It is now restarted on every resume, and Settings → About this device shows any refusal.
 - Listener failure lines: the cause of the stray "channel already closed" is unconfirmed. Paste the `transfer from <id> failed during <phase>` line when it next appears.
 - Tests that still survive mutation of the line they guard: see `git show ad37cc7:STATE.md` (Deferred). The link-reply pin, OAuth platform choice and key-rung choice are now covered.
 
