@@ -956,6 +956,7 @@ fn tier_for(registry: &LinkRegistry, sub: &str) -> Result<TrustTier, Attestation
         aud: "desktop-client.apps.googleusercontent.com".to_string(),
         iat: UnixTime::from_secs(NOW),
         nonce: attestation_nonce(NonceBinding::Verbatim, &peer_identity()),
+        email: None,
     };
     classify(
         &policy,

@@ -26,6 +26,7 @@ const COMMANDS: &[&str] = &[
     "pick_files_to_send",
     "request_permissions",
     "check_permissions",
+    "receive_service_status",
     "show_incoming_transfer_notification",
     "open_link_invite",
     "reply_to_link_invite",

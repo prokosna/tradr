@@ -2,6 +2,7 @@ import type { SignInUiState } from "../App.js";
 import { SwitchConfirm } from "../components/SwitchConfirm.js";
 import { Linking } from "../Linking.js";
 import type { BrokrStatusDto } from "../types.js";
+import { About } from "./About.js";
 import { Advanced } from "./Advanced.js";
 import { BrokrSettings } from "./BrokrSettings.js";
 import { StaticPeers } from "./StaticPeers.js";
@@ -36,7 +37,11 @@ export function Settings({
 				<h2>Account</h2>
 				{signIn.status === "signed_in" && (
 					<div className="stack">
-						<p>Signed in with your Google account.</p>
+						<p>
+							{signIn.outcome.email
+								? `Signed in as ${signIn.outcome.email}`
+								: "Signed in with your Google account."}
+						</p>
 						<div>
 							<button type="button" className="btn" onClick={onSignIn}>
 								Sign in again
@@ -88,6 +93,11 @@ export function Settings({
 			<section className="settings-section">
 				<h2>Deliver when a device is offline</h2>
 				<BrokrSettings onStatusChange={onBrokrStatusChange} />
+			</section>
+
+			<section className="settings-section">
+				<h2>About this device</h2>
+				<About />
 			</section>
 
 			<section className="settings-section">

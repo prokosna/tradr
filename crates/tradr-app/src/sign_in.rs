@@ -100,6 +100,8 @@ pub struct SignInOutcome {
     pub issuer: String,
     pub subject: String,
     pub tier: String,
+    /// For display only; never used to identify the account.
+    pub email: Option<String>,
 }
 
 // The outcome plus the id_token that earned it, held together so the two
@@ -608,6 +610,7 @@ fn verify_and_classify_token(
         issuer: claims.iss.clone(),
         subject: claims.sub.clone(),
         tier: format!("{tier:?}"),
+        email: claims.email.clone(),
     };
 
     Ok((claims, outcome))

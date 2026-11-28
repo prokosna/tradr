@@ -386,3 +386,42 @@ fn serde_json_value(payload: &str, name: &str) -> Option<String> {
     let end = rest.find([',', '}']).unwrap_or(rest.len());
     Some(rest[..end].to_string())
 }
+
+// --- Email is display-only ----------------------------------------------
+
+fn token_with_payload(payload: &str) -> String {
+    signed_token(
+        &format!(r#"{{"alg":"RS256","typ":"JWT","kid":"{KID}"}}"#),
+        payload,
+    )
+}
+
+#[test]
+fn a_signed_email_claim_is_carried_for_display() {
+    let payload = format!(
+        r#"{{"iss":"{ISS}","sub":"peer-subject","aud":"{AUD}","iat":1800000000,"nonce":"a-nonce","email":"someone@example.com"}}"#
+    );
+    let Ok(claims) = verify(&token_with_payload(&payload)) else {
+        panic!("a token with an email claim must verify");
+    };
+    assert_eq!(claims.email.as_deref(), Some("someone@example.com"));
+}
+
+#[test]
+fn a_token_without_email_still_verifies() {
+    let Ok(claims) = verify(&valid_token()) else {
+        panic!("email is optional; its absence must not refuse the token");
+    };
+    assert_eq!(claims.email, None);
+}
+
+#[test]
+fn a_non_string_email_is_dropped_rather_than_refusing_the_token() {
+    let payload = format!(
+        r#"{{"iss":"{ISS}","sub":"peer-subject","aud":"{AUD}","iat":1800000000,"nonce":"a-nonce","email":42}}"#
+    );
+    let Ok(claims) = verify(&token_with_payload(&payload)) else {
+        panic!("a display-only claim must never decide whether a token verifies");
+    };
+    assert_eq!(claims.email, None);
+}

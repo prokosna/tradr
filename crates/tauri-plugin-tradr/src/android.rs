@@ -239,6 +239,16 @@ pub async fn share_received_file<R: Runtime>(
         .map_err(|e| e.to_string())
 }
 
+/// Asks Kotlin whether the receive service reached the foreground.
+pub async fn receive_service_status<R: Runtime>(
+    handle: &PluginHandle<R>,
+) -> Result<crate::commands::ReceiveServiceStatus, String> {
+    handle
+        .run_mobile_plugin_async("receiveServiceStatus", ())
+        .await
+        .map_err(|e| format!("failed to read the receive service status: {e}"))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SignInRequest<'a> {

@@ -889,6 +889,37 @@ pub async fn request_permissions<R: tauri::Runtime>(
     }
 }
 
+/// Whether the Android receive service is keeping this process alive, and why not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReceiveServiceStatus {
+    /// The service reached the foreground.
+    pub running: bool,
+    /// The last refusal Android gave when starting it.
+    pub error: Option<String>,
+}
+
+/// Reports the Android receive service; `None` on desktop, where the
+/// listener lives exactly as long as the app.
+#[tauri::command]
+pub async fn receive_service_status<R: tauri::Runtime>(
+    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+) -> Result<Option<ReceiveServiceStatus>, String> {
+    #[cfg(target_os = "android")]
+    {
+        use tauri::Manager;
+        let handle_state = app
+            .try_state::<crate::android::AndroidPluginHandle<R>>()
+            .ok_or_else(|| "android plugin handle not found".to_string())?;
+        crate::android::receive_service_status(&handle_state.0)
+            .await
+            .map(Some)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        Ok(None)
+    }
+}
+
 /// Checks current status of plugin permissions without prompting the user.
 #[tauri::command]
 pub async fn check_permissions<R: tauri::Runtime>(

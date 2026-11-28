@@ -27,6 +27,7 @@ Product:
 - Hardware-backed keys (Keystore, Secure Enclave, TPM). Blocked on `backing()` being one value for two keys, and `KeyStore` would need to become async (a Keystore sign is an IPC).
 
 Tech debt:
+- Android receive service: on the user's Android 16 phone it never starts (no Active apps entry, even with notifications allowed); cause unknown. Settings → About this device now shows Android's refusal; read it from the next build.
 - Listener failure lines: the cause of the stray "channel already closed" is unconfirmed. Paste the `transfer from <id> failed during <phase>` line when it next appears.
 - Tests that still survive mutation of the line they guard: see `git show ad37cc7:STATE.md` (Deferred). The link-reply pin, OAuth platform choice and key-rung choice are now covered.
 

@@ -129,7 +129,16 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
             ContextCompat.startForegroundService(activity, Intent(activity, ReceiveService::class.java))
         } catch (e: Exception) {
             Logger.error("TradrPlugin: could not start the receive service", e)
+            ReceiveService.recordFailure("startForegroundService", e)
         }
+    }
+
+    @Command
+    fun receiveServiceStatus(invoke: Invoke) {
+        val result = JSObject()
+        result.put("running", ReceiveService.running)
+        result.put("error", ReceiveService.lastError ?: JSONObject.NULL)
+        invoke.resolve(result)
     }
 
     override fun load(webView: WebView) {

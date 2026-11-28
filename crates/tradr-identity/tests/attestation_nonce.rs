@@ -80,6 +80,7 @@ fn claims(nonce: &str) -> VerifiedClaims {
         aud: AUD.to_string(),
         iat: UnixTime::from_secs(NOW),
         nonce: nonce.to_string(),
+        email: None,
     }
 }
 

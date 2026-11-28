@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import app.tauri.Logger
 
 class ReceiveService : Service() {
 
@@ -20,6 +21,19 @@ class ReceiveService : Service() {
         private const val NOTIFICATION_ID = 1000
         private const val CHANNEL_ID = "tradr_receive_ready"
         private const val CHANNEL_NAME = "Ready to receive"
+
+        // Read by the Settings screen, so a service that never started is visible there.
+        @Volatile
+        var running: Boolean = false
+            private set
+
+        @Volatile
+        var lastError: String? = null
+
+        fun recordFailure(stage: String, e: Exception) {
+            running = false
+            lastError = "$stage: ${e.javaClass.simpleName}: ${e.message ?: "no message"}"
+        }
     }
 
     private var multicastLock: WifiManager.MulticastLock? = null
@@ -73,7 +87,16 @@ class ReceiveService : Service() {
         } else {
             0
         }
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, foregroundServiceType)
+        try {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, foregroundServiceType)
+        } catch (e: Exception) {
+            Logger.error("ReceiveService: startForeground was refused", e)
+            recordFailure("startForeground", e)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        running = true
+        lastError = null
 
         val lock = multicastLock
         if (lock != null && !lock.isHeld) {
@@ -86,6 +109,7 @@ class ReceiveService : Service() {
     }
 
     override fun onDestroy() {
+        running = false
         releaseMulticastLock()
         super.onDestroy()
     }

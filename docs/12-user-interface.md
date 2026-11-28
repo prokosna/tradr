@@ -6,7 +6,7 @@ Main path: **Send** (files → device), **Receive** (see what arrived), **Open a
 
 ## Flows
 
-**First run**: a single card, "Sign in with Google to reach your devices". The device list sits greyed underneath. After sign-in the header says "Signed in" (the app keeps no email).
+**First run**: a single card, "Sign in with Google to reach your devices". The device list sits greyed underneath. After sign-in the header says "Signed in".
 
 **Send, files first**:
 1. Select files, or drop them anywhere. They appear as chips with name, size and a total, plus Clear.
@@ -41,11 +41,12 @@ The **Refresh** button in the device-list header rechecks every device (shows "C
 - `Refused` reasons are shown in plain words.
 
 **Settings** (in order):
-1. Account.
+1. Account: "Signed in as `<email>`" (display only, from the verified token; "Signed in with your Google account." when it has none).
 2. Linked accounts (invite, paste a code, list with the "Let this account's devices open and change my folder" toggle).
 3. Add a device by address.
 4. Deliver when a device is offline. Connect by pasting a Brokr link; typing the address and token is a fallback. Once connected: status, Check now, Disconnect, Show link with Copy.
-5. Advanced (collapsed): Device ID, key backing, Attestation tools.
+5. About this device: "Version `<version>` (`<commit>`)". On Android also "Receiving in the background." or "Not receiving in the background. Files arrive only while Tradr is open." with Android's refusal underneath.
+6. Advanced (collapsed): Device ID, key backing, Attestation tools.
 
 ## Words
 
