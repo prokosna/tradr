@@ -4,23 +4,100 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 
+use tradr_app::account_switch::{
+    PendingSwitch, keep_account_of_record, load_account_of_record, needs_confirmation,
+    previous_account,
+};
 use tradr_app::kept_sign_in::{keep_token, load_kept_token, renewal_due};
-use tradr_app::paths::attestation_path;
+use tradr_app::known_store::KnownDevicesStore;
+use tradr_app::paths::{account_path, attestation_path};
 use tradr_app::peer_trust::PeerTrust;
 use tradr_app::sign_in::{
-    OAuthConfig, SignInOutcome, SignInState, finish_renewal, finish_sign_in, provider_profile,
-    resume_sign_in,
+    OAuthConfig, SignInOutcome, SignInState, VerifiedSignIn, finish_renewal, provider_profile,
+    resume_sign_in, verify_sign_in,
 };
 #[cfg(not(target_os = "android"))]
 use tradr_app::sign_in::{obtain_id_token_desktop, renew_id_token_desktop};
 use tradr_core::{Clock, PublicIdentity};
-use tradr_identity::ProviderProfile;
+use tradr_identity::{AccountId, ProviderProfile};
 use tradr_identity::{SystemClock, attestation_nonce};
 
+use crate::brokr_commands::BrokrState;
 use crate::identity::IdentityState;
+use crate::link_registry::LinkRegistryState;
 use crate::peer_trust::PeerTrustState;
+
+/// What a sign-in command answers: signed in, or waiting for the user to
+/// confirm leaving the previous account behind.
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SignInResult {
+    /// The sign-in was adopted.
+    SignedIn {
+        /// The account this device now belongs to.
+        outcome: SignInOutcome,
+    },
+    /// The sign-in names another account; nothing has changed yet.
+    ConfirmSwitch {
+        /// Links that confirming removes.
+        links: usize,
+        /// Known Devices that confirming removes.
+        known_devices: usize,
+        /// Whether confirming removes the Brokr connection.
+        brokr: bool,
+    },
+}
+
+// Adopts a verified sign-in and keeps what lets the next run resume it. Keeping
+// can fail without undoing the sign-in, so each failure is reported and not returned.
+fn adopt_and_keep<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    sign_in_state: &SignInState,
+    verified: VerifiedSignIn,
+) -> SignInOutcome {
+    let id_token = verified.id_token().to_string();
+    let account = verified.account();
+    let outcome = sign_in_state.adopt(verified);
+
+    match crate::paths::app_data_dir(app) {
+        Ok(dir) => {
+            if let Err(e) = keep_token(&attestation_path(&dir), &id_token) {
+                eprintln!("sign_in: could not keep the sign-in: {e}");
+            }
+            keep_account(&dir, &account);
+        }
+        Err(e) => eprintln!("sign_in: could not keep the sign-in: {e}"),
+    }
+    outcome
+}
+
+fn keep_account(dir: &std::path::Path, account: &AccountId) {
+    if let Err(e) = keep_account_of_record(&account_path(dir), account) {
+        eprintln!("sign_in: {e}");
+    }
+}
+
+// An unreadable record is reported and read as none: refusing every sign-in
+// over a damaged file would lock the user out.
+fn recorded_account<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Option<AccountId> {
+    let dir = match crate::paths::app_data_dir(app) {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("sign_in: account record not read: {e}");
+            return None;
+        }
+    };
+    match load_account_of_record(&account_path(&dir)) {
+        Ok(recorded) => recorded,
+        Err(e) => {
+            eprintln!("sign_in: account record not used: {e}");
+            None
+        }
+    }
+}
 
 /// Returns the most recently completed sign-in, so the screen can show it
 /// again after a reload without repeating the flow.
@@ -53,7 +130,7 @@ pub async fn sign_in<R: tauri::Runtime>(
     oauth: State<'_, OAuthConfig>,
     sign_in_state: State<'_, Arc<SignInState>>,
     peer_trust_state: State<'_, PeerTrustState>,
-) -> Result<SignInOutcome, String> {
+) -> Result<SignInResult, String> {
     let _guard = sign_in_state
         .begin()
         .ok_or_else(|| "a sign-in is already in progress".to_string())?;
@@ -71,23 +148,80 @@ pub async fn sign_in<R: tauri::Runtime>(
     let id_token = obtain_id_token_android(&app, &profile, &nonce).await?;
 
     let peer_trust = peer_trust_state.peer_trust()?;
-    let outcome = finish_sign_in(
+    let verified = verify_sign_in(
         &profile,
         &public_identity,
-        id_token.clone(),
+        id_token,
         &peer_trust,
-        &sign_in_state,
         &SystemClock,
     )
     .await?;
 
-    let keep_result = crate::paths::app_data_dir(&app)
-        .and_then(|dir| keep_token(&attestation_path(&dir), &id_token));
-    if let Err(e) = keep_result {
-        eprintln!("sign_in: could not keep the sign-in: {e}");
+    let previous = previous_account(&sign_in_state, recorded_account(&app));
+    if needs_confirmation(previous.as_ref(), &verified.account()) {
+        let links = app
+            .state::<LinkRegistryState>()
+            .registry()?
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .links()
+            .len();
+        let result = SignInResult::ConfirmSwitch {
+            links,
+            known_devices: app.state::<Arc<KnownDevicesStore>>().snapshot().len(),
+            brokr: app.state::<Arc<BrokrState>>().status().configured,
+        };
+        app.state::<Arc<PendingSwitch>>().hold(verified);
+        return Ok(result);
     }
 
-    Ok(outcome)
+    let outcome = adopt_and_keep(&app, &sign_in_state, verified);
+    Ok(SignInResult::SignedIn { outcome })
+}
+
+/// Confirms the waiting account switch: removes what the previous account
+/// set up, then adopts the new sign-in. Any failure adopts nothing.
+#[tauri::command]
+pub async fn confirm_account_switch<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    identity_state: State<'_, IdentityState>,
+    sign_in_state: State<'_, Arc<SignInState>>,
+    pending: State<'_, Arc<PendingSwitch>>,
+    link_registry: State<'_, LinkRegistryState>,
+    known_devices: State<'_, Arc<KnownDevicesStore>>,
+    brokr: State<'_, Arc<BrokrState>>,
+) -> Result<SignInResult, String> {
+    let _guard = sign_in_state
+        .begin()
+        .ok_or_else(|| "a sign-in is already in progress".to_string())?;
+    let verified = pending
+        .take()
+        .ok_or_else(|| "no account switch is waiting".to_string())?;
+
+    brokr
+        .clear()
+        .map_err(|e| format!("could not remove the offline delivery connection: {e}"))?;
+
+    let secrets = identity_state.secret_store()?;
+    link_registry
+        .registry()?
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove_all(secrets.as_ref())
+        .map_err(|e| format!("could not remove the linked accounts: {e}"))?;
+
+    known_devices
+        .forget_all()
+        .map_err(|e| format!("could not forget the known devices: {e}"))?;
+
+    let outcome = adopt_and_keep(&app, &sign_in_state, verified);
+    Ok(SignInResult::SignedIn { outcome })
+}
+
+/// Refuses the waiting account switch, leaving everything as it was.
+#[tauri::command]
+pub fn cancel_account_switch(pending: State<'_, Arc<PendingSwitch>>) {
+    pending.discard();
 }
 
 pub(crate) async fn resume_kept_sign_in<R: tauri::Runtime>(
@@ -152,6 +286,10 @@ pub(crate) async fn resume_kept_sign_in<R: tauri::Runtime>(
     .await
     {
         Ok(outcome) => {
+            match crate::paths::app_data_dir(&app) {
+                Ok(dir) => keep_account(&dir, &AccountId::new(&outcome.issuer, &outcome.subject)),
+                Err(e) => eprintln!("sign_in: account record not kept: {e}"),
+            }
             if let Err(e) = app.emit("sign-in-restored", &outcome) {
                 eprintln!("sign_in: emit sign-in-restored failed: {e}");
             }

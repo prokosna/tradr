@@ -31,6 +31,17 @@ export interface SignInOutcome {
 	tier: string;
 }
 
+// Mirrors the Rust enum crates/tauri-plugin-tradr/src/sign_in.rs returns
+// from `sign_in` and `confirm_account_switch`.
+export type SignInResult =
+	| { kind: "signed_in"; outcome: SignInOutcome }
+	| {
+			kind: "confirm_switch";
+			links: number;
+			known_devices: number;
+			brokr: boolean;
+	  };
+
 // Mirrors the Rust struct crates/tauri-plugin-tradr/src/attestation.rs
 // returns from `attestation_bundle` and parses from `verify_peer_attestation`.
 export interface AttestationBundle {

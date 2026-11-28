@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-confirm-account-switch"
+description = "Enables the confirm_account_switch command without any pre-configured scope."
+commands.allow = ["confirm_account_switch"]
+
+[[permission]]
+identifier = "deny-confirm-account-switch"
+description = "Denies the confirm_account_switch command without any pre-configured scope."
+commands.deny = ["confirm_account_switch"]

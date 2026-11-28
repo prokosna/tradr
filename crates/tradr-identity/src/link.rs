@@ -430,6 +430,21 @@ impl LinkRegistry {
         Ok(())
     }
 
+    /// Removes every Link, discarding each Link Secret before the empty
+    /// registry is written. Returns how many Links went. A secret that
+    /// cannot be discarded stops the removal with every record kept.
+    pub fn remove_all(&mut self, secrets: &dyn SecretStore) -> Result<usize, LinkRegistryError> {
+        for link in &self.links {
+            secrets
+                .remove(&link_secret_slot(&link.link_id))
+                .map_err(LinkRegistryError::Secret)?;
+        }
+
+        self.persist(&[])?;
+
+        Ok(std::mem::take(&mut self.links).len())
+    }
+
     /// The Link Secret stored for `id`: `UnknownLink` when this registry
     /// holds no Link with that id, `Ok(None)` when it does and the slot is
     /// empty, `Ok(Some(..))` otherwise. A stored value of the wrong length

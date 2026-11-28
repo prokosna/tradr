@@ -4,6 +4,8 @@ const COMMANDS: &[&str] = &[
     "device_identity",
     "sign_in",
     "sign_in_status",
+    "confirm_account_switch",
+    "cancel_account_switch",
     "attestation_bundle",
     "verify_peer_attestation",
     "get_peers",

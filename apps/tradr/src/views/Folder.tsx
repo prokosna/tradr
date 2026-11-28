@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
 	DirListingDto,
 	FileEntryDto,
-	ShareInfo,
 	SharedFilePayload,
+	ShareInfo,
 } from "../types.js";
 
 export interface FolderProps {

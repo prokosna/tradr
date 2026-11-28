@@ -140,6 +140,32 @@ Denies the brokr_status command without any pre-configured scope.
 <tr>
 <td>
 
+`tradr:allow-cancel-account-switch`
+
+</td>
+<td>
+
+Enables the cancel_account_switch command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-cancel-account-switch`
+
+</td>
+<td>
+
+Denies the cancel_account_switch command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `tradr:allow-check-permissions`
 
 </td>
@@ -237,6 +263,32 @@ Enables the collect_brokr_now command without any pre-configured scope.
 <td>
 
 Denies the collect_brokr_now command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:allow-confirm-account-switch`
+
+</td>
+<td>
+
+Enables the confirm_account_switch command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`tradr:deny-confirm-account-switch`
+
+</td>
+<td>
+
+Denies the confirm_account_switch command without any pre-configured scope.
 
 </td>
 </tr>

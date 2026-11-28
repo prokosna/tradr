@@ -38,6 +38,7 @@ id_token = { iss, aud, sub, nonce, iat, exp }  signed by Google
 - **A refresh token cannot renew an Attestation** (measured 2026-11-27): the ID token from a `refresh_token` grant carries no `nonce` and keeps the original `iat`.
 - **Automatic renewal** (GUI only): once the kept token is ≥ 14 days old, checked at start and every 6 h, the app re-runs authorization with the same nonce and no UI. On desktop it opens the browser with `prompt=none` and `login_hint=<sub>` (60 s cap, no stdin). On Android it uses Credential Manager with the saved-credential option only. The result goes through the same verification as a sign-in, **and is adopted only if it names the same account**. Any failure keeps the current token; the normal sign-in appears after day 21. Unmeasured on devices.
 - **Account choice**: a sign-in the user starts always shows the account chooser (desktop `prompt=select_account`; Android `GetSignInWithGoogleOption`), so a wrong account can be replaced. Renewal never does.
+- **Switching accounts**: a sign-in that names a different account than the live one, or than the `account` record beside the kept token, asks first. Confirming removes the Brokr connection, every Link and its Link Secret, and every Known Device, then adopts the new account; any failure adopts nothing. Cancelling changes nothing.
 - Revocation: revoke the app in Google settings. The device can no longer renew, and peers reject it after 30 days. There is no faster global mechanism at Tier 0.
 
 ### OAuth client configuration

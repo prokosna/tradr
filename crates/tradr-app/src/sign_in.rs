@@ -97,9 +97,9 @@ pub fn provider_profile(oauth: &OAuthConfig) -> Result<ProviderProfile, String> 
 /// Which account this device belongs to, once a sign-in completes.
 #[derive(Debug, Clone, Serialize)]
 pub struct SignInOutcome {
-    issuer: String,
-    subject: String,
-    tier: String,
+    pub issuer: String,
+    pub subject: String,
+    pub tier: String,
 }
 
 // The outcome plus the id_token that earned it, held together so the two
@@ -613,9 +613,59 @@ fn verify_and_classify_token(
     Ok((claims, outcome))
 }
 
-/// Everything sign-in decides once an ID token is in hand. The JWKS cache
-/// it warms is the one a later peer connection reads from rather than a
-/// cache of its own.
+/// A sign-in whose token verified and classified, not yet this device's
+/// account: `SignInState::adopt` makes it so.
+pub struct VerifiedSignIn {
+    outcome: SignInOutcome,
+    id_token: String,
+    iat: UnixTime,
+}
+
+impl VerifiedSignIn {
+    /// The account the token names.
+    pub fn account(&self) -> AccountId {
+        AccountId::new(&self.outcome.issuer, &self.outcome.subject)
+    }
+
+    /// The verified ID token, for keeping on disk once adopted.
+    pub fn id_token(&self) -> &str {
+        &self.id_token
+    }
+}
+
+impl SignInState {
+    /// Makes a verified sign-in this device's account and Attestation.
+    pub fn adopt(&self, verified: VerifiedSignIn) -> SignInOutcome {
+        let outcome = verified.outcome.clone();
+        self.set_signed_in(verified.outcome, verified.id_token, verified.iat);
+        outcome
+    }
+}
+
+/// Warms the JWKS cache, verifies and classifies an ID token without
+/// touching `SignInState`. The cache it warms is the one a later peer
+/// connection reads from rather than a cache of its own.
+pub async fn verify_sign_in(
+    profile: &ProviderProfile,
+    public_identity: &PublicIdentity,
+    id_token: String,
+    peer_trust: &PeerTrust,
+    clock: &(dyn Clock + Sync),
+) -> Result<VerifiedSignIn, String> {
+    let jwks_document = peer_trust.warm(&profile.jwks_uri).await?;
+    let keys = parse_jwks(&jwks_document).map_err(|e| e.to_string())?;
+
+    let (claims, outcome) =
+        verify_and_classify_token(profile, public_identity, &id_token, &keys, clock)?;
+
+    Ok(VerifiedSignIn {
+        outcome,
+        id_token,
+        iat: claims.iat,
+    })
+}
+
+/// Everything sign-in decides once an ID token is in hand: verify, then adopt.
 pub async fn finish_sign_in(
     profile: &ProviderProfile,
     public_identity: &PublicIdentity,
@@ -624,15 +674,8 @@ pub async fn finish_sign_in(
     sign_in_state: &SignInState,
     clock: &(dyn Clock + Sync),
 ) -> Result<SignInOutcome, String> {
-    let jwks_document = peer_trust.warm(&profile.jwks_uri).await?;
-    let keys = parse_jwks(&jwks_document).map_err(|e| e.to_string())?;
-
-    let (claims, outcome) =
-        verify_and_classify_token(profile, public_identity, &id_token, &keys, clock)?;
-
-    sign_in_state.set_signed_in(outcome.clone(), id_token, claims.iat);
-
-    Ok(outcome)
+    let verified = verify_sign_in(profile, public_identity, id_token, peer_trust, clock).await?;
+    Ok(sign_in_state.adopt(verified))
 }
 
 /// Verifies a renewed ID token like `finish_sign_in`, and adopts it only when it

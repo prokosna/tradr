@@ -26,12 +26,24 @@ export const fixtureReceivedFilesPayload: FilesReceivedPayload = {
 	files: ["report-2026.pdf", "family-photo.jpg"],
 };
 
-export type Scenario = "signed-in" | "signed-out" | "empty" | "share" | "brokr";
+export type Scenario =
+	| "signed-in"
+	| "signed-out"
+	| "empty"
+	| "share"
+	| "brokr"
+	| "account-switch";
 
 export function getScenario(): Scenario {
 	if (typeof window !== "undefined") {
 		const s = new URLSearchParams(window.location.search).get("scenario");
-		if (s === "signed-out" || s === "empty" || s === "share" || s === "brokr") {
+		if (
+			s === "signed-out" ||
+			s === "empty" ||
+			s === "share" ||
+			s === "brokr" ||
+			s === "account-switch"
+		) {
 			return s;
 		}
 	}
@@ -385,6 +397,7 @@ export function getScenarioData(scenario: Scenario): ScenarioData {
 				receivedHistory: [],
 			};
 		case "signed-in":
+		case "account-switch":
 			return {
 				identity: fixtureIdentity,
 				signIn: fixtureSignIn,
@@ -419,7 +432,15 @@ export const fixtureCommands: Record<
 	"plugin:tradr|device_identity": () => fixtureData.identity,
 	"plugin:tradr|receive_folder": () => "/home/haruka/Downloads",
 	"plugin:tradr|sign_in_status": () => fixtureData.signIn,
-	"plugin:tradr|sign_in": () => fixtureSignIn,
+	"plugin:tradr|sign_in": () =>
+		activeScenario === "account-switch"
+			? { kind: "confirm_switch", links: 1, known_devices: 3, brokr: true }
+			: { kind: "signed_in", outcome: fixtureSignIn },
+	"plugin:tradr|confirm_account_switch": () => ({
+		kind: "signed_in",
+		outcome: fixtureSignIn,
+	}),
+	"plugin:tradr|cancel_account_switch": () => null,
 	"plugin:tradr|refresh_peers": () => 1,
 	"plugin:tradr|get_peers": () => fixtureData.peers,
 	"plugin:tradr|list_static_peers": () => fixtureData.staticPeers,

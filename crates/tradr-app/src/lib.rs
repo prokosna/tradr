@@ -2,6 +2,7 @@
 //! Shell-free application logic independent of any UI or frontend shell.
 //! This crate must never name Tauri to keep the application core portable (D9).
 
+pub mod account_switch;
 #[cfg(unix)]
 pub mod adopted;
 mod atomic;

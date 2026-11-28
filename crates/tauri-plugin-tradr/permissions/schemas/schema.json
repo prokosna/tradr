@@ -355,6 +355,18 @@
           "markdownDescription": "Denies the brokr_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the cancel_account_switch command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cancel-account-switch",
+          "markdownDescription": "Enables the cancel_account_switch command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cancel_account_switch command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cancel-account-switch",
+          "markdownDescription": "Denies the cancel_account_switch command without any pre-configured scope."
+        },
+        {
           "description": "Enables the check_permissions command without any pre-configured scope.",
           "type": "string",
           "const": "allow-check-permissions",
@@ -401,6 +413,18 @@
           "type": "string",
           "const": "deny-collect-brokr-now",
           "markdownDescription": "Denies the collect_brokr_now command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the confirm_account_switch command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-confirm-account-switch",
+          "markdownDescription": "Enables the confirm_account_switch command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the confirm_account_switch command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-confirm-account-switch",
+          "markdownDescription": "Denies the confirm_account_switch command without any pre-configured scope."
         },
         {
           "description": "Enables the connect_brokr_link command without any pre-configured scope.",

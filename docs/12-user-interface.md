@@ -19,6 +19,8 @@ The **Refresh** button in the device-list header rechecks every device (shows "C
 
 **Forget a device**: an offline tile's **⋯** menu has **Forget device**, with an inline confirm ("Forget this device?"). It removes the Known Devices record only. Deliveries already handed to the Brokr are left alone, and the device reappears the next time it connects. Reachable tiles have no such menu.
 
+**Switch account**: a sign-in naming a different Google account shows an inline confirm in Settings → Account and on the home sign-in card: "This is a different Google account. Switching removes what this device set up with the previous one:" followed by only the non-zero items ("N linked account(s)", "the offline delivery connection", "N known device(s)"). **Switch account** confirms; **Keep current account** cancels and the previous account stays signed in.
+
 **Send, device first**: drop files on a tile (desktop). On Android, sharing to Tradr opens the app with the files already in the tray.
 
 **Receive**:
