@@ -125,6 +125,19 @@ class TradrPlugin(private val activity: Activity) : Plugin(activity) {
 
     init {
         activeInstance = this
+        startReceiveService()
+    }
+
+    // The service can stop while the process survives, and init runs once per
+    // process, so every return to the foreground starts it again.
+    override fun onResume() {
+        super.onResume()
+        startReceiveService()
+    }
+
+    // Allowed only with the Activity in the foreground; repeating it on a running
+    // service just re-posts its notification.
+    private fun startReceiveService() {
         try {
             ContextCompat.startForegroundService(activity, Intent(activity, ReceiveService::class.java))
         } catch (e: Exception) {

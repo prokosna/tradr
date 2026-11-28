@@ -28,7 +28,7 @@ UI layout and flows are in [12](12-user-interface.md).
 
 ### Foreground service ([ADR-0022](adr/0022-android-stays-resident-to-receive.md))
 
-- `ReceiveService`, `foregroundServiceType="connectedDevice"`. It is started when the plugin loads with the Activity in the foreground, never at boot.
+- `ReceiveService`, `foregroundServiceType="connectedDevice"`. It is started when the plugin loads and on every Activity resume (a no-op while it runs), never at boot.
 - It shows a permanent "Ready to receive" notification with a Stop action, which ends the process.
 - It holds a `MulticastLock`. It runs no listener of its own: it only keeps the process, and the Rust listener inside it, alive.
 - A refused start is recorded, not just logged, and shown in Settings → About this device.
