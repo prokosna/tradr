@@ -8,6 +8,7 @@ import {
 	type StagedFile,
 } from "../components/SendCard.js";
 import { SignInCard } from "../components/SignInCard.js";
+import { signedInNow } from "../signInState.js";
 import type {
 	DeliveryDto,
 	KnownDeviceDto,
@@ -19,6 +20,8 @@ import type {
 export interface HomeProps {
 	signIn: SignInUiState;
 	onSignIn: () => void;
+	onConfirmSwitch: () => void;
+	onCancelSwitch: () => void;
 	peers: PeerInfo[];
 	offlineDevices: KnownDeviceDto[];
 	brokrConfigured: boolean;
@@ -46,6 +49,8 @@ export interface HomeProps {
 export function Home({
 	signIn,
 	onSignIn,
+	onConfirmSwitch,
+	onCancelSwitch,
 	peers,
 	offlineDevices,
 	brokrConfigured,
@@ -69,13 +74,20 @@ export function Home({
 	refreshError,
 	onRefresh,
 }: HomeProps) {
-	const showSignIn = signIn.status !== "signed_in";
+	const showSignIn = !signedInNow(signIn);
 	const devicesTitle = waitingFiles.length > 0 ? "Send to" : "Devices";
 	const hasNoDevices = peers.length === 0 && offlineDevices.length === 0;
 
 	return (
 		<div className="app-main--split">
-			{showSignIn && <SignInCard signIn={signIn} onSignIn={onSignIn} />}
+			{showSignIn && (
+				<SignInCard
+					signIn={signIn}
+					onSignIn={onSignIn}
+					onConfirmSwitch={onConfirmSwitch}
+					onCancelSwitch={onCancelSwitch}
+				/>
+			)}
 
 			<section
 				className={`card stack home-devices ${showSignIn ? "dimmed" : ""}`}

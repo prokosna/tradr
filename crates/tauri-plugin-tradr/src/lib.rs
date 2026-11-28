@@ -51,6 +51,8 @@ pub fn init<R: Runtime>(
             identity::device_identity,
             sign_in::sign_in,
             sign_in::sign_in_status,
+            sign_in::confirm_account_switch,
+            sign_in::cancel_account_switch,
             attestation::attestation_bundle,
             attestation::verify_peer_attestation,
             commands::get_peers,
@@ -151,6 +153,7 @@ pub fn init<R: Runtime>(
             app.manage(peer_trust_state);
             app.manage(link_registry_state);
             app.manage(link_invite_state);
+            app.manage(Arc::new(tradr_app::account_switch::PendingSwitch::default()));
             app.manage(OwnDisplayName(own_display_name));
 
             tauri::async_runtime::spawn(async move {

@@ -1,4 +1,5 @@
 import type { SignInUiState } from "../App.js";
+import { SwitchConfirm } from "../components/SwitchConfirm.js";
 import { Linking } from "../Linking.js";
 import type { BrokrStatusDto } from "../types.js";
 import { Advanced } from "./Advanced.js";
@@ -8,6 +9,8 @@ import { StaticPeers } from "./StaticPeers.js";
 export interface SettingsProps {
 	signIn: SignInUiState;
 	onSignIn: () => void;
+	onConfirmSwitch: () => void;
+	onCancelSwitch: () => void;
 	onBack: () => void;
 	onBrokrStatusChange?: ((status: BrokrStatusDto) => void) | undefined;
 }
@@ -15,6 +18,8 @@ export interface SettingsProps {
 export function Settings({
 	signIn,
 	onSignIn,
+	onConfirmSwitch,
+	onCancelSwitch,
 	onBack,
 	onBrokrStatusChange,
 }: SettingsProps) {
@@ -50,6 +55,13 @@ export function Settings({
 					</div>
 				)}
 				{signIn.status === "signing_in" && <p>Signing in with Google…</p>}
+				{signIn.status === "confirm_switch" && (
+					<SwitchConfirm
+						pending={signIn}
+						onConfirm={onConfirmSwitch}
+						onCancel={onCancelSwitch}
+					/>
+				)}
 				{signIn.status === "failed" && (
 					<div className="stack">
 						<p>Not signed in.</p>

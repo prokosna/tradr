@@ -8,6 +8,8 @@
 		"tradr:allow-device-identity",
 		"tradr:allow-sign-in",
 		"tradr:allow-sign-in-status",
+		"tradr:allow-confirm-account-switch",
+		"tradr:allow-cancel-account-switch",
 		"tradr:allow-attestation-bundle",
 		"tradr:allow-verify-peer-attestation",
 		"tradr:allow-get-peers",

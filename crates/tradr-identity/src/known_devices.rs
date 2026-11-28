@@ -383,6 +383,13 @@ impl KnownDevices {
         Ok(true)
     }
 
+    /// Removes every device and persists the empty registry. Returns how
+    /// many were removed.
+    pub fn forget_all(&mut self) -> Result<usize, KnownDevicesError> {
+        self.persist(&[])?;
+        Ok(std::mem::take(&mut self.devices).len())
+    }
+
     // Writes `devices` to `self.path` via a temporary file renamed over the
     // destination, removing the temporary file if write or rename fails.
     fn persist(&self, devices: &[KnownDevice]) -> Result<(), KnownDevicesError> {

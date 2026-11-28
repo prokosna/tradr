@@ -59,6 +59,17 @@ impl KnownDevicesStore {
     }
 }
 
+impl KnownDevicesStore {
+    /// Removes every device from the registry and returns how many there were.
+    pub fn forget_all(&self) -> Result<usize, KnownDevicesError> {
+        let mut guard = match self.inner.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.forget_all()
+    }
+}
+
 impl KnownDeviceRecorder for KnownDevicesStore {
     fn record(&self, identity: &PublicIdentity, tier: TrustTier, seen_at: UnixTime) {
         if tier != TrustTier::SameAccount && tier != TrustTier::Linked {

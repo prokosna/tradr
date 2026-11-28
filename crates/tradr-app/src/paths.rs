@@ -24,3 +24,8 @@ pub fn device_keys_dir(app_data_dir: &Path) -> PathBuf {
 pub fn attestation_path(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("attestation")
 }
+
+/// Where the account this device last signed in as is recorded.
+pub fn account_path(app_data_dir: &Path) -> PathBuf {
+    app_data_dir.join("account")
+}

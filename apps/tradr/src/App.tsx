@@ -7,21 +7,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { PeerSendStatus } from "./components/DeviceTile.js";
 import { Header } from "./components/Header.js";
 import type { ActiveSendInfo, StagedFile } from "./components/SendCard.js";
+import { signedInNow } from "./signInState.js";
+import { subscribe } from "./subscribe.js";
 import type {
 	BrokrStatusDto,
 	DeliveryDto,
 	KnownDeviceDto,
 	PeerInfo,
 	ReceivedRow,
-	ShareIntent,
 	SharedFilePayload,
+	ShareIntent,
 	SignInOutcome,
+	SignInResult,
 	TransferProgressPayload,
 } from "./types.js";
 import { Folder } from "./views/Folder.js";
 import { Home } from "./views/Home.js";
 import { Settings } from "./views/Settings.js";
-import { subscribe } from "./subscribe.js";
 
 function payloadsToStagedFiles(files: SharedFilePayload[]): {
 	staged: StagedFile[];
@@ -48,6 +50,13 @@ export type SignInUiState =
 	| { status: "signed_out" }
 	| { status: "signing_in" }
 	| { status: "signed_in"; outcome: SignInOutcome }
+	| {
+			status: "confirm_switch";
+			links: number;
+			knownDevices: number;
+			brokr: boolean;
+			previous: SignInOutcome | null;
+	  }
 	| { status: "failed"; message: string };
 
 export type Route =
@@ -592,12 +601,53 @@ export function App() {
 		};
 	}, [enqueueSend, refreshReceivedHistory]);
 
+	const applySignInResult = (result: SignInResult) => {
+		if (result.kind === "signed_in") {
+			setSignIn({ status: "signed_in", outcome: result.outcome });
+		} else {
+			// The previous account stays signed in until the switch is confirmed.
+			invoke<SignInOutcome | null>("plugin:tradr|sign_in_status").then(
+				(previous) =>
+					setSignIn({
+						status: "confirm_switch",
+						links: result.links,
+						knownDevices: result.known_devices,
+						brokr: result.brokr,
+						previous,
+					}),
+				(error) => setSignIn({ status: "failed", message: String(error) }),
+			);
+		}
+	};
+
 	const startSignIn = () => {
 		setSignIn({ status: "signing_in" });
-		invoke<SignInOutcome>("plugin:tradr|sign_in").then(
-			(outcome) => setSignIn({ status: "signed_in", outcome }),
+		invoke<SignInResult>("plugin:tradr|sign_in").then(
+			applySignInResult,
 			(error) => setSignIn({ status: "failed", message: String(error) }),
 		);
+	};
+
+	const confirmSwitch = () => {
+		setSignIn({ status: "signing_in" });
+		invoke<SignInResult>("plugin:tradr|confirm_account_switch").then(
+			applySignInResult,
+			(error) => setSignIn({ status: "failed", message: String(error) }),
+		);
+	};
+
+	const cancelSwitch = () => {
+		invoke<null>("plugin:tradr|cancel_account_switch")
+			.then(() => invoke<SignInOutcome | null>("plugin:tradr|sign_in_status"))
+			.then(
+				(outcome) =>
+					setSignIn(
+						outcome
+							? { status: "signed_in", outcome }
+							: { status: "signed_out" },
+					),
+				(error) => setSignIn({ status: "failed", message: String(error) }),
+			);
 	};
 
 	const handleSelectFiles = async () => {
@@ -710,7 +760,7 @@ export function App() {
 			)}
 
 			<Header
-				status={signIn.status}
+				status={signedInNow(signIn) ? "signed_in" : signIn.status}
 				onOpenSettings={() => {
 					window.location.hash = "#/settings";
 				}}
@@ -721,6 +771,8 @@ export function App() {
 					<Settings
 						signIn={signIn}
 						onSignIn={startSignIn}
+						onConfirmSwitch={confirmSwitch}
+						onCancelSwitch={cancelSwitch}
 						onBack={() => {
 							window.location.hash = "#/";
 							refreshBrokrStatus();
@@ -739,6 +791,8 @@ export function App() {
 					<Home
 						signIn={signIn}
 						onSignIn={startSignIn}
+						onConfirmSwitch={confirmSwitch}
+						onCancelSwitch={cancelSwitch}
 						peers={peers}
 						offlineDevices={offlineDevices}
 						brokrConfigured={Boolean(brokrStatus?.configured)}

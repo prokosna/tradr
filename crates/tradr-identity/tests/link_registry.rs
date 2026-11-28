@@ -1008,3 +1008,77 @@ fn removing_a_link_refuses_that_account_on_the_very_next_classification() {
 
     assert!(tier_for(&registry, "bob-subject").is_err());
 }
+
+// --- Removing every Link, which an account switch does ---
+
+#[test]
+fn removing_every_link_discards_each_secret_and_survives_a_reload() {
+    let path = scratch_path();
+    let vault = Vault::default();
+    {
+        let mut registry = LinkRegistry::load(&path).expect("a missing file loads");
+        registry
+            .add(a_link(&secret(0x01), "bob-subject"), &secret(0x01), &vault)
+            .expect("a first link is accepted");
+        registry
+            .add(
+                a_link(&secret(0x02), "carol-subject"),
+                &secret(0x02),
+                &vault,
+            )
+            .expect("a second account is accepted");
+
+        let removed = registry.remove_all(&vault).expect("every link removes");
+
+        assert_eq!(removed, 2);
+        assert!(registry.linked_accounts().is_empty());
+    }
+
+    assert!(
+        vault
+            .held(&link_secret_slot(&derive_link_id(&secret(0x01))))
+            .is_none()
+    );
+    assert!(
+        vault
+            .held(&link_secret_slot(&derive_link_id(&secret(0x02))))
+            .is_none()
+    );
+    let reloaded = LinkRegistry::load(&path).expect("the written file loads");
+    assert!(reloaded.linked_accounts().is_empty());
+}
+
+#[test]
+fn removing_every_link_from_an_empty_registry_removes_nothing() {
+    let path = scratch_path();
+    let vault = Vault::default();
+    let mut registry = LinkRegistry::load(&path).expect("a missing file loads");
+
+    assert_eq!(registry.remove_all(&vault).expect("nothing to remove"), 0);
+}
+
+// A switch that cannot finish must leave the previous account's Links whole.
+#[test]
+fn removing_every_link_when_a_secret_cannot_be_discarded_keeps_every_record() {
+    let path = scratch_path();
+    let seeding = Vault::default();
+    {
+        let mut registry = LinkRegistry::load(&path).expect("a missing file loads");
+        registry
+            .add(
+                a_link(&secret(0x01), "bob-subject"),
+                &secret(0x01),
+                &seeding,
+            )
+            .expect("a first link is accepted");
+    }
+    let vault = Vault::failing_to_remove();
+    let mut registry = LinkRegistry::load(&path).expect("the written file loads");
+
+    let result = registry.remove_all(&vault);
+
+    assert!(result.is_err(), "got {result:?}");
+    assert_eq!(registry.linked_accounts(), vec![account("bob-subject")]);
+    let reloaded = LinkRegistry::load(&path).expect("the file still loads");
+    assert_eq!(reloaded.linked_accounts(), vec![account("bob-subject")]);
+}

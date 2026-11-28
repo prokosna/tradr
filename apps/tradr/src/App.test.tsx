@@ -1,4 +1,3 @@
-import { StrictMode } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
 import {
@@ -9,6 +8,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App.js";
 import {
@@ -16,7 +16,7 @@ import {
 	fixtureKnownDevices,
 	resetFixtureReceived,
 } from "./preview/fixtures.js";
-import type { ShareIntent, SharedFilePayload } from "./types.js";
+import type { SharedFilePayload, ShareIntent } from "./types.js";
 
 describe("App component", () => {
 	const recordedCalls: { cmd: string; payload?: unknown }[] = [];
@@ -1581,5 +1581,105 @@ describe("App component", () => {
 
 		expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Checking…" })).toBeNull();
+	});
+
+	describe("switching to a different Google account", () => {
+		const confirmResult = {
+			kind: "confirm_switch",
+			links: 1,
+			known_devices: 3,
+			brokr: true,
+		};
+
+		const askForSwitch = async () => {
+			customHandlers["plugin:tradr|sign_in"] = () => confirmResult;
+			render(<App />);
+			await screen.findByText("Pixel 8");
+			window.location.hash = "#/settings";
+			const again = await screen.findByRole("button", {
+				name: "Sign in again",
+			});
+			fireEvent.click(again);
+			await screen.findByRole("button", { name: "Switch account" });
+		};
+
+		it("shows what switching removes, leaving out what there is none of", async () => {
+			await askForSwitch();
+
+			expect(
+				screen.getByText(
+					"This is a different Google account. Switching removes what this device set up with the previous one:",
+				),
+			).toBeDefined();
+			expect(screen.getByText("1 linked account")).toBeDefined();
+			expect(screen.getByText("the offline delivery connection")).toBeDefined();
+			expect(screen.getByText("3 known devices")).toBeDefined();
+		});
+
+		it("still shows the previous account as signed in while asking", async () => {
+			await askForSwitch();
+
+			expect(screen.getByText("Signed in")).toBeDefined();
+		});
+
+		it("names the account change alone when nothing would be removed", async () => {
+			customHandlers["plugin:tradr|sign_in"] = () => ({
+				...confirmResult,
+				links: 0,
+				known_devices: 0,
+				brokr: false,
+			});
+			render(<App />);
+			await screen.findByText("Pixel 8");
+			window.location.hash = "#/settings";
+			fireEvent.click(
+				await screen.findByRole("button", { name: "Sign in again" }),
+			);
+
+			const notice = await screen.findByText(
+				"This is a different Google account.",
+			);
+			expect(notice.parentElement?.querySelector("ul")).toBeNull();
+		});
+
+		it("confirms the switch and ends signed in", async () => {
+			customHandlers["plugin:tradr|confirm_account_switch"] = () => ({
+				kind: "signed_in",
+				outcome: { issuer: "iss", subject: "other", tier: "same-account" },
+			});
+			await askForSwitch();
+
+			fireEvent.click(screen.getByRole("button", { name: "Switch account" }));
+
+			await screen.findByRole("button", { name: "Sign in again" });
+			expect(
+				recordedCalls.some(
+					(c) => c.cmd === "plugin:tradr|confirm_account_switch",
+				),
+			).toBe(true);
+			expect(
+				screen.queryByRole("button", { name: "Switch account" }),
+			).toBeNull();
+		});
+
+		it("keeps the current account when the switch is refused", async () => {
+			await askForSwitch();
+
+			fireEvent.click(
+				screen.getByRole("button", { name: "Keep current account" }),
+			);
+
+			await screen.findByRole("button", { name: "Sign in again" });
+			expect(
+				recordedCalls.some(
+					(c) => c.cmd === "plugin:tradr|cancel_account_switch",
+				),
+			).toBe(true);
+			expect(
+				recordedCalls.some(
+					(c) => c.cmd === "plugin:tradr|confirm_account_switch",
+				),
+			).toBe(false);
+		});
 	});
 });

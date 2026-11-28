@@ -190,3 +190,25 @@ fn a_second_record_without_a_name_keeps_the_first_name() {
     assert_eq!(all[0].display_name(), Some(&name));
     assert_eq!(all[0].last_seen(), UnixTime::from_secs(20));
 }
+
+#[test]
+fn forgetting_every_device_empties_the_registry_on_disk() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("known.json");
+    let first = setup_key_store(&dir.path().join("first"))
+        .public_identity()
+        .expect("identity");
+    let second = setup_key_store(&dir.path().join("second"))
+        .public_identity()
+        .expect("identity");
+    let store = KnownDevicesStore::open(&path).expect("open");
+    store.record(&first, TrustTier::SameAccount, UnixTime::from_secs(10));
+    store.record(&second, TrustTier::Linked, UnixTime::from_secs(20));
+
+    let forgotten = store.forget_all().expect("forget every device");
+
+    assert_eq!(forgotten, 2);
+    assert!(store.snapshot().is_empty());
+    let reopened = KnownDevicesStore::open(&path).expect("reopen");
+    assert!(reopened.snapshot().is_empty());
+}
