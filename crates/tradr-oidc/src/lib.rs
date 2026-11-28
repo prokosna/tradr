@@ -342,10 +342,10 @@ impl Pkce {
 }
 
 /// Builds the desktop flow's authorization request: `authorization_uri`
-/// with the query parameters OIDC and RFC 7636 require, percent-encoded.
-/// Refuses a non-https `authorization_uri` through `require_https`.
-/// `nonce` is carried through unaltered -- an Attestation nonce this
-/// crate neither computes nor inspects.
+/// with the query parameters OIDC and RFC 7636 require, percent-encoded, and
+/// `prompt=select_account` so a wrong account can be replaced. Refuses a
+/// non-https `authorization_uri`. `nonce` is carried through unaltered; this
+/// crate neither computes nor inspects it.
 pub fn authorization_url(
     authorization_uri: &str,
     client_id: &str,
@@ -368,21 +368,30 @@ pub fn authorization_url(
         .append_pair("nonce", nonce)
         .append_pair("state", state)
         .append_pair("code_challenge", challenge)
-        .append_pair("code_challenge_method", CHALLENGE_METHOD);
+        .append_pair("code_challenge_method", CHALLENGE_METHOD)
+        .append_pair("prompt", "select_account");
 
     Ok(url.to_string())
 }
 
 /// Turns an interactive authorization url into a silent renewal request:
-/// `prompt=none` makes the provider answer with an `error` callback instead
-/// of showing any page, and `login_hint` names the account that must answer.
+/// its `prompt` is replaced by `none`, so the provider answers with an
+/// `error` callback instead of showing any page, and `login_hint` names the
+/// account that must answer.
 pub fn silent_authorization_url(
     interactive_url: &str,
     login_hint: &str,
 ) -> Result<String, OidcError> {
     let mut url =
         reqwest::Url::parse(interactive_url).map_err(|e| OidcError::MalformedUri(e.to_string()))?;
+    let kept: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(k, _)| k != "prompt")
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
     url.query_pairs_mut()
+        .clear()
+        .extend_pairs(kept)
         .append_pair("prompt", "none")
         .append_pair("login_hint", login_hint);
     Ok(url.to_string())

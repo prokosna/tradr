@@ -9,7 +9,6 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetCredentialResponse
 import androidx.credentials.exceptions.GetCredentialException
-import androidx.credentials.exceptions.NoCredentialException
 import app.tauri.annotation.InvokeArg
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
@@ -36,7 +35,8 @@ class CredentialSignIn(private val activity: Activity) {
             return
         }
 
-        requestGoogleId(args, invoke, true)
+        // A user-started sign-in always shows the chooser so a wrong account can be replaced.
+        requestSignInWithGoogle(args, invoke)
     }
 
     // Background renewal: only the saved-credential option, never the explicit
@@ -49,10 +49,10 @@ class CredentialSignIn(private val activity: Activity) {
             return
         }
 
-        requestGoogleId(args, invoke, false)
+        requestGoogleId(args, invoke)
     }
 
-    private fun requestGoogleId(args: SignInArgs, invoke: Invoke, fallBackToExplicit: Boolean) {
+    private fun requestGoogleId(args: SignInArgs, invoke: Invoke) {
         val option = try {
             GetGoogleIdOption.Builder()
                 .setServerClientId(args.serverClientId)
@@ -65,12 +65,7 @@ class CredentialSignIn(private val activity: Activity) {
             return
         }
 
-        val onRefused: (() -> Unit)? = if (fallBackToExplicit) {
-            { requestSignInWithGoogle(args, invoke) }
-        } else {
-            null
-        }
-        performCredentialRequest(invoke, option, "googleId", onRefused)
+        performCredentialRequest(invoke, option, "googleId")
     }
 
     private fun requestSignInWithGoogle(args: SignInArgs, invoke: Invoke) {
@@ -83,14 +78,13 @@ class CredentialSignIn(private val activity: Activity) {
             return
         }
 
-        performCredentialRequest(invoke, option, "signInWithGoogle", null)
+        performCredentialRequest(invoke, option, "signInWithGoogle")
     }
 
     private fun performCredentialRequest(
         invoke: Invoke,
         option: CredentialOption,
-        label: String,
-        onRefused: (() -> Unit)? = null
+        label: String
     ) {
         val request = GetCredentialRequest.Builder()
             .addCredentialOption(option)
@@ -102,11 +96,7 @@ class CredentialSignIn(private val activity: Activity) {
             }
 
             override fun onError(e: GetCredentialException) {
-                if (e is NoCredentialException && onRefused != null) {
-                    onRefused()
-                } else {
-                    resolveFailure(invoke, label, e.javaClass.name, e.message ?: "GetCredentialException")
-                }
+                resolveFailure(invoke, label, e.javaClass.name, e.message ?: "GetCredentialException")
             }
         }
 

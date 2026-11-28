@@ -276,24 +276,43 @@ fn query_of(url: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-#[test]
-fn the_interactive_url_never_carries_prompt_or_login_hint() {
-    let keys: Vec<String> = query_of(&built()).into_iter().map(|(k, _)| k).collect();
-
-    assert!(!keys.contains(&"prompt".to_string()));
-    assert!(!keys.contains(&"login_hint".to_string()));
+fn values_of(url: &str, key: &str) -> Vec<String> {
+    query_of(url)
+        .into_iter()
+        .filter(|(k, _)| k == key)
+        .map(|(_, v)| v)
+        .collect()
 }
 
+// A button press must always reach the account chooser; without it a
+// provider may reuse the one signed-in session and a wrong account sticks.
 #[test]
-fn the_silent_url_adds_prompt_none_and_the_hint_and_keeps_the_rest() {
+fn the_interactive_url_asks_the_user_to_choose_an_account_and_names_none() {
+    let url = built();
+
+    assert_eq!(
+        values_of(&url, "prompt"),
+        vec!["select_account".to_string()]
+    );
+    assert!(values_of(&url, "login_hint").is_empty());
+}
+
+// Two `prompt` values leave the provider to pick one; renewal must show nothing.
+#[test]
+fn the_silent_url_replaces_the_prompt_with_none_and_adds_the_hint() {
     let interactive = built();
     let silent = silent_authorization_url(&interactive, "1234567890").expect("a silent url");
-    let pairs = query_of(&silent);
 
-    assert!(pairs.contains(&("prompt".to_string(), "none".to_string())));
-    assert!(pairs.contains(&("login_hint".to_string(), "1234567890".to_string())));
+    assert_eq!(values_of(&silent, "prompt"), vec!["none".to_string()]);
+    assert_eq!(
+        values_of(&silent, "login_hint"),
+        vec!["1234567890".to_string()]
+    );
+    let pairs = query_of(&silent);
     for pair in query_of(&interactive) {
-        assert!(pairs.contains(&pair), "{pair:?} lost from {silent}");
+        if pair.0 != "prompt" {
+            assert!(pairs.contains(&pair), "{pair:?} lost from {silent}");
+        }
     }
-    assert_eq!(pairs.len(), query_of(&interactive).len() + 2);
+    assert_eq!(pairs.len(), query_of(&interactive).len() + 1);
 }
